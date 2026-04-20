@@ -7,10 +7,12 @@ The first minimal case study is a P3P solver.
 
 ## Current Status
 
-This repository is still an **initial scaffold**.
-Core project logic, working optimization pipeline, API integration, and full validation flow are intentionally not implemented yet.
+The repository scaffold stage is complete, and a first working baseline is established.
+The project now includes a project-owned baseline runner (`cpp/src/baseline_runner.cpp`) linked to the imported Lambda Twist baseline target.
+Validation/benchmarking, orchestration runtime behavior, and optimization stages are intentionally not implemented yet.
 Environment targets for this stage are documented in `docs/setup.md`.
 Python orchestration files currently exist as module stubs only, without runtime behavior.
+Baseline state details are documented in `docs/baseline.md`.
 
 ## Repository Structure
 
@@ -38,7 +40,7 @@ The project is structured around a C++ algorithmic core and a Python CLI orchest
 
 ## Next Planned Steps
 
-1. Finalize scaffold-level configuration conventions and documentation.
-2. Add baseline integration wrappers without changing third-party source internals.
+1. Expand baseline integration beyond the minimal runner boundary.
+2. Implement validation and benchmarking for baseline and future variants.
 3. Introduce first controlled LLM-assisted optimization loop design.
 4. Add experiment management and reporting flow.

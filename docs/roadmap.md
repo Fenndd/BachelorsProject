@@ -2,9 +2,11 @@
 
 ## 1. Project Scaffold
 - Finalize repository structure, base documentation, and placeholder configuration files.
+- Status: completed.
 
 ## 2. Baseline Integration
 - Integrate imported baseline solver into project-level execution flow boundaries.
+- Status: started (minimal runnable baseline established).
 
 ## 3. Validation and Benchmarking
 - Define validation strategy and benchmarking protocol for baseline and optimized variants.
