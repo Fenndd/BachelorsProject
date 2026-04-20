@@ -19,3 +19,9 @@ struct CameraPose {
 };
 ```
 **Note:** The solver assumes that the vectors in ```x``` are normalized. 
+
+## Project integration note
+
+This directory is kept as imported third-party baseline code for the thesis project scaffold.
+It is not treated as original project source code and should remain unchanged in the clean repository state.
+Project-specific experimentation should be implemented outside this baseline (for example via wrappers or workspace copies).

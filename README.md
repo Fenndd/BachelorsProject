@@ -9,6 +9,7 @@ The first minimal case study is a P3P solver.
 
 This repository is still an **initial scaffold**.
 Core project logic, working optimization pipeline, API integration, and full validation flow are intentionally not implemented yet.
+Environment targets for this stage are documented in `docs/setup.md`.
 
 ## Repository Structure
 
@@ -31,6 +32,7 @@ The project is structured around a C++ algorithmic core and a Python CLI orchest
 
 - `cpp/external/lambdatwist/` contains an imported third-party baseline P3P solver.
 - This code is not original project source code.
+- Clean baseline files are expected to remain unchanged in repository baseline state.
 - The main project logic and optimization workflow will be built on top of this baseline.
 
 ## Next Planned Steps

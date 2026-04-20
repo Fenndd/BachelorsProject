@@ -17,3 +17,10 @@
 - Project source code: project-owned implementation and orchestration logic outside third-party imports.
 - Temporary workspace data: ephemeral run artifacts in `workspace/` that can be regenerated.
 - Persistent experiment results: stored outputs in `results/` kept for comparison, analysis, and reporting.
+
+## Baseline Ownership Policy
+
+- `cpp/external/lambdatwist/` is imported third-party baseline code.
+- It must not be treated as original project source code.
+- In a clean repository state, imported baseline files should remain unchanged.
+- Future experiment modifications should happen outside the clean baseline, for example via project-owned wrappers or workspace copies.
