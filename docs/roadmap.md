@@ -1,25 +1,19 @@
-# Development Roadmap
+﻿# High-Level Roadmap
 
-## Stage 0: Project Scaffolding
+## 1. Project Scaffold
+- Finalize repository structure, base documentation, and placeholder configuration files.
 
-_To be defined._
+## 2. Baseline Integration
+- Integrate imported baseline solver into project-level execution flow boundaries.
 
-## Stage 1: C++ Baseline Integration (P3P)
+## 3. Validation and Benchmarking
+- Define validation strategy and benchmarking protocol for baseline and optimized variants.
 
-_To be defined._
+## 4. First LLM Integration
+- Introduce initial LLM-driven code modification and evaluation loop entry point.
 
-## Stage 2: Orchestrator CLI Skeleton
+## 5. Iterative Optimization Pipeline
+- Build iterative optimization workflow with controlled experiment tracking.
 
-_To be defined._
-
-## Stage 3: Experiment Execution Flow
-
-_To be defined._
-
-## Stage 4: LLM-Guided Optimization Loop
-
-_To be defined._
-
-## Stage 5: Evaluation and Reporting
-
-_To be defined._
+## 6. Experiment Management and Reporting
+- Consolidate experiment metadata, result storage, and reporting outputs.

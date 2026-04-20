@@ -1,0 +1,11 @@
+﻿# Example model configuration placeholder.
+# This file will later store model selection and inference parameters.
+
+model:
+  provider: placeholder
+  name: placeholder-model
+  enabled: false
+
+limits:
+  max_tokens: 0
+  temperature: 0.0

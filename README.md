@@ -1,28 +1,41 @@
-# LLM-Assisted Optimization of 3D Vision C++ Algorithms
+﻿# Automated Optimization of C++ 3D Vision Algorithms Using LLMs
 
-This repository contains the initial project scaffold for a bachelor's thesis on automated optimization of computational efficiency in 3D vision C++ algorithms using LLMs.
+## Short Project Overview
 
-## Project Goal
-
-Build an extensible research framework where:
-- the algorithmic core is implemented in C++,
-- experiments are orchestrated via a Python CLI,
-- runs are executed in an isolated workspace,
-- outputs are stored in a separate results area.
-
+This repository is a project scaffold for a bachelor thesis focused on automated optimization of C++ 3D vision algorithms with LLM support.
 The first minimal case study is a P3P solver.
+
+## Current Status
+
+This repository is still an **initial scaffold**.
+Core project logic, working optimization pipeline, API integration, and full validation flow are intentionally not implemented yet.
 
 ## Repository Structure
 
-- `cpp/` — C++ source, headers, tests, benchmarks, and external dependencies.
-- `orchestrator/` — Python package for experiment orchestration components.
-- `configs/` — experiment, model, and default configuration placeholders.
-- `workspace/` — isolated working directory for experiment runs.
-- `results/` — stored experiment outputs and artifacts.
-- `docs/` — architecture notes and development roadmap.
-- `scripts/` — helper utility scripts (non-core logic).
+```text
+.
+|- cpp/            # C++ algorithm layer, tests and benchmark placeholders, external baselines
+|- orchestrator/   # Future Python CLI orchestration layer (structure only)
+|- configs/        # Placeholder configuration files
+|- workspace/      # Temporary run workspace
+|- results/        # Persistent experiment outputs
+|- docs/           # Project documentation
+`- scripts/        # Helper scripts only
+```
 
-## Status
+## Architecture
 
-This is an **initial scaffold only**.  
-Business logic, real pipelines, API integrations, and actual tests/benchmarks are intentionally not implemented yet.
+The project is structured around a C++ algorithmic core and a Python CLI orchestrator. Experiment runs are executed in a separate `workspace/` directory, and generated outputs are persisted in `results/` for later analysis and reporting.
+
+## External Baseline Code
+
+- `cpp/external/lambdatwist/` contains an imported third-party baseline P3P solver.
+- This code is not original project source code.
+- The main project logic and optimization workflow will be built on top of this baseline.
+
+## Next Planned Steps
+
+1. Finalize scaffold-level configuration conventions and documentation.
+2. Add baseline integration wrappers without changing third-party source internals.
+3. Introduce first controlled LLM-assisted optimization loop design.
+4. Add experiment management and reporting flow.

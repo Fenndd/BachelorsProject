@@ -1,8 +1,4 @@
-# Scripts Directory
+﻿# Scripts
 
-This directory is reserved for auxiliary helper scripts only.
-
-Guidelines:
-- Keep scripts focused on setup, maintenance, or utility tasks.
-- Do not place core algorithmic logic or production pipeline code here.
-- Keep scripts small, explicit, and reproducible.
+This directory is reserved for helper scripts only.
+Do not place core pipeline logic or core project business logic here.

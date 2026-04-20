@@ -1,0 +1,10 @@
+﻿# Global default settings placeholder.
+# This file will hold project-wide defaults used by orchestration components.
+
+project:
+  name: p3p-llm-optimization
+  stage: scaffold
+
+paths:
+  workspace_dir: workspace
+  results_dir: results

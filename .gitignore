@@ -1,12 +1,14 @@
-# Python
+﻿# Python
 __pycache__/
 *.py[cod]
 *.pyo
 *.pyd
-*.so
+*.egg-info/
 .pytest_cache/
 .mypy_cache/
 .ruff_cache/
+.coverage
+htmlcov/
 
 # Virtual environments
 .venv/
@@ -14,11 +16,13 @@ venv/
 env/
 ENV/
 
-# C++ / CMake
+# C++ / CMake / build
 build/
+*/build/
 cmake-build-*/
 CMakeFiles/
 CMakeCache.txt
+cmake_install.cmake
 compile_commands.json
 Makefile
 Testing/
@@ -26,10 +30,11 @@ Testing/
 *.obj
 *.a
 *.lib
-*.dll
 *.so
 *.dylib
+*.dll
 *.exe
+*.pdb
 
 # Workspace and experiment outputs
 workspace/*
@@ -41,19 +46,18 @@ results/*
 *.log
 logs/
 
-# IDE / editor files
-.idea/
-.vscode/
-*.suo
-*.user
-*.userosscache
-*.sln.docstates
-
-# Temporary files
+# Temp files
 tmp/
 temp/
 *.tmp
-*.swp
+*.bak
 *~
+
+# IDE
+.idea/
+.vscode/
+
+# OS junk
 .DS_Store
 Thumbs.db
+Desktop.ini

@@ -1,0 +1,11 @@
+﻿# Example experiment configuration placeholder.
+# This file will later define one experiment run setup.
+
+experiment:
+  id: example_p3p_baseline_run
+  case_study: p3p
+  baseline: lambdatwist
+
+execution:
+  workspace_subdir: run_example
+  save_results: true
