@@ -10,13 +10,14 @@ The first minimal case study is a P3P solver.
 This repository is still an **initial scaffold**.
 Core project logic, working optimization pipeline, API integration, and full validation flow are intentionally not implemented yet.
 Environment targets for this stage are documented in `docs/setup.md`.
+Python orchestration files currently exist as module stubs only, without runtime behavior.
 
 ## Repository Structure
 
 ```text
 .
 |- cpp/            # C++ algorithm layer, tests and benchmark placeholders, external baselines
-|- orchestrator/   # Future Python CLI orchestration layer (structure only)
+|- orchestrator/   # Python orchestration scaffold modules (stubs only)
 |- configs/        # Placeholder configuration files
 |- workspace/      # Temporary run workspace
 |- results/        # Persistent experiment outputs
