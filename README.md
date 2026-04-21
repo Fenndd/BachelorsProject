@@ -11,7 +11,7 @@ The repository scaffold stage is complete, and a first working baseline is estab
 The project now includes a project-owned baseline runner (`cpp/src/baseline_runner.cpp`) linked to the imported Lambda Twist baseline target.
 Validation/benchmarking, orchestration runtime behavior, and optimization stages are intentionally not implemented yet.
 Environment targets for this stage are documented in `docs/setup.md`.
-Python orchestration files currently exist as module stubs only, without runtime behavior.
+The first minimal orchestration entry point is now available at `orchestrator/cli/main.py` for baseline configure/build/run automation.
 Baseline state details are documented in `docs/baseline.md`.
 
 ## Repository Structure
@@ -19,7 +19,7 @@ Baseline state details are documented in `docs/baseline.md`.
 ```text
 .
 |- cpp/            # C++ algorithm layer, tests and benchmark placeholders, external baselines
-|- orchestrator/   # Python orchestration scaffold modules (stubs only)
+|- orchestrator/   # Python orchestration (minimal baseline CLI + scaffold modules)
 |- configs/        # Placeholder configuration files
 |- workspace/      # Temporary run workspace
 |- results/        # Persistent experiment outputs
