@@ -2,8 +2,10 @@
 
 This script automates the current baseline flow:
 1. CMake configure
-2. CMake build (baseline_runner target)
-3. Run baseline_runner executable
+2. CMake build (baseline_smoke_test, baseline_runner, and baseline_benchmark targets)
+3. Run baseline_smoke_test executable
+4. Run baseline_runner executable
+5. Run baseline_benchmark executable
 
 On Windows outside CLion, CMake may need explicit toolchain environment
 variables such as CMAKE_EXE, CMAKE_GENERATOR, CMAKE_CXX_COMPILER, and
@@ -41,14 +43,14 @@ def _run_step(title: str, command: List[str], cwd: Optional[Path] = None) -> Non
         )
 
 
-def _find_runner_executable(build_dir: Path) -> Path:
-    candidates = sorted(build_dir.rglob("baseline_runner.exe"))
+def _find_executable(build_dir: Path, executable_name: str) -> Path:
+    candidates = sorted(build_dir.rglob(f"{executable_name}.exe"))
     if not candidates:
-        candidates = sorted(build_dir.rglob("baseline_runner"))
+        candidates = sorted(build_dir.rglob(executable_name))
 
     if not candidates:
         raise RuntimeError(
-            "Could not find baseline_runner executable after build. "
+            f"Could not find {executable_name} executable after build. "
             f"Checked under: {build_dir}"
         )
 
@@ -96,6 +98,20 @@ def main() -> int:
         )
 
         _run_step(
+            "Build baseline_smoke_test target",
+            [
+                cmake_exe,
+                "--build",
+                str(build_dir),
+                "--target",
+                "baseline_smoke_test",
+                "--config",
+                "Debug",
+            ],
+            cwd=repo_root,
+        )
+
+        _run_step(
             "Build baseline_runner target",
             [
                 cmake_exe,
@@ -109,10 +125,38 @@ def main() -> int:
             cwd=repo_root,
         )
 
-        runner_executable = _find_runner_executable(build_dir)
+        _run_step(
+            "Build baseline_benchmark target",
+            [
+                cmake_exe,
+                "--build",
+                str(build_dir),
+                "--target",
+                "baseline_benchmark",
+                "--config",
+                "Debug",
+            ],
+            cwd=repo_root,
+        )
+
+        smoke_test_executable = _find_executable(build_dir, "baseline_smoke_test")
+        _run_step(
+            "Run baseline_smoke_test executable",
+            [str(smoke_test_executable)],
+            cwd=repo_root,
+        )
+
+        runner_executable = _find_executable(build_dir, "baseline_runner")
         _run_step(
             "Run baseline_runner executable",
             [str(runner_executable)],
+            cwd=repo_root,
+        )
+
+        benchmark_executable = _find_executable(build_dir, "baseline_benchmark")
+        _run_step(
+            "Run baseline_benchmark executable",
+            [str(benchmark_executable)],
             cwd=repo_root,
         )
     except RuntimeError as exc:

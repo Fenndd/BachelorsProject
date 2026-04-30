@@ -36,3 +36,23 @@ target_link_libraries(baseline_runner
     PRIVATE
         lambdatwist_baseline
 )
+
+# Minimal project-owned smoke test for the imported baseline solver.
+add_executable(baseline_smoke_test
+    "${CMAKE_CURRENT_SOURCE_DIR}/tests/baseline_smoke_test.cpp"
+)
+
+target_link_libraries(baseline_smoke_test
+    PRIVATE
+        lambdatwist_baseline
+)
+
+# Minimal project-owned benchmark for the imported baseline solver.
+add_executable(baseline_benchmark
+    "${CMAKE_CURRENT_SOURCE_DIR}/bench/baseline_benchmark.cpp"
+)
+
+target_link_libraries(baseline_benchmark
+    PRIVATE
+        lambdatwist_baseline
+)

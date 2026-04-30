@@ -9,9 +9,9 @@ The first minimal case study is a P3P solver.
 
 The repository scaffold stage is complete, and a first working baseline is established.
 The project now includes a project-owned baseline runner (`cpp/src/baseline_runner.cpp`) linked to the imported Lambda Twist baseline target.
-Validation/benchmarking, orchestration runtime behavior, and optimization stages are intentionally not implemented yet.
+Full validation, advanced benchmarking, experiment orchestration, and optimization stages are intentionally not implemented yet.
 Environment targets for this stage are documented in `docs/setup.md`.
-The first minimal orchestration entry point is now available at `orchestrator/cli/main.py` for baseline configure/build/run automation.
+The first minimal orchestration entry point is now available at `orchestrator/cli/main.py` for baseline configure/build/smoke-test/run/benchmark automation.
 Baseline state details are documented in `docs/baseline.md`.
 
 ## Repository Structure
@@ -35,6 +35,7 @@ The project is structured around a C++ algorithmic core and a Python CLI orchest
 
 The minimal baseline command-line flow is available through `orchestrator/cli/main.py`.
 It requires `EIGEN3_INCLUDE_DIR` and optionally supports `CMAKE_EXE`, `CMAKE_GENERATOR`, `CMAKE_CXX_COMPILER`, and `CMAKE_MAKE_PROGRAM` for explicit Windows/MinGW toolchain selection outside CLion.
+The flow configures CMake, builds the baseline targets, runs a minimal smoke test, runs `baseline_runner`, and then runs a minimal benchmark.
 
 ```powershell
 $env:EIGEN3_INCLUDE_DIR="C:\path\to\eigen"
