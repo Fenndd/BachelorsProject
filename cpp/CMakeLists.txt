@@ -27,6 +27,17 @@ target_include_directories(lambdatwist_baseline
         "${EIGEN3_INCLUDE_DIR}"
 )
 
+# Shared fixed sample data for project-owned baseline executables.
+add_library(baseline_sample_data STATIC
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/baseline_sample_data.cpp"
+)
+
+target_include_directories(baseline_sample_data
+    PUBLIC
+        "${CMAKE_CURRENT_SOURCE_DIR}/include"
+        "${EIGEN3_INCLUDE_DIR}"
+)
+
 # Minimal project-owned executable wired to the imported baseline library.
 add_executable(baseline_runner
     "${CMAKE_CURRENT_SOURCE_DIR}/src/baseline_runner.cpp"
@@ -34,6 +45,7 @@ add_executable(baseline_runner
 
 target_link_libraries(baseline_runner
     PRIVATE
+        baseline_sample_data
         lambdatwist_baseline
 )
 
@@ -44,6 +56,7 @@ add_executable(baseline_smoke_test
 
 target_link_libraries(baseline_smoke_test
     PRIVATE
+        baseline_sample_data
         lambdatwist_baseline
 )
 
@@ -54,5 +67,6 @@ add_executable(baseline_benchmark
 
 target_link_libraries(baseline_benchmark
     PRIVATE
+        baseline_sample_data
         lambdatwist_baseline
 )

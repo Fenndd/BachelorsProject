@@ -2,6 +2,7 @@
 #include <iostream>
 #include <vector>
 
+#include "baseline_sample_data.h"
 #include "p3p.h"
 
 int main() {
@@ -9,16 +10,8 @@ int main() {
 
     constexpr int iteration_count = 10000;
 
-    const Eigen::Vector3d y1 = Eigen::Vector3d(0.0, 0.0, 1.0).normalized();
-    const Eigen::Vector3d y2 = Eigen::Vector3d(1.0, 0.0, 1.0).normalized();
-    const Eigen::Vector3d y3 = Eigen::Vector3d(2.0, 1.0, 1.0).normalized();
-
-    const Eigen::Vector3d x1(0.0, 0.0, 2.0);
-    const Eigen::Vector3d x2(1.41421356237309, 0.0, 1.41421356237309);
-    const Eigen::Vector3d x3(1.63299316185545, 0.816496580927726, 0.816496580927726);
-
-    const std::vector<Eigen::Vector3d> image_points = {y1, y2, y3};
-    const std::vector<Eigen::Vector3d> world_points = {x1, x2, x3};
+    const baseline_sample_data::BaselineSampleData sample =
+        baseline_sample_data::make_baseline_sample_data();
 
     std::vector<lambdatwist::CameraPose> poses;
     int total_solution_count = 0;
@@ -27,7 +20,8 @@ int main() {
 
     for (int iteration = 0; iteration < iteration_count; ++iteration) {
         poses.clear();
-        const int solution_count = lambdatwist::p3p(image_points, world_points, &poses);
+        const int solution_count =
+            lambdatwist::p3p(sample.image_points, sample.world_points, &poses);
 
         if (solution_count <= 0) {
             std::cout << "Baseline benchmark failed: solver returned no solutions."
