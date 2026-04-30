@@ -1,6 +1,7 @@
 # Development Environment Targets
 
-This document defines the intended environment for the scaffold stage.
+This document defines the expected local environment for the current minimal baseline automation stage.
+The repository scaffold is complete, and baseline integration with minimal command-line automation is already in place.
 
 ## Toolchain Targets
 
@@ -16,6 +17,31 @@ This document defines the intended environment for the scaffold stage.
 
 ## Dependency Note
 
-Eigen will be required in the next stage for baseline integration work around Lambda Twist.
+Eigen is required by the Lambda Twist baseline.
+The CMake project expects `EIGEN3_INCLUDE_DIR` to point to the Eigen include root, meaning the directory that contains `Eigen/Core`.
 
-Actual dependency integration and build wiring are intentionally postponed until the baseline integration stage.
+## Command-Line Automation
+
+The minimal baseline automation entry point is `orchestrator/cli/main.py`.
+It configures CMake, builds the baseline smoke test, runner, and benchmark targets, then runs them in order.
+
+On Windows outside CLion, CMake may need explicit toolchain selection to avoid an unavailable default generator such as `NMake Makefiles`.
+The script supports these environment variables:
+
+- `EIGEN3_INCLUDE_DIR` (required)
+- `CMAKE_EXE` (optional)
+- `CMAKE_GENERATOR` (optional)
+- `CMAKE_CXX_COMPILER` (optional)
+- `CMAKE_MAKE_PROGRAM` (optional)
+
+Example PowerShell setup:
+
+```powershell
+$env:EIGEN3_INCLUDE_DIR="C:\path\to\eigen"
+$env:CMAKE_GENERATOR="MinGW Makefiles"
+$env:CMAKE_CXX_COMPILER="C:\path\to\g++.exe"
+$env:CMAKE_MAKE_PROGRAM="C:\path\to\mingw32-make.exe"
+py orchestrator/cli/main.py
+```
+
+Use `python orchestrator/cli/main.py` instead if `python` is the available launcher in the shell.

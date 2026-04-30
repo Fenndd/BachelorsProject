@@ -10,6 +10,7 @@ The current baseline is the imported Lambda Twist P3P solver wired into the proj
 - Project-owned runnable baseline entry point: `cpp/src/baseline_runner.cpp`
 - Project-owned minimal smoke test: `cpp/tests/baseline_smoke_test.cpp`
 - Project-owned minimal benchmark: `cpp/bench/baseline_benchmark.cpp`
+- Project-owned shared fixed input case: `cpp/include/baseline_sample_data.h` and `cpp/src/baseline_sample_data.cpp`
 
 The external Lambda Twist code remains third-party source and is kept separate from project-owned code.
 
@@ -24,6 +25,7 @@ The external Lambda Twist code remains third-party source and is kept separate f
 
 - CMake integration of the imported baseline target
 - Successful build of the baseline targets
+- Shared fixed input case used by the runner, smoke test, and benchmark
 - Minimal smoke test that checks Lambda Twist returns at least one solution for a fixed input
 - Successful basic run of `baseline_runner`
 - Minimal benchmark that measures repeated Lambda Twist calls on a fixed input
@@ -32,6 +34,7 @@ The external Lambda Twist code remains third-party source and is kept separate f
 
 - Full validation tests
 - Advanced benchmark framework
+- Result storage and reporting
 - Full experiment orchestration runtime behavior
 - LLM-driven optimization logic
 

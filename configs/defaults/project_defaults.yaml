@@ -1,9 +1,9 @@
 ﻿# Global default settings placeholder.
-# This file will hold project-wide defaults used by orchestration components.
+# This is not a full experiment configuration system yet.
 
 project:
   name: p3p-llm-optimization
-  stage: scaffold
+  stage: minimal-baseline-automation
 
 paths:
   workspace_dir: workspace
