@@ -31,6 +31,19 @@ Baseline state details are documented in `docs/baseline.md`.
 
 The project is structured around a C++ algorithmic core and a Python CLI orchestrator. Experiment runs are executed in a separate `workspace/` directory, and generated outputs are persisted in `results/` for later analysis and reporting.
 
+## Baseline Automation
+
+The minimal baseline command-line flow is available through `orchestrator/cli/main.py`.
+It requires `EIGEN3_INCLUDE_DIR` and optionally supports `CMAKE_EXE`, `CMAKE_GENERATOR`, `CMAKE_CXX_COMPILER`, and `CMAKE_MAKE_PROGRAM` for explicit Windows/MinGW toolchain selection outside CLion.
+
+```powershell
+$env:EIGEN3_INCLUDE_DIR="C:\path\to\eigen"
+$env:CMAKE_GENERATOR="MinGW Makefiles"
+$env:CMAKE_CXX_COMPILER="C:\path\to\g++.exe"
+$env:CMAKE_MAKE_PROGRAM="C:\path\to\mingw32-make.exe"
+python orchestrator/cli/main.py
+```
+
 ## External Baseline Code
 
 - `cpp/external/lambdatwist/` contains an imported third-party baseline P3P solver.

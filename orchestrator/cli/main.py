@@ -4,6 +4,10 @@ This script automates the current baseline flow:
 1. CMake configure
 2. CMake build (baseline_runner target)
 3. Run baseline_runner executable
+
+On Windows outside CLion, CMake may need explicit toolchain environment
+variables such as CMAKE_EXE, CMAKE_GENERATOR, CMAKE_CXX_COMPILER, and
+CMAKE_MAKE_PROGRAM.
 """
 
 import os
@@ -56,31 +60,45 @@ def main() -> int:
     source_dir = repo_root / "cpp"
     build_dir = source_dir / "build"
 
+    cmake_exe = os.environ.get("CMAKE_EXE", "cmake")
+    cmake_generator = os.environ.get("CMAKE_GENERATOR")
+    cmake_cxx_compiler = os.environ.get("CMAKE_CXX_COMPILER")
+    cmake_make_program = os.environ.get("CMAKE_MAKE_PROGRAM")
     eigen_include_dir = os.environ.get("EIGEN3_INCLUDE_DIR")
+
     if not eigen_include_dir:
         print("ERROR: EIGEN3_INCLUDE_DIR environment variable is not set.")
         print("Set it to the Eigen include root (directory containing Eigen/).")
-        print("Example (Windows cmd): set EIGEN3_INCLUDE_DIR=C:\\path\\to\\eigen")
+        print('Example (PowerShell): $env:EIGEN3_INCLUDE_DIR="C:\\path\\to\\eigen"')
         return 1
+
+    configure_command = [
+        cmake_exe,
+        "-S",
+        str(source_dir),
+        "-B",
+        str(build_dir),
+        f"-DEIGEN3_INCLUDE_DIR={eigen_include_dir}",
+    ]
+
+    if cmake_generator:
+        configure_command.extend(["-G", cmake_generator])
+    if cmake_cxx_compiler:
+        configure_command.append(f"-DCMAKE_CXX_COMPILER={cmake_cxx_compiler}")
+    if cmake_make_program:
+        configure_command.append(f"-DCMAKE_MAKE_PROGRAM={cmake_make_program}")
 
     try:
         _run_step(
             "Configure CMake project",
-            [
-                "cmake",
-                "-S",
-                str(source_dir),
-                "-B",
-                str(build_dir),
-                f"-DEIGEN3_INCLUDE_DIR={eigen_include_dir}",
-            ],
+            configure_command,
             cwd=repo_root,
         )
 
         _run_step(
             "Build baseline_runner target",
             [
-                "cmake",
+                cmake_exe,
                 "--build",
                 str(build_dir),
                 "--target",
