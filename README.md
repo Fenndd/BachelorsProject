@@ -81,12 +81,28 @@ py -m orchestrator.llm.generate_candidate `
   --source cpp/external/lambdatwist/p3p.cc
 ```
 
-Generated candidate patches can be materialized into an isolated workspace copy.
-This does not modify the main `cpp/` source tree, and build/test/benchmark of
-materialized candidates is not implemented yet.
+Generated candidate patches can be materialized only into an isolated workspace
+copy under `workspace/candidates/<candidate_run_id>/`. The materialization
+command validates patch scope against `candidate.json["target_files"]` and
+verifies that a non-empty patch changes at least one target file. It does not
+modify the main `cpp/` source tree, and build/test/benchmark of materialized
+candidates is not implemented yet.
 
 ```powershell
 py -m orchestrator.patching.materialize_candidate `
+  --candidate-run results/runs/<candidate_run_id>
+```
+
+A successfully materialized candidate can then be verified inside the same
+isolated workspace copy. Verification configures CMake, builds only
+`baseline_smoke_test`, and runs only `baseline_smoke_test`. It still does not
+run candidate benchmarks or compare performance, and the main `cpp/` source
+tree remains unchanged. The current implementation is intentionally a narrow
+Step 9 smoke verifier in `orchestrator/execution/candidate_smoke_verification.py`;
+it is not the future general candidate execution pipeline.
+
+```powershell
+py -m orchestrator.execution.verify_candidate `
   --candidate-run results/runs/<candidate_run_id>
 ```
 
