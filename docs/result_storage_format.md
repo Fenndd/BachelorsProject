@@ -4,11 +4,11 @@
 
 The `results/` directory is reserved for persistent outputs produced by experiment runs. It is intended to keep enough information to inspect what was executed, whether it succeeded, which environment was used, and which raw logs or metrics were produced.
 
-The baseline CLI writes one detailed run directory per execution and appends one compact record to the global JSON Lines index.
+The baseline CLI and manual LLM candidate generation command write one detailed run directory per execution and append one compact record to the global JSON Lines index.
 
 ## One Run
 
-One run represents a single execution of one experiment scenario. For the current baseline phase, a run is one complete attempt to configure CMake, build the baseline targets, execute the smoke test, execute the runner, and execute the benchmark.
+One run represents a single execution of one experiment scenario. For the current baseline phase, a run is one complete attempt to configure CMake, build the baseline targets, execute the smoke test, execute the runner, and execute the benchmark. For the first LLM phase, a run is one attempt to generate and validate a candidate patch from a controlled DeepSeek prompt.
 
 Each run should be stored in its own directory under `results/runs/<run_id>/`. The directory should be self-contained and should not depend on other run directories for interpretation.
 
@@ -51,9 +51,9 @@ results/
 
 ## `index.jsonl`
 
-`results/index.jsonl` is a global append-only index for quick listing of runs. It uses JSON Lines format: each line is one complete JSON object, and each baseline CLI execution appends exactly one new line.
+`results/index.jsonl` is a global append-only index for quick listing of runs. It uses JSON Lines format: each line is one complete JSON object, and each indexed execution appends exactly one new line.
 
-The index should contain compact summary fields such as run id, scenario, case study, baseline, overall status, failed step, timestamps, repository state, success flags, benchmark raw-output availability, benchmark runtime placeholder, and the run directory path.
+The index should contain compact summary fields such as run id, scenario, overall status, failed step, timestamps, repository state, and the run directory path. Baseline records also include success flags and benchmark placeholders. LLM candidate records include provider, model, target file, candidate risk level, expected effect, unified-diff availability, and manual-review flag.
 
 Example line:
 
@@ -62,6 +62,8 @@ Example line:
 ```
 
 The index is intentionally compact. Per-run folders remain the source of detailed logs and artifacts.
+
+LLM candidate run folders use the same `metadata.json`, `status.json`, and `summary.txt` convention. Successful candidate runs also save `llm_request.json`, `llm_response.json`, `candidate.json`, and `candidate.diff`. Candidate patches are saved as artifacts and are not applied automatically.
 
 ## `metadata.json`
 

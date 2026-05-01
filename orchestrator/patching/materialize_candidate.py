@@ -271,6 +271,47 @@ def _fail(
     return 1
 
 
+def _skip_noop_candidate(
+    candidate_run_dir: Path,
+    candidate_run_id: str,
+    workspace_path: Path,
+    source_root_text: str,
+    patch_path: Path,
+    started_at: datetime,
+) -> int:
+    steps = [
+        _skipped_step("copy_source_tree"),
+        _skipped_step("git_apply_check"),
+        _skipped_step("git_apply"),
+    ]
+    materialization = _build_materialization(
+        "skipped",
+        None,
+        None,
+        candidate_run_id,
+        workspace_path,
+        source_root_text,
+        patch_path,
+        started_at,
+        steps,
+    )
+    _write_json(candidate_run_dir / "materialization.json", materialization)
+    _write_log(
+        candidate_run_dir / "apply_candidate.log",
+        candidate_run_id,
+        candidate_run_dir,
+        workspace_path,
+        source_root_text,
+        patch_path,
+        [],
+        materialization,
+    )
+    print("Final status: skipped")
+    print("No patch to materialize: candidate expected_effect is 'none'.")
+    print(f"Logs saved to: {candidate_run_dir / 'apply_candidate.log'}")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     args = _parse_args(sys.argv[1:] if argv is None else argv)
     started_at = datetime.now().astimezone()
@@ -306,9 +347,20 @@ def main(argv: list[str] | None = None) -> int:
         if not source_root_path.exists() or not source_root_path.is_dir():
             raise FileNotFoundError(f"Source root not found: {source_root_path}")
 
-        json.loads(candidate_json_path.read_text(encoding="utf-8-sig"))
+        candidate_data = json.loads(candidate_json_path.read_text(encoding="utf-8-sig"))
+        if not isinstance(candidate_data, dict):
+            raise ValueError(f"candidate.json must contain a JSON object: {candidate_json_path}")
         patch_text = patch_path.read_text(encoding="utf-8")
         if not patch_text.strip():
+            if candidate_data.get("expected_effect") == "none":
+                return _skip_noop_candidate(
+                    candidate_run_dir,
+                    candidate_run_id,
+                    workspace_path,
+                    args.source_root,
+                    patch_path,
+                    started_at,
+                )
             raise ValueError(f"candidate.diff is empty: {patch_path}")
     except (OSError, ValueError, json.JSONDecodeError) as exc:
         steps.extend(

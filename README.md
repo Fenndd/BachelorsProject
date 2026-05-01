@@ -9,9 +9,9 @@ The first minimal case study is a P3P solver.
 
 The repository scaffold is complete and the first working Lambda Twist baseline is established at a minimal level.
 The C++ project includes a baseline library target (`lambdatwist_baseline`), a project-owned runner (`baseline_runner`), a smoke test (`baseline_smoke_test`), and a minimal benchmark (`baseline_benchmark`).
-A Python CLI entry point automates the baseline configure/build/test/run/benchmark flow from the command line, writes per-run artifacts under `results/runs/<run_id>/`, and appends a compact JSONL record to `results/index.jsonl`.
+A Python CLI entry point automates the baseline configure/build/test/run/benchmark flow from the command line, writes per-run artifacts under `results/runs/<run_id>/`, and appends compact JSONL records to `results/index.jsonl`.
 
-Full validation, benchmark runtime parsing, patch application, run comparison, best candidate selection, advanced reporting or experiment analysis, and LLM-driven optimization are intentionally not implemented yet.
+Full validation, benchmark runtime parsing, automatic patch application, candidate build/test/benchmark, run comparison, best candidate selection, advanced reporting or experiment analysis, and a closed-loop LLM optimization flow are intentionally not implemented yet.
 Environment expectations are documented in `docs/setup.md`, and baseline state details are documented in `docs/baseline.md`.
 
 ## Repository Structure
@@ -61,17 +61,19 @@ Set `CMAKE_EXE` only when the intended `cmake.exe` is not already selected by `P
 
 ## LLM Adapter
 
-The first LLM adapter is prepared for DeepSeek V4 Flash using `DEEPSEEK_API_KEY`.
+The first connected LLM is DeepSeek V4 Flash using `DEEPSEEK_API_KEY`.
 The LLM layer also includes a controlled optimization prompt builder with conservative C++/Eigen safety rules and a response parser with basic candidate diff sanity checks.
 Automatic patch application to the main source tree is not implemented, and candidates are not integrated into the baseline pipeline yet.
 
 ```powershell
 $env:DEEPSEEK_API_KEY="..."
-py -m orchestrator.llm.deepseek_client --config configs/llm_deepseek_flash.json
+py -m orchestrator.llm.deepseek_client `
+  --config configs/llm_deepseek_flash.json `
+  --system 'You are a strict JSON-only assistant. Return only valid JSON. No markdown. No explanation.' `
+  --user 'Return exactly this JSON object and nothing else: {"status":"ok"}'
 ```
 
-Manual candidate generation is also available. It saves the proposed candidate
-patch as artifacts, but does not apply it.
+Manual candidate generation is also available. It reads a source file, sends a controlled prompt to DeepSeek, parses the response, and saves `llm_request.json`, `llm_response.json`, `candidate.json`, and `candidate.diff` artifacts. Candidate patches are saved but not applied.
 
 ```powershell
 py -m orchestrator.llm.generate_candidate `
