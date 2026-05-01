@@ -1,0 +1,11 @@
+{
+  "provider": "deepseek",
+  "model": "deepseek-v4-flash",
+  "base_url": "https://api.deepseek.com",
+  "api_key_env": "DEEPSEEK_API_KEY",
+  "thinking": {
+    "enabled": true,
+    "effort": "high"
+  },
+  "max_tokens": 4096
+}

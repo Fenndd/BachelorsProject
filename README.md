@@ -59,6 +59,35 @@ py orchestrator/cli/main.py
 If `python` is available on `PATH`, `python orchestrator/cli/main.py` is also valid.
 Set `CMAKE_EXE` only when the intended `cmake.exe` is not already selected by `PATH`.
 
+## LLM Adapter
+
+The first LLM adapter is prepared for DeepSeek V4 Flash using `DEEPSEEK_API_KEY`.
+The LLM layer also includes a controlled optimization prompt builder with conservative C++/Eigen safety rules and a response parser with basic candidate diff sanity checks.
+Automatic patch application to the main source tree is not implemented, and candidates are not integrated into the baseline pipeline yet.
+
+```powershell
+$env:DEEPSEEK_API_KEY="..."
+py -m orchestrator.llm.deepseek_client --config configs/llm_deepseek_flash.json
+```
+
+Manual candidate generation is also available. It saves the proposed candidate
+patch as artifacts, but does not apply it.
+
+```powershell
+py -m orchestrator.llm.generate_candidate `
+  --config configs/llm_deepseek_flash.json `
+  --source cpp/external/lambdatwist/p3p.cc
+```
+
+Generated candidate patches can be materialized into an isolated workspace copy.
+This does not modify the main `cpp/` source tree, and build/test/benchmark of
+materialized candidates is not implemented yet.
+
+```powershell
+py -m orchestrator.patching.materialize_candidate `
+  --candidate-run results/runs/<candidate_run_id>
+```
+
 ## External Baseline Code
 
 - `cpp/external/lambdatwist/` contains an imported third-party baseline P3P solver.
