@@ -42,6 +42,9 @@ workspace/*
 !workspace/.gitkeep
 results/*
 !results/.gitkeep
+!results/runs/
+results/runs/*
+!results/runs/.gitkeep
 
 # Logs
 *.log

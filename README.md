@@ -9,9 +9,9 @@ The first minimal case study is a P3P solver.
 
 The repository scaffold is complete and the first working Lambda Twist baseline is established at a minimal level.
 The C++ project includes a baseline library target (`lambdatwist_baseline`), a project-owned runner (`baseline_runner`), a smoke test (`baseline_smoke_test`), and a minimal benchmark (`baseline_benchmark`).
-A Python CLI entry point automates the baseline configure/build/test/run/benchmark flow from the command line.
+A Python CLI entry point automates the baseline configure/build/test/run/benchmark flow from the command line and writes per-run artifacts under `results/runs/<run_id>/`.
 
-Full validation, advanced benchmarking, result storage, experiment management, and LLM-driven optimization are intentionally not implemented yet.
+Full validation, advanced benchmarking, result indexing, run comparison, broader experiment management, and LLM-driven optimization are intentionally not implemented yet.
 Environment expectations are documented in `docs/setup.md`, and baseline state details are documented in `docs/baseline.md`.
 
 ## Repository Structure
@@ -29,7 +29,8 @@ Environment expectations are documented in `docs/setup.md`, and baseline state d
 
 ## Architecture
 
-The project is structured around a C++ algorithmic core and a Python automation layer. Future experiment runs are expected to use `workspace/` for temporary artifacts and `results/` for persistent outputs, but full experiment management is not implemented yet.
+The project is structured around a C++ algorithmic core and a Python automation layer. Experiment runs use `workspace/` for temporary artifacts and `results/` for persistent outputs, but full experiment management is not implemented yet.
+The planned persistent run output format is documented in `docs/result_storage_format.md`.
 
 ## Baseline Automation
 
