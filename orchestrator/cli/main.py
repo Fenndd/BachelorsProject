@@ -312,6 +312,44 @@ def _build_summary(
     return "\n".join(lines)
 
 
+def _display_path(path: Path, repo_root: Path) -> str:
+    try:
+        return path.relative_to(repo_root).as_posix()
+    except ValueError:
+        return str(path)
+
+
+def _build_index_record(
+    metadata: dict[str, Any],
+    status: dict[str, Any],
+    metrics: dict[str, Any],
+    run_dir: Path,
+    repo_root: Path,
+) -> dict[str, Any]:
+    repository = metadata["repository"]
+    benchmark = metrics["benchmark"]
+    return {
+        "run_id": metadata["run_id"],
+        "scenario": metadata["scenario"],
+        "case_study": metadata["case_study"],
+        "baseline": metadata["baseline"],
+        "overall_status": status["overall_status"],
+        "failed_step": status["failed_step"],
+        "started_at": metadata["started_at"],
+        "finished_at": metadata["finished_at"],
+        "git_commit": repository["git_commit"],
+        "git_branch": repository["git_branch"],
+        "dirty_worktree": repository["dirty_worktree"],
+        "build_success": metrics["build_success"],
+        "smoke_test_success": metrics["smoke_test_success"],
+        "runner_success": metrics["runner_success"],
+        "benchmark_success": metrics["benchmark_success"],
+        "benchmark_raw_output_available": benchmark["raw_output_available"],
+        "benchmark_runtime_ms": benchmark["parsed_runtime_ms"],
+        "run_dir": _display_path(run_dir, repo_root),
+    }
+
+
 def _write_final_artifacts(
     storage: RunStorage,
     run_dir: Path,
@@ -329,6 +367,9 @@ def _write_final_artifacts(
     storage.save_status(run_dir, status)
     storage.save_metrics(run_dir, metrics)
     storage.save_summary(run_dir, summary)
+    index_record = _build_index_record(metadata, status, metrics, run_dir, REPO_ROOT)
+    index_path = storage.append_index_record(index_record)
+    print(f"[Index] Appended run record to {_display_path(index_path, REPO_ROOT)}")
     return status
 
 

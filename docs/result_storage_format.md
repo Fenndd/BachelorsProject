@@ -4,7 +4,7 @@
 
 The `results/` directory is reserved for persistent outputs produced by experiment runs. It is intended to keep enough information to inspect what was executed, whether it succeeded, which environment was used, and which raw logs or metrics were produced.
 
-The current project does not write these files automatically yet. This document defines the intended format so later orchestration work can implement result storage consistently.
+The baseline CLI writes one detailed run directory per execution and appends one compact record to the global JSON Lines index.
 
 ## One Run
 
@@ -32,6 +32,7 @@ The timestamp should use local time unless a later implementation explicitly sta
 
 ```text
 results/
+├─ index.jsonl
 └─ runs/
    └─ <run_id>/
       ├─ metadata.json
@@ -47,6 +48,20 @@ results/
       │  └─ run_baseline_benchmark.log
       └─ summary.txt
 ```
+
+## `index.jsonl`
+
+`results/index.jsonl` is a global append-only index for quick listing of runs. It uses JSON Lines format: each line is one complete JSON object, and each baseline CLI execution appends exactly one new line.
+
+The index should contain compact summary fields such as run id, scenario, case study, baseline, overall status, failed step, timestamps, repository state, success flags, benchmark raw-output availability, benchmark runtime placeholder, and the run directory path.
+
+Example line:
+
+```json
+{"run_id":"2026-05-01_23-40-12_baseline","scenario":"baseline","case_study":"p3p_solver","baseline":"lambda_twist","overall_status":"success","failed_step":null,"started_at":"2026-05-01T23:40:12+02:00","finished_at":"2026-05-01T23:41:03+02:00","git_commit":"abc1234","git_branch":"main","dirty_worktree":false,"build_success":true,"smoke_test_success":true,"runner_success":true,"benchmark_success":true,"benchmark_raw_output_available":true,"benchmark_runtime_ms":null,"run_dir":"results/runs/2026-05-01_23-40-12_baseline"}
+```
+
+The index is intentionally compact. Per-run folders remain the source of detailed logs and artifacts.
 
 ## `metadata.json`
 
@@ -108,7 +123,7 @@ Recommended fields:
 }
 ```
 
-Suggested status values are `success`, `failed`, and `skipped`. If a step fails, later steps that are not executed should be marked as `skipped` once automatic writing is implemented.
+Suggested status values are `success`, `failed`, and `skipped`. If a step fails, later steps that are not executed are marked as `skipped`.
 
 Each step status should contain:
 
@@ -143,7 +158,7 @@ Recommended fields:
 
 ## `logs/`
 
-The `logs/` directory should contain one log file per command step. Each log file should eventually include:
+The `logs/` directory should contain one log file per command step. Each log file should include:
 
 - Step name.
 - Command.
@@ -252,10 +267,10 @@ In a successful baseline run, `status.json` should have `overall_status` set to 
 
 ## Not Implemented Yet
 
-The current repository only documents and prepares this storage structure. The following work is intentionally left for later steps:
+The current repository intentionally leaves the following work for later steps:
 
-- Automatic writing of `metadata.json`, `status.json`, `metrics.json`, logs, and `summary.txt`.
 - Benchmark output parsing.
-- Result indexing or run catalogs.
-- LLM-generated patches and optimized variants.
+- Patch application and LLM-generated optimized variants.
 - Comparison between baseline and optimized runs.
+- Best candidate selection.
+- Advanced reporting and experiment analysis.

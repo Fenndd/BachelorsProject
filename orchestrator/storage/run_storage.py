@@ -98,6 +98,16 @@ class RunStorage:
         summary_path.write_text(summary_text, encoding="utf-8")
         return summary_path
 
+    def append_index_record(self, record: dict[str, Any]) -> Path:
+        """Append one compact JSON Lines record to results/index.jsonl."""
+        index_path = self.results_root / "index.jsonl"
+        index_path.parent.mkdir(parents=True, exist_ok=True)
+        with index_path.open("a", encoding="utf-8") as index_file:
+            index_file.write(
+                json.dumps(record, ensure_ascii=False, separators=(",", ":")) + "\n"
+            )
+        return index_path
+
     @staticmethod
     def _sanitize_name(value: str) -> str:
         """Return a lowercase filesystem-safe name fragment."""

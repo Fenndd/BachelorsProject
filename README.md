@@ -9,9 +9,9 @@ The first minimal case study is a P3P solver.
 
 The repository scaffold is complete and the first working Lambda Twist baseline is established at a minimal level.
 The C++ project includes a baseline library target (`lambdatwist_baseline`), a project-owned runner (`baseline_runner`), a smoke test (`baseline_smoke_test`), and a minimal benchmark (`baseline_benchmark`).
-A Python CLI entry point automates the baseline configure/build/test/run/benchmark flow from the command line and writes per-run artifacts under `results/runs/<run_id>/`.
+A Python CLI entry point automates the baseline configure/build/test/run/benchmark flow from the command line, writes per-run artifacts under `results/runs/<run_id>/`, and appends a compact JSONL record to `results/index.jsonl`.
 
-Full validation, advanced benchmarking, result indexing, run comparison, broader experiment management, and LLM-driven optimization are intentionally not implemented yet.
+Full validation, benchmark runtime parsing, patch application, run comparison, best candidate selection, advanced reporting or experiment analysis, and LLM-driven optimization are intentionally not implemented yet.
 Environment expectations are documented in `docs/setup.md`, and baseline state details are documented in `docs/baseline.md`.
 
 ## Repository Structure
@@ -22,14 +22,14 @@ Environment expectations are documented in `docs/setup.md`, and baseline state d
 |- orchestrator/   # Python orchestration (minimal baseline CLI + scaffold modules)
 |- configs/        # Placeholder configuration files
 |- workspace/      # Reserved temporary run workspace
-|- results/        # Reserved future experiment outputs
+|- results/        # Persistent run artifacts and the JSONL run index
 |- docs/           # Project documentation
 `- scripts/        # Helper scripts only
 ```
 
 ## Architecture
 
-The project is structured around a C++ algorithmic core and a Python automation layer. Experiment runs use `workspace/` for temporary artifacts and `results/` for persistent outputs, but full experiment management is not implemented yet.
+The project is structured around a C++ algorithmic core and a Python automation layer. Experiment runs use `workspace/` for temporary artifacts and `results/` for persistent outputs, including per-run directories and `results/index.jsonl`, but full experiment management is not implemented yet.
 The planned persistent run output format is documented in `docs/result_storage_format.md`.
 
 ## Baseline Automation
@@ -70,5 +70,5 @@ Set `CMAKE_EXE` only when the intended `cmake.exe` is not already selected by `P
 
 1. Expand the smoke test into a real validation strategy.
 2. Define a proper benchmark protocol for baseline and optimized variants.
-3. Add controlled experiment metadata and result storage.
-4. Introduce the first LLM-assisted optimization loop.
+3. Parse benchmark runtime from stored benchmark output.
+4. Introduce run comparison, best candidate selection, and the first LLM-assisted optimization loop.

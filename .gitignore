@@ -40,9 +40,7 @@ Testing/
 # Workspace and experiment outputs
 workspace/*
 !workspace/.gitkeep
-results/*
-!results/.gitkeep
-!results/runs/
+results/index.jsonl
 results/runs/*
 !results/runs/.gitkeep
 
