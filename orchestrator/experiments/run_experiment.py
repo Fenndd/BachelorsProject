@@ -1223,6 +1223,76 @@ def _write_final_artifacts(
     return status
 
 
+def _early_variant_summaries(config: ExperimentConfig) -> list[dict[str, Any]]:
+    return [
+        {
+            "variant_id": variant.variant_id,
+            "planned_iterations": variant.iterations,
+            "successful_iterations": 0,
+            "failed_iterations": 0,
+            "generation_successes": 0,
+            "materialization_successes": 0,
+            "verification_successes": 0,
+            "history_file": None,
+            "summary_file": None,
+            "base_llm_config": variant.llm_config,
+            "resolved_llm_config": None,
+            "provider": None,
+            "model": None,
+            "thinking_enabled": None,
+            "reasoning_effort": None,
+            "max_tokens": None,
+        }
+        for variant in config.variants
+    ]
+
+
+def _write_early_failure_artifacts(
+    experiment_dir: Path,
+    experiment_id: str,
+    config: ExperimentConfig,
+    started_at: datetime,
+    failed_step: str,
+    error_message: str,
+) -> None:
+    status = {
+        "experiment_id": experiment_id,
+        "experiment_name": config.experiment_name,
+        "overall_status": "failed",
+        "failed_step": failed_step,
+        "error_message": error_message,
+        "started_at": started_at.isoformat(timespec="seconds"),
+        "finished_at": datetime.now().astimezone().isoformat(timespec="seconds"),
+        "planned_iterations": _total_iterations(config),
+        "successful_iterations": 0,
+        "failed_iterations": 0,
+        "generation_successes": 0,
+        "materialization_successes": 0,
+        "verification_successes": 0,
+        "llm_config": config.llm_config,
+        "target_file": config.target_file,
+        "pipeline": asdict(config.pipeline),
+        "history_policy": asdict(config.history_policy),
+        "variants": _early_variant_summaries(config),
+    }
+    _write_json(experiment_dir / "experiment_status.json", status)
+    lines = [
+        f"Experiment id: {experiment_id}",
+        f"Experiment name: {config.experiment_name}",
+        f"Description: {config.description or 'none'}",
+        f"Target file: {config.target_file}",
+        "Overall status: failed",
+        f"Failed step: {failed_step}",
+        f"Error message: {error_message}",
+        f"Total planned iterations: {_total_iterations(config)}",
+        "No iterations were executed.",
+        "",
+        "Benchmarking, comparison, and best candidate selection are not implemented yet.",
+        "",
+    ]
+    (experiment_dir / "summary.txt").write_text("\n".join(lines), encoding="utf-8")
+
+
 def _run_experiment(
     config: ExperimentConfig,
     config_snapshot: dict[str, Any],
@@ -1248,8 +1318,17 @@ def _run_experiment(
             experiment_dir,
             config,
         )
-    except ExperimentConfigError as exc:
+    except (ExperimentConfigError, OSError) as exc:
+        _write_early_failure_artifacts(
+            experiment_dir,
+            experiment_id,
+            config,
+            started_at,
+            "prepare_variant_llm_configs",
+            str(exc),
+        )
         print(f"ERROR: {exc}", file=sys.stderr)
+        print(f"Artifacts saved to: {_display_path(experiment_dir)}")
         return 1
 
     print("Experiment execution")
