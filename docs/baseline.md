@@ -26,14 +26,17 @@ The external Lambda Twist code remains third-party source and is kept separate f
 
 ## Baseline CLI Flow
 
-The standard baseline CLI now configures CMake, builds the smoke test, runner, adapter validator, and family benchmark, then runs them in this order:
+The standard baseline CLI now configures CMake, builds the smoke test, runner, adapter validator, and family benchmark, runs them, then parses the family benchmark output as an explicit internal step:
 
 1. `baseline_smoke_test`
 2. `baseline_runner`
 3. `absolute_pose_lambdatwist_adapter_validator`
 4. `absolute_pose_lambdatwist_benchmark`
+5. `parse_absolute_pose_lambdatwist_benchmark`
 
-The adapter validator runs before the family benchmark. If validation fails, the family benchmark is skipped.
+The adapter validator runs before the family benchmark. If validation fails, the family benchmark run and parse steps are skipped. If the family benchmark build fails, `failed_step` remains `build_absolute_pose_lambdatwist_benchmark`. If the family benchmark run fails, `failed_step` remains `run_absolute_pose_lambdatwist_benchmark`. The parse step fails only when benchmark execution completed successfully but stdout could not be parsed into the required structured metrics.
+
+Benchmark execution success alone is not sufficient for a valid baseline run. Parsed structured metrics are required for future baseline-vs-candidate comparison, so a parse failure makes the baseline CLI exit with code `1` and records `failed_step: "parse_absolute_pose_lambdatwist_benchmark"` in `status.json` and `index.jsonl`. `metrics.json` still preserves `parse_success`, `missing_fields`, `parse_errors`, and any partially parsed values for diagnosis.
 
 ## Build Configuration
 

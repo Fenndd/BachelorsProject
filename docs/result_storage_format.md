@@ -6,14 +6,15 @@ The `results/` directory stores persistent outputs produced by baseline, candida
 
 ## Baseline Run
 
-For the current baseline phase, a run configures CMake, builds the baseline smoke test, baseline runner, Lambda Twist P3P adapter validator, and absolute-pose family benchmark, then runs them in this order:
+For the current baseline phase, a run configures CMake, builds the baseline smoke test, baseline runner, Lambda Twist P3P adapter validator, and absolute-pose family benchmark, runs them, then parses the family benchmark output as an explicit internal step.
 
 1. `baseline_smoke_test`
 2. `baseline_runner`
 3. `absolute_pose_lambdatwist_adapter_validator`
 4. `absolute_pose_lambdatwist_benchmark`
+5. parse `absolute_pose_lambdatwist_benchmark` stdout into structured metrics
 
-The old `baseline_benchmark` target remains in CMake for compatibility, but the main baseline CLI now uses the family benchmark flow. If adapter validation fails, the family benchmark run step is skipped.
+The old `baseline_benchmark` target remains in CMake for compatibility, but the main baseline CLI now uses the family benchmark flow. If adapter validation fails, the family benchmark run step is skipped. If family benchmark execution succeeds but stdout parsing fails, the baseline run fails at `parse_absolute_pose_lambdatwist_benchmark`; benchmark execution success alone is not sufficient for a valid baseline artifact because future comparison needs structured metrics.
 
 ## Directory Layout
 
@@ -34,7 +35,8 @@ results/
       │  ├─ run_baseline_smoke_test.log
       │  ├─ run_baseline_runner.log
       │  ├─ run_absolute_pose_lambdatwist_adapter_validator.log
-      │  └─ run_absolute_pose_lambdatwist_benchmark.log
+      │  ├─ run_absolute_pose_lambdatwist_benchmark.log
+      │  └─ parse_absolute_pose_lambdatwist_benchmark.log
       └─ summary.txt
 ```
 
@@ -53,10 +55,11 @@ Expected baseline steps are:
 - `run_baseline_runner`
 - `run_absolute_pose_lambdatwist_adapter_validator`
 - `run_absolute_pose_lambdatwist_benchmark`
+- `parse_absolute_pose_lambdatwist_benchmark`
 
 ## `metrics.json`
 
-Baseline metrics contain success flags and parsed family benchmark values. The parser reads stable snake_case key-value lines from the family benchmark stdout log. A benchmark execution failure still fails the baseline run; a parse failure is recorded with `parse_success: false`, missing fields, and parse errors so it is visible without introducing Step 11 comparison gates yet.
+Baseline metrics contain success flags and parsed family benchmark values. The parser reads stable snake_case key-value lines from the family benchmark stdout. A benchmark execution failure fails the baseline run and skips parsing. If benchmark execution succeeds but parsing fails, the baseline run also fails, with `failed_step: "parse_absolute_pose_lambdatwist_benchmark"`. `metrics.json` still records `parse_success: false`, missing fields, parse errors, and any partially parsed values so the artifact remains diagnosable.
 
 ```json
 {
@@ -101,13 +104,13 @@ Baseline metrics contain success flags and parsed family benchmark values. The p
 
 ## `logs/`
 
-Each command step writes one log whose filename matches the stable step name. Logs include step name, command, working directory, exit code, stdout, and stderr.
+Each command step writes one log whose filename matches the stable step name. Logs include step name, command, working directory, exit code, stdout, and stderr. The internal parse step may also write `logs/parse_absolute_pose_lambdatwist_benchmark.log` with the input benchmark log path, parse status, missing fields, and parse errors.
 
 ## Candidate Verification Artifacts
 
 Materialized candidate runs write `verification.json`, `verification_summary.txt`, and command logs under `verification_logs/`. Verification runs only inside the isolated workspace from `materialization.json`; it configures CMake, runs `baseline_smoke_test`, runs the Lambda Twist P3P adapter validator, runs the absolute-pose family benchmark, and parses benchmark stdout into structured verification metrics.
 
-If benchmark parsing fails, candidate verification fails because later comparison cannot use unstructured benchmark output. This still does not perform baseline-vs-candidate comparison or best-candidate selection.
+If benchmark parsing fails, candidate verification fails because later comparison cannot use unstructured benchmark output. This matches the baseline policy. This still does not perform baseline-vs-candidate comparison or best-candidate selection.
 
 ## Benchmark Artifact Audit
 
@@ -144,7 +147,7 @@ The build type defaults to `Release` and is controlled by the `CMAKE_BUILD_TYPE`
 
 ## `summary.txt`
 
-`summary.txt` is a human-readable overview. It lists step statuses, adapter validation status, family benchmark status, the family benchmark raw output log, and parsed family benchmark values. If parsing fails, `summary.txt` lists missing fields or parse errors.
+`summary.txt` is a human-readable overview. It lists step statuses, adapter validation status, family benchmark execution status, benchmark parse status, the family benchmark raw output log, the optional parse log, and parsed family benchmark values. If parsing fails, `summary.txt` lists the failed parse step, missing fields, and parse errors.
 
 ## Not Implemented Yet
 

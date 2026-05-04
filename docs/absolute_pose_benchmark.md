@@ -34,7 +34,9 @@ All core benchmark code and adapters use the canonical pose convention:
 
 `absolute_pose_lambdatwist_benchmark` uses the new family architecture: it generates many deterministic synthetic cases before timing, validates every case outside the timed section, and reports stable key-value summary metrics.
 
-The benchmark runner prints stable snake_case key-value lines such as `solver_name`, `num_cases`, `success_rate`, `runtime_ns_per_case_median`, and `correctness_passed`. The Python baseline CLI parses these values into `metrics.json`, `summary.txt`, and compact `index.jsonl` fields. Candidate verification reuses the same parser and stores parsed values in each candidate run's `verification.json`.
+The benchmark runner prints stable snake_case key-value lines such as `solver_name`, `num_cases`, `success_rate`, `runtime_ns_per_case_median`, and `correctness_passed`. The Python baseline CLI parses these values as an explicit `parse_absolute_pose_lambdatwist_benchmark` step and stores them in `metrics.json`, `summary.txt`, and compact `index.jsonl` fields.
+
+Benchmark execution success alone is not enough for a valid baseline artifact: if the executable succeeds but required stdout fields cannot be parsed, the baseline run fails at the parse step while preserving `parse_success=false`, `missing_fields`, `parse_errors`, and any partially parsed metrics. Candidate verification follows the same policy and fails verification on benchmark parse failure because future comparison requires structured metrics.
 
 ## Adapter Validation
 
@@ -48,7 +50,7 @@ Python orchestration, candidate comparison, best-candidate selection, and candid
 
 ## Candidate Verification
 
-`py -m orchestrator.execution.verify_candidate --candidate-run <candidate_run_dir>` runs the benchmark-family path inside the materialized candidate workspace only. It configures and builds the isolated C++ copy, runs `baseline_smoke_test`, runs `absolute_pose_lambdatwist_adapter_validator`, runs `absolute_pose_lambdatwist_benchmark`, and parses the benchmark stdout into structured verification metrics. This step is deterministic and does not call an LLM.
+`py -m orchestrator.execution.verify_candidate --candidate-run <candidate_run_dir>` runs the benchmark-family path inside the materialized candidate workspace only. It configures and builds the isolated C++ copy, runs `baseline_smoke_test`, runs `absolute_pose_lambdatwist_adapter_validator`, runs `absolute_pose_lambdatwist_benchmark`, and parses the benchmark stdout into structured verification metrics. Benchmark parse failure fails candidate verification. This step is deterministic and does not call an LLM.
 
 Candidate verification builds default to **Release** for runtime metric accuracy. The build type is controlled by the `CMAKE_BUILD_TYPE` environment variable (default `Release`) or the optional `--cmake-build-type` CLI argument to `verify_candidate`. The selected build type is recorded in `verification.json`.
 
