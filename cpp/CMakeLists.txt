@@ -119,3 +119,12 @@ target_link_libraries(absolute_pose_adapter_smoke_test
     PRIVATE
         absolute_pose_benchmark
 )
+
+add_executable(absolute_pose_correctness_policy_test
+    "${CMAKE_CURRENT_SOURCE_DIR}/tests/absolute_pose_correctness_policy_test.cpp"
+)
+
+target_link_libraries(absolute_pose_correctness_policy_test
+    PRIVATE
+        absolute_pose_benchmark
+)

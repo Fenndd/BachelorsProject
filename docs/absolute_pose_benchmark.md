@@ -24,9 +24,23 @@ All core benchmark code and adapters use the canonical pose convention:
 
 ## Structure
 
-- `core/` contains generic absolute pose data types, solver interface, deterministic case generation, validation, metrics, and benchmark timing logic.
+- `core/` contains generic absolute pose data types, solver interface, deterministic case generation, validation, metrics, benchmark timing logic, and the shared `correctness_policy_passed()` helper.
 - `adapters/lambdatwist_p3p/` contains the only current concrete solver adapter and is the only new benchmark-family code that depends on Lambda Twist.
 - `runners/` contains executable benchmark entry points.
+
+## Correctness Policy
+
+The `correctness_policy_passed()` function in `absolute_pose_types.hpp` / `absolute_pose_benchmark.cpp` is the single shared gate used by both the family benchmark runner and the adapter validator. It accepts `AbsolutePoseBenchmarkMetrics` and `BenchmarkOptions` and returns `true` when all configured acceptance criteria are met:
+
+- `num_cases > 0`
+- `success_rate >= options.min_success_rate` (default: 0.99)
+- `mean_best_reprojection_error <= options.reprojection_error_threshold` (default: 1e-6)
+- If `options.require_all_cases_valid`: also `valid_cases == num_cases`
+- If `options.use_max_reprojection_error_as_hard_gate`: also `max_best_reprojection_error <= options.reprojection_error_threshold`
+
+The benchmark runner uses `correctness_policy_passed()` to set the `correctness_passed` field in its output and the executable exit code. The adapter validator uses the same function for its `reprojection_check_passed` gate, ensuring consistent semantics.
+
+`BenchmarkOptions` has been extended with the correctness policy fields (`min_success_rate`, `require_all_cases_valid`, `use_max_reprojection_error_as_hard_gate`) alongside the existing `reprojection_error_threshold`.
 
 ## Old vs. New Benchmark
 
@@ -38,15 +52,32 @@ The benchmark runner prints stable snake_case key-value lines such as `solver_na
 
 Benchmark execution success alone is not enough for a valid baseline artifact: if the executable succeeds but required stdout fields cannot be parsed, the baseline run fails at the parse step while preserving `parse_success=false`, `missing_fields`, `parse_errors`, and any partially parsed metrics. Candidate verification follows the same policy and fails verification on benchmark parse failure because future comparison requires structured metrics.
 
+Policy-diagnostic lines (`min_success_rate`, `require_all_cases_valid`, `use_max_reprojection_error_as_hard_gate`, `reprojection_error_threshold`, `correctness_passed`) are printed by the benchmark runner for traceability but are ignored by the Python parser.
+
 ## Adapter Validation
 
 `absolute_pose_lambdatwist_adapter_validator` is a benchmark-preparation executable that checks whether the Lambda Twist P3P adapter is trustworthy before it is used as part of fixed evaluation.
 
-The validator currently covers the only implemented adapter, Lambda Twist P3P. It checks adapter metadata, deterministic synthetic case solving, finite pose output, rotation matrix sanity, and reprojection correctness using the best returned pose across all P3P solutions. The maximum reprojection error is printed as a diagnostic; the hard reprojection gate uses success rate and mean best reprojection error.
+The validator currently covers the only implemented adapter, Lambda Twist P3P. It checks adapter metadata, deterministic synthetic case solving, finite pose output, rotation matrix sanity, and reprojection correctness using `correctness_policy_passed()` on the validation metrics. The maximum reprojection error is printed as a diagnostic.
 
 Exit code `0` means the adapter is accepted. Exit code `1` means the adapter is rejected and should not be used for fixed benchmark evaluation until investigated.
 
 Python orchestration, candidate comparison, best-candidate selection, and candidate promotion are not part of adapter validation yet.
+
+## Correctness Policy Unit Test
+
+`absolute_pose_correctness_policy_test` is a standalone C++ test executable that validates `correctness_policy_passed()` behavior with a matrix of metric/option combinations:
+
+- Perfect metrics with default options
+- Success rate at threshold (0.99)
+- Success rate below threshold
+- Mean reprojection error above threshold
+- `require_all_cases_valid` with all cases valid
+- `require_all_cases_valid` with one invalid case
+- `use_max_reprojection_error_as_hard_gate` with max below/above threshold
+- Zero cases (always fails)
+
+The test links against `absolute_pose_benchmark` and does not require a solver adapter.
 
 ## Candidate Verification
 

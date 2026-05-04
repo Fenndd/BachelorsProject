@@ -23,6 +23,7 @@ The external Lambda Twist code remains third-party source and is kept separate f
 - `baseline_benchmark` (old minimal benchmark target; kept building for compatibility)
 - `absolute_pose_lambdatwist_adapter_validator` (adapter validation gate for Lambda Twist P3P)
 - `absolute_pose_lambdatwist_benchmark` (new absolute-pose family benchmark executable)
+- `absolute_pose_correctness_policy_test` (unit test for `correctness_policy_passed` helper)
 
 ## Baseline CLI Flow
 
@@ -37,6 +38,19 @@ The standard baseline CLI now configures CMake, builds the smoke test, runner, a
 The adapter validator runs before the family benchmark. If validation fails, the family benchmark run and parse steps are skipped. If the family benchmark build fails, `failed_step` remains `build_absolute_pose_lambdatwist_benchmark`. If the family benchmark run fails, `failed_step` remains `run_absolute_pose_lambdatwist_benchmark`. The parse step fails only when benchmark execution completed successfully but stdout could not be parsed into the required structured metrics.
 
 Benchmark execution success alone is not sufficient for a valid baseline run. Parsed structured metrics are required for future baseline-vs-candidate comparison, so a parse failure makes the baseline CLI exit with code `1` and records `failed_step: "parse_absolute_pose_lambdatwist_benchmark"` in `status.json` and `index.jsonl`. `metrics.json` still preserves `parse_success`, `missing_fields`, `parse_errors`, and any partially parsed values for diagnosis.
+
+## Correctness Policy
+
+The `run_absolute_pose_lambdatwist_benchmark` exit code and the `correctness_passed` field in the benchmark output are determined by the shared `correctness_policy_passed()` function in `absolute_pose_types.hpp` / `absolute_pose_benchmark.cpp`. This function enforces:
+
+- `success_rate >= options.min_success_rate` (default: 0.99)
+- `mean_best_reprojection_error <= options.reprojection_error_threshold` (default: 1e-6)
+- Optionally: `valid_cases == num_cases` (when `require_all_cases_valid` is true)
+- Optionally: `max_best_reprojection_error <= options.reprojection_error_threshold` (when `use_max_reprojection_error_as_hard_gate` is true)
+
+The `absolute_pose_lambdatwist_adapter_validator` uses the same shared function for its `reprojection_check_passed` gate, ensuring consistent correctness semantics between adapter validation and family benchmark evaluation.
+
+Policy-diagnostic lines (`min_success_rate`, `require_all_cases_valid`, `use_max_reprojection_error_as_hard_gate`, `reprojection_error_threshold`, `correctness_passed`) are printed by the benchmark runner for traceability but are ignored by the Python parser (which only reads the core metrics).
 
 ## Build Configuration
 
