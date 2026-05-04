@@ -1,0 +1,29 @@
+{
+  "experiment_name": "deepseek_flash_p3p_variants",
+  "description": "Multi-variant DeepSeek Flash experiment for Lambda Twist P3P optimization.",
+  "target_file": "cpp/external/lambdatwist/p3p.cc",
+  "pipeline": {
+    "generate_candidate": true,
+    "materialize_candidate": true,
+    "verify_candidate": true
+  },
+  "candidate_generation": {
+    "max_source_chars": 120000
+  },
+  "variants": [
+    {
+      "variant_id": "flash_high_safe",
+      "description": "DeepSeek Flash with standard conservative prompt context.",
+      "llm_config": "configs/llm_deepseek_flash.json",
+      "iterations": 2,
+      "additional_context": "Prefer small, safe runtime optimizations. Avoid Eigen aliasing risks and preserve numerical behavior."
+    },
+    {
+      "variant_id": "flash_high_strict_no_float_reorder",
+      "description": "DeepSeek Flash with stricter floating-point safety context.",
+      "llm_config": "configs/llm_deepseek_flash.json",
+      "iterations": 2,
+      "additional_context": "Prefer only optimizations that do not reorder floating-point expressions. Avoid Eigen aliasing risks. If unsure, return a no-op candidate."
+    }
+  ]
+}

@@ -43,6 +43,8 @@ workspace/*
 results/index.jsonl
 results/runs/*
 !results/runs/.gitkeep
+results/experiments/*
+!results/experiments/.gitkeep
 
 # Logs
 *.log

@@ -259,6 +259,7 @@ def _print_final_summary(
 
     if run_dir is not None:
         print(f"Artifacts saved to: {_display_path(run_dir)}")
+        print(f"CANDIDATE_RUN_DIR={_display_path(run_dir)}")
 
 
 def _classify_client_response_error(error_message: str) -> str:

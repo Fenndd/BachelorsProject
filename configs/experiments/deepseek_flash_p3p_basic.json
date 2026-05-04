@@ -1,0 +1,16 @@
+{
+  "experiment_name": "deepseek_flash_p3p_basic",
+  "description": "First multi-iteration LLM optimization experiment for Lambda Twist P3P baseline.",
+  "llm_config": "configs/llm_deepseek_flash.json",
+  "target_file": "cpp/external/lambdatwist/p3p.cc",
+  "iterations": 3,
+  "additional_context": "Prefer small, safe runtime optimizations. Avoid Eigen aliasing risks and preserve numerical behavior.",
+  "pipeline": {
+    "generate_candidate": true,
+    "materialize_candidate": false,
+    "verify_candidate": false
+  },
+  "candidate_generation": {
+    "max_source_chars": 120000
+  }
+}

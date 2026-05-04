@@ -106,6 +106,44 @@ py -m orchestrator.execution.verify_candidate `
   --candidate-run results/runs/<candidate_run_id>
 ```
 
+Experiment configs are introduced for future multi-iteration and multi-variant
+runs. The current experiment runner supports dry-run planning, candidate
+generation, and optional materialization/verification according to config
+pipeline flags. It does not benchmark, compare performance, or select a best
+candidate yet. Experiment runs also write per-variant history artifacts under
+`results/experiments/<experiment_id>/variants/`; these histories are not passed
+back to the LLM prompt yet. Sample configs are available at
+`configs/experiments/deepseek_flash_p3p_basic.json`,
+`configs/experiments/deepseek_flash_p3p_generate_materialize_verify.json`, and
+`configs/experiments/deepseek_flash_p3p_variants.json`.
+
+```powershell
+py -m orchestrator.experiments.run_experiment `
+  --config configs/experiments/deepseek_flash_p3p_basic.json `
+  --dry-run
+```
+
+```powershell
+py -m orchestrator.experiments.run_experiment `
+  --config configs/experiments/deepseek_flash_p3p_basic.json
+```
+
+```powershell
+py -m orchestrator.experiments.run_experiment `
+  --config configs/experiments/deepseek_flash_p3p_generate_materialize_verify.json
+```
+
+```powershell
+py -m orchestrator.experiments.run_experiment `
+  --config configs/experiments/deepseek_flash_p3p_variants.json `
+  --dry-run
+```
+
+```powershell
+py -m orchestrator.experiments.run_experiment `
+  --config configs/experiments/deepseek_flash_p3p_variants.json
+```
+
 ## External Baseline Code
 
 - `cpp/external/lambdatwist/` contains an imported third-party baseline P3P solver.
