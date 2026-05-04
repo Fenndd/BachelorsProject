@@ -70,6 +70,7 @@ Baseline metrics contain success flags and parsed family benchmark values. The p
     "family": "absolute_pose_solvers",
     "solver": "lambdatwist_p3p",
     "runtime_unit": "ns",
+    "build_type": "Release",
     "raw_output_available": true,
     "parse_success": true,
     "missing_fields": [],
@@ -114,7 +115,32 @@ If benchmark parsing fails, candidate verification fails because later compariso
 
 The audit loads baseline benchmark metrics from `metrics.json` and candidate benchmark metrics from `verification.json`. It checks artifact presence, parse success, required structured fields, matching family/solver/case count, runtime availability, correctness availability, and nanosecond runtime units. If benchmark options are not recorded yet, the audit emits `benchmark_options_not_recorded` as a warning instead of failing.
 
+If build type is recorded in both baseline and candidate artifacts, the audit checks they match (`same_build_type`). A mismatch produces `build_type_mismatch`. If one or both artifacts do not include build type, the audit warns with `build_type_not_recorded` for backward compatibility with older artifacts.
+
 The audit result records whether artifacts are comparable, but it does not rank candidates or choose a better version.
+
+## Build Type Recording
+
+Baseline `metrics.json` and candidate `verification.json` record the CMake build type in their benchmark sections:
+
+```json
+"benchmark": {
+  ...
+  "build_type": "Release",
+  ...
+}
+```
+
+Baseline `metadata.json` records `cmake_build_type` in its environment section:
+
+```json
+"environment": {
+  ...
+  "cmake_build_type": "Release"
+}
+```
+
+The build type defaults to `Release` and is controlled by the `CMAKE_BUILD_TYPE` environment variable. Candidate verification also accepts `--cmake-build-type` as a CLI argument.
 
 ## `summary.txt`
 

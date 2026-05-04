@@ -66,6 +66,22 @@ py orchestrator/cli/main.py
 If `python` is available on `PATH`, `python orchestrator/cli/main.py` is also valid.
 Set `CMAKE_EXE` only when the intended `cmake.exe` is not already selected by `PATH`.
 
+### Build Configuration
+
+Benchmark and evaluation builds default to **Release** for accurate runtime metrics. Override with:
+
+```powershell
+$env:CMAKE_BUILD_TYPE="Debug"
+```
+
+Or on Unix:
+
+```bash
+export CMAKE_BUILD_TYPE=Debug
+```
+
+The build type is recorded in run artifacts (`metadata.json`, `verification.json`) and verified by the benchmark artifact audit. Debug builds are not suitable for performance comparisons.
+
 ## LLM Adapter
 
 The first connected LLM is DeepSeek V4 Flash using `DEEPSEEK_API_KEY`.

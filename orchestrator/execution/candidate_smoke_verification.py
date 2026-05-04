@@ -84,6 +84,14 @@ def _parse_args(argv: list[str]) -> argparse.Namespace:
         default=DEFAULT_BUILD_DIR_NAME,
         help="Build directory name inside the candidate cpp directory.",
     )
+    parser.add_argument(
+        "--cmake-build-type",
+        default=os.environ.get(
+            "BENCHMARK_CMAKE_BUILD_TYPE",
+            os.environ.get("CMAKE_BUILD_TYPE", "Release"),
+        ),
+        help="CMake build type (Release, Debug, RelWithDebInfo, MinSizeRel).",
+    )
     return parser.parse_args(argv)
 
 
@@ -249,6 +257,7 @@ def _build_verification(
     source_dir: Path | None,
     build_dir: Path | None,
     eigen_include_dir: Path | None,
+    cmake_build_type: str,
     steps: list[dict[str, Any]],
 ) -> dict[str, Any]:
     return {
@@ -262,6 +271,7 @@ def _build_verification(
         "eigen_include_dir": None
         if eigen_include_dir is None
         else _display_path(eigen_include_dir),
+        "cmake_build_type": cmake_build_type,
         "steps": steps,
     }
 
@@ -281,6 +291,7 @@ def _build_summary(
         f"Workspace path: {verification['workspace_path'] or 'unknown'}",
         f"Source dir: {verification['source_dir'] or 'unknown'}",
         f"Build dir: {verification['build_dir'] or 'unknown'}",
+        f"Build type: {verification.get('cmake_build_type', 'Release')}",
         f"Overall status: {verification['overall_status']}",
         f"Failed step: {verification['failed_step'] or 'none'}",
         f"Error message: {verification['error_message'] or 'none'}",
@@ -322,6 +333,7 @@ def _fail_before_commands(
     source_dir: Path | None,
     build_dir: Path | None,
     eigen_include_dir: Path | None,
+    cmake_build_type: str,
     logs_dir: Path,
     failed_step: str,
     error_message: str,
@@ -336,6 +348,7 @@ def _fail_before_commands(
         source_dir,
         build_dir,
         eigen_include_dir,
+        cmake_build_type,
         steps,
     )
     try:
@@ -402,6 +415,7 @@ def main(argv: list[str] | None = None) -> int:
             source_dir,
             build_dir,
             eigen_include_dir,
+            args.cmake_build_type,
             logs_dir,
             "read_materialization",
             str(exc),
@@ -431,6 +445,7 @@ def main(argv: list[str] | None = None) -> int:
             source_dir,
             build_dir,
             eigen_include_dir,
+            args.cmake_build_type,
             logs_dir,
             "environment",
             str(exc),
@@ -455,6 +470,7 @@ def main(argv: list[str] | None = None) -> int:
             source_dir,
             build_dir,
             eigen_include_dir,
+            args.cmake_build_type,
             logs_dir,
             "save_artifacts",
             str(exc),
@@ -475,6 +491,8 @@ def main(argv: list[str] | None = None) -> int:
     if args.cmake_make_program:
         configure_command.append(f"-DCMAKE_MAKE_PROGRAM={args.cmake_make_program}")
 
+    configure_command.append(f"-DCMAKE_BUILD_TYPE={args.cmake_build_type}")
+
     build_command = [
         args.cmake_exe,
         "--build",
@@ -482,7 +500,7 @@ def main(argv: list[str] | None = None) -> int:
         "--target",
         "baseline_smoke_test",
         "--config",
-        "Debug",
+        args.cmake_build_type,
     ]
 
     step_statuses: list[dict[str, Any]] = []
@@ -555,6 +573,7 @@ def main(argv: list[str] | None = None) -> int:
         source_dir,
         build_dir,
         eigen_include_dir,
+        args.cmake_build_type,
         _complete_steps(step_statuses, failed_step),
     )
 
@@ -570,6 +589,7 @@ def main(argv: list[str] | None = None) -> int:
             source_dir,
             build_dir,
             eigen_include_dir,
+            args.cmake_build_type,
             _complete_steps(step_statuses, "save_artifacts"),
         )
         print("Final status: failed")

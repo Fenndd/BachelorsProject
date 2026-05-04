@@ -50,6 +50,8 @@ Python orchestration, candidate comparison, best-candidate selection, and candid
 
 `py -m orchestrator.execution.verify_candidate --candidate-run <candidate_run_dir>` runs the benchmark-family path inside the materialized candidate workspace only. It configures and builds the isolated C++ copy, runs `baseline_smoke_test`, runs `absolute_pose_lambdatwist_adapter_validator`, runs `absolute_pose_lambdatwist_benchmark`, and parses the benchmark stdout into structured verification metrics. This step is deterministic and does not call an LLM.
 
+Candidate verification builds default to **Release** for runtime metric accuracy. The build type is controlled by the `CMAKE_BUILD_TYPE` environment variable (default `Release`) or the optional `--cmake-build-type` CLI argument to `verify_candidate`. The selected build type is recorded in `verification.json`.
+
 ## Benchmark Artifact Audit
 
 `py -m orchestrator.benchmarking.audit_benchmark_pair --baseline-run <baseline_run_dir> --candidate-run <candidate_run_dir>` checks whether one baseline benchmark artifact and one candidate verification artifact are valid and comparable.
@@ -57,6 +59,22 @@ Python orchestration, candidate comparison, best-candidate selection, and candid
 The audit verifies that both artifacts parsed successfully, use the same benchmark family and solver, use the same number of cases, expose nanosecond runtime metrics, and include correctness/reprojection fields. It writes `benchmark_artifact_audit.json` into the candidate run directory.
 
 The audit only answers whether later comparison is safe. It does not decide whether the candidate is faster, better, accepted, rejected, or promotable.
+
+## Build Type
+
+Benchmark and verification builds default to **Release** (optimized). Debug builds produce misleading runtime metrics and should not be used for performance comparisons.
+
+The build type is controlled by:
+- Environment variable: `CMAKE_BUILD_TYPE` (default: `Release`)
+- CLI argument: `--cmake-build-type <value>` (on `verify_candidate`)
+
+The selected build type is:
+- Passed to CMake configure as `-DCMAKE_BUILD_TYPE=<value>`
+- Passed to `cmake --build` as `--config <value>`
+- Recorded in `verification.json`
+- Mentioned in `verification_summary.txt`
+
+The benchmark artifact audit checks that baseline and candidate artifacts have the same build type. A mismatch triggers `build_type_mismatch`. Missing build type in older artifacts triggers `build_type_not_recorded` as a warning for backward compatibility.
 
 ## Not Implemented Yet
 

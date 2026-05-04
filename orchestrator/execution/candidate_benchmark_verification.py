@@ -96,6 +96,14 @@ def _parse_args(argv: list[str]) -> argparse.Namespace:
         default=DEFAULT_BUILD_DIR_NAME,
         help="Build directory name inside the candidate cpp directory.",
     )
+    parser.add_argument(
+        "--cmake-build-type",
+        default=os.environ.get(
+            "BENCHMARK_CMAKE_BUILD_TYPE",
+            os.environ.get("CMAKE_BUILD_TYPE", "Release"),
+        ),
+        help="CMake build type (Release, Debug, RelWithDebInfo, MinSizeRel).",
+    )
     return parser.parse_args(argv)
 
 
@@ -253,11 +261,12 @@ def _find_executable(build_dir: Path, executable_name: str) -> Path:
     return max(candidates, key=lambda path: path.stat().st_mtime)
 
 
-def _empty_benchmark(raw_output_available: bool = False) -> dict[str, Any]:
+def _empty_benchmark(raw_output_available: bool = False, build_type: str = "Release") -> dict[str, Any]:
     return {
         "family": "absolute_pose_solvers",
         "solver": "lambdatwist_p3p",
         "runtime_unit": "ns",
+        "build_type": build_type,
         "raw_output_available": raw_output_available,
         "parse_success": False,
         "missing_fields": list(BENCHMARK_REQUIRED_FIELDS),
@@ -276,12 +285,14 @@ def _empty_benchmark(raw_output_available: bool = False) -> dict[str, Any]:
 def _benchmark_from_parse(
     stdout: str,
     parse_result: dict[str, Any],
+    build_type: str,
 ) -> dict[str, Any]:
     parsed_metrics = parse_result["metrics"]
     return {
         "family": "absolute_pose_solvers",
         "solver": "lambdatwist_p3p",
         "runtime_unit": "ns",
+        "build_type": build_type,
         "raw_output_available": True,
         "parse_success": parse_result["parse_success"],
         "missing_fields": parse_result["missing_fields"],
@@ -314,6 +325,7 @@ def _build_verification(
     source_dir: Path | None,
     build_dir: Path | None,
     eigen_include_dir: Path | None,
+    cmake_build_type: str,
     steps: list[dict[str, Any]],
     adapter_validation: dict[str, Any],
     benchmark: dict[str, Any],
@@ -329,6 +341,7 @@ def _build_verification(
         "eigen_include_dir": None
         if eigen_include_dir is None
         else _display_path(eigen_include_dir),
+        "cmake_build_type": cmake_build_type,
         "steps": steps,
         "adapter_validation": adapter_validation,
         "benchmark": benchmark,
@@ -353,6 +366,7 @@ def _build_summary(verification: dict[str, Any], logs_dir: Path) -> str:
         f"Workspace path: {verification['workspace_path'] or 'unknown'}",
         f"Source dir: {verification['source_dir'] or 'unknown'}",
         f"Build dir: {verification['build_dir'] or 'unknown'}",
+        f"Build type: {verification.get('cmake_build_type', 'Release')}",
         f"Overall status: {verification['overall_status']}",
         f"Failed step: {verification['failed_step'] or 'none'}",
         f"Error message: {verification['error_message'] or 'none'}",
@@ -425,6 +439,7 @@ def _finalize(
     source_dir: Path | None,
     build_dir: Path | None,
     eigen_include_dir: Path | None,
+    cmake_build_type: str,
     logs_dir: Path,
     step_statuses: list[dict[str, Any]],
     failed_step: str | None,
@@ -450,6 +465,7 @@ def _finalize(
         source_dir,
         build_dir,
         eigen_include_dir,
+        cmake_build_type,
         completed_steps,
         adapter_validation,
         benchmark,
@@ -475,6 +491,7 @@ def _fail_before_commands(
     source_dir: Path | None,
     build_dir: Path | None,
     eigen_include_dir: Path | None,
+    cmake_build_type: str,
     logs_dir: Path,
     failed_step: str,
     error_message: str,
@@ -488,11 +505,12 @@ def _fail_before_commands(
             source_dir,
             build_dir,
             eigen_include_dir,
+            cmake_build_type,
             logs_dir,
             [],
             failed_step,
             error_message,
-            _empty_benchmark(False),
+            _empty_benchmark(build_type=cmake_build_type),
         )
     except (OSError, ValueError) as exc:
         print("Final status: failed")
@@ -505,6 +523,7 @@ def _build_command(
     cmake_exe: str,
     build_dir: Path,
     target: str,
+    cmake_build_type: str,
 ) -> list[str]:
     return [
         cmake_exe,
@@ -513,7 +532,7 @@ def _build_command(
         "--target",
         target,
         "--config",
-        "Debug",
+        cmake_build_type,
     ]
 
 
@@ -564,6 +583,7 @@ def main(argv: list[str] | None = None) -> int:
             source_dir,
             build_dir,
             eigen_include_dir,
+            args.cmake_build_type,
             logs_dir,
             "read_materialization",
             str(exc),
@@ -593,6 +613,7 @@ def main(argv: list[str] | None = None) -> int:
             source_dir,
             build_dir,
             eigen_include_dir,
+            args.cmake_build_type,
             logs_dir,
             "environment",
             str(exc),
@@ -621,6 +642,7 @@ def main(argv: list[str] | None = None) -> int:
             source_dir,
             build_dir,
             eigen_include_dir,
+            args.cmake_build_type,
             logs_dir,
             "save_artifacts",
             str(exc),
@@ -641,10 +663,12 @@ def main(argv: list[str] | None = None) -> int:
     if args.cmake_make_program:
         configure_command.append(f"-DCMAKE_MAKE_PROGRAM={args.cmake_make_program}")
 
+    configure_command.append(f"-DCMAKE_BUILD_TYPE={args.cmake_build_type}")
+
     step_statuses: list[dict[str, Any]] = []
     failed_step: str | None = None
     error_message: str | None = None
-    benchmark = _empty_benchmark(False)
+    benchmark = _empty_benchmark(False, build_type=args.cmake_build_type)
 
     command_steps: list[tuple[str, str, Sequence[str], Path, Path]] = [
         (
@@ -657,21 +681,21 @@ def main(argv: list[str] | None = None) -> int:
         (
             "build_baseline_smoke_test",
             "Build baseline_smoke_test target",
-            _build_command(args.cmake_exe, build_dir, "baseline_smoke_test"),
+            _build_command(args.cmake_exe, build_dir, "baseline_smoke_test", args.cmake_build_type),
             workspace_path,
             logs_dir / "build_baseline_smoke_test.log",
         ),
         (
             "build_absolute_pose_lambdatwist_adapter_validator",
             f"Build {ADAPTER_VALIDATOR_TARGET} target",
-            _build_command(args.cmake_exe, build_dir, ADAPTER_VALIDATOR_TARGET),
+            _build_command(args.cmake_exe, build_dir, ADAPTER_VALIDATOR_TARGET, args.cmake_build_type),
             workspace_path,
             logs_dir / "build_absolute_pose_lambdatwist_adapter_validator.log",
         ),
         (
             "build_absolute_pose_lambdatwist_benchmark",
             f"Build {FAMILY_BENCHMARK_TARGET} target",
-            _build_command(args.cmake_exe, build_dir, FAMILY_BENCHMARK_TARGET),
+            _build_command(args.cmake_exe, build_dir, FAMILY_BENCHMARK_TARGET, args.cmake_build_type),
             workspace_path,
             logs_dir / "build_absolute_pose_lambdatwist_benchmark.log",
         ),
@@ -740,7 +764,7 @@ def main(argv: list[str] | None = None) -> int:
             step_statuses.append(step_status)
             if step_name == "run_absolute_pose_lambdatwist_benchmark":
                 benchmark_stdout = stdout
-                benchmark = _empty_benchmark(True)
+                benchmark = _empty_benchmark(True, build_type=args.cmake_build_type)
             if step_error:
                 failed_step = step_name
                 error_message = step_error
@@ -750,7 +774,7 @@ def main(argv: list[str] | None = None) -> int:
         parse_started = time.perf_counter()
         parse_result = parse_absolute_pose_benchmark_output(benchmark_stdout)
         parse_duration = round(time.perf_counter() - parse_started, 3)
-        benchmark = _benchmark_from_parse(benchmark_stdout, parse_result)
+        benchmark = _benchmark_from_parse(benchmark_stdout, parse_result, args.cmake_build_type)
         if parse_result["parse_success"]:
             step_statuses.append(
                 _step_status(
@@ -784,6 +808,7 @@ def main(argv: list[str] | None = None) -> int:
             source_dir,
             build_dir,
             eigen_include_dir,
+            args.cmake_build_type,
             logs_dir,
             step_statuses,
             failed_step,

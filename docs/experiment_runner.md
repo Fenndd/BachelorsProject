@@ -62,6 +62,10 @@ build and run the Lambda Twist P3P adapter validator, build and run
 `absolute_pose_lambdatwist_benchmark`, and parse the family benchmark stdout
 into `verification.json`.
 
+Candidate verification builds default to **Release** for accurate runtime
+metrics. Set `CMAKE_BUILD_TYPE=Debug` in the environment to override. The build
+type is recorded in `verification.json`.
+
 Benchmark artifacts can be audited manually before future comparison work:
 
 ```powershell
@@ -247,6 +251,26 @@ If no `--allowed-file` is provided, it defaults to `[source]`.
 
 If no `--allowed-file` is provided, the materializer falls back to
 `candidate.json["target_files"]` for legacy compatibility.
+
+## Build Type
+
+All benchmark evaluation builds (baseline and candidate verification) default
+to **Release**. Debug builds are not suitable for runtime comparisons.
+
+To override the build type for an experiment:
+
+```powershell
+$env:CMAKE_BUILD_TYPE="Debug"
+py -m orchestrator.experiments.run_experiment --config configs/experiments/my_config.json
+```
+
+The build type flows through to:
+- CMake configure (`-DCMAKE_BUILD_TYPE=<value>`)
+- CMake build (`--config <value>`)
+- Artifacts (`metadata.json`, `verification.json`)
+
+The benchmark artifact audit enforces matching build types before allowing
+comparison.
 
 ## Not Implemented Yet
 

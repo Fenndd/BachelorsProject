@@ -92,6 +92,7 @@ def _build_metadata(
     cmake_cxx_compiler: str | None,
     cmake_make_program: str | None,
     eigen_include_dir: str | None,
+    cmake_build_type: str,
 ) -> dict[str, Any]:
     return {
         "run_id": run_id,
@@ -109,6 +110,7 @@ def _build_metadata(
             "cmake_cxx_compiler": cmake_cxx_compiler,
             "cmake_make_program": cmake_make_program,
             "eigen3_include_dir": eigen_include_dir,
+            "cmake_build_type": cmake_build_type,
         },
     }
 
@@ -253,7 +255,7 @@ def _read_step_log(run_dir: Path, step_name: str) -> str | None:
     return log_path.read_text(encoding="utf-8")
 
 
-def _build_metrics(run_dir: Path, step_statuses: list[dict[str, Any]]) -> dict[str, Any]:
+def _build_metrics(run_dir: Path, step_statuses: list[dict[str, Any]], cmake_build_type: str) -> dict[str, Any]:
     build_success = all(
         _step_succeeded(step_statuses, step_name)
         for step_name in [
@@ -311,6 +313,9 @@ def _build_metrics(run_dir: Path, step_statuses: list[dict[str, Any]]) -> dict[s
             "family": "absolute_pose_solvers",
             "solver": "lambdatwist_p3p",
             "runtime_unit": "ns",
+            "benchmark_options": {
+                "build_type": cmake_build_type,
+            },
             "raw_output_available": benchmark_raw_output_available,
             "parse_success": parsed_benchmark["parse_success"],
             "missing_fields": parsed_benchmark["missing_fields"],
@@ -350,6 +355,7 @@ def _build_summary(
     metadata: dict[str, Any],
     status: dict[str, Any],
     metrics: dict[str, Any],
+    cmake_build_type: str,
 ) -> str:
     step_by_name = {step["name"]: step for step in status["steps"]}
     adapter_validation_status = step_by_name[
@@ -367,6 +373,7 @@ def _build_summary(
         f"Overall status: {status['overall_status']}",
         f"Failed step: {status['failed_step'] or 'none'}",
         f"Error message: {status['error_message'] or 'none'}",
+        f"Build type: {cmake_build_type}",
         f"Started at: {metadata['started_at']}",
         f"Finished at: {metadata['finished_at']}",
         "",
@@ -486,11 +493,12 @@ def _write_final_artifacts(
     step_statuses: list[dict[str, Any]],
     failed_step: str | None,
     error_message: str | None,
+    cmake_build_type: str,
 ) -> dict[str, Any]:
     metadata["finished_at"] = datetime.now().astimezone().isoformat(timespec="seconds")
     status = _build_status(step_statuses, failed_step, error_message)
-    metrics = _build_metrics(run_dir, step_statuses)
-    summary = _build_summary(run_dir, metadata, status, metrics)
+    metrics = _build_metrics(run_dir, step_statuses, cmake_build_type)
+    summary = _build_summary(run_dir, metadata, status, metrics, cmake_build_type)
 
     storage.save_metadata(run_dir, metadata)
     storage.save_status(run_dir, status)
@@ -511,6 +519,10 @@ def main() -> int:
     cmake_cxx_compiler = os.environ.get("CMAKE_CXX_COMPILER")
     cmake_make_program = os.environ.get("CMAKE_MAKE_PROGRAM")
     eigen_include_dir = os.environ.get("EIGEN3_INCLUDE_DIR")
+    cmake_build_type = os.environ.get(
+        "BENCHMARK_CMAKE_BUILD_TYPE",
+        os.environ.get("CMAKE_BUILD_TYPE", "Release"),
+    )
 
     storage = RunStorage(REPO_ROOT / "results")
     started_at = datetime.now().astimezone()
@@ -526,6 +538,7 @@ def main() -> int:
         cmake_cxx_compiler,
         cmake_make_program,
         eigen_include_dir,
+        cmake_build_type,
     )
     storage.save_metadata(run_dir, metadata)
 
@@ -543,6 +556,7 @@ def main() -> int:
             step_statuses,
             "environment",
             error_message,
+            cmake_build_type,
         )
         print(f"ERROR: {error_message}")
         print('Example (PowerShell): $env:EIGEN3_INCLUDE_DIR="C:\\path\\to\\eigen"')
@@ -566,6 +580,8 @@ def main() -> int:
     if cmake_make_program:
         configure_command.append(f"-DCMAKE_MAKE_PROGRAM={cmake_make_program}")
 
+    configure_command.append(f"-DCMAKE_BUILD_TYPE={cmake_build_type}")
+
     command_steps: list[tuple[str, str, Sequence[str]]] = [
         ("configure_cmake", "Configure CMake project", configure_command),
         (
@@ -578,7 +594,7 @@ def main() -> int:
                 "--target",
                 "baseline_smoke_test",
                 "--config",
-                "Debug",
+                cmake_build_type,
             ],
         ),
         (
@@ -591,7 +607,7 @@ def main() -> int:
                 "--target",
                 "baseline_runner",
                 "--config",
-                "Debug",
+                cmake_build_type,
             ],
         ),
         (
@@ -604,7 +620,7 @@ def main() -> int:
                 "--target",
                 ADAPTER_VALIDATOR_TARGET,
                 "--config",
-                "Debug",
+                cmake_build_type,
             ],
         ),
         (
@@ -617,7 +633,7 @@ def main() -> int:
                 "--target",
                 FAMILY_BENCHMARK_TARGET,
                 "--config",
-                "Debug",
+                cmake_build_type,
             ],
         ),
     ]
@@ -692,7 +708,7 @@ def main() -> int:
                 break
 
     status = _write_final_artifacts(
-        storage, run_dir, metadata, step_statuses, failed_step, error_message
+        storage, run_dir, metadata, step_statuses, failed_step, error_message, cmake_build_type
     )
     print(f"\n[DONE] Final status: {status['overall_status']}")
 

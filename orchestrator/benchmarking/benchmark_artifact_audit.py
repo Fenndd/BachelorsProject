@@ -24,6 +24,7 @@ BENCHMARK_FIELDS = [
     "parsed_runtime_ns_per_case_median",
     "parsed_correctness_passed",
     "runtime_unit",
+    "build_type",
     "benchmark_options",
 ]
 
@@ -146,6 +147,17 @@ def audit_comparable_benchmark_pair(
         failed_checks.append("benchmark_options_mismatch")
     else:
         checks["same_benchmark_options"] = True
+
+    baseline_build_type = baseline.get("build_type")
+    candidate_build_type = candidate.get("build_type")
+    if baseline_build_type is None or candidate_build_type is None:
+        checks["same_build_type"] = None
+        warnings.append("build_type_not_recorded")
+    elif baseline_build_type != candidate_build_type:
+        checks["same_build_type"] = False
+        failed_checks.append("build_type_mismatch")
+    else:
+        checks["same_build_type"] = True
 
     comparable = not failed_checks
     return {

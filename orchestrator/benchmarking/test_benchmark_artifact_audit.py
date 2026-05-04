@@ -76,6 +76,48 @@ class BenchmarkArtifactAuditTests(unittest.TestCase):
         self.assertTrue(audit["comparable"])
         self.assertIn("benchmark_options_not_recorded", audit["warnings"])
 
+    def test_matching_build_type_passes(self) -> None:
+        audit = audit_comparable_benchmark_pair(
+            _loaded_artifact(build_type="Release"),
+            _loaded_artifact(build_type="Release"),
+        )
+
+        self.assertTrue(audit["comparable"])
+        self.assertTrue(audit["checks"]["same_build_type"])
+
+    def test_build_type_mismatch_fails_pair(self) -> None:
+        audit = audit_comparable_benchmark_pair(
+            _loaded_artifact(build_type="Release"),
+            _loaded_artifact(build_type="Debug"),
+        )
+
+        self.assertFalse(audit["comparable"])
+        self.assertFalse(audit["checks"]["same_build_type"])
+        self.assertIn("build_type_mismatch", audit["failed_checks"])
+
+    def test_missing_build_type_warns_backward_compatible(self) -> None:
+        """Old artifacts without build_type should warn but not fail."""
+        audit = audit_comparable_benchmark_pair(
+            _loaded_artifact(),  # no build_type key
+            _loaded_artifact(),  # no build_type key
+        )
+
+        self.assertTrue(audit["comparable"])
+        self.assertIsNone(audit["checks"]["same_build_type"])
+        self.assertIn("build_type_not_recorded", audit["warnings"])
+        self.assertNotIn("build_type_mismatch", audit["failed_checks"])
+
+    def test_one_sided_missing_build_type_warns(self) -> None:
+        """If only baseline has build_type, warn but don't fail."""
+        audit = audit_comparable_benchmark_pair(
+            _loaded_artifact(build_type="Release"),
+            _loaded_artifact(),  # no build_type
+        )
+
+        self.assertTrue(audit["comparable"])
+        self.assertIsNone(audit["checks"]["same_build_type"])
+        self.assertIn("build_type_not_recorded", audit["warnings"])
+
 
 if __name__ == "__main__":
     unittest.main()

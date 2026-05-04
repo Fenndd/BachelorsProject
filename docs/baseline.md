@@ -35,6 +35,34 @@ The standard baseline CLI now configures CMake, builds the smoke test, runner, a
 
 The adapter validator runs before the family benchmark. If validation fails, the family benchmark is skipped.
 
+## Build Configuration
+
+Baseline benchmarks and smoke tests default to **Release** builds for accurate runtime metrics. Debug builds are not suitable for performance comparisons.
+
+The build type is controlled by the `CMAKE_BUILD_TYPE` environment variable:
+- Default: `Release` (optimized)
+- Override: set `CMAKE_BUILD_TYPE=Debug` for debugging
+
+On Windows PowerShell:
+```powershell
+$env:CMAKE_BUILD_TYPE="Debug"
+py -m orchestrator.cli.main
+```
+
+On Unix:
+```bash
+export CMAKE_BUILD_TYPE=Debug
+python -m orchestrator.cli.main
+```
+
+The selected build type:
+- Is passed to CMake configure as `-DCMAKE_BUILD_TYPE=<value>`
+- Is passed to cmake --build as `--config <value>`
+- Is recorded in `metadata.json` (environment section) and `metrics.json` (benchmark section)
+- Appears in `summary.txt` for traceability
+
+Baseline and candidate benchmarks should only be compared when built with the same build type. The benchmark artifact audit enforces this check.
+
 ## Not Implemented Yet
 
 - Candidate benchmark execution and comparison against the baseline
