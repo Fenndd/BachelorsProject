@@ -34,11 +34,33 @@ All core benchmark code and adapters use the canonical pose convention:
 
 `absolute_pose_lambdatwist_benchmark` uses the new family architecture: it generates many deterministic synthetic cases before timing, validates every case outside the timed section, and reports stable key-value summary metrics.
 
+The benchmark runner prints stable snake_case key-value lines such as `solver_name`, `num_cases`, `success_rate`, `runtime_ns_per_case_median`, and `correctness_passed`. The Python baseline CLI parses these values into `metrics.json`, `summary.txt`, and compact `index.jsonl` fields. Candidate verification reuses the same parser and stores parsed values in each candidate run's `verification.json`.
+
+## Adapter Validation
+
+`absolute_pose_lambdatwist_adapter_validator` is a benchmark-preparation executable that checks whether the Lambda Twist P3P adapter is trustworthy before it is used as part of fixed evaluation.
+
+The validator currently covers the only implemented adapter, Lambda Twist P3P. It checks adapter metadata, deterministic synthetic case solving, finite pose output, rotation matrix sanity, and reprojection correctness using the best returned pose across all P3P solutions. The maximum reprojection error is printed as a diagnostic; the hard reprojection gate uses success rate and mean best reprojection error.
+
+Exit code `0` means the adapter is accepted. Exit code `1` means the adapter is rejected and should not be used for fixed benchmark evaluation until investigated.
+
+Python orchestration, candidate comparison, best-candidate selection, and candidate promotion are not part of adapter validation yet.
+
+## Candidate Verification
+
+`py -m orchestrator.execution.verify_candidate --candidate-run <candidate_run_dir>` runs the benchmark-family path inside the materialized candidate workspace only. It configures and builds the isolated C++ copy, runs `baseline_smoke_test`, runs `absolute_pose_lambdatwist_adapter_validator`, runs `absolute_pose_lambdatwist_benchmark`, and parses the benchmark stdout into structured verification metrics. This step is deterministic and does not call an LLM.
+
+## Benchmark Artifact Audit
+
+`py -m orchestrator.benchmarking.audit_benchmark_pair --baseline-run <baseline_run_dir> --candidate-run <candidate_run_dir>` checks whether one baseline benchmark artifact and one candidate verification artifact are valid and comparable.
+
+The audit verifies that both artifacts parsed successfully, use the same benchmark family and solver, use the same number of cases, expose nanosecond runtime metrics, and include correctness/reprojection fields. It writes `benchmark_artifact_audit.json` into the candidate run directory.
+
+The audit only answers whether later comparison is safe. It does not decide whether the candidate is faster, better, accepted, rejected, or promotable.
+
 ## Not Implemented Yet
 
 - JSON metrics output
-- Python benchmark parsing
-- candidate benchmark execution
 - comparator and best-candidate selection
 - candidate promotion
 - additional absolute pose solvers

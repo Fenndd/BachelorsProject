@@ -1,17 +1,18 @@
-"""CLI wrapper for the current narrow candidate smoke verifier.
+"""CLI wrapper for candidate benchmark-family verification.
 
 The public command intentionally remains:
 
     py -m orchestrator.execution.verify_candidate --candidate-run ...
 
-The implementation lives in candidate_smoke_verification.py to make it clear
-that this is a Step 9, smoke-test-only verifier, not the future general
-candidate execution pipeline.
+The implementation verifies a materialized candidate in its isolated workspace
+with the same smoke, adapter validator, family benchmark, and benchmark parser
+path used by baseline automation. It does not compare candidates or select a
+best candidate.
 """
 
 from __future__ import annotations
 
-from .candidate_smoke_verification import main
+from .candidate_benchmark_verification import main
 
 
 if __name__ == "__main__":

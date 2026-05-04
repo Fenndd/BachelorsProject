@@ -2,10 +2,11 @@
 
 This script automates the current baseline flow:
 1. CMake configure
-2. CMake build (baseline_smoke_test, baseline_runner, and baseline_benchmark targets)
+2. CMake build (baseline_smoke_test, baseline_runner, adapter validator, and family benchmark targets)
 3. Run baseline_smoke_test executable
 4. Run baseline_runner executable
-5. Run baseline_benchmark executable
+5. Run the Lambda Twist P3P adapter validator executable
+6. Run the Lambda Twist P3P family benchmark executable
 
 Each execution also writes persistent run artifacts under results/runs/<run_id>/.
 
@@ -30,6 +31,7 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
+from orchestrator.benchmarking import parse_absolute_pose_benchmark_output
 from orchestrator.storage import RunStorage
 
 
@@ -37,11 +39,16 @@ EXPECTED_STEPS = [
     "configure_cmake",
     "build_baseline_smoke_test",
     "build_baseline_runner",
-    "build_baseline_benchmark",
+    "build_absolute_pose_lambdatwist_adapter_validator",
+    "build_absolute_pose_lambdatwist_benchmark",
     "run_baseline_smoke_test",
     "run_baseline_runner",
-    "run_baseline_benchmark",
+    "run_absolute_pose_lambdatwist_adapter_validator",
+    "run_absolute_pose_lambdatwist_benchmark",
 ]
+
+ADAPTER_VALIDATOR_TARGET = "absolute_pose_lambdatwist_adapter_validator"
+FAMILY_BENCHMARK_TARGET = "absolute_pose_lambdatwist_benchmark"
 
 
 def _format_command(command: Sequence[str]) -> str:
@@ -239,33 +246,95 @@ def _step_executed(step_statuses: list[dict[str, Any]], step_name: str) -> bool:
     )
 
 
-def _build_metrics(step_statuses: list[dict[str, Any]]) -> dict[str, Any]:
+def _read_step_log(run_dir: Path, step_name: str) -> str | None:
+    log_path = run_dir / "logs" / f"{step_name}.log"
+    if not log_path.exists():
+        return None
+    return log_path.read_text(encoding="utf-8")
+
+
+def _build_metrics(run_dir: Path, step_statuses: list[dict[str, Any]]) -> dict[str, Any]:
     build_success = all(
         _step_succeeded(step_statuses, step_name)
         for step_name in [
             "configure_cmake",
             "build_baseline_smoke_test",
             "build_baseline_runner",
-            "build_baseline_benchmark",
+            "build_absolute_pose_lambdatwist_adapter_validator",
+            "build_absolute_pose_lambdatwist_benchmark",
         ]
     )
     smoke_test_success = _step_succeeded(step_statuses, "run_baseline_smoke_test")
     runner_success = _step_succeeded(step_statuses, "run_baseline_runner")
-    benchmark_success = _step_succeeded(step_statuses, "run_baseline_benchmark")
+    adapter_validation_success = _step_succeeded(
+        step_statuses, "run_absolute_pose_lambdatwist_adapter_validator"
+    )
+    family_benchmark_success = _step_succeeded(
+        step_statuses, "run_absolute_pose_lambdatwist_benchmark"
+    )
+    family_benchmark_log = _read_step_log(
+        run_dir, "run_absolute_pose_lambdatwist_benchmark"
+    )
+    benchmark_raw_output_available = family_benchmark_log is not None
+    if family_benchmark_log is None:
+        parsed_benchmark = {
+            "parse_success": False,
+            "missing_fields": [
+                "solver_name",
+                "num_cases",
+                "success_rate",
+                "mean_best_reprojection_error",
+                "max_best_reprojection_error",
+                "runtime_ns_total_median",
+                "runtime_ns_per_case_median",
+                "correctness_passed",
+            ],
+            "parse_errors": ["family benchmark log is not available"],
+            "metrics": {},
+        }
+    else:
+        parsed_benchmark = parse_absolute_pose_benchmark_output(family_benchmark_log)
+    parsed_metrics = parsed_benchmark["metrics"]
+    # Parsing is recorded as an explicit metric instead of changing the process
+    # exit code here. The baseline command already fails on benchmark execution
+    # errors; parse failures stay visible in metrics.json, index.jsonl, and
+    # summary.txt until Step 11 defines stricter comparison-time gates.
 
     return {
         "build_success": build_success,
         "smoke_test_success": smoke_test_success,
         "runner_success": runner_success,
-        "benchmark_success": benchmark_success,
+        "adapter_validation_success": adapter_validation_success,
+        "family_benchmark_success": family_benchmark_success,
+        "benchmark_success": family_benchmark_success,
         "benchmark": {
-            "raw_output_available": _step_executed(
-                step_statuses, "run_baseline_benchmark"
+            "family": "absolute_pose_solvers",
+            "solver": "lambdatwist_p3p",
+            "runtime_unit": "ns",
+            "raw_output_available": benchmark_raw_output_available,
+            "parse_success": parsed_benchmark["parse_success"],
+            "missing_fields": parsed_benchmark["missing_fields"],
+            "parse_errors": parsed_benchmark["parse_errors"],
+            "parsed_solver_name": parsed_metrics.get("solver_name"),
+            "parsed_num_cases": parsed_metrics.get("num_cases"),
+            "parsed_success_rate": parsed_metrics.get("success_rate"),
+            "parsed_mean_best_reprojection_error": parsed_metrics.get(
+                "mean_best_reprojection_error"
             ),
-            "parsed_runtime_ms": None,
+            "parsed_max_best_reprojection_error": parsed_metrics.get(
+                "max_best_reprojection_error"
+            ),
+            "parsed_runtime_ns_total_median": parsed_metrics.get(
+                "runtime_ns_total_median"
+            ),
+            "parsed_runtime_ns_per_case_median": parsed_metrics.get(
+                "runtime_ns_per_case_median"
+            ),
+            "parsed_correctness_passed": parsed_metrics.get("correctness_passed"),
         },
         "correctness": {
             "basic_smoke_test_passed": smoke_test_success,
+            "adapter_validation_passed": adapter_validation_success,
         },
     }
 
@@ -280,7 +349,16 @@ def _build_summary(
     run_dir: Path,
     metadata: dict[str, Any],
     status: dict[str, Any],
+    metrics: dict[str, Any],
 ) -> str:
+    step_by_name = {step["name"]: step for step in status["steps"]}
+    adapter_validation_status = step_by_name[
+        "run_absolute_pose_lambdatwist_adapter_validator"
+    ]["status"]
+    family_benchmark_status = step_by_name[
+        "run_absolute_pose_lambdatwist_benchmark"
+    ]["status"]
+
     lines = [
         f"Run: {metadata['run_id']}",
         "Scenario: baseline",
@@ -301,15 +379,46 @@ def _build_summary(
             f"({_format_duration(step['duration_seconds'])})"
         )
 
+    benchmark = metrics["benchmark"]
     lines.extend(
         [
             "",
             f"Logs directory: {run_dir / 'logs'}",
-            "Benchmark parsed runtime is not available yet.",
+            f"Adapter validation status: {adapter_validation_status}",
+            f"Family benchmark status: {family_benchmark_status}",
+            "Adapter validation log: logs/run_absolute_pose_lambdatwist_adapter_validator.log",
+            "Family benchmark raw output log: logs/run_absolute_pose_lambdatwist_benchmark.log",
+            "",
+            "Family benchmark:",
+            f"- solver: {_format_metric_value(benchmark['parsed_solver_name'])}",
+            f"- cases: {_format_metric_value(benchmark['parsed_num_cases'])}",
+            f"- success rate: {_format_metric_value(benchmark['parsed_success_rate'])}",
+            f"- correctness passed: {_format_metric_value(benchmark['parsed_correctness_passed'])}",
+            "- mean best reprojection error: "
+            f"{_format_metric_value(benchmark['parsed_mean_best_reprojection_error'])}",
+            "- max best reprojection error: "
+            f"{_format_metric_value(benchmark['parsed_max_best_reprojection_error'])}",
+            "- median runtime total: "
+            f"{_format_metric_value(benchmark['parsed_runtime_ns_total_median'])} ns",
+            "- median runtime per case: "
+            f"{_format_metric_value(benchmark['parsed_runtime_ns_per_case_median'])} ns",
+            f"- parse success: {_format_metric_value(benchmark['parse_success'])}",
             "",
         ]
     )
+    if benchmark["missing_fields"]:
+        lines.append(f"- missing fields: {', '.join(benchmark['missing_fields'])}")
+    if benchmark["parse_errors"]:
+        lines.append(f"- parse errors: {'; '.join(benchmark['parse_errors'])}")
     return "\n".join(lines)
+
+
+def _format_metric_value(value: object) -> str:
+    if value is None:
+        return "n/a"
+    if isinstance(value, bool):
+        return str(value).lower()
+    return str(value)
 
 
 def _display_path(path: Path, repo_root: Path) -> str:
@@ -344,8 +453,28 @@ def _build_index_record(
         "smoke_test_success": metrics["smoke_test_success"],
         "runner_success": metrics["runner_success"],
         "benchmark_success": metrics["benchmark_success"],
+        "adapter_validation_success": metrics["adapter_validation_success"],
+        "family_benchmark_success": metrics["family_benchmark_success"],
         "benchmark_raw_output_available": benchmark["raw_output_available"],
-        "benchmark_runtime_ms": benchmark["parsed_runtime_ms"],
+        "benchmark_runtime_ms": None,
+        "family_benchmark_raw_output_available": benchmark["raw_output_available"],
+        "family_benchmark_parse_success": benchmark["parse_success"],
+        "family_benchmark_solver": benchmark["parsed_solver_name"],
+        "family_benchmark_num_cases": benchmark["parsed_num_cases"],
+        "family_benchmark_success_rate": benchmark["parsed_success_rate"],
+        "family_benchmark_mean_best_reprojection_error": benchmark[
+            "parsed_mean_best_reprojection_error"
+        ],
+        "family_benchmark_max_best_reprojection_error": benchmark[
+            "parsed_max_best_reprojection_error"
+        ],
+        "family_benchmark_runtime_ns_total_median": benchmark[
+            "parsed_runtime_ns_total_median"
+        ],
+        "family_benchmark_runtime_ns_per_case_median": benchmark[
+            "parsed_runtime_ns_per_case_median"
+        ],
+        "family_benchmark_correctness_passed": benchmark["parsed_correctness_passed"],
         "run_dir": _display_path(run_dir, repo_root),
     }
 
@@ -360,8 +489,8 @@ def _write_final_artifacts(
 ) -> dict[str, Any]:
     metadata["finished_at"] = datetime.now().astimezone().isoformat(timespec="seconds")
     status = _build_status(step_statuses, failed_step, error_message)
-    metrics = _build_metrics(step_statuses)
-    summary = _build_summary(run_dir, metadata, status)
+    metrics = _build_metrics(run_dir, step_statuses)
+    summary = _build_summary(run_dir, metadata, status, metrics)
 
     storage.save_metadata(run_dir, metadata)
     storage.save_status(run_dir, status)
@@ -466,14 +595,27 @@ def main() -> int:
             ],
         ),
         (
-            "build_baseline_benchmark",
-            "Build baseline_benchmark target",
+            "build_absolute_pose_lambdatwist_adapter_validator",
+            f"Build {ADAPTER_VALIDATOR_TARGET} target",
             [
                 cmake_exe,
                 "--build",
                 str(build_dir),
                 "--target",
-                "baseline_benchmark",
+                ADAPTER_VALIDATOR_TARGET,
+                "--config",
+                "Debug",
+            ],
+        ),
+        (
+            "build_absolute_pose_lambdatwist_benchmark",
+            f"Build {FAMILY_BENCHMARK_TARGET} target",
+            [
+                cmake_exe,
+                "--build",
+                str(build_dir),
+                "--target",
+                FAMILY_BENCHMARK_TARGET,
                 "--config",
                 "Debug",
             ],
@@ -501,9 +643,14 @@ def main() -> int:
         ),
         ("run_baseline_runner", "Run baseline_runner executable", "baseline_runner"),
         (
-            "run_baseline_benchmark",
-            "Run baseline_benchmark executable",
-            "baseline_benchmark",
+            "run_absolute_pose_lambdatwist_adapter_validator",
+            f"Run {ADAPTER_VALIDATOR_TARGET} executable",
+            ADAPTER_VALIDATOR_TARGET,
+        ),
+        (
+            "run_absolute_pose_lambdatwist_benchmark",
+            f"Run {FAMILY_BENCHMARK_TARGET} executable",
+            FAMILY_BENCHMARK_TARGET,
         ),
     ]
 

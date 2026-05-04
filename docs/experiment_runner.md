@@ -55,6 +55,25 @@ The active Step 9 materialization command is
 `orchestrator/patching/apply_patch.py` module is only a compatibility marker for
 a future broader patching API.
 
+`verify_candidate` is deterministic and does not call any LLM API. It now runs
+the same benchmark-family verification path used by the baseline preparation:
+configure CMake in the isolated workspace, build and run `baseline_smoke_test`,
+build and run the Lambda Twist P3P adapter validator, build and run
+`absolute_pose_lambdatwist_benchmark`, and parse the family benchmark stdout
+into `verification.json`.
+
+Benchmark artifacts can be audited manually before future comparison work:
+
+```powershell
+py -m orchestrator.benchmarking.audit_benchmark_pair `
+  --baseline-run results/runs/<baseline_run_id> `
+  --candidate-run results/runs/<candidate_run_id>
+```
+
+The audit writes `benchmark_artifact_audit.json` into the candidate run
+directory and checks whether the baseline and candidate metrics are safe to
+compare. It does not rank candidates, choose a winner, or promote code.
+
 ## Variant-Local History
 
 When `history_policy.enabled` is true, later iterations receive a compact
@@ -135,8 +154,6 @@ Generated experiment outputs are ignored by git.
 
 The experiment runner still does not implement:
 
-- candidate benchmark runs
-- benchmark runtime parsing
 - candidate comparison
 - best candidate selection
 - promotion of candidates into the main source tree

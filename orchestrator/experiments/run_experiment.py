@@ -726,6 +726,8 @@ def _verification_stage_record(
             or f"verify_candidate exited with code {exit_code}"
         )
     record["steps"] = verification.get("steps")
+    record["adapter_validation"] = verification.get("adapter_validation")
+    record["benchmark"] = verification.get("benchmark")
     return record
 
 
@@ -910,6 +912,7 @@ def _variant_record_history(record: dict[str, Any]) -> dict[str, Any]:
     generation = record["generation"]
     materialization = record["materialization"]
     verification = record["verification"]
+    benchmark = verification.get("benchmark") or {}
     return {
         "variant_id": record["variant_id"],
         "variant_iteration": record["variant_iteration"],
@@ -924,6 +927,14 @@ def _variant_record_history(record: dict[str, Any]) -> dict[str, Any]:
         "unified_diff_present": generation.get("unified_diff_present"),
         "materialization_status": materialization.get("status"),
         "verification_status": verification.get("status"),
+        "verification_benchmark_parse_success": benchmark.get("parse_success"),
+        "verification_benchmark_runtime_ns_per_case_median": benchmark.get(
+            "parsed_runtime_ns_per_case_median"
+        ),
+        "verification_benchmark_success_rate": benchmark.get("parsed_success_rate"),
+        "verification_benchmark_correctness_passed": benchmark.get(
+            "parsed_correctness_passed"
+        ),
         "changed_files": materialization.get("changed_files"),
         "failed_stage": _failed_stage(record),
         "failed_step": _failed_step(record),
@@ -1187,7 +1198,7 @@ def _build_summary(
     lines.extend(
         [
             "",
-            "Benchmarking, comparison, and best candidate selection are not implemented yet.",
+            "Baseline-vs-candidate comparison and best candidate selection are not implemented yet.",
             "",
         ]
     )
@@ -1287,7 +1298,7 @@ def _write_early_failure_artifacts(
         f"Total planned iterations: {_total_iterations(config)}",
         "No iterations were executed.",
         "",
-        "Benchmarking, comparison, and best candidate selection are not implemented yet.",
+        "Baseline-vs-candidate comparison and best candidate selection are not implemented yet.",
         "",
     ]
     (experiment_dir / "summary.txt").write_text("\n".join(lines), encoding="utf-8")

@@ -2,31 +2,18 @@
 
 ## Purpose
 
-The `results/` directory is reserved for persistent outputs produced by experiment runs. It is intended to keep enough information to inspect what was executed, whether it succeeded, which environment was used, and which raw logs or metrics were produced.
+The `results/` directory stores persistent outputs produced by baseline, candidate, and experiment runs. Each baseline CLI run writes one detailed run directory under `results/runs/<run_id>/` and appends one compact record to `results/index.jsonl`.
 
-The baseline CLI and manual LLM candidate generation command write one detailed run directory per execution and append one compact record to the global JSON Lines index.
+## Baseline Run
 
-## One Run
+For the current baseline phase, a run configures CMake, builds the baseline smoke test, baseline runner, Lambda Twist P3P adapter validator, and absolute-pose family benchmark, then runs them in this order:
 
-One run represents a single execution of one experiment scenario. For the current baseline phase, a run is one complete attempt to configure CMake, build the baseline targets, execute the smoke test, execute the runner, and execute the benchmark. For the first LLM phase, a run is one attempt to generate and validate a candidate patch from a controlled DeepSeek prompt.
+1. `baseline_smoke_test`
+2. `baseline_runner`
+3. `absolute_pose_lambdatwist_adapter_validator`
+4. `absolute_pose_lambdatwist_benchmark`
 
-Each run should be stored in its own directory under `results/runs/<run_id>/`. The directory should be self-contained and should not depend on other run directories for interpretation.
-
-## Run ID Format
-
-The recommended `run_id` format is:
-
-```text
-YYYY-MM-DD_HH-MM-SS_<scenario>
-```
-
-Example:
-
-```text
-2026-05-01_23-40-12_baseline
-```
-
-The timestamp should use local time unless a later implementation explicitly standardizes on UTC. The `<scenario>` suffix should be short, lowercase, and descriptive, for example `baseline`.
+The old `baseline_benchmark` target remains in CMake for compatibility, but the main baseline CLI now uses the family benchmark flow. If adapter validation fails, the family benchmark run step is skipped.
 
 ## Directory Layout
 
@@ -42,238 +29,99 @@ results/
       │  ├─ configure_cmake.log
       │  ├─ build_baseline_smoke_test.log
       │  ├─ build_baseline_runner.log
-      │  ├─ build_baseline_benchmark.log
+      │  ├─ build_absolute_pose_lambdatwist_adapter_validator.log
+      │  ├─ build_absolute_pose_lambdatwist_benchmark.log
       │  ├─ run_baseline_smoke_test.log
       │  ├─ run_baseline_runner.log
-      │  └─ run_baseline_benchmark.log
+      │  ├─ run_absolute_pose_lambdatwist_adapter_validator.log
+      │  └─ run_absolute_pose_lambdatwist_benchmark.log
       └─ summary.txt
 ```
 
-## `index.jsonl`
-
-`results/index.jsonl` is a global append-only index for quick listing of runs. It uses JSON Lines format: each line is one complete JSON object, and each indexed execution appends exactly one new line.
-
-The index should contain compact summary fields such as run id, scenario, overall status, failed step, timestamps, repository state, and the run directory path. Baseline records also include success flags and benchmark placeholders. LLM candidate records include provider, model, target file, candidate risk level, expected effect, unified-diff availability, and manual-review flag.
-
-Example line:
-
-```json
-{"run_id":"2026-05-01_23-40-12_baseline","scenario":"baseline","case_study":"p3p_solver","baseline":"lambda_twist","overall_status":"success","failed_step":null,"started_at":"2026-05-01T23:40:12+02:00","finished_at":"2026-05-01T23:41:03+02:00","git_commit":"abc1234","git_branch":"main","dirty_worktree":false,"build_success":true,"smoke_test_success":true,"runner_success":true,"benchmark_success":true,"benchmark_raw_output_available":true,"benchmark_runtime_ms":null,"run_dir":"results/runs/2026-05-01_23-40-12_baseline"}
-```
-
-The index is intentionally compact. Per-run folders remain the source of detailed logs and artifacts.
-
-LLM candidate run folders use the same `metadata.json`, `status.json`, and `summary.txt` convention. Successful candidate runs also save `llm_request.json`, `llm_response.json`, `candidate.json`, and `candidate.diff`. Candidate patches are saved as artifacts and are not applied to the main source tree automatically. A later materialization step may apply a candidate diff only inside an isolated workspace copy.
-
-## `metadata.json`
-
-`metadata.json` should describe the run identity, repository state, and execution environment. It should be written once the run starts and updated with `finished_at` when the run ends.
-
-Recommended fields:
-
-```json
-{
-  "run_id": "2026-05-01_23-40-12_baseline",
-  "scenario": "baseline",
-  "case_study": "p3p",
-  "baseline": "lambda_twist",
-  "started_at": "2026-05-01T23:40:12+02:00",
-  "finished_at": "2026-05-01T23:41:03+02:00",
-  "repository": {
-    "git_commit": "abc1234",
-    "git_branch": "main",
-    "dirty_worktree": false
-  },
-  "environment": {
-    "python_version": "3.12.0",
-    "platform": "Windows-10-10.0.26100-SP0",
-    "cmake_exe": "cmake",
-    "cmake_generator": "MinGW Makefiles",
-    "cxx_compiler": "C:\\path\\to\\g++.exe",
-    "eigen3_include_dir": "C:\\path\\to\\eigen"
-  }
-}
-```
-
-The exact values should come from the Python orchestrator, Git, platform inspection, and environment variables used by the baseline flow.
-
 ## `status.json`
 
-`status.json` should describe whether the run succeeded and which step failed if the run did not complete successfully.
+`status.json` records overall success, failed step, error message, and all expected steps. Step statuses are `success`, `failed`, or `skipped`; if one step fails, later unexecuted steps are marked `skipped`.
 
-Recommended fields:
+Expected baseline steps are:
 
-```json
-{
-  "overall_status": "success",
-  "failed_step": null,
-  "error_message": null,
-  "steps": [
-    {
-      "name": "configure_cmake",
-      "status": "success",
-      "exit_code": 0,
-      "duration_seconds": 1.42
-    },
-    {
-      "name": "build_baseline_smoke_test",
-      "status": "success",
-      "exit_code": 0,
-      "duration_seconds": 2.31
-    }
-  ]
-}
-```
-
-Suggested status values are `success`, `failed`, and `skipped`. If a step fails, later steps that are not executed are marked as `skipped`.
-
-Each step status should contain:
-
-- `name`: stable machine-readable step name.
-- `status`: step result, for example `success`, `failed`, or `skipped`.
-- `exit_code`: process exit code, or `null` if the step did not run.
-- `duration_seconds`: wall-clock duration, or `null` if the step did not run.
+- `configure_cmake`
+- `build_baseline_smoke_test`
+- `build_baseline_runner`
+- `build_absolute_pose_lambdatwist_adapter_validator`
+- `build_absolute_pose_lambdatwist_benchmark`
+- `run_baseline_smoke_test`
+- `run_baseline_runner`
+- `run_absolute_pose_lambdatwist_adapter_validator`
+- `run_absolute_pose_lambdatwist_benchmark`
 
 ## `metrics.json`
 
-`metrics.json` should contain structured results that are useful for later comparison. For the current baseline phase, the file should stay intentionally small.
-
-Recommended fields:
+Baseline metrics contain success flags and parsed family benchmark values. The parser reads stable snake_case key-value lines from the family benchmark stdout log. A benchmark execution failure still fails the baseline run; a parse failure is recorded with `parse_success: false`, missing fields, and parse errors so it is visible without introducing Step 11 comparison gates yet.
 
 ```json
 {
   "build_success": true,
   "smoke_test_success": true,
   "runner_success": true,
+  "adapter_validation_success": true,
+  "family_benchmark_success": true,
   "benchmark_success": true,
   "benchmark": {
+    "family": "absolute_pose_solvers",
+    "solver": "lambdatwist_p3p",
+    "runtime_unit": "ns",
     "raw_output_available": true,
-    "parsed_runtime_ms": null
+    "parse_success": true,
+    "missing_fields": [],
+    "parse_errors": [],
+    "parsed_solver_name": "lambdatwist_p3p",
+    "parsed_num_cases": 1000,
+    "parsed_success_rate": 1.0,
+    "parsed_mean_best_reprojection_error": 7.63e-14,
+    "parsed_max_best_reprojection_error": 1.1e-12,
+    "parsed_runtime_ns_total_median": 32928700.0,
+    "parsed_runtime_ns_per_case_median": 32928.7,
+    "parsed_correctness_passed": true
   },
   "correctness": {
-    "basic_smoke_test_passed": true
+    "basic_smoke_test_passed": true,
+    "adapter_validation_passed": true
   }
 }
 ```
 
-`benchmark.parsed_runtime_ms` may be `null` for now because benchmark output parsing is not part of the current baseline storage preparation step.
+## `index.jsonl`
+
+`results/index.jsonl` is a compact append-only JSON Lines index. Baseline records include run identity, repository state, success flags, and compact parsed family benchmark values:
+
+```json
+{"run_id":"2026-05-01_23-40-12_baseline","scenario":"baseline","case_study":"p3p_solver","baseline":"lambda_twist","overall_status":"success","failed_step":null,"started_at":"2026-05-01T23:40:12+02:00","finished_at":"2026-05-01T23:41:03+02:00","git_commit":"abc1234","git_branch":"main","dirty_worktree":false,"build_success":true,"smoke_test_success":true,"runner_success":true,"benchmark_success":true,"adapter_validation_success":true,"family_benchmark_success":true,"benchmark_raw_output_available":true,"benchmark_runtime_ms":null,"family_benchmark_raw_output_available":true,"family_benchmark_parse_success":true,"family_benchmark_solver":"lambdatwist_p3p","family_benchmark_num_cases":1000,"family_benchmark_success_rate":1.0,"family_benchmark_mean_best_reprojection_error":7.63e-14,"family_benchmark_max_best_reprojection_error":1.1e-12,"family_benchmark_runtime_ns_total_median":32928700.0,"family_benchmark_runtime_ns_per_case_median":32928.7,"family_benchmark_correctness_passed":true,"run_dir":"results/runs/2026-05-01_23-40-12_baseline"}
+```
 
 ## `logs/`
 
-The `logs/` directory should contain one log file per command step. Each log file should include:
+Each command step writes one log whose filename matches the stable step name. Logs include step name, command, working directory, exit code, stdout, and stderr.
 
-- Step name.
-- Command.
-- Working directory.
-- Exit code.
-- Standard output.
-- Standard error.
+## Candidate Verification Artifacts
 
-The log file names should match the stable step names used in `status.json` so humans and tools can connect status entries to raw command output.
+Materialized candidate runs write `verification.json`, `verification_summary.txt`, and command logs under `verification_logs/`. Verification runs only inside the isolated workspace from `materialization.json`; it configures CMake, runs `baseline_smoke_test`, runs the Lambda Twist P3P adapter validator, runs the absolute-pose family benchmark, and parses benchmark stdout into structured verification metrics.
+
+If benchmark parsing fails, candidate verification fails because later comparison cannot use unstructured benchmark output. This still does not perform baseline-vs-candidate comparison or best-candidate selection.
+
+## Benchmark Artifact Audit
+
+`py -m orchestrator.benchmarking.audit_benchmark_pair --baseline-run <baseline_run_dir> --candidate-run <candidate_run_dir>` writes `<candidate_run_dir>/benchmark_artifact_audit.json`.
+
+The audit loads baseline benchmark metrics from `metrics.json` and candidate benchmark metrics from `verification.json`. It checks artifact presence, parse success, required structured fields, matching family/solver/case count, runtime availability, correctness availability, and nanosecond runtime units. If benchmark options are not recorded yet, the audit emits `benchmark_options_not_recorded` as a warning instead of failing.
+
+The audit result records whether artifacts are comparable, but it does not rank candidates or choose a better version.
 
 ## `summary.txt`
 
-`summary.txt` should be a short human-readable summary of the run. It should help a reader quickly understand what scenario ran, whether it succeeded, which step failed if applicable, and where to look next.
-
-Example:
-
-```text
-Run: 2026-05-01_23-40-12_baseline
-Scenario: baseline
-Case study: p3p
-Baseline: lambda_twist
-Status: success
-Started: 2026-05-01T23:40:12+02:00
-Finished: 2026-05-01T23:41:03+02:00
-
-All baseline configure, build, smoke test, runner, and benchmark steps completed successfully.
-Benchmark raw output is available in logs/run_baseline_benchmark.log.
-Parsed benchmark runtime is not available yet.
-```
-
-## Successful Run Example
-
-```text
-results/
-└─ runs/
-   └─ 2026-05-01_23-40-12_baseline/
-      ├─ metadata.json
-      ├─ status.json
-      ├─ metrics.json
-      ├─ logs/
-      │  ├─ configure_cmake.log
-      │  ├─ build_baseline_smoke_test.log
-      │  ├─ build_baseline_runner.log
-      │  ├─ build_baseline_benchmark.log
-      │  ├─ run_baseline_smoke_test.log
-      │  ├─ run_baseline_runner.log
-      │  └─ run_baseline_benchmark.log
-      └─ summary.txt
-```
-
-In a successful baseline run, `status.json` should have `overall_status` set to `success`, every step should have `status` set to `success`, and the basic success fields in `metrics.json` should be `true`.
-
-## Failed Run `status.json` Example
-
-```json
-{
-  "overall_status": "failed",
-  "failed_step": "build_baseline_benchmark",
-  "error_message": "CMake build failed for target baseline_benchmark.",
-  "steps": [
-    {
-      "name": "configure_cmake",
-      "status": "success",
-      "exit_code": 0,
-      "duration_seconds": 1.39
-    },
-    {
-      "name": "build_baseline_smoke_test",
-      "status": "success",
-      "exit_code": 0,
-      "duration_seconds": 2.22
-    },
-    {
-      "name": "build_baseline_runner",
-      "status": "success",
-      "exit_code": 0,
-      "duration_seconds": 2.04
-    },
-    {
-      "name": "build_baseline_benchmark",
-      "status": "failed",
-      "exit_code": 1,
-      "duration_seconds": 0.88
-    },
-    {
-      "name": "run_baseline_smoke_test",
-      "status": "skipped",
-      "exit_code": null,
-      "duration_seconds": null
-    },
-    {
-      "name": "run_baseline_runner",
-      "status": "skipped",
-      "exit_code": null,
-      "duration_seconds": null
-    },
-    {
-      "name": "run_baseline_benchmark",
-      "status": "skipped",
-      "exit_code": null,
-      "duration_seconds": null
-    }
-  ]
-}
-```
+`summary.txt` is a human-readable overview. It lists step statuses, adapter validation status, family benchmark status, the family benchmark raw output log, and parsed family benchmark values. If parsing fails, `summary.txt` lists missing fields or parse errors.
 
 ## Not Implemented Yet
 
-The current repository intentionally leaves the following work for later steps:
-
-- Benchmark output parsing.
-- Promotion of LLM-generated optimized variants into the main source tree.
-- Candidate benchmark execution and benchmark runtime parsing.
-- Comparison between baseline and optimized runs.
-- Best candidate selection.
-- Advanced reporting and experiment analysis.
+- Baseline-vs-candidate comparison
+- Best candidate selection
+- Candidate promotion into the main source tree

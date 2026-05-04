@@ -7,11 +7,11 @@ The first minimal case study is a P3P solver.
 
 ## Current Status
 
-The repository scaffold is complete and the first working Lambda Twist baseline is established at a minimal level.
-The C++ project includes a baseline library target (`lambdatwist_baseline`), a project-owned runner (`baseline_runner`), a smoke test (`baseline_smoke_test`), and a minimal benchmark (`baseline_benchmark`).
-A Python CLI entry point automates the baseline configure/build/test/run/benchmark flow from the command line, writes per-run artifacts under `results/runs/<run_id>/`, and appends compact JSONL records to `results/index.jsonl`.
+The repository scaffold is complete and the first working Lambda Twist baseline is established.
+The C++ project includes a baseline library target (`lambdatwist_baseline`), a project-owned runner (`baseline_runner`), a smoke test (`baseline_smoke_test`), an old compatibility benchmark (`baseline_benchmark`), and a new absolute-pose family benchmark with a Lambda Twist P3P adapter validator.
+A Python CLI entry point automates the baseline configure/build/test/run/family-benchmark flow from the command line, writes per-run artifacts under `results/runs/<run_id>/`, and appends compact JSONL records to `results/index.jsonl`.
 
-Full validation, benchmark runtime parsing, candidate benchmark execution, run comparison, best candidate selection, advanced reporting or experiment analysis, automatic promotion into the main source tree, and a closed-loop LLM optimization flow are intentionally not implemented yet.
+Baseline benchmark parsing and candidate verification with the same family benchmark path are implemented. Baseline-vs-candidate comparison, best candidate selection, advanced reporting or experiment analysis, automatic promotion into the main source tree, and a closed-loop LLM optimization flow are intentionally not implemented yet.
 Environment expectations are documented in `docs/setup.md`, and baseline state details are documented in `docs/baseline.md`.
 
 ## Repository Structure
@@ -48,10 +48,12 @@ The automated flow is:
 1. Configure CMake.
 2. Build `baseline_smoke_test`.
 3. Build `baseline_runner`.
-4. Build `baseline_benchmark`.
-5. Run `baseline_smoke_test`.
-6. Run `baseline_runner`.
-7. Run `baseline_benchmark`.
+4. Build `absolute_pose_lambdatwist_adapter_validator`.
+5. Build `absolute_pose_lambdatwist_benchmark`.
+6. Run `baseline_smoke_test`.
+7. Run `baseline_runner`.
+8. Run `absolute_pose_lambdatwist_adapter_validator`.
+9. Run `absolute_pose_lambdatwist_benchmark` and parse its metrics.
 
 ```powershell
 $env:EIGEN3_INCLUDE_DIR="C:\path\to\eigen"
@@ -99,8 +101,7 @@ Generated candidate patches can be materialized only into an isolated workspace
 copy under `workspace/candidates/<candidate_run_id>/`. The materialization
 command validates patch scope against `candidate.json["target_files"]` and
 verifies that a non-empty patch changes at least one target file. It does not
-modify the main `cpp/` source tree, and build/test/benchmark of materialized
-candidates is not implemented yet. The active Step 9 patching command is
+modify the main `cpp/` source tree. The active Step 9 patching command is
 `orchestrator.patching.materialize_candidate`; `orchestrator/patching/apply_patch.py`
 is only a compatibility marker for a future broader patching API.
 
@@ -110,12 +111,12 @@ py -m orchestrator.patching.materialize_candidate `
 ```
 
 A successfully materialized candidate can then be verified inside the same
-isolated workspace copy. Verification configures CMake, builds only
-`baseline_smoke_test`, and runs only `baseline_smoke_test`. It still does not
-run candidate benchmarks or compare performance, and the main `cpp/` source
-tree remains unchanged. The current implementation is intentionally a narrow
-Step 9 smoke verifier in `orchestrator/execution/candidate_smoke_verification.py`;
-it is not the future general candidate execution pipeline.
+isolated workspace copy. Verification configures CMake, builds and runs
+`baseline_smoke_test`, builds and runs the Lambda Twist P3P adapter validator,
+builds and runs `absolute_pose_lambdatwist_benchmark`, and parses benchmark
+stdout into `verification.json`. It is deterministic, does not call an LLM, does
+not compare performance against the baseline, and does not modify the main
+`cpp/` source tree.
 
 ```powershell
 py -m orchestrator.execution.verify_candidate `
@@ -125,8 +126,8 @@ py -m orchestrator.execution.verify_candidate `
 Experiment configs are introduced for future multi-iteration and multi-variant
 runs. The current experiment runner supports dry-run planning, candidate
 generation, and optional materialization/verification according to config
-pipeline flags. It does not benchmark, compare performance, or select a best
-candidate yet. Experiment runs also write per-variant history artifacts under
+pipeline flags. Verification includes the family benchmark path, but the runner
+does not compare performance or select a best candidate yet. Experiment runs also write per-variant history artifacts under
 `results/experiments/<experiment_id>/variants/`. The runner can optionally use
 compact variant-local history in later prompts; this history is not shared
 between variants. Sample configs are available at
@@ -141,9 +142,9 @@ save resolved per-variant LLM config snapshots; the Flash-only sample is
 `configs/llm_deepseek_pro_max.json` config is intended for later final or
 high-quality runs and is not used by the default cheaper Flash experiments.
 The Step 10 experiment runner is summarized in `docs/experiment_runner.md`.
-Candidate benchmarks, benchmark runtime parsing, candidate comparison, best
-candidate selection, candidate promotion into the main source tree, and full
-closed-loop optimization with ranking are still not implemented.
+Candidate comparison, best candidate selection, candidate promotion into the
+main source tree, and full closed-loop optimization with ranking are still not
+implemented.
 
 The mock experiment config is useful for checking storage and orchestration
 without calling DeepSeek:

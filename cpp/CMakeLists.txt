@@ -102,6 +102,15 @@ target_link_libraries(absolute_pose_lambdatwist_benchmark
         absolute_pose_benchmark
 )
 
+add_executable(absolute_pose_lambdatwist_adapter_validator
+    "${ABSOLUTE_POSE_SOLVERS_DIR}/runners/lambdatwist_p3p_adapter_validator.cpp"
+)
+
+target_link_libraries(absolute_pose_lambdatwist_adapter_validator
+    PRIVATE
+        absolute_pose_benchmark
+)
+
 add_executable(absolute_pose_adapter_smoke_test
     "${CMAKE_CURRENT_SOURCE_DIR}/tests/absolute_pose_adapter_smoke_test.cpp"
 )
