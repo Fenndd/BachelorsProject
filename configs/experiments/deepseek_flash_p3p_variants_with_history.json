@@ -2,6 +2,11 @@
   "experiment_name": "deepseek_flash_p3p_variants_with_history",
   "description": "Multi-variant DeepSeek Flash experiment using variant-local history between iterations.",
   "target_file": "cpp/external/lambdatwist/p3p.cc",
+  "optimization_scope": {
+    "allowed_files": [
+      "cpp/external/lambdatwist/p3p.cc"
+    ]
+  },
   "pipeline": {
     "generate_candidate": true,
     "materialize_candidate": true,

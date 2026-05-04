@@ -5,6 +5,11 @@
   "target_file": "cpp/external/lambdatwist/p3p.cc",
   "iterations": 1,
   "additional_context": "Offline mock run. No real LLM request is sent.",
+  "optimization_scope": {
+    "allowed_files": [
+      "cpp/external/lambdatwist/p3p.cc"
+    ]
+  },
   "pipeline": {
     "generate_candidate": true,
     "materialize_candidate": false,

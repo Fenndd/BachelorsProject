@@ -214,6 +214,10 @@ def _print_plan(config: ExperimentConfig, dry_run: bool) -> None:
     print(f"- materialize_candidate: {pipeline.materialize_candidate}")
     print(f"- verify_candidate: {pipeline.verify_candidate}")
     print(f"Max source chars: {candidate_generation.max_source_chars}")
+    print(
+        f"Optimization scope allowed files: "
+        f"{config.optimization_scope.allowed_files}"
+    )
     print("History policy:")
     print(f"- enabled: {config.history_policy.enabled}")
     print(f"- scope: {config.history_policy.scope}")
@@ -290,11 +294,17 @@ def _build_generation_command(
     ]
     if context_text is not None:
         command.extend(["--context", context_text])
+    # Pass each allowed file as a separate --allowed-file argument
+    for allowed_file in config.optimization_scope.allowed_files:
+        command.extend(["--allowed-file", allowed_file])
     return command
 
 
-def _build_materialization_command(candidate_run_dir: str) -> list[str]:
-    return [
+def _build_materialization_command(
+    candidate_run_dir: str,
+    config: ExperimentConfig,
+) -> list[str]:
+    command = [
         sys.executable,
         "-m",
         "orchestrator.patching.materialize_candidate",
@@ -302,6 +312,10 @@ def _build_materialization_command(candidate_run_dir: str) -> list[str]:
         candidate_run_dir,
         "--overwrite",
     ]
+    # Pass each allowed file as a separate --allowed-file argument
+    for allowed_file in config.optimization_scope.allowed_files:
+        command.extend(["--allowed-file", allowed_file])
+    return command
 
 
 def _build_verification_command(candidate_run_dir: str) -> list[str]:
@@ -803,7 +817,7 @@ def _run_iteration(
             variant.variant_id,
             variant_iteration,
             "materialize_candidate",
-            _build_materialization_command(candidate_run_dir),
+            _build_materialization_command(candidate_run_dir, config),
         )
         materialization_record = _materialization_stage_record(
             materialization_result,

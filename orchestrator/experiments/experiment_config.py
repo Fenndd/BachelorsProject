@@ -3,9 +3,14 @@
 from __future__ import annotations
 
 import json
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
+
+from orchestrator.patching.scope_validation import (
+    normalize_repo_path,
+    validate_allowed_files_list,
+)
 
 
 class ExperimentConfigError(ValueError):
@@ -45,6 +50,19 @@ class ExperimentVariantConfig:
 
 
 @dataclass(frozen=True)
+class OptimizationScopeConfig:
+    """Files that LLM candidates are allowed to modify in the optimization pipeline.
+
+    The main pipeline enforces that candidate target_files and diff paths
+    must be a subset of these allowed_files. Benchmark, adapter, validator,
+    CMake, orchestrator, configs, docs, and tests are fixed infrastructure
+    and must never appear in allowed_files.
+    """
+
+    allowed_files: list[str]
+
+
+@dataclass(frozen=True)
 class ExperimentConfig:
     experiment_name: str
     description: str | None
@@ -52,6 +70,7 @@ class ExperimentConfig:
     pipeline: ExperimentPipelineConfig
     candidate_generation: CandidateGenerationConfig
     history_policy: HistoryPolicyConfig
+    optimization_scope: OptimizationScopeConfig
     variants: list[ExperimentVariantConfig]
     llm_config: str | None = None
     iterations: int | None = None
@@ -81,13 +100,18 @@ def load_experiment_config(path: Path | str) -> ExperimentConfig:
     if not isinstance(payload, dict):
         raise ExperimentConfigError("Experiment config must contain a JSON object.")
 
+    target_file_raw = _required_non_empty_string(payload, "target_file")
+    target_file = normalize_repo_path(target_file_raw)
+    optimization_scope = _load_optimization_scope(payload, target_file)
+
     return ExperimentConfig(
         experiment_name=_required_non_empty_string(payload, "experiment_name"),
         description=_optional_string(payload, "description"),
-        target_file=_required_non_empty_string(payload, "target_file"),
+        target_file=target_file,
         pipeline=_load_pipeline(payload),
         candidate_generation=_load_candidate_generation(payload),
         history_policy=_load_history_policy(payload),
+        optimization_scope=optimization_scope,
         variants=_load_variants(payload),
         llm_config=(
             payload.get("llm_config") if isinstance(payload.get("llm_config"), str) else None
@@ -335,3 +359,44 @@ def _load_variants(payload: dict[str, Any]) -> list[ExperimentVariantConfig]:
         )
 
     return parsed_variants
+
+
+def _load_optimization_scope(
+    payload: dict[str, Any],
+    target_file: str,
+) -> OptimizationScopeConfig:
+    """Load and validate the optional optimization_scope block.
+
+    If the key is absent, create a default scope containing only target_file
+    for backward compatibility.
+    """
+    scope_raw = payload.get("optimization_scope")
+    if scope_raw is None:
+        return OptimizationScopeConfig(allowed_files=[target_file])
+
+    if not isinstance(scope_raw, dict):
+        raise ExperimentConfigError("Field 'optimization_scope' must be an object if present.")
+
+    allowed_files_raw = scope_raw.get("allowed_files")
+    if allowed_files_raw is None:
+        raise ExperimentConfigError(
+            "Field 'optimization_scope.allowed_files' is required."
+        )
+    if not isinstance(allowed_files_raw, list) or not allowed_files_raw:
+        raise ExperimentConfigError(
+            "Field 'optimization_scope.allowed_files' must be a non-empty list."
+        )
+
+    try:
+        allowed_files = validate_allowed_files_list(allowed_files_raw, "optimization_scope.allowed_files")
+    except ValueError as exc:
+        raise ExperimentConfigError(str(exc)) from exc
+
+    if target_file not in allowed_files:
+        raise ExperimentConfigError(
+            f"Field 'target_file' ({target_file}) must be included in "
+            f"optimization_scope.allowed_files. "
+            f"Current allowed_files: {allowed_files}"
+        )
+
+    return OptimizationScopeConfig(allowed_files=allowed_files)
