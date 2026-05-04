@@ -100,7 +100,9 @@ copy under `workspace/candidates/<candidate_run_id>/`. The materialization
 command validates patch scope against `candidate.json["target_files"]` and
 verifies that a non-empty patch changes at least one target file. It does not
 modify the main `cpp/` source tree, and build/test/benchmark of materialized
-candidates is not implemented yet.
+candidates is not implemented yet. The active Step 9 patching command is
+`orchestrator.patching.materialize_candidate`; `orchestrator/patching/apply_patch.py`
+is only a compatibility marker for a future broader patching API.
 
 ```powershell
 py -m orchestrator.patching.materialize_candidate `

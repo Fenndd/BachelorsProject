@@ -50,6 +50,11 @@ continues with later iterations and variants.
 Materialization and verification operate only on isolated candidate workspaces;
 the main `cpp/` source tree is not modified.
 
+The active Step 9 materialization command is
+`orchestrator.patching.materialize_candidate`. The older
+`orchestrator/patching/apply_patch.py` module is only a compatibility marker for
+a future broader patching API.
+
 ## Variant-Local History
 
 When `history_policy.enabled` is true, later iterations receive a compact
