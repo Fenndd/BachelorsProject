@@ -111,11 +111,23 @@ runs. The current experiment runner supports dry-run planning, candidate
 generation, and optional materialization/verification according to config
 pipeline flags. It does not benchmark, compare performance, or select a best
 candidate yet. Experiment runs also write per-variant history artifacts under
-`results/experiments/<experiment_id>/variants/`; these histories are not passed
-back to the LLM prompt yet. Sample configs are available at
+`results/experiments/<experiment_id>/variants/`. The runner can optionally use
+compact variant-local history in later prompts; this history is not shared
+between variants. Sample configs are available at
 `configs/experiments/deepseek_flash_p3p_basic.json`,
 `configs/experiments/deepseek_flash_p3p_generate_materialize_verify.json`, and
-`configs/experiments/deepseek_flash_p3p_variants.json`.
+`configs/experiments/deepseek_flash_p3p_variants.json`. A variant-local history
+example is available at
+`configs/experiments/deepseek_flash_p3p_variants_with_history.json`.
+Experiment variants can also apply reproducible LLM parameter overrides and
+save resolved per-variant LLM config snapshots; the Flash-only sample is
+`configs/experiments/deepseek_flash_p3p_parameter_variants.json`. The optional
+`configs/llm_deepseek_pro_max.json` config is intended for later final or
+high-quality runs and is not used by the default cheaper Flash experiments.
+The Step 10 experiment runner is summarized in `docs/experiment_runner.md`.
+Candidate benchmarks, benchmark runtime parsing, candidate comparison, best
+candidate selection, candidate promotion into the main source tree, and full
+closed-loop optimization with ranking are still not implemented.
 
 ```powershell
 py -m orchestrator.experiments.run_experiment `
@@ -142,6 +154,28 @@ py -m orchestrator.experiments.run_experiment `
 ```powershell
 py -m orchestrator.experiments.run_experiment `
   --config configs/experiments/deepseek_flash_p3p_variants.json
+```
+
+```powershell
+py -m orchestrator.experiments.run_experiment `
+  --config configs/experiments/deepseek_flash_p3p_variants_with_history.json `
+  --dry-run
+```
+
+```powershell
+py -m orchestrator.experiments.run_experiment `
+  --config configs/experiments/deepseek_flash_p3p_variants_with_history.json
+```
+
+```powershell
+py -m orchestrator.experiments.run_experiment `
+  --config configs/experiments/deepseek_flash_p3p_parameter_variants.json `
+  --dry-run
+```
+
+```powershell
+py -m orchestrator.experiments.run_experiment `
+  --config configs/experiments/deepseek_flash_p3p_parameter_variants.json
 ```
 
 ## External Baseline Code

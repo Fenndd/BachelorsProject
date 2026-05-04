@@ -1,0 +1,51 @@
+{
+  "experiment_name": "deepseek_flash_p3p_parameter_variants",
+  "description": "DeepSeek Flash experiment comparing different safe prompt contexts without explicit output token limits.",
+  "target_file": "cpp/external/lambdatwist/p3p.cc",
+  "pipeline": {
+    "generate_candidate": true,
+    "materialize_candidate": true,
+    "verify_candidate": true
+  },
+  "candidate_generation": {
+    "max_source_chars": 120000
+  },
+  "history_policy": {
+    "enabled": true,
+    "scope": "variant",
+    "max_previous_iterations": 2,
+    "include_failed_iterations": true,
+    "include_materialization_results": true,
+    "include_verification_results": true
+  },
+  "variants": [
+    {
+      "variant_id": "flash_high_safe_no_max_tokens",
+      "description": "DeepSeek Flash with standard conservative prompt context and no explicit max_tokens limit.",
+      "llm_config": "configs/llm_deepseek_flash.json",
+      "llm_overrides": {
+        "max_tokens": null,
+        "thinking": {
+          "enabled": true,
+          "effort": "high"
+        }
+      },
+      "iterations": 2,
+      "additional_context": "Prefer small, safe runtime optimizations. Avoid Eigen aliasing risks and preserve numerical behavior."
+    },
+    {
+      "variant_id": "flash_high_strict_no_max_tokens",
+      "description": "DeepSeek Flash with stricter floating-point safety context and no explicit max_tokens limit.",
+      "llm_config": "configs/llm_deepseek_flash.json",
+      "llm_overrides": {
+        "max_tokens": null,
+        "thinking": {
+          "enabled": true,
+          "effort": "high"
+        }
+      },
+      "iterations": 2,
+      "additional_context": "Prefer only optimizations that do not reorder floating-point expressions. Avoid Eigen aliasing risks. If unsure, return a no-op candidate."
+    }
+  ]
+}

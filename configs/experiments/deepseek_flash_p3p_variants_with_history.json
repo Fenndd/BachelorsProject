@@ -1,0 +1,37 @@
+{
+  "experiment_name": "deepseek_flash_p3p_variants_with_history",
+  "description": "Multi-variant DeepSeek Flash experiment using variant-local history between iterations.",
+  "target_file": "cpp/external/lambdatwist/p3p.cc",
+  "pipeline": {
+    "generate_candidate": true,
+    "materialize_candidate": true,
+    "verify_candidate": true
+  },
+  "candidate_generation": {
+    "max_source_chars": 120000
+  },
+  "history_policy": {
+    "enabled": true,
+    "scope": "variant",
+    "max_previous_iterations": 3,
+    "include_failed_iterations": true,
+    "include_materialization_results": true,
+    "include_verification_results": true
+  },
+  "variants": [
+    {
+      "variant_id": "flash_high_safe",
+      "description": "DeepSeek Flash with standard conservative prompt context.",
+      "llm_config": "configs/llm_deepseek_flash.json",
+      "iterations": 3,
+      "additional_context": "Prefer small, safe runtime optimizations. Avoid Eigen aliasing risks and preserve numerical behavior."
+    },
+    {
+      "variant_id": "flash_high_strict_no_float_reorder",
+      "description": "DeepSeek Flash with stricter floating-point safety context.",
+      "llm_config": "configs/llm_deepseek_flash.json",
+      "iterations": 3,
+      "additional_context": "Prefer only optimizations that do not reorder floating-point expressions. Avoid Eigen aliasing risks. If unsure, return a no-op candidate."
+    }
+  ]
+}

@@ -25,10 +25,21 @@ class CandidateGenerationConfig:
 
 
 @dataclass(frozen=True)
+class HistoryPolicyConfig:
+    enabled: bool
+    scope: str
+    max_previous_iterations: int
+    include_failed_iterations: bool
+    include_materialization_results: bool
+    include_verification_results: bool
+
+
+@dataclass(frozen=True)
 class ExperimentVariantConfig:
     variant_id: str
     description: str | None
     llm_config: str
+    llm_overrides: dict[str, Any] | None
     iterations: int
     additional_context: str | None
 
@@ -40,6 +51,7 @@ class ExperimentConfig:
     target_file: str
     pipeline: ExperimentPipelineConfig
     candidate_generation: CandidateGenerationConfig
+    history_policy: HistoryPolicyConfig
     variants: list[ExperimentVariantConfig]
     llm_config: str | None = None
     iterations: int | None = None
@@ -75,6 +87,7 @@ def load_experiment_config(path: Path | str) -> ExperimentConfig:
         target_file=_required_non_empty_string(payload, "target_file"),
         pipeline=_load_pipeline(payload),
         candidate_generation=_load_candidate_generation(payload),
+        history_policy=_load_history_policy(payload),
         variants=_load_variants(payload),
         llm_config=(
             payload.get("llm_config") if isinstance(payload.get("llm_config"), str) else None
@@ -120,6 +133,93 @@ def _required_bool(payload: dict[str, Any], field_name: str) -> bool:
     return value
 
 
+def _required_non_negative_int(payload: dict[str, Any], field_name: str) -> int:
+    value = payload.get(field_name)
+    if not isinstance(value, int) or isinstance(value, bool) or value < 0:
+        raise ExperimentConfigError(
+            f"Field '{field_name}' must be a non-negative integer."
+        )
+    return value
+
+
+def _load_llm_overrides(
+    payload: dict[str, Any],
+    field_name: str = "llm_overrides",
+) -> dict[str, Any] | None:
+    overrides = payload.get(field_name)
+    if overrides is None:
+        return None
+    if not isinstance(overrides, dict):
+        raise ExperimentConfigError(f"Field '{field_name}' must be an object.")
+
+    allowed_keys = {
+        "provider",
+        "model",
+        "base_url",
+        "api_key_env",
+        "thinking",
+        "max_tokens",
+    }
+    unknown_keys = sorted(set(overrides) - allowed_keys)
+    if unknown_keys:
+        raise ExperimentConfigError(
+            f"Field '{field_name}' contains unsupported key(s): "
+            f"{', '.join(unknown_keys)}."
+        )
+
+    parsed: dict[str, Any] = {}
+    for key in ["provider", "model", "base_url", "api_key_env"]:
+        if key in overrides:
+            value = overrides[key]
+            if not isinstance(value, str) or not value.strip():
+                raise ExperimentConfigError(
+                    f"Field '{field_name}.{key}' must be a non-empty string."
+                )
+            parsed[key] = value
+
+    if "max_tokens" in overrides:
+        value = overrides["max_tokens"]
+        if value is None:
+            parsed["max_tokens"] = None
+        elif not isinstance(value, int) or isinstance(value, bool) or value <= 0:
+            raise ExperimentConfigError(
+                f"Field '{field_name}.max_tokens' must be null or a positive integer."
+            )
+        else:
+            parsed["max_tokens"] = value
+
+    if "thinking" in overrides:
+        thinking = overrides["thinking"]
+        if not isinstance(thinking, dict):
+            raise ExperimentConfigError(
+                f"Field '{field_name}.thinking' must be an object."
+            )
+        unknown_thinking_keys = sorted(set(thinking) - {"enabled", "effort"})
+        if unknown_thinking_keys:
+            raise ExperimentConfigError(
+                f"Field '{field_name}.thinking' contains unsupported key(s): "
+                f"{', '.join(unknown_thinking_keys)}."
+            )
+        parsed_thinking: dict[str, Any] = {}
+        if "enabled" in thinking:
+            enabled = thinking["enabled"]
+            if not isinstance(enabled, bool):
+                raise ExperimentConfigError(
+                    f"Field '{field_name}.thinking.enabled' must be a boolean."
+                )
+            parsed_thinking["enabled"] = enabled
+        if "effort" in thinking:
+            effort = thinking["effort"]
+            if not isinstance(effort, str) or not effort.strip():
+                raise ExperimentConfigError(
+                    f"Field '{field_name}.thinking.effort' must be a non-empty string."
+                )
+            parsed_thinking["effort"] = effort
+        parsed["thinking"] = parsed_thinking
+
+    return parsed
+
+
 def _load_pipeline(payload: dict[str, Any]) -> ExperimentPipelineConfig:
     pipeline = payload.get("pipeline")
     if not isinstance(pipeline, dict):
@@ -144,6 +244,53 @@ def _load_candidate_generation(payload: dict[str, Any]) -> CandidateGenerationCo
     )
 
 
+def _load_history_policy(payload: dict[str, Any]) -> HistoryPolicyConfig:
+    history_policy = payload.get("history_policy")
+    if history_policy is None:
+        return HistoryPolicyConfig(
+            enabled=False,
+            scope="variant",
+            max_previous_iterations=0,
+            include_failed_iterations=False,
+            include_materialization_results=True,
+            include_verification_results=True,
+        )
+
+    if not isinstance(history_policy, dict):
+        raise ExperimentConfigError("Field 'history_policy' must be an object.")
+
+    enabled = _required_bool(history_policy, "enabled")
+    scope = _required_non_empty_string(history_policy, "scope")
+    if scope != "variant":
+        raise ExperimentConfigError(
+            "Field 'history_policy.scope' must be 'variant'."
+        )
+
+    max_previous_iterations = _required_non_negative_int(
+        history_policy, "max_previous_iterations"
+    )
+    if enabled and max_previous_iterations <= 0:
+        raise ExperimentConfigError(
+            "Field 'history_policy.max_previous_iterations' must be positive "
+            "when history_policy.enabled is true."
+        )
+
+    return HistoryPolicyConfig(
+        enabled=enabled,
+        scope=scope,
+        max_previous_iterations=max_previous_iterations,
+        include_failed_iterations=_required_bool(
+            history_policy, "include_failed_iterations"
+        ),
+        include_materialization_results=_required_bool(
+            history_policy, "include_materialization_results"
+        ),
+        include_verification_results=_required_bool(
+            history_policy, "include_verification_results"
+        ),
+    )
+
+
 def _load_variants(payload: dict[str, Any]) -> list[ExperimentVariantConfig]:
     variants = payload.get("variants")
     if variants is None:
@@ -152,6 +299,7 @@ def _load_variants(payload: dict[str, Any]) -> list[ExperimentVariantConfig]:
                 variant_id="default",
                 description=_optional_string(payload, "description"),
                 llm_config=_required_non_empty_string(payload, "llm_config"),
+                llm_overrides=_load_llm_overrides(payload),
                 iterations=_required_positive_int(payload, "iterations"),
                 additional_context=_optional_string(payload, "additional_context"),
             )
@@ -180,6 +328,7 @@ def _load_variants(payload: dict[str, Any]) -> list[ExperimentVariantConfig]:
                 variant_id=variant_id,
                 description=_optional_string(variant, "description"),
                 llm_config=_required_non_empty_string(variant, "llm_config"),
+                llm_overrides=_load_llm_overrides(variant),
                 iterations=_required_positive_int(variant, "iterations"),
                 additional_context=_optional_string(variant, "additional_context"),
             )

@@ -6,6 +6,7 @@ from .experiment_config import (
     ExperimentConfigError,
     ExperimentPipelineConfig,
     ExperimentVariantConfig,
+    HistoryPolicyConfig,
     load_experiment_config,
 )
 
@@ -15,5 +16,6 @@ __all__ = [
     "ExperimentConfigError",
     "ExperimentPipelineConfig",
     "ExperimentVariantConfig",
+    "HistoryPolicyConfig",
     "load_experiment_config",
 ]
