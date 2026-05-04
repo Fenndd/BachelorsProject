@@ -70,3 +70,43 @@ target_link_libraries(baseline_benchmark
         baseline_sample_data
         lambdatwist_baseline
 )
+
+# Project-owned absolute pose benchmark family infrastructure.
+set(ABSOLUTE_POSE_SOLVERS_DIR
+    "${CMAKE_CURRENT_SOURCE_DIR}/bench/families/geometric_pose_solvers/absolute_pose_solvers"
+)
+
+add_library(absolute_pose_benchmark STATIC
+    "${ABSOLUTE_POSE_SOLVERS_DIR}/core/absolute_pose_benchmark.cpp"
+    "${ABSOLUTE_POSE_SOLVERS_DIR}/adapters/lambdatwist_p3p/lambdatwist_p3p_adapter.cpp"
+)
+
+target_include_directories(absolute_pose_benchmark
+    PUBLIC
+        "${ABSOLUTE_POSE_SOLVERS_DIR}/core"
+        "${ABSOLUTE_POSE_SOLVERS_DIR}/adapters/lambdatwist_p3p"
+        "${EIGEN3_INCLUDE_DIR}"
+)
+
+target_link_libraries(absolute_pose_benchmark
+    PRIVATE
+        lambdatwist_baseline
+)
+
+add_executable(absolute_pose_lambdatwist_benchmark
+    "${ABSOLUTE_POSE_SOLVERS_DIR}/runners/lambdatwist_p3p_benchmark.cpp"
+)
+
+target_link_libraries(absolute_pose_lambdatwist_benchmark
+    PRIVATE
+        absolute_pose_benchmark
+)
+
+add_executable(absolute_pose_adapter_smoke_test
+    "${CMAKE_CURRENT_SOURCE_DIR}/tests/absolute_pose_adapter_smoke_test.cpp"
+)
+
+target_link_libraries(absolute_pose_adapter_smoke_test
+    PRIVATE
+        absolute_pose_benchmark
+)

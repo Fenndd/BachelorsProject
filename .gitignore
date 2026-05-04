@@ -16,9 +16,15 @@ venv/
 env/
 ENV/
 
+# Local environment overrides
+.env.local
+.env.local.*
+
 # C++ / CMake / build
 build/
+build-*/
 */build/
+*/build-*/
 cmake-build-*/
 /cpp/cmake-build-debug/
 CMakeFiles/
