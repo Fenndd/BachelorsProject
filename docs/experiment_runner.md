@@ -3,6 +3,10 @@
 The experiment runner is the Step 10 orchestration layer for moving from one
 LLM optimization attempt to reproducible multi-attempt experiments.
 
+It is the main entry point for LLM optimization experiments. The separate
+`orchestrator/cli/main.py` entry point remains dedicated to clean baseline
+configure/build/run/benchmark automation.
+
 ## Configs
 
 Experiment configs live under `configs/experiments/`. A config defines:
@@ -15,6 +19,9 @@ Experiment configs live under `configs/experiments/`. A config defines:
 
 Single-setup legacy configs remain supported by creating one synthetic
 `default` variant.
+
+`configs/experiments/mock_p3p_basic.json` uses the offline mock LLM config and
+is intended for reproducible storage/orchestration checks without an API key.
 
 ## Variants And Iterations
 
@@ -81,6 +88,22 @@ results/experiments/<experiment_id>/variant_configs/
 
 Candidate generation uses these resolved snapshots, not the mutable base config
 files.
+
+## Offline Mock LLM
+
+`configs/llm_mock_candidate.json` selects `provider: "mock"` and points to a
+predefined candidate JSON file under `configs/mock_candidates/`. The mock client
+does not read API keys, does not use the network, and returns the configured
+candidate through the same response/parsing/storage path as real LLM candidate
+generation.
+
+Direct mock candidate generation:
+
+```powershell
+py -m orchestrator.llm.generate_candidate `
+  --config configs/llm_mock_candidate.json `
+  --source cpp/external/lambdatwist/p3p.cc
+```
 
 ## Artifacts
 

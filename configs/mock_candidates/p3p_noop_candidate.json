@@ -1,0 +1,14 @@
+{
+  "schema_version": "1.0",
+  "candidate_type": "unified_diff",
+  "summary": "Mock no-op candidate for offline pipeline testing.",
+  "rationale": "This deterministic mock response exercises prompt construction, response parsing, run storage, and indexing without calling a real LLM.",
+  "risk_level": "low",
+  "expected_effect": "none",
+  "target_files": [
+    "cpp/external/lambdatwist/p3p.cc"
+  ],
+  "correctness_notes": "No source changes are proposed, so numerical behavior is unchanged.",
+  "unified_diff": "",
+  "requires_manual_review": false
+}

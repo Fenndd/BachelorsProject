@@ -1,0 +1,12 @@
+{
+  "provider": "mock",
+  "model": "mock-valid-candidate",
+  "base_url": "",
+  "api_key_env": "",
+  "thinking": {
+    "enabled": false,
+    "effort": "none"
+  },
+  "max_tokens": null,
+  "mock_response_file": "configs/mock_candidates/p3p_noop_candidate.json"
+}

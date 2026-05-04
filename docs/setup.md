@@ -25,6 +25,10 @@ The CMake project expects `EIGEN3_INCLUDE_DIR` to point to the Eigen include roo
 The minimal baseline automation entry point is `orchestrator/cli/main.py`.
 It configures CMake, builds the baseline smoke test, runner, and benchmark targets, then runs them in order.
 
+This baseline CLI is intentionally separate from LLM optimization experiments.
+Use `orchestrator.experiments.run_experiment` for configured LLM experiment
+runs.
+
 On Windows outside CLion, CMake may need explicit toolchain selection to avoid an unavailable default generator such as `NMake Makefiles`.
 The script supports these environment variables:
 

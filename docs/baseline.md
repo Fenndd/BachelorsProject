@@ -34,9 +34,10 @@ The external Lambda Twist code remains third-party source and is kept separate f
 
 - Full validation tests
 - Advanced benchmark framework
-- Result storage and reporting
-- Full experiment orchestration runtime behavior
-- LLM-driven optimization logic
+- Benchmark runtime parsing and benchmark statistics
+- Candidate benchmark execution and comparison against the baseline
+- Best candidate selection and promotion into the main source tree
+- Full reporting and experiment analysis
 
 ## Role of This State
 

@@ -17,6 +17,7 @@ from pathlib import Path
 from typing import Any
 
 from orchestrator.llm.deepseek_client import DeepSeekClient, DeepSeekClientError
+from orchestrator.llm.mock_client import MockLLMClient, MockLLMClientError
 from orchestrator.llm.prompt_builder import build_optimization_prompt
 from orchestrator.llm.response_parser import (
     OptimizationCandidate,
@@ -276,6 +277,51 @@ def _classify_client_response_error(error_message: str) -> str:
     return "llm_request"
 
 
+def _load_config_provider(config_path: Path) -> str:
+    if not config_path.exists():
+        raise CandidateGenerationFailure(
+            "load_config", f"LLM config file not found: {config_path}"
+        )
+    try:
+        payload = json.loads(config_path.read_text(encoding="utf-8-sig"))
+    except json.JSONDecodeError as exc:
+        raise CandidateGenerationFailure(
+            "load_config", f"Invalid JSON in LLM config {config_path}: {exc}"
+        ) from exc
+    except OSError as exc:
+        raise CandidateGenerationFailure(
+            "load_config", f"Could not read LLM config {config_path}: {exc}"
+        ) from exc
+
+    if not isinstance(payload, dict):
+        raise CandidateGenerationFailure(
+            "load_config", f"LLM config must be a JSON object: {config_path}"
+        )
+    provider = payload.get("provider")
+    if not isinstance(provider, str) or not provider:
+        raise CandidateGenerationFailure(
+            "load_config", "LLM config field 'provider' must be a non-empty string."
+        )
+    return provider
+
+
+def _load_client(config_path: Path) -> Any:
+    provider = _load_config_provider(config_path)
+    if provider == "deepseek":
+        try:
+            return DeepSeekClient.from_config_file(config_path)
+        except DeepSeekClientError as exc:
+            raise CandidateGenerationFailure("load_config", str(exc)) from exc
+    if provider == "mock":
+        try:
+            return MockLLMClient.from_config_file(config_path)
+        except MockLLMClientError as exc:
+            raise CandidateGenerationFailure("load_config", str(exc)) from exc
+    raise CandidateGenerationFailure(
+        "load_config", f"Unsupported LLM provider: {provider!r}"
+    )
+
+
 def _create_run_directory(storage: RunStorage, run_id: str) -> Path | None:
     try:
         return storage.create_run_directory("llm_candidate", run_id)
@@ -307,10 +353,7 @@ def main(argv: list[str] | None = None) -> int:
 
     status: dict[str, Any]
     try:
-        try:
-            client = DeepSeekClient.from_config_file(config_path)
-        except DeepSeekClientError as exc:
-            raise CandidateGenerationFailure("load_config", str(exc)) from exc
+        client = _load_client(config_path)
 
         metadata = _build_metadata(run_id, target_file, client, started_at)
         print(f"Provider/model: {client.config.provider}/{client.config.model}")
@@ -344,7 +387,7 @@ def main(argv: list[str] | None = None) -> int:
                 system_prompt=system_prompt,
                 user_prompt=user_prompt,
             )
-        except DeepSeekClientError as exc:
+        except (DeepSeekClientError, MockLLMClientError) as exc:
             failed_step = _classify_client_response_error(str(exc))
             raise CandidateGenerationFailure(failed_step, str(exc)) from exc
 

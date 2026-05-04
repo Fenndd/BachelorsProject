@@ -11,7 +11,7 @@ The repository scaffold is complete and the first working Lambda Twist baseline 
 The C++ project includes a baseline library target (`lambdatwist_baseline`), a project-owned runner (`baseline_runner`), a smoke test (`baseline_smoke_test`), and a minimal benchmark (`baseline_benchmark`).
 A Python CLI entry point automates the baseline configure/build/test/run/benchmark flow from the command line, writes per-run artifacts under `results/runs/<run_id>/`, and appends compact JSONL records to `results/index.jsonl`.
 
-Full validation, benchmark runtime parsing, automatic patch application, candidate build/test/benchmark, run comparison, best candidate selection, advanced reporting or experiment analysis, and a closed-loop LLM optimization flow are intentionally not implemented yet.
+Full validation, benchmark runtime parsing, candidate benchmark execution, run comparison, best candidate selection, advanced reporting or experiment analysis, automatic promotion into the main source tree, and a closed-loop LLM optimization flow are intentionally not implemented yet.
 Environment expectations are documented in `docs/setup.md`, and baseline state details are documented in `docs/baseline.md`.
 
 ## Repository Structure
@@ -31,6 +31,11 @@ Environment expectations are documented in `docs/setup.md`, and baseline state d
 
 The project is structured around a C++ algorithmic core and a Python automation layer. Experiment runs use `workspace/` for temporary artifacts and `results/` for persistent outputs, including per-run directories and `results/index.jsonl`, but full experiment management is not implemented yet.
 The planned persistent run output format is documented in `docs/result_storage_format.md`.
+
+The baseline CLI and the LLM experiment runner are intentionally separate entry
+points. `orchestrator/cli/main.py` remains the baseline configure/build/run
+command. `orchestrator.experiments.run_experiment` is the main entry point for
+LLM optimization experiments.
 
 ## Baseline Automation
 
@@ -63,7 +68,7 @@ Set `CMAKE_EXE` only when the intended `cmake.exe` is not already selected by `P
 
 The first connected LLM is DeepSeek V4 Flash using `DEEPSEEK_API_KEY`.
 The LLM layer also includes a controlled optimization prompt builder with conservative C++/Eigen safety rules and a response parser with basic candidate diff sanity checks.
-Automatic patch application to the main source tree is not implemented, and candidates are not integrated into the baseline pipeline yet.
+Automatic patch application or promotion to the main source tree is not implemented, and candidates are not integrated into the baseline pipeline yet. Candidate diffs can only be materialized in isolated workspace copies.
 
 ```powershell
 $env:DEEPSEEK_API_KEY="..."
@@ -78,6 +83,15 @@ Manual candidate generation is also available. It reads a source file, sends a c
 ```powershell
 py -m orchestrator.llm.generate_candidate `
   --config configs/llm_deepseek_flash.json `
+  --source cpp/external/lambdatwist/p3p.cc
+```
+
+For offline development, the same candidate-generation path can use a deterministic
+mock response without an API key or network call:
+
+```powershell
+py -m orchestrator.llm.generate_candidate `
+  --config configs/llm_mock_candidate.json `
   --source cpp/external/lambdatwist/p3p.cc
 ```
 
@@ -128,6 +142,14 @@ The Step 10 experiment runner is summarized in `docs/experiment_runner.md`.
 Candidate benchmarks, benchmark runtime parsing, candidate comparison, best
 candidate selection, candidate promotion into the main source tree, and full
 closed-loop optimization with ranking are still not implemented.
+
+The mock experiment config is useful for checking storage and orchestration
+without calling DeepSeek:
+
+```powershell
+py -m orchestrator.experiments.run_experiment `
+  --config configs/experiments/mock_p3p_basic.json
+```
 
 ```powershell
 py -m orchestrator.experiments.run_experiment `

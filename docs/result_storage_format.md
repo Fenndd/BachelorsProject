@@ -63,7 +63,7 @@ Example line:
 
 The index is intentionally compact. Per-run folders remain the source of detailed logs and artifacts.
 
-LLM candidate run folders use the same `metadata.json`, `status.json`, and `summary.txt` convention. Successful candidate runs also save `llm_request.json`, `llm_response.json`, `candidate.json`, and `candidate.diff`. Candidate patches are saved as artifacts and are not applied automatically.
+LLM candidate run folders use the same `metadata.json`, `status.json`, and `summary.txt` convention. Successful candidate runs also save `llm_request.json`, `llm_response.json`, `candidate.json`, and `candidate.diff`. Candidate patches are saved as artifacts and are not applied to the main source tree automatically. A later materialization step may apply a candidate diff only inside an isolated workspace copy.
 
 ## `metadata.json`
 
@@ -272,7 +272,8 @@ In a successful baseline run, `status.json` should have `overall_status` set to 
 The current repository intentionally leaves the following work for later steps:
 
 - Benchmark output parsing.
-- Patch application and LLM-generated optimized variants.
+- Promotion of LLM-generated optimized variants into the main source tree.
+- Candidate benchmark execution and benchmark runtime parsing.
 - Comparison between baseline and optimized runs.
 - Best candidate selection.
 - Advanced reporting and experiment analysis.

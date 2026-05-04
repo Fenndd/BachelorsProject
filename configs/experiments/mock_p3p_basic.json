@@ -1,0 +1,16 @@
+{
+  "experiment_name": "mock_p3p_basic",
+  "description": "Offline mock experiment for testing candidate generation, parsing, storage, and indexing without an API call.",
+  "llm_config": "configs/llm_mock_candidate.json",
+  "target_file": "cpp/external/lambdatwist/p3p.cc",
+  "iterations": 1,
+  "additional_context": "Offline mock run. No real LLM request is sent.",
+  "pipeline": {
+    "generate_candidate": true,
+    "materialize_candidate": false,
+    "verify_candidate": false
+  },
+  "candidate_generation": {
+    "max_source_chars": 120000
+  }
+}

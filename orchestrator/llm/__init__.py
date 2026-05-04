@@ -6,6 +6,7 @@ __all__ = [
     "LLMConfig",
     "LLMResponse",
     "DeepSeekClient",
+    "MockLLMClient",
     "OptimizationCandidate",
     "build_optimization_prompt",
     "parse_optimization_candidate",
@@ -19,6 +20,10 @@ def __getattr__(name: str) -> object:
         from .deepseek_client import DeepSeekClient
 
         return DeepSeekClient
+    if name == "MockLLMClient":
+        from .mock_client import MockLLMClient
+
+        return MockLLMClient
     if name == "OptimizationCandidate":
         from .response_parser import OptimizationCandidate
 
