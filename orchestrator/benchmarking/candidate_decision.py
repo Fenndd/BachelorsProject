@@ -165,6 +165,21 @@ def evaluate_candidate_against_baseline(
     }
 
 
+def write_candidate_decision(
+    candidate_run_dir: Path,
+    decision: dict[str, Any],
+) -> Path:
+    """Write a pairwise candidate decision artifact and return its path."""
+
+    candidate_path = Path(candidate_run_dir)
+    output_path = candidate_path / "candidate_decision.json"
+    output_path.write_text(
+        json.dumps(decision, indent=2, ensure_ascii=False) + "\n",
+        encoding="utf-8",
+    )
+    return output_path
+
+
 def _normalized_from_audit(audit: dict[str, Any], role: str) -> dict[str, Any]:
     role_audit = audit.get(role)
     if not isinstance(role_audit, dict):
@@ -259,9 +274,7 @@ def main(argv: list[str] | None = None) -> int:
         decision = evaluate_candidate_against_baseline(baseline_run, candidate_run)
         decision_json = json.dumps(decision, indent=2, ensure_ascii=False)
         print(decision_json)
-
-        output_path = candidate_run / "candidate_decision.json"
-        output_path.write_text(decision_json + "\n", encoding="utf-8")
+        write_candidate_decision(candidate_run, decision)
 
         status = decision.get("status")
         if status == "rejected":

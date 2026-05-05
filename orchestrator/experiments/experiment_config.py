@@ -40,6 +40,13 @@ class HistoryPolicyConfig:
 
 
 @dataclass(frozen=True)
+class SelectionConfig:
+    enabled: bool
+    baseline_run_dir: str | None
+    write_candidate_decisions: bool
+
+
+@dataclass(frozen=True)
 class ExperimentVariantConfig:
     variant_id: str
     description: str | None
@@ -70,6 +77,7 @@ class ExperimentConfig:
     pipeline: ExperimentPipelineConfig
     candidate_generation: CandidateGenerationConfig
     history_policy: HistoryPolicyConfig
+    selection: SelectionConfig
     optimization_scope: OptimizationScopeConfig
     variants: list[ExperimentVariantConfig]
     llm_config: str | None = None
@@ -111,6 +119,7 @@ def load_experiment_config(path: Path | str) -> ExperimentConfig:
         pipeline=_load_pipeline(payload),
         candidate_generation=_load_candidate_generation(payload),
         history_policy=_load_history_policy(payload),
+        selection=_load_selection(payload),
         optimization_scope=optimization_scope,
         variants=_load_variants(payload),
         llm_config=(
@@ -312,6 +321,37 @@ def _load_history_policy(payload: dict[str, Any]) -> HistoryPolicyConfig:
         include_verification_results=_required_bool(
             history_policy, "include_verification_results"
         ),
+    )
+
+
+def _load_selection(payload: dict[str, Any]) -> SelectionConfig:
+    selection = payload.get("selection")
+    if selection is None:
+        return SelectionConfig(
+            enabled=False,
+            baseline_run_dir=None,
+            write_candidate_decisions=True,
+        )
+
+    if not isinstance(selection, dict):
+        raise ExperimentConfigError("Field 'selection' must be an object.")
+
+    enabled = _required_bool(selection, "enabled")
+    baseline_run_dir = _optional_string(selection, "baseline_run_dir")
+    if enabled and baseline_run_dir is None:
+        raise ExperimentConfigError(
+            "Field 'selection.baseline_run_dir' is required when selection.enabled is true."
+        )
+
+    if "write_candidate_decisions" in selection:
+        write_candidate_decisions = _required_bool(selection, "write_candidate_decisions")
+    else:
+        write_candidate_decisions = True
+
+    return SelectionConfig(
+        enabled=enabled,
+        baseline_run_dir=baseline_run_dir,
+        write_candidate_decisions=write_candidate_decisions,
     )
 
 

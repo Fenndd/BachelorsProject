@@ -15,6 +15,7 @@ Experiment configs live under `configs/experiments/`. A config defines:
 - `pipeline`: which non-benchmark stages are enabled.
 - `candidate_generation`: generation limits such as `max_source_chars`.
 - `history_policy`: optional variant-local prompt history.
+- `selection`: optional baseline-vs-candidates best result selection.
 - `variants`: one or more model/config/context/parameter setups.
 
 Single-setup legacy configs remain supported by creating one synthetic
@@ -86,7 +87,44 @@ py -m orchestrator.benchmarking.audit_benchmark_pair `
 
 The audit writes `benchmark_artifact_audit.json` into the candidate run
 directory and checks whether the baseline and candidate metrics are safe to
-compare. It does not rank candidates, choose a winner, or promote code.
+compare. Pairwise candidate decisions and multi-candidate best-result selection
+are implemented separately and still do not promote code.
+
+## Best Candidate Selection
+
+Selection is disabled by default. Enable it with a top-level `selection` block:
+
+```json
+{
+  "selection": {
+    "enabled": true,
+    "baseline_run_dir": "results/runs/<baseline_run_id>",
+    "write_candidate_decisions": true
+  }
+}
+```
+
+When `selection.enabled=true`, `selection.baseline_run_dir` is required. The
+runner does not guess the latest baseline automatically.
+
+After all configured iterations finish, the runner collects candidate run
+directories that produced `verification.json`, including verified candidates
+that later become rejected by the pairwise decision logic. It then writes:
+
+```text
+results/experiments/<experiment_id>/best_candidate_selection.json
+```
+
+The compact selection summary is also included in `experiment_status.json` and
+`summary.txt`. Selection can report:
+
+- `best_candidate_found`
+- `no_improvement_found`
+- `all_candidates_rejected`
+- `no_candidates`
+
+Selection does not promote, merge, copy, or commit candidates into the main
+source tree.
 
 ## Variant-Local History
 
@@ -286,7 +324,5 @@ comparison.
 
 The experiment runner still does not implement:
 
-- candidate comparison
-- best candidate selection
 - promotion of candidates into the main source tree
 - full closed-loop optimization with ranking
