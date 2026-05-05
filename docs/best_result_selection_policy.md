@@ -7,12 +7,13 @@ This policy defines how candidate optimization results are **filtered**,
 
 This document defines policy only. It does **not** implement selector code.
 
-Implementation status update (Step 11 / substep 2):
+Implementation status update (Step 11 / substep 3):
 
 - Pairwise baseline-vs-candidate decision is now implemented in
   `orchestrator/benchmarking/candidate_decision.py`.
-- Multi-candidate best selection/ranking (`best_candidate`) is still not
-  implemented.
+- Multi-candidate best selection is now implemented in
+  `orchestrator/experiments/best_candidate_selector.py`.
+- Candidate promotion is still not implemented.
 
 ## 2. Scope
 
@@ -113,7 +114,7 @@ implementation should use these conservative defaults.
 
 ## 9. Candidate decision statuses
 
-Future candidate statuses:
+Pairwise candidate statuses:
 
 - `rejected`
   - Candidate failed at least one hard rejection gate.
@@ -122,9 +123,10 @@ Future candidate statuses:
     baseline.
 - `accepted_improvement`
   - Candidate passed all hard gates and improves runtime versus baseline.
-- `best_candidate`
-  - Candidate selected as the single best candidate among
-    `accepted_improvement` candidates.
+
+Experiment-level selection status is reported separately by the multi-candidate
+selector and does not introduce an additional pairwise status in
+`candidate_decision.py`.
 
 ## 10. Improvement calculations
 
@@ -150,10 +152,9 @@ Tie-break order (deterministic):
 3. Lower `parsed_max_best_reprojection_error`
 4. Earlier candidate/run order
 
-## 12. Output of future selector
+## 12. Output of selector
 
-The future selector should emit a structured JSON summary (policy-only design,
-not implemented in this step), with fields such as:
+The selector emits a structured JSON summary, with fields such as:
 
 - `baseline_run_dir`
 - `candidate_run_dirs`
@@ -180,7 +181,6 @@ Suggested `decisions` entries should include at least:
 
 This step does **not** implement:
 
-- actual selector code
 - candidate promotion
 - benchmark modification
 - benchmark threshold modification
@@ -189,9 +189,6 @@ This step does **not** implement:
 
 ## 14. Implementation notes for next step
 
-The next implementation step should likely add a Python module under
-`orchestrator/benchmarking` or `orchestrator/experiments`.
-
-That implementation should call the existing benchmark artifact audit logic
-first, then apply this policy to assign candidate statuses and pick the best
-candidate.
+The next implementation step should consume this selection output from the
+experiment runner flow and define how downstream reporting and promotion policy
+will use it.
