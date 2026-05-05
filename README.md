@@ -243,7 +243,7 @@ py -m orchestrator.experiments.run_experiment `
 - Clean baseline files are expected to remain unchanged in repository baseline state.
 - The main project logic and optimization workflow will be built on top of this baseline.
 
-## Current State (Pre-Comparator)
+## Current State
 
 The following features are implemented and verified:
 

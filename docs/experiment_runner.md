@@ -191,6 +191,7 @@ results/experiments/<experiment_id>/
 |- experiment_status.json
 |- iterations.jsonl
 |- summary.txt
+|- best_candidate_selection.json   # only when selection.enabled=true
 |- logs/
 |- variants/
 |  `- <variant_id>/

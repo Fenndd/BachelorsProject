@@ -258,6 +258,24 @@ class BestCandidateSelectorTests(unittest.TestCase):
             self.assertIsNone(result["decisions"][0]["candidate_decision_path"])
             self.assertIsNone(result["best_candidate_decision_path"])
 
+    def test_missing_candidate_directory_does_not_crash(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            baseline = _create_baseline(root)
+
+            missing = root / "nonexistent_candidate"
+            # Do not create the directory
+
+            result = select_best_candidate(baseline, [missing])
+
+            self.assertEqual(result["overall_status"], "all_candidates_rejected")
+            self.assertEqual(result["counts"]["total"], 1)
+            self.assertEqual(result["counts"]["rejected"], 1)
+            self.assertIsNone(result["best_candidate_run_dir"])
+            self.assertIsNone(result["best_candidate_decision_path"])
+            # candidate_decision_path should be null for missing directory
+            self.assertIsNone(result["decisions"][0]["candidate_decision_path"])
+
     def test_deterministic_tie_breaker_earlier_input_order(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)

@@ -73,7 +73,7 @@ def select_best_candidate(
     for candidate_path in candidate_paths:
         decision = evaluate_candidate_against_baseline(baseline_path, candidate_path)
         decision_path: Path | None = None
-        if write_candidate_decisions:
+        if write_candidate_decisions and candidate_path.is_dir():
             decision_path = write_candidate_decision(candidate_path, decision)
         summary = _decision_summary(candidate_path, decision, decision_path)
         summaries.append(summary)

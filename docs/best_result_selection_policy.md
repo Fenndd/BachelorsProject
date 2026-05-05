@@ -156,28 +156,55 @@ Tie-break order (deterministic):
 
 ## 12. Output of selector
 
-The selector emits a structured JSON summary, with fields such as:
+The selector emits a structured JSON summary with the following fields:
 
-- `baseline_run_dir`
-- `candidate_run_dirs`
-- `best_candidate_run_dir`
-- `overall_status`
-- `decisions`
-- `rejected_count`
-- `valid_not_improved_count`
-- `accepted_improvement_count`
-- `best_speedup`
-- `best_runtime_reduction_percent`
+Top-level:
 
-Suggested `decisions` entries should include at least:
+| Field | Type | Description |
+|---|---|---|
+| `baseline_run_dir` | string | Path to the baseline run directory |
+| `candidate_run_dirs` | string[] | Paths to all candidate run directories |
+| `overall_status` | string | One of `best_candidate_found`, `no_improvement_found`, `all_candidates_rejected`, `no_candidates` |
+| `best_candidate_run_dir` | string\|null | Path of the selected best candidate, or null |
+| `best_candidate_decision_path` | string\|null | Path to the best candidate's `candidate_decision.json`, or null |
+| `counts` | object | Counts summary (see below) |
+| `best_metrics` | object | Metrics of the selected best candidate, or all-null if none (see below) |
+| `decisions` | object[] | Per-candidate decision summaries (see below) |
 
-- `candidate_run_dir`
-- `status`
-- `rejection_reasons`
-- `candidate_runtime_ns_per_case_median`
-- `baseline_runtime_ns_per_case_median`
-- `speedup`
-- `runtime_reduction_percent`
+`counts`:
+
+| Field | Type | Description |
+|---|---|---|
+| `total` | int | Total number of candidates |
+| `rejected` | int | Candidates with status `rejected` |
+| `valid_not_improved` | int | Candidates with status `valid_not_improved` |
+| `accepted_improvement` | int | Candidates with status `accepted_improvement` |
+
+`best_metrics`:
+
+| Field | Type | Description |
+|---|---|---|
+| `runtime_ns_per_case_median` | number\|null | Median runtime of the best candidate in nanoseconds per case |
+| `speedup` | number\|null | Speedup vs baseline |
+| `runtime_reduction_percent` | number\|null | Runtime reduction percent vs baseline |
+| `success_rate` | number\|null | Success rate of the best candidate |
+| `mean_best_reprojection_error` | number\|null | Mean reprojection error of the best candidate |
+| `max_best_reprojection_error` | number\|null | Max reprojection error of the best candidate |
+
+Each entry in `decisions`:
+
+| Field | Type | Description |
+|---|---|---|
+| `candidate_run_dir` | string | Path to the candidate run directory |
+| `status` | string | One of `rejected`, `valid_not_improved`, `accepted_improvement` |
+| `candidate_decision_path` | string\|null | Path to `candidate_decision.json` if written, or null |
+| `runtime_ns_per_case_median` | number\|null | Median runtime in nanoseconds per case |
+| `speedup` | number\|null | Speedup vs baseline |
+| `runtime_reduction_percent` | number\|null | Runtime reduction percent vs baseline |
+| `success_rate` | number\|null | Candidate success rate |
+| `mean_best_reprojection_error` | number\|null | Mean reprojection error |
+| `max_best_reprojection_error` | number\|null | Max reprojection error |
+| `rejection_reasons` | string[] | List of rejection reasons (empty for non-rejected) |
 
 ## 13. Non-goals
 
