@@ -176,6 +176,9 @@ The Step 10 experiment runner is summarized in `docs/experiment_runner.md`.
 Candidate comparison, best candidate selection, candidate promotion into the
 main source tree, and full closed-loop optimization with ranking are still not
 implemented.
+The Step 11 selection policy is documented in
+`docs/best_result_selection_policy.md`, but automatic best-candidate
+selection is still not implemented.
 
 The mock experiment config is useful for checking storage and orchestration
 without calling DeepSeek:
