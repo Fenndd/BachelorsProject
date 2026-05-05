@@ -56,6 +56,17 @@ def _parse_args(argv: list[str]) -> argparse.Namespace:
         action="store_true",
         help="Keep the candidate workspace if materialization fails.",
     )
+    parser.add_argument(
+        "--allowed-file",
+        action="append",
+        default=None,
+        dest="allowed_files",
+        help=(
+            "Externally allowed file path (may be repeated). "
+            "If provided, candidate target_files and diff paths "
+            "must be a subset of these allowed files."
+        ),
+    )
     return parser.parse_args(argv)
 
 
@@ -470,6 +481,49 @@ def _fail(
     return 1
 
 
+def _validate_patch_scope_with_allowed_files(
+    target_files: list[str],
+    patched_files: list[str],
+    allowed_files: list[str] | None,
+) -> None:
+    """Validate that candidate scope does not exceed the external allowlist.
+
+    If *allowed_files* is None (not provided), fall back to the legacy behavior
+    (LLM-declared target_files as its own allowlist). This preserves backward
+    compatibility for manual usage outside the main experiment pipeline but is
+    NOT secure for the main optimization pipeline.
+
+    When *allowed_files* is provided (secure mode), enforce:
+
+        candidate target_files ⊆ external allowed_files
+        patched files from diff ⊆ candidate target_files
+        patched files from diff ⊆ external allowed_files
+    """
+    if allowed_files is None:
+        # Legacy compatibility mode: no external allowlist provided.
+        # target_files is already validated, and patched_files validated
+        # against target_files.
+        return
+
+    allowed_set = set(allowed_files)
+
+    # Check: candidate target_files ⊆ external allowed_files
+    target_outside = [f for f in target_files if f not in allowed_set]
+    if target_outside:
+        raise ValueError(
+            "candidate target_files outside allowed optimization scope: "
+            + ", ".join(target_outside)
+        )
+
+    # Check: patched files from diff ⊆ external allowed_files
+    patched_outside = [f for f in patched_files if f not in allowed_set]
+    if patched_outside:
+        raise ValueError(
+            "candidate.diff modifies files outside allowed optimization scope: "
+            + ", ".join(patched_outside)
+        )
+
+
 def _skip_noop_candidate(
     candidate_run_dir: Path,
     candidate_run_id: str,
@@ -577,6 +631,13 @@ def main(argv: list[str] | None = None) -> int:
         patch_text = patch_path.read_text(encoding="utf-8")
         patch_has_changes = bool(patch_text.strip())
         patched_files = _parse_patched_files(patch_text) if patch_has_changes else []
+
+        # Enforce external optimization scope if allowed files are provided
+        _validate_patch_scope_with_allowed_files(
+            target_files=target_files,
+            patched_files=patched_files,
+            allowed_files=args.allowed_files,
+        )
 
         if patch_has_changes:
             if not patched_files:

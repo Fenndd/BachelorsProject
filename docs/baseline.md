@@ -23,17 +23,62 @@ The external Lambda Twist code remains third-party source and is kept separate f
 - `baseline_benchmark` (old minimal benchmark target; kept building for compatibility)
 - `absolute_pose_lambdatwist_adapter_validator` (adapter validation gate for Lambda Twist P3P)
 - `absolute_pose_lambdatwist_benchmark` (new absolute-pose family benchmark executable)
+- `absolute_pose_correctness_policy_test` (unit test for `correctness_policy_passed` helper)
 
 ## Baseline CLI Flow
 
-The standard baseline CLI now configures CMake, builds the smoke test, runner, adapter validator, and family benchmark, then runs them in this order:
+The standard baseline CLI now configures CMake, builds the smoke test, runner, adapter validator, and family benchmark, runs them, then parses the family benchmark output as an explicit internal step:
 
 1. `baseline_smoke_test`
 2. `baseline_runner`
 3. `absolute_pose_lambdatwist_adapter_validator`
 4. `absolute_pose_lambdatwist_benchmark`
+5. `parse_absolute_pose_lambdatwist_benchmark`
 
-The adapter validator runs before the family benchmark. If validation fails, the family benchmark is skipped.
+The adapter validator runs before the family benchmark. If validation fails, the family benchmark run and parse steps are skipped. If the family benchmark build fails, `failed_step` remains `build_absolute_pose_lambdatwist_benchmark`. If the family benchmark run fails, `failed_step` remains `run_absolute_pose_lambdatwist_benchmark`. The parse step fails only when benchmark execution completed successfully but stdout could not be parsed into the required structured metrics.
+
+Benchmark execution success alone is not sufficient for a valid baseline run. Parsed structured metrics are required for future baseline-vs-candidate comparison, so a parse failure makes the baseline CLI exit with code `1` and records `failed_step: "parse_absolute_pose_lambdatwist_benchmark"` in `status.json` and `index.jsonl`. `metrics.json` still preserves `parse_success`, `missing_fields`, `parse_errors`, and any partially parsed values for diagnosis.
+
+## Correctness Policy
+
+The `run_absolute_pose_lambdatwist_benchmark` exit code and the `correctness_passed` field in the benchmark output are determined by the shared `correctness_policy_passed()` function in `absolute_pose_types.hpp` / `absolute_pose_benchmark.cpp`. This function enforces:
+
+- `success_rate >= options.min_success_rate` (default: 0.99)
+- `mean_best_reprojection_error <= options.reprojection_error_threshold` (default: 1e-6)
+- Optionally: `valid_cases == num_cases` (when `require_all_cases_valid` is true)
+- Optionally: `max_best_reprojection_error <= options.reprojection_error_threshold` (when `use_max_reprojection_error_as_hard_gate` is true)
+
+The `absolute_pose_lambdatwist_adapter_validator` uses the same shared function for its `reprojection_check_passed` gate, ensuring consistent correctness semantics between adapter validation and family benchmark evaluation.
+
+Policy-diagnostic lines (`min_success_rate`, `require_all_cases_valid`, `use_max_reprojection_error_as_hard_gate`, `reprojection_error_threshold`, `correctness_passed`) and additional metadata (`warmup_iterations`, `timed_iterations`, `random_seed`, `points_per_case`, `runtime_unit`, `valid_cases`, `total_solutions`) are printed by the benchmark runner for traceability. The Python parser reads all of these as optional fields, stores them in parsed metrics, and collects them into the `benchmark_options` block for artifact reproducibility.
+
+## Build Configuration
+
+Baseline benchmarks and smoke tests default to **Release** builds for accurate runtime metrics. Debug builds are not suitable for performance comparisons.
+
+The build type is controlled by the `CMAKE_BUILD_TYPE` environment variable:
+- Default: `Release` (optimized)
+- Override: set `CMAKE_BUILD_TYPE=Debug` for debugging
+
+On Windows PowerShell:
+```powershell
+$env:CMAKE_BUILD_TYPE="Debug"
+py -m orchestrator.cli.main
+```
+
+On Unix:
+```bash
+export CMAKE_BUILD_TYPE=Debug
+python -m orchestrator.cli.main
+```
+
+The selected build type:
+- Is passed to CMake configure as `-DCMAKE_BUILD_TYPE=<value>`
+- Is passed to cmake --build as `--config <value>`
+- Is recorded in `metadata.json` (environment section) and `metrics.json` (benchmark section)
+- Appears in `summary.txt` for traceability
+
+Baseline and candidate benchmarks should only be compared when built with the same build type. The benchmark artifact audit enforces this check.
 
 ## Not Implemented Yet
 

@@ -63,6 +63,17 @@ struct BenchmarkOptions {
     std::size_t points_per_case = 3;
     double reprojection_error_threshold = 1e-6;
     unsigned int random_seed = 42;
+
+    // Correctness acceptance policy.
+    //
+    // correctness_passed == true requires:
+    //   success_rate >= min_success_rate
+    //   && mean_best_reprojection_error <= reprojection_error_threshold
+    //
+    // Additional gates can be enabled below.
+    double min_success_rate = 0.99;
+    bool require_all_cases_valid = false;
+    bool use_max_reprojection_error_as_hard_gate = false;
 };
 
 }  // namespace benchmark::geometric_pose::absolute_pose

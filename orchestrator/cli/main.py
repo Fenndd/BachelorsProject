@@ -7,6 +7,7 @@ This script automates the current baseline flow:
 4. Run baseline_runner executable
 5. Run the Lambda Twist P3P adapter validator executable
 6. Run the Lambda Twist P3P family benchmark executable
+7. Parse the family benchmark output into structured metrics
 
 Each execution also writes persistent run artifacts under results/runs/<run_id>/.
 
@@ -45,10 +46,22 @@ EXPECTED_STEPS = [
     "run_baseline_runner",
     "run_absolute_pose_lambdatwist_adapter_validator",
     "run_absolute_pose_lambdatwist_benchmark",
+    "parse_absolute_pose_lambdatwist_benchmark",
 ]
 
 ADAPTER_VALIDATOR_TARGET = "absolute_pose_lambdatwist_adapter_validator"
 FAMILY_BENCHMARK_TARGET = "absolute_pose_lambdatwist_benchmark"
+PARSE_FAMILY_BENCHMARK_STEP = "parse_absolute_pose_lambdatwist_benchmark"
+BENCHMARK_REQUIRED_FIELDS = [
+    "solver_name",
+    "num_cases",
+    "success_rate",
+    "mean_best_reprojection_error",
+    "max_best_reprojection_error",
+    "runtime_ns_total_median",
+    "runtime_ns_per_case_median",
+    "correctness_passed",
+]
 
 
 def _format_command(command: Sequence[str]) -> str:
@@ -92,6 +105,7 @@ def _build_metadata(
     cmake_cxx_compiler: str | None,
     cmake_make_program: str | None,
     eigen_include_dir: str | None,
+    cmake_build_type: str,
 ) -> dict[str, Any]:
     return {
         "run_id": run_id,
@@ -109,6 +123,7 @@ def _build_metadata(
             "cmake_cxx_compiler": cmake_cxx_compiler,
             "cmake_make_program": cmake_make_program,
             "eigen3_include_dir": eigen_include_dir,
+            "cmake_build_type": cmake_build_type,
         },
     }
 
@@ -120,7 +135,7 @@ def _run_step(
     title: str,
     command: Sequence[str],
     cwd: Path,
-) -> tuple[dict[str, Any], str | None]:
+) -> tuple[dict[str, Any], str | None, str]:
     print(f"\n[STEP] {title}")
     print(f"[CMD ] {_format_command(command)}")
     print(f"[CWD ] {cwd}")
@@ -155,6 +170,7 @@ def _run_step(
                 "duration_seconds": duration_seconds,
             },
             stderr,
+            stdout,
         )
 
     storage.save_log(run_dir, step_name, command, cwd, exit_code, stdout, stderr)
@@ -177,6 +193,7 @@ def _run_step(
             "duration_seconds": duration_seconds,
         },
         error_message,
+        stdout,
     )
 
 
@@ -237,23 +254,121 @@ def _step_succeeded(step_statuses: list[dict[str, Any]], step_name: str) -> bool
     )
 
 
-def _step_executed(step_statuses: list[dict[str, Any]], step_name: str) -> bool:
-    return any(
-        step["name"] == step_name
-        and step["status"] in {"success", "failed"}
-        and step["exit_code"] is not None
-        for step in step_statuses
+def _empty_benchmark_parse_result(
+    raw_output_available: bool,
+    parse_errors: list[str] | None = None,
+) -> dict[str, Any]:
+    return {
+        "raw_output_available": raw_output_available,
+        "parse_success": False,
+        "missing_fields": list(BENCHMARK_REQUIRED_FIELDS),
+        "parse_errors": [] if parse_errors is None else parse_errors,
+        "metrics": {},
+    }
+
+
+def _benchmark_parse_result_from_output(output: str) -> dict[str, Any]:
+    parse_result = parse_absolute_pose_benchmark_output(output)
+    return {
+        "raw_output_available": True,
+        "parse_success": parse_result["parse_success"],
+        "missing_fields": parse_result["missing_fields"],
+        "parse_errors": parse_result["parse_errors"],
+        "metrics": parse_result["metrics"],
+    }
+
+
+def _build_parse_error_message(benchmark_parse_result: dict[str, Any]) -> str:
+    return (
+        "Could not parse family benchmark output. "
+        f"Missing fields: {benchmark_parse_result['missing_fields']}; "
+        f"parse errors: {benchmark_parse_result['parse_errors']}"
     )
 
 
-def _read_step_log(run_dir: Path, step_name: str) -> str | None:
-    log_path = run_dir / "logs" / f"{step_name}.log"
-    if not log_path.exists():
+def _run_benchmark_parse_step(
+    storage: RunStorage,
+    run_dir: Path,
+    benchmark_stdout: str,
+) -> tuple[dict[str, Any], dict[str, Any], str | None]:
+    print(f"\n[STEP] Parse {FAMILY_BENCHMARK_TARGET} output")
+    input_log_path = run_dir / "logs" / "run_absolute_pose_lambdatwist_benchmark.log"
+    started = time.perf_counter()
+    benchmark_parse_result = _benchmark_parse_result_from_output(benchmark_stdout)
+    duration_seconds = round(time.perf_counter() - started, 3)
+
+    parse_success = benchmark_parse_result["parse_success"]
+    status = "success" if parse_success else "failed"
+    step_status = {
+        "name": PARSE_FAMILY_BENCHMARK_STEP,
+        "status": status,
+        "exit_code": None,
+        "duration_seconds": duration_seconds,
+    }
+    error_message = None if parse_success else _build_parse_error_message(benchmark_parse_result)
+
+    log_stdout = "\n".join(
+        [
+            f"input_log_path: {input_log_path}",
+            f"raw_output_available: {benchmark_parse_result['raw_output_available']}",
+            f"parse_success: {benchmark_parse_result['parse_success']}",
+            f"missing_fields: {benchmark_parse_result['missing_fields']}",
+            f"parse_errors: {benchmark_parse_result['parse_errors']}",
+            "",
+        ]
+    )
+    storage.save_log(
+        run_dir,
+        PARSE_FAMILY_BENCHMARK_STEP,
+        f"parse stdout from {input_log_path}",
+        REPO_ROOT,
+        None,
+        log_stdout,
+        "" if error_message is None else error_message,
+    )
+
+    print(f"[PARSE] success={str(parse_success).lower()}")
+    if benchmark_parse_result["missing_fields"]:
+        print(f"[PARSE] missing fields: {benchmark_parse_result['missing_fields']}")
+    if benchmark_parse_result["parse_errors"]:
+        print(f"[PARSE] parse errors: {benchmark_parse_result['parse_errors']}")
+
+    return step_status, benchmark_parse_result, error_message
+
+
+def _build_benchmark_options(
+    parsed_metrics: dict[str, Any],
+    cmake_build_type: str,
+) -> dict[str, Any] | None:
+    """Build benchmark_options dict from parsed metrics when all keys are available."""
+    required_keys = (
+        "num_cases", "points_per_case", "warmup_iterations",
+        "timed_iterations", "random_seed", "reprojection_error_threshold",
+        "min_success_rate", "require_all_cases_valid",
+        "use_max_reprojection_error_as_hard_gate", "runtime_unit",
+    )
+    if not all(k in parsed_metrics for k in required_keys):
         return None
-    return log_path.read_text(encoding="utf-8")
+    return {
+        "num_cases": parsed_metrics["num_cases"],
+        "points_per_case": parsed_metrics["points_per_case"],
+        "warmup_iterations": parsed_metrics["warmup_iterations"],
+        "timed_iterations": parsed_metrics["timed_iterations"],
+        "random_seed": parsed_metrics["random_seed"],
+        "reprojection_error_threshold": parsed_metrics["reprojection_error_threshold"],
+        "min_success_rate": parsed_metrics["min_success_rate"],
+        "require_all_cases_valid": parsed_metrics["require_all_cases_valid"],
+        "use_max_reprojection_error_as_hard_gate": parsed_metrics["use_max_reprojection_error_as_hard_gate"],
+        "runtime_unit": parsed_metrics["runtime_unit"],
+        "build_type": cmake_build_type,
+    }
 
 
-def _build_metrics(run_dir: Path, step_statuses: list[dict[str, Any]]) -> dict[str, Any]:
+def _build_metrics(
+    step_statuses: list[dict[str, Any]],
+    cmake_build_type: str,
+    benchmark_parse_result: dict[str, Any],
+) -> dict[str, Any]:
     build_success = all(
         _step_succeeded(step_statuses, step_name)
         for step_name in [
@@ -272,33 +387,9 @@ def _build_metrics(run_dir: Path, step_statuses: list[dict[str, Any]]) -> dict[s
     family_benchmark_success = _step_succeeded(
         step_statuses, "run_absolute_pose_lambdatwist_benchmark"
     )
-    family_benchmark_log = _read_step_log(
-        run_dir, "run_absolute_pose_lambdatwist_benchmark"
-    )
-    benchmark_raw_output_available = family_benchmark_log is not None
-    if family_benchmark_log is None:
-        parsed_benchmark = {
-            "parse_success": False,
-            "missing_fields": [
-                "solver_name",
-                "num_cases",
-                "success_rate",
-                "mean_best_reprojection_error",
-                "max_best_reprojection_error",
-                "runtime_ns_total_median",
-                "runtime_ns_per_case_median",
-                "correctness_passed",
-            ],
-            "parse_errors": ["family benchmark log is not available"],
-            "metrics": {},
-        }
-    else:
-        parsed_benchmark = parse_absolute_pose_benchmark_output(family_benchmark_log)
-    parsed_metrics = parsed_benchmark["metrics"]
-    # Parsing is recorded as an explicit metric instead of changing the process
-    # exit code here. The baseline command already fails on benchmark execution
-    # errors; parse failures stay visible in metrics.json, index.jsonl, and
-    # summary.txt until Step 11 defines stricter comparison-time gates.
+    parsed_metrics = benchmark_parse_result["metrics"]
+
+    benchmark_options = _build_benchmark_options(parsed_metrics, cmake_build_type)
 
     return {
         "build_success": build_success,
@@ -311,10 +402,11 @@ def _build_metrics(run_dir: Path, step_statuses: list[dict[str, Any]]) -> dict[s
             "family": "absolute_pose_solvers",
             "solver": "lambdatwist_p3p",
             "runtime_unit": "ns",
-            "raw_output_available": benchmark_raw_output_available,
-            "parse_success": parsed_benchmark["parse_success"],
-            "missing_fields": parsed_benchmark["missing_fields"],
-            "parse_errors": parsed_benchmark["parse_errors"],
+            "benchmark_options": benchmark_options,
+            "raw_output_available": benchmark_parse_result["raw_output_available"],
+            "parse_success": benchmark_parse_result["parse_success"],
+            "missing_fields": benchmark_parse_result["missing_fields"],
+            "parse_errors": benchmark_parse_result["parse_errors"],
             "parsed_solver_name": parsed_metrics.get("solver_name"),
             "parsed_num_cases": parsed_metrics.get("num_cases"),
             "parsed_success_rate": parsed_metrics.get("success_rate"),
@@ -331,6 +423,8 @@ def _build_metrics(run_dir: Path, step_statuses: list[dict[str, Any]]) -> dict[s
                 "runtime_ns_per_case_median"
             ),
             "parsed_correctness_passed": parsed_metrics.get("correctness_passed"),
+            "parsed_valid_cases": parsed_metrics.get("valid_cases"),
+            "parsed_total_solutions": parsed_metrics.get("total_solutions"),
         },
         "correctness": {
             "basic_smoke_test_passed": smoke_test_success,
@@ -350,6 +444,7 @@ def _build_summary(
     metadata: dict[str, Any],
     status: dict[str, Any],
     metrics: dict[str, Any],
+    cmake_build_type: str,
 ) -> str:
     step_by_name = {step["name"]: step for step in status["steps"]}
     adapter_validation_status = step_by_name[
@@ -367,6 +462,7 @@ def _build_summary(
         f"Overall status: {status['overall_status']}",
         f"Failed step: {status['failed_step'] or 'none'}",
         f"Error message: {status['error_message'] or 'none'}",
+        f"Build type: {cmake_build_type}",
         f"Started at: {metadata['started_at']}",
         f"Finished at: {metadata['finished_at']}",
         "",
@@ -386,8 +482,11 @@ def _build_summary(
             f"Logs directory: {run_dir / 'logs'}",
             f"Adapter validation status: {adapter_validation_status}",
             f"Family benchmark status: {family_benchmark_status}",
+            "Benchmark parse status: "
+            f"{_format_metric_value(benchmark['parse_success'])}",
             "Adapter validation log: logs/run_absolute_pose_lambdatwist_adapter_validator.log",
             "Family benchmark raw output log: logs/run_absolute_pose_lambdatwist_benchmark.log",
+            "Family benchmark parse log: logs/parse_absolute_pose_lambdatwist_benchmark.log",
             "",
             "Family benchmark:",
             f"- solver: {_format_metric_value(benchmark['parsed_solver_name'])}",
@@ -402,7 +501,6 @@ def _build_summary(
             f"{_format_metric_value(benchmark['parsed_runtime_ns_total_median'])} ns",
             "- median runtime per case: "
             f"{_format_metric_value(benchmark['parsed_runtime_ns_per_case_median'])} ns",
-            f"- parse success: {_format_metric_value(benchmark['parse_success'])}",
             "",
         ]
     )
@@ -486,11 +584,13 @@ def _write_final_artifacts(
     step_statuses: list[dict[str, Any]],
     failed_step: str | None,
     error_message: str | None,
+    cmake_build_type: str,
+    benchmark_parse_result: dict[str, Any],
 ) -> dict[str, Any]:
     metadata["finished_at"] = datetime.now().astimezone().isoformat(timespec="seconds")
     status = _build_status(step_statuses, failed_step, error_message)
-    metrics = _build_metrics(run_dir, step_statuses)
-    summary = _build_summary(run_dir, metadata, status, metrics)
+    metrics = _build_metrics(step_statuses, cmake_build_type, benchmark_parse_result)
+    summary = _build_summary(run_dir, metadata, status, metrics, cmake_build_type)
 
     storage.save_metadata(run_dir, metadata)
     storage.save_status(run_dir, status)
@@ -511,6 +611,10 @@ def main() -> int:
     cmake_cxx_compiler = os.environ.get("CMAKE_CXX_COMPILER")
     cmake_make_program = os.environ.get("CMAKE_MAKE_PROGRAM")
     eigen_include_dir = os.environ.get("EIGEN3_INCLUDE_DIR")
+    cmake_build_type = os.environ.get(
+        "BENCHMARK_CMAKE_BUILD_TYPE",
+        os.environ.get("CMAKE_BUILD_TYPE", "Release"),
+    )
 
     storage = RunStorage(REPO_ROOT / "results")
     started_at = datetime.now().astimezone()
@@ -526,10 +630,14 @@ def main() -> int:
         cmake_cxx_compiler,
         cmake_make_program,
         eigen_include_dir,
+        cmake_build_type,
     )
     storage.save_metadata(run_dir, metadata)
 
     step_statuses: list[dict[str, Any]] = []
+    benchmark_parse_result = _empty_benchmark_parse_result(
+        False, ["family benchmark was not executed"]
+    )
 
     if not eigen_include_dir:
         error_message = (
@@ -543,6 +651,8 @@ def main() -> int:
             step_statuses,
             "environment",
             error_message,
+            cmake_build_type,
+            benchmark_parse_result,
         )
         print(f"ERROR: {error_message}")
         print('Example (PowerShell): $env:EIGEN3_INCLUDE_DIR="C:\\path\\to\\eigen"')
@@ -566,6 +676,8 @@ def main() -> int:
     if cmake_make_program:
         configure_command.append(f"-DCMAKE_MAKE_PROGRAM={cmake_make_program}")
 
+    configure_command.append(f"-DCMAKE_BUILD_TYPE={cmake_build_type}")
+
     command_steps: list[tuple[str, str, Sequence[str]]] = [
         ("configure_cmake", "Configure CMake project", configure_command),
         (
@@ -578,7 +690,7 @@ def main() -> int:
                 "--target",
                 "baseline_smoke_test",
                 "--config",
-                "Debug",
+                cmake_build_type,
             ],
         ),
         (
@@ -591,7 +703,7 @@ def main() -> int:
                 "--target",
                 "baseline_runner",
                 "--config",
-                "Debug",
+                cmake_build_type,
             ],
         ),
         (
@@ -604,7 +716,7 @@ def main() -> int:
                 "--target",
                 ADAPTER_VALIDATOR_TARGET,
                 "--config",
-                "Debug",
+                cmake_build_type,
             ],
         ),
         (
@@ -617,7 +729,7 @@ def main() -> int:
                 "--target",
                 FAMILY_BENCHMARK_TARGET,
                 "--config",
-                "Debug",
+                cmake_build_type,
             ],
         ),
     ]
@@ -626,7 +738,7 @@ def main() -> int:
     error_message: str | None = None
 
     for step_name, title, command in command_steps:
-        step_status, step_error = _run_step(
+        step_status, step_error, _stdout = _run_step(
             storage, run_dir, step_name, title, command, REPO_ROOT
         )
         step_statuses.append(step_status)
@@ -655,6 +767,7 @@ def main() -> int:
     ]
 
     if failed_step is None:
+        benchmark_stdout = ""
         for step_name, title, executable_name in run_targets:
             try:
                 executable = _find_executable(build_dir, executable_name)
@@ -682,17 +795,40 @@ def main() -> int:
                 print(f"ERROR: {error_message}", file=sys.stderr)
                 break
 
-            step_status, step_error = _run_step(
+            step_status, step_error, stdout = _run_step(
                 storage, run_dir, step_name, title, [str(executable)], REPO_ROOT
             )
             step_statuses.append(step_status)
+            if step_name == "run_absolute_pose_lambdatwist_benchmark":
+                benchmark_stdout = stdout
+                benchmark_parse_result = _empty_benchmark_parse_result(
+                    True, ["family benchmark output was not parsed"]
+                )
             if step_error:
                 failed_step = step_name
                 error_message = step_error
                 break
 
+        if failed_step is None:
+            step_status, benchmark_parse_result, parse_error = _run_benchmark_parse_step(
+                storage,
+                run_dir,
+                benchmark_stdout,
+            )
+            step_statuses.append(step_status)
+            if parse_error:
+                failed_step = PARSE_FAMILY_BENCHMARK_STEP
+                error_message = parse_error
+
     status = _write_final_artifacts(
-        storage, run_dir, metadata, step_statuses, failed_step, error_message
+        storage,
+        run_dir,
+        metadata,
+        step_statuses,
+        failed_step,
+        error_message,
+        cmake_build_type,
+        benchmark_parse_result,
     )
     print(f"\n[DONE] Final status: {status['overall_status']}")
 

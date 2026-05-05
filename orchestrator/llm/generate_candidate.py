@@ -23,6 +23,10 @@ from orchestrator.llm.response_parser import (
     OptimizationCandidate,
     parse_optimization_candidate,
 )
+from orchestrator.patching.scope_validation import (
+    normalize_repo_path,
+    validate_allowed_files_list,
+)
 from orchestrator.storage import RunStorage
 
 
@@ -55,6 +59,16 @@ def _parse_args(argv: list[str]) -> argparse.Namespace:
         type=int,
         default=DEFAULT_MAX_SOURCE_CHARS,
         help="Maximum source file size in characters.",
+    )
+    parser.add_argument(
+        "--allowed-file",
+        action="append",
+        default=None,
+        dest="allowed_files",
+        help=(
+            "File path the LLM is allowed to modify (may be repeated). "
+            "Defaults to the --source path if not provided."
+        ),
     )
     return parser.parse_args(argv)
 
@@ -331,11 +345,39 @@ def _create_run_directory(storage: RunStorage, run_id: str) -> Path | None:
         return None
 
 
+def _resolve_allowed_files(
+    raw_allowed_files: list[str] | None,
+    target_file: str,
+) -> list[str]:
+    """Resolve, validate, and normalize the allowed-files list.
+
+    If no allowed files are provided, fall back to [target_file] for backward
+    compatibility. Each path is normalized to a forward-slash POSIX relative
+    repo path.
+    """
+    if raw_allowed_files is None or not raw_allowed_files:
+        return [target_file]
+
+    try:
+        return validate_allowed_files_list(
+            raw_allowed_files,
+            field_name="--allowed-file",
+        )
+    except ValueError as exc:
+        raise CandidateGenerationFailure(
+            "parse_args", f"Invalid --allowed-file value(s): {exc}"
+        ) from exc
+
+
 def main(argv: list[str] | None = None) -> int:
     args = _parse_args(sys.argv[1:] if argv is None else argv)
     config_path = _resolve_path(args.config)
     source_path = _resolve_path(args.source)
     target_file = _display_path(source_path)
+
+    # Resolve allowed files early
+    allowed_files = _resolve_allowed_files(args.allowed_files, target_file)
+    print(f"Allowed files for LLM: {', '.join(allowed_files)}")
 
     storage = RunStorage(REPO_ROOT / "results")
     started_at = datetime.now().astimezone()
@@ -367,6 +409,7 @@ def main(argv: list[str] | None = None) -> int:
             source_file_path=target_file,
             source_code=source_code,
             additional_context=args.context,
+            allowed_files=allowed_files,
         )
 
         try:
@@ -374,6 +417,7 @@ def main(argv: list[str] | None = None) -> int:
                 run_dir / "llm_request.json",
                 {
                     "target_file": target_file,
+                    "allowed_files": allowed_files,
                     "system_prompt": system_prompt,
                     "user_prompt": user_prompt,
                     "additional_context": args.context,

@@ -76,6 +76,95 @@ class BenchmarkArtifactAuditTests(unittest.TestCase):
         self.assertTrue(audit["comparable"])
         self.assertIn("benchmark_options_not_recorded", audit["warnings"])
 
+    def test_matching_benchmark_options_passes(self) -> None:
+        opts = {
+            "num_cases": 1000,
+            "points_per_case": 3,
+            "warmup_iterations": 3,
+            "timed_iterations": 10,
+            "random_seed": 42,
+            "reprojection_error_threshold": 1e-6,
+            "min_success_rate": 0.99,
+            "require_all_cases_valid": False,
+            "use_max_reprojection_error_as_hard_gate": False,
+            "runtime_unit": "ns",
+            "build_type": "Release",
+        }
+        audit = audit_comparable_benchmark_pair(
+            _loaded_artifact(benchmark_options=opts),
+            _loaded_artifact(benchmark_options=opts),
+        )
+
+        self.assertTrue(audit["comparable"])
+        self.assertTrue(audit["checks"]["same_benchmark_options"])
+
+    def test_mismatched_benchmark_options_fails(self) -> None:
+        opts_a = {
+            "num_cases": 1000,
+            "points_per_case": 3,
+            "warmup_iterations": 3,
+            "timed_iterations": 10,
+            "random_seed": 42,
+            "reprojection_error_threshold": 1e-6,
+            "min_success_rate": 0.99,
+            "require_all_cases_valid": False,
+            "use_max_reprojection_error_as_hard_gate": False,
+            "runtime_unit": "ns",
+            "build_type": "Release",
+        }
+        opts_b = dict(opts_a)
+        opts_b["num_cases"] = 500
+        audit = audit_comparable_benchmark_pair(
+            _loaded_artifact(benchmark_options=opts_a),
+            _loaded_artifact(benchmark_options=opts_b),
+        )
+
+        self.assertFalse(audit["comparable"])
+        self.assertFalse(audit["checks"]["same_benchmark_options"])
+        self.assertIn("benchmark_options_mismatch", audit["failed_checks"])
+
+    def test_matching_build_type_passes(self) -> None:
+        audit = audit_comparable_benchmark_pair(
+            _loaded_artifact(build_type="Release"),
+            _loaded_artifact(build_type="Release"),
+        )
+
+        self.assertTrue(audit["comparable"])
+        self.assertTrue(audit["checks"]["same_build_type"])
+
+    def test_build_type_mismatch_fails_pair(self) -> None:
+        audit = audit_comparable_benchmark_pair(
+            _loaded_artifact(build_type="Release"),
+            _loaded_artifact(build_type="Debug"),
+        )
+
+        self.assertFalse(audit["comparable"])
+        self.assertFalse(audit["checks"]["same_build_type"])
+        self.assertIn("build_type_mismatch", audit["failed_checks"])
+
+    def test_missing_build_type_warns_backward_compatible(self) -> None:
+        """Old artifacts without build_type should warn but not fail."""
+        audit = audit_comparable_benchmark_pair(
+            _loaded_artifact(),  # no build_type key
+            _loaded_artifact(),  # no build_type key
+        )
+
+        self.assertTrue(audit["comparable"])
+        self.assertIsNone(audit["checks"]["same_build_type"])
+        self.assertIn("build_type_not_recorded", audit["warnings"])
+        self.assertNotIn("build_type_mismatch", audit["failed_checks"])
+
+    def test_one_sided_missing_build_type_warns(self) -> None:
+        """If only baseline has build_type, warn but don't fail."""
+        audit = audit_comparable_benchmark_pair(
+            _loaded_artifact(build_type="Release"),
+            _loaded_artifact(),  # no build_type
+        )
+
+        self.assertTrue(audit["comparable"])
+        self.assertIsNone(audit["checks"]["same_build_type"])
+        self.assertIn("build_type_not_recorded", audit["warnings"])
+
 
 if __name__ == "__main__":
     unittest.main()

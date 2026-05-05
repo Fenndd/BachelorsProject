@@ -5,6 +5,11 @@
   "target_file": "cpp/external/lambdatwist/p3p.cc",
   "iterations": 3,
   "additional_context": "Prefer small, safe runtime optimizations. Avoid Eigen aliasing risks and preserve numerical behavior.",
+  "optimization_scope": {
+    "allowed_files": [
+      "cpp/external/lambdatwist/p3p.cc"
+    ]
+  },
   "pipeline": {
     "generate_candidate": true,
     "materialize_candidate": false,

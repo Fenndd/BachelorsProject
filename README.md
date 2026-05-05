@@ -66,6 +66,22 @@ py orchestrator/cli/main.py
 If `python` is available on `PATH`, `python orchestrator/cli/main.py` is also valid.
 Set `CMAKE_EXE` only when the intended `cmake.exe` is not already selected by `PATH`.
 
+### Build Configuration
+
+Benchmark and evaluation builds default to **Release** for accurate runtime metrics. Override with:
+
+```powershell
+$env:CMAKE_BUILD_TYPE="Debug"
+```
+
+Or on Unix:
+
+```bash
+export CMAKE_BUILD_TYPE=Debug
+```
+
+The build type is recorded in run artifacts (`metadata.json`, `verification.json`) and verified by the benchmark artifact audit. Debug builds are not suitable for performance comparisons.
+
 ## LLM Adapter
 
 The first connected LLM is DeepSeek V4 Flash using `DEEPSEEK_API_KEY`.
@@ -210,9 +226,26 @@ py -m orchestrator.experiments.run_experiment `
 - Clean baseline files are expected to remain unchanged in repository baseline state.
 - The main project logic and optimization workflow will be built on top of this baseline.
 
-## Next Planned Steps
+## Current State (Pre-Comparator)
 
-1. Expand the smoke test into a real validation strategy.
-2. Define a proper benchmark protocol for baseline and optimized variants.
-3. Parse benchmark runtime from stored benchmark output.
-4. Introduce run comparison, best candidate selection, and the first LLM-assisted optimization loop.
+The following features are implemented and verified:
+
+- Project-owned adapter validator for Lambda Twist P3P
+- Deterministic synthetic case generation and correctness policy with configurable thresholds
+- Family benchmark architecture with core/adapter/runner separation via CMake targets
+- Stable snake-case key-value benchmark stdout with optional metadata fields
+- Python parser for required and optional benchmark fields
+- Baseline `metrics.json` and candidate `verification.json` with `benchmark_options` block for reproducibility
+- `benchmark_artifact_audit` that compares `benchmark_options` and `build_type` before allowing comparison
+- `valid_cases` and `total_solutions` parsed when present in benchmark output
+- Experiment runner with multi-variant, iteration, history, and pipeline support
+
+## Not Implemented Yet
+
+- Baseline-vs-candidate comparison (Step 11)
+- Best candidate selection and ranking
+- Accepted/rejected/improved decision logic
+- Candidate promotion into the main source tree
+- Full closed-loop LLM optimization with ranking
+- Additional solver adapters or benchmark families
+- JSON metrics output from C++ benchmarks

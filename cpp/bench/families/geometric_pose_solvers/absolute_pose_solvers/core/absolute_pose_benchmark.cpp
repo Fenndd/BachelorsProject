@@ -27,6 +27,33 @@ double median_runtime(std::vector<double> runtimes) {
 
 }  // namespace
 
+bool correctness_policy_passed(
+    const AbsolutePoseBenchmarkMetrics& metrics,
+    const BenchmarkOptions& options
+) {
+    if (metrics.num_cases == 0) {
+        return false;
+    }
+
+    const bool success_rate_ok =
+        metrics.success_rate >= options.min_success_rate;
+    const bool mean_error_ok =
+        metrics.mean_best_reprojection_error <= options.reprojection_error_threshold;
+
+    bool result = success_rate_ok && mean_error_ok;
+
+    if (options.require_all_cases_valid) {
+        result = result && (metrics.valid_cases == metrics.num_cases);
+    }
+
+    if (options.use_max_reprojection_error_as_hard_gate) {
+        result = result &&
+            metrics.max_best_reprojection_error <= options.reprojection_error_threshold;
+    }
+
+    return result;
+}
+
 AbsolutePoseBenchmarkMetrics run_absolute_pose_benchmark(
     const AbsolutePoseSolverAdapter& adapter,
     const BenchmarkOptions& options
@@ -69,7 +96,9 @@ AbsolutePoseBenchmarkMetrics run_absolute_pose_benchmark(
     } else if (metrics.num_cases > 0) {
         metrics.mean_best_reprojection_error = std::numeric_limits<double>::infinity();
     }
-    metrics.correctness_passed = metrics.num_cases > 0 && metrics.valid_cases == metrics.num_cases;
+
+    // Use shared correctness policy instead of hardcoded 100% valid-cases check.
+    metrics.correctness_passed = correctness_policy_passed(metrics, options);
 
     for (std::size_t warmup_index = 0; warmup_index < options.warmup_iterations; ++warmup_index) {
         std::size_t warmup_solution_count = 0;

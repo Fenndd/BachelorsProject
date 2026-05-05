@@ -24,6 +24,25 @@ _FIELD_TYPES = {
     "correctness_passed": "bool",
 }
 
+_OPTIONAL_FIELD_TYPES = {
+    "valid_cases": "int",
+    "total_solutions": "int",
+    "warmup_iterations": "int",
+    "timed_iterations": "int",
+    "random_seed": "int",
+    "points_per_case": "int",
+    "reprojection_error_threshold": "float",
+    "min_success_rate": "float",
+    "require_all_cases_valid": "bool",
+    "use_max_reprojection_error_as_hard_gate": "bool",
+    "runtime_unit": "str",
+}
+
+# Combined map for parsing; only REQUIRED_FIELDS govern parse_success.
+_ALL_FIELD_TYPES: dict[str, str] = {}
+_ALL_FIELD_TYPES.update(_FIELD_TYPES)
+_ALL_FIELD_TYPES.update(_OPTIONAL_FIELD_TYPES)
+
 _REQUIRED_FIELDS = tuple(_FIELD_TYPES.keys())
 
 
@@ -38,7 +57,7 @@ def parse_absolute_pose_benchmark_output(text: str) -> dict[str, Any]:
             continue
 
         key, raw_value = match.groups()
-        field_type = _FIELD_TYPES.get(key)
+        field_type = _ALL_FIELD_TYPES.get(key)
         if field_type is None:
             continue
 

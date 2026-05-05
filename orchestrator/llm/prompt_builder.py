@@ -7,6 +7,7 @@ def build_optimization_prompt(
     source_file_path: str,
     source_code: str,
     additional_context: str | None = None,
+    allowed_files: list[str] | None = None,
 ) -> tuple[str, str]:
     """Build system and user prompts for one controlled optimization request."""
     if not source_file_path:
@@ -25,6 +26,21 @@ def build_optimization_prompt(
         "Do not include prose outside the JSON object."
     )
 
+    _allowed_files_list = allowed_files or [source_file_path]
+    allowed_section_lines = [
+        "Allowed files you may modify:",
+    ]
+    for af in _allowed_files_list:
+        allowed_section_lines.append(f"- {af}")
+    allowed_section_lines.extend([
+        "",
+        "Hard rule:",
+        "The unified diff and target_files must reference only the allowed files above.",
+        "Do not modify benchmark, tests, adapters, validator, CMake, orchestrator, configs, docs, or result files.",
+        "",
+    ])
+    allowed_section = "\n".join(allowed_section_lines)
+
     context_section = additional_context or "No additional context provided."
     user_prompt = f"""Project context:
 This project is a local experimental pipeline for automated optimization of C++ 3D vision algorithms using LLMs.
@@ -33,6 +49,7 @@ The first minimal case study is a P3P solver based on a Lambda Twist baseline.
 Target file path:
 {source_file_path}
 
+{allowed_section}
 Source code:
 <source_code>
 {source_code}

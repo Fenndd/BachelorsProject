@@ -62,6 +62,10 @@ build and run the Lambda Twist P3P adapter validator, build and run
 `absolute_pose_lambdatwist_benchmark`, and parse the family benchmark stdout
 into `verification.json`.
 
+Candidate verification builds default to **Release** for accurate runtime
+metrics. Set `CMAKE_BUILD_TYPE=Debug` in the environment to override. The build
+type is recorded in `verification.json`.
+
 Benchmark artifacts can be audited manually before future comparison work:
 
 ```powershell
@@ -149,6 +153,124 @@ results/experiments/<experiment_id>/
 ```
 
 Generated experiment outputs are ignored by git.
+
+## Optimization Scope (Strict File Access Control)
+
+The main optimization pipeline enforces a strict optimization scope. LLM
+candidates may modify **only** the algorithm implementation files explicitly
+listed in `optimization_scope.allowed_files` in the experiment config.
+
+### What Cannot Be Modified
+
+The following are fixed evaluation infrastructure and **cannot** be changed by
+optimization candidates:
+
+- **Benchmark code** (`cpp/bench/`)
+- **Adapter code** (`cpp/bench/families/.../adapters/`)
+- **Validator code**
+- **CMake files** (`cpp/CMakeLists.txt` and subdirectory CMakeLists)
+- **Python orchestrator** (`orchestrator/`)
+- **Configs** (`configs/`)
+- **Documentation** (`docs/`)
+- **Tests** (`cpp/tests/`)
+- **Result storage code** (`results/`)
+- **Comparator, audit, and parser code**
+
+### Config Shape
+
+```json
+{
+  "optimization_scope": {
+    "allowed_files": [
+      "cpp/external/lambdatwist/p3p.cc"
+    ]
+  }
+}
+```
+
+If `optimization_scope` is missing, backward compatibility is preserved by
+defaulting `allowed_files` to `[target_file]`. Existing configs continue to
+work without changes.
+
+### Validation Rules for allowed_files
+
+- Must be a non-empty list of non-empty strings
+- Paths must be relative repository paths (POSIX forward-slash style)
+- No absolute paths, `..` components, Windows drive prefixes, or null bytes
+- `target_file` must be included in `allowed_files` or validation fails with a
+  clear error
+
+### Enforcement (Three-Layer Check)
+
+During the main experiment pipeline, the materializer enforces:
+
+1. **candidate target_files ⊆ external allowed_files**
+2. **patched files from diff ⊆ candidate target_files**
+3. **patched files from diff ⊆ external allowed_files**
+
+If any check fails, the materializer exits with a clear error message such as:
+
+```
+candidate target_files outside allowed optimization scope: cpp/bench/...
+```
+
+or:
+
+```
+candidate.diff modifies files outside allowed optimization scope: cpp/CMakeLists.txt
+```
+
+### Fallback for Manual Usage
+
+When `materialize_candidate` is run manually without `--allowed-file`, it falls
+back to legacy behavior where `candidate.json["target_files"]` acts as its own
+allowlist. This is **not secure** for the main optimization pipeline and is
+only preserved for backward compatibility with manual CLI usage.
+
+### Future Adapter-Generation Pipeline
+
+A separate adapter-preparation pipeline where the LLM helps create adapters is
+a possible future addition. It is **not** part of the current main optimization
+pipeline and would use a different scope configuration.
+
+### CLI Arguments
+
+`generate_candidate` accepts:
+
+```
+--allowed-file <path>    (may be repeated)
+```
+
+If no `--allowed-file` is provided, it defaults to `[source]`.
+
+`materialize_candidate` accepts:
+
+```
+--allowed-file <path>    (may be repeated)
+```
+
+If no `--allowed-file` is provided, the materializer falls back to
+`candidate.json["target_files"]` for legacy compatibility.
+
+## Build Type
+
+All benchmark evaluation builds (baseline and candidate verification) default
+to **Release**. Debug builds are not suitable for runtime comparisons.
+
+To override the build type for an experiment:
+
+```powershell
+$env:CMAKE_BUILD_TYPE="Debug"
+py -m orchestrator.experiments.run_experiment --config configs/experiments/my_config.json
+```
+
+The build type flows through to:
+- CMake configure (`-DCMAKE_BUILD_TYPE=<value>`)
+- CMake build (`--config <value>`)
+- Artifacts (`metadata.json`, `verification.json`)
+
+The benchmark artifact audit enforces matching build types before allowing
+comparison.
 
 ## Not Implemented Yet
 

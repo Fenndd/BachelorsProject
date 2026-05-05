@@ -6,12 +6,14 @@
 #include <string>
 #include <vector>
 
+#include "absolute_pose_benchmark.hpp"
 #include "absolute_pose_problem_generator.hpp"
 #include "absolute_pose_validator.hpp"
 #include "lambdatwist_p3p_adapter.hpp"
 
 namespace {
 
+using benchmark::geometric_pose::absolute_pose::AbsolutePoseBenchmarkMetrics;
 using benchmark::geometric_pose::absolute_pose::AbsolutePoseCase;
 using benchmark::geometric_pose::absolute_pose::AbsolutePoseResult;
 using benchmark::geometric_pose::absolute_pose::AdapterInfo;
@@ -19,6 +21,7 @@ using benchmark::geometric_pose::absolute_pose::BenchmarkOptions;
 using benchmark::geometric_pose::absolute_pose::Pose;
 using benchmark::geometric_pose::absolute_pose::adapters::LambdaTwistP3PAdapter;
 using benchmark::geometric_pose::absolute_pose::best_reprojection_error;
+using benchmark::geometric_pose::absolute_pose::correctness_policy_passed;
 using benchmark::geometric_pose::absolute_pose::generate_absolute_pose_cases;
 using benchmark::geometric_pose::absolute_pose::is_finite_pose;
 using benchmark::geometric_pose::absolute_pose::is_rotation_matrix_reasonable;
@@ -50,7 +53,6 @@ bool validate_metadata(const LambdaTwistP3PAdapter& adapter) {
 
 ValidationSummary run_adapter_validation() {
     constexpr double rotation_tolerance = 1e-5;
-    constexpr double minimum_success_rate = 0.99;
 
     BenchmarkOptions options;
     options.num_cases = 1000;
@@ -116,12 +118,15 @@ ValidationSummary run_adapter_validation() {
         summary.mean_best_reprojection_error = std::numeric_limits<double>::infinity();
     }
 
-    // Max error is reported as a diagnostic. The hard gate follows the benchmark-prep
-    // policy: almost all deterministic cases must pass and the mean error must remain
-    // below the pixel reprojection threshold.
-    summary.reprojection_check_passed =
-        summary.success_rate >= minimum_success_rate
-        && summary.mean_best_reprojection_error <= options.reprojection_error_threshold;
+    // Build metrics object and use the shared correctness policy helper.
+    AbsolutePoseBenchmarkMetrics metrics;
+    metrics.num_cases = summary.num_cases;
+    metrics.valid_cases = summary.passed_cases;
+    metrics.success_rate = summary.success_rate;
+    metrics.mean_best_reprojection_error = summary.mean_best_reprojection_error;
+    metrics.max_best_reprojection_error = summary.max_best_reprojection_error;
+
+    summary.reprojection_check_passed = correctness_policy_passed(metrics, options);
 
     summary.final_status_passed =
         summary.metadata_check_passed

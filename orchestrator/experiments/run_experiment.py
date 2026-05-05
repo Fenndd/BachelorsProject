@@ -4,6 +4,18 @@ This Step 10 runner supports one or more variants. Each variant can run the
 non-benchmark per-iteration pipeline: generate_candidate, optionally
 materialize_candidate, and optionally verify_candidate. It still does not
 benchmark, compare candidates, or select a best candidate.
+
+Build type for candidate verification:
+  The candidate verification stage defaults to Release builds (optimized) so
+  that runtime metrics collected during verification reflect production
+  performance.  To override, set the CMAKE_BUILD_TYPE environment variable
+  before launching the experiment runner:
+    set CMAKE_BUILD_TYPE=Debug   (Windows cmd)
+    $env:CMAKE_BUILD_TYPE="Debug"  (PowerShell)
+    export CMAKE_BUILD_TYPE=Debug  (Unix)
+  The experiment runner does not pass an explicit --cmake-build-type flag to
+  verify_candidate; it relies on the environment-variable default defined in
+  the verification module.
 """
 
 from __future__ import annotations
@@ -214,6 +226,10 @@ def _print_plan(config: ExperimentConfig, dry_run: bool) -> None:
     print(f"- materialize_candidate: {pipeline.materialize_candidate}")
     print(f"- verify_candidate: {pipeline.verify_candidate}")
     print(f"Max source chars: {candidate_generation.max_source_chars}")
+    print(
+        f"Optimization scope allowed files: "
+        f"{config.optimization_scope.allowed_files}"
+    )
     print("History policy:")
     print(f"- enabled: {config.history_policy.enabled}")
     print(f"- scope: {config.history_policy.scope}")
@@ -290,11 +306,17 @@ def _build_generation_command(
     ]
     if context_text is not None:
         command.extend(["--context", context_text])
+    # Pass each allowed file as a separate --allowed-file argument
+    for allowed_file in config.optimization_scope.allowed_files:
+        command.extend(["--allowed-file", allowed_file])
     return command
 
 
-def _build_materialization_command(candidate_run_dir: str) -> list[str]:
-    return [
+def _build_materialization_command(
+    candidate_run_dir: str,
+    config: ExperimentConfig,
+) -> list[str]:
+    command = [
         sys.executable,
         "-m",
         "orchestrator.patching.materialize_candidate",
@@ -302,9 +324,16 @@ def _build_materialization_command(candidate_run_dir: str) -> list[str]:
         candidate_run_dir,
         "--overwrite",
     ]
+    # Pass each allowed file as a separate --allowed-file argument
+    for allowed_file in config.optimization_scope.allowed_files:
+        command.extend(["--allowed-file", allowed_file])
+    return command
 
 
 def _build_verification_command(candidate_run_dir: str) -> list[str]:
+    # CMAKE_BUILD_TYPE is not passed explicitly here; the verification module
+    # reads it from the environment (defaulting to "Release").  Set the env
+    # variable before launching the experiment to control the build type.
     return [
         sys.executable,
         "-m",
@@ -803,7 +832,7 @@ def _run_iteration(
             variant.variant_id,
             variant_iteration,
             "materialize_candidate",
-            _build_materialization_command(candidate_run_dir),
+            _build_materialization_command(candidate_run_dir, config),
         )
         materialization_record = _materialization_stage_record(
             materialization_result,
