@@ -7,6 +7,13 @@ This policy defines how candidate optimization results are **filtered**,
 
 This document defines policy only. It does **not** implement selector code.
 
+Implementation status update (Step 11 / substep 2):
+
+- Pairwise baseline-vs-candidate decision is now implemented in
+  `orchestrator/benchmarking/candidate_decision.py`.
+- Multi-candidate best selection/ranking (`best_candidate`) is still not
+  implemented.
+
 ## 2. Scope
 
 This policy applies to the current Lambda Twist P3P case study evaluated through
