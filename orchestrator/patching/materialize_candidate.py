@@ -274,11 +274,18 @@ def _ensure_deletable_workspace(workspace_path: Path, workspace_root: Path) -> N
 
 
 def _run_git_apply(
-    git_exe: str, workspace_path: Path, patch_path: Path, check_only: bool
+    git_exe: str,
+    workspace_path: Path,
+    patch_path: Path,
+    check_only: bool,
+    *,
+    recount: bool = False,
 ) -> tuple[list[str], int | None, str, str, float, str | None]:
     command = [git_exe, "apply"]
     if check_only:
         command.append("--check")
+    if recount:
+        command.append("--recount")
     command.append(str(patch_path))
 
     started = time.perf_counter()
@@ -300,11 +307,27 @@ def _run_git_apply(
     duration = round(time.perf_counter() - started, 3)
     error_message = None
     if result.returncode != 0:
+        apply_mode = "git apply --check" if check_only else "git apply"
+        if recount:
+            apply_mode = f"{apply_mode} --recount"
         error_message = (
-            f"{'git apply --check' if check_only else 'git apply'} failed "
-            f"with exit code {result.returncode}."
+            f"{apply_mode} failed with exit code {result.returncode}."
         )
     return command, result.returncode, result.stdout, result.stderr, duration, error_message
+
+
+def _default_patch_apply_metadata() -> dict[str, Any]:
+    return {
+        "patch_apply_strategy": "not_run",
+        "git_apply_recount_used": False,
+        "git_apply_initial_check_failed": False,
+        "git_apply_initial_check_error": None,
+        "git_apply_recount_check_error": None,
+    }
+
+
+def _git_apply_detail(stdout: str, stderr: str, error_message: str | None) -> str:
+    return stderr.strip() or stdout.strip() or error_message or "git apply failed."
 
 
 def _workspace_git_environment(workspace_path: Path) -> dict[str, str]:
@@ -334,6 +357,11 @@ def _build_materialization(
     scope_enforcement: str,
     external_allowed_files_used: bool,
     allowed_files: list[str],
+    patch_apply_strategy: str,
+    git_apply_recount_used: bool,
+    git_apply_initial_check_failed: bool,
+    git_apply_initial_check_error: str | None,
+    git_apply_recount_check_error: str | None,
 ) -> dict[str, Any]:
     return {
         "overall_status": overall_status,
@@ -350,6 +378,11 @@ def _build_materialization(
         "external_allowed_files_used": external_allowed_files_used,
         "allowed_files": allowed_files,
         "post_apply_verification": post_apply_verification,
+        "patch_apply_strategy": patch_apply_strategy,
+        "git_apply_recount_used": git_apply_recount_used,
+        "git_apply_initial_check_failed": git_apply_initial_check_failed,
+        "git_apply_initial_check_error": git_apply_initial_check_error,
+        "git_apply_recount_check_error": git_apply_recount_check_error,
         "workspace_removed_on_failure": workspace_removed_on_failure,
         "keep_failed_workspace": keep_failed_workspace,
         "started_at": started_at.isoformat(timespec="seconds"),
@@ -401,6 +434,14 @@ def _write_log(
         *_format_log_list(materialization["changed_files"]),
         "",
         f"Post-apply verification: {materialization['post_apply_verification']}",
+        f"Patch apply strategy: {materialization['patch_apply_strategy']}",
+        f"Git apply recount used: {materialization['git_apply_recount_used']}",
+        "Initial git apply check failed: "
+        f"{materialization['git_apply_initial_check_failed']}",
+        "Initial git apply check error: "
+        f"{materialization['git_apply_initial_check_error'] or 'none'}",
+        "Recount git apply check error: "
+        f"{materialization['git_apply_recount_check_error'] or 'none'}",
         f"Workspace removed on failure: {materialization['workspace_removed_on_failure']}",
         f"Keep failed workspace: {materialization['keep_failed_workspace']}",
         "",
@@ -456,6 +497,7 @@ def _fail(
     scope_enforcement: str,
     external_allowed_files_used: bool,
     allowed_files: list[str],
+    patch_apply_metadata: dict[str, Any] | None = None,
 ) -> int:
     workspace_removed_on_failure = False
     if not keep_failed_workspace and rollback_workspace and workspace_path.exists():
@@ -485,6 +527,7 @@ def _fail(
         scope_enforcement,
         external_allowed_files_used,
         allowed_files,
+        **(patch_apply_metadata or _default_patch_apply_metadata()),
     )
     _write_json(candidate_run_dir / "materialization.json", materialization)
     _write_log(
@@ -548,6 +591,7 @@ def _skip_noop_candidate(
         scope_enforcement,
         external_allowed_files_used,
         allowed_files,
+        **_default_patch_apply_metadata(),
     )
     _write_json(candidate_run_dir / "materialization.json", materialization)
     _write_log(
@@ -597,6 +641,7 @@ def main(argv: list[str] | None = None) -> int:
     )
     external_allowed_files_used = bool(args.allowed_files)
     allowed_files: list[str] = []
+    patch_apply_metadata = _default_patch_apply_metadata()
 
     if not candidate_run_dir.exists() or not candidate_run_dir.is_dir():
         print("Final status: failed")
@@ -807,40 +852,95 @@ def main(argv: list[str] | None = None) -> int:
         {"command": command, "exit_code": exit_code, "stdout": stdout, "stderr": stderr}
     )
     if error_message:
-        steps.extend(
-            [
-                _step_status("git_apply_check", "failed", exit_code, duration),
-                _skipped_step("git_apply"),
-                _skipped_step("post_apply_verification"),
-            ]
+        initial_check_detail = _git_apply_detail(stdout, stderr, error_message)
+        command, recount_exit_code, recount_stdout, recount_stderr, recount_duration, recount_error_message = _run_git_apply(
+            args.git_exe, workspace_path, patch_path, check_only=True, recount=True
         )
-        detail = stderr.strip() or stdout.strip() or error_message
-        return _fail(
-            candidate_run_dir,
-            candidate_run_id,
-            workspace_root,
-            workspace_path,
-            args.source_root,
-            patch_path,
-            target_files,
-            patched_files,
-            changed_files,
-            "not_run",
-            args.keep_failed_workspace,
-            True,
-            started_at,
-            "git_apply_check",
-            detail,
-            steps,
-            commands,
-            scope_enforcement,
-            external_allowed_files_used,
-            allowed_files,
+        commands.append(
+            {
+                "command": command,
+                "exit_code": recount_exit_code,
+                "stdout": recount_stdout,
+                "stderr": recount_stderr,
+            }
         )
-    steps.append(_step_status("git_apply_check", "success", exit_code, duration))
+        if recount_error_message:
+            recount_check_detail = _git_apply_detail(
+                recount_stdout, recount_stderr, recount_error_message
+            )
+            patch_apply_metadata = {
+                "patch_apply_strategy": "git_apply_recount_failed",
+                "git_apply_recount_used": False,
+                "git_apply_initial_check_failed": True,
+                "git_apply_initial_check_error": initial_check_detail,
+                "git_apply_recount_check_error": recount_check_detail,
+            }
+            steps.extend(
+                [
+                    _step_status("git_apply_check", "failed", recount_exit_code, duration + recount_duration),
+                    _skipped_step("git_apply"),
+                    _skipped_step("post_apply_verification"),
+                ]
+            )
+            detail = (
+                "Normal git apply --check failed:\n"
+                f"{initial_check_detail}\n\n"
+                "git apply --check --recount also failed:\n"
+                f"{recount_check_detail}"
+            )
+            return _fail(
+                candidate_run_dir,
+                candidate_run_id,
+                workspace_root,
+                workspace_path,
+                args.source_root,
+                patch_path,
+                target_files,
+                patched_files,
+                changed_files,
+                "not_run",
+                args.keep_failed_workspace,
+                True,
+                started_at,
+                "git_apply_check",
+                detail,
+                steps,
+                commands,
+                scope_enforcement,
+                external_allowed_files_used,
+                allowed_files,
+                patch_apply_metadata,
+            )
+
+        patch_apply_metadata = {
+            "patch_apply_strategy": "git_apply_recount",
+            "git_apply_recount_used": True,
+            "git_apply_initial_check_failed": True,
+            "git_apply_initial_check_error": initial_check_detail,
+            "git_apply_recount_check_error": None,
+        }
+        steps.append(
+            _step_status(
+                "git_apply_check",
+                "success",
+                recount_exit_code,
+                duration + recount_duration,
+            )
+        )
+        apply_recount = True
+    else:
+        patch_apply_metadata = {
+            "patch_apply_strategy": "git_apply",
+            "git_apply_recount_used": False,
+            "git_apply_initial_check_failed": False,
+            "git_apply_initial_check_error": None,
+            "git_apply_recount_check_error": None,
+        }
+        steps.append(_step_status("git_apply_check", "success", exit_code, duration))
+        apply_recount = False
 
     command, exit_code, stdout, stderr, duration, error_message = _run_git_apply(
-        args.git_exe, workspace_path, patch_path, check_only=False
+        args.git_exe, workspace_path, patch_path, check_only=False, recount=apply_recount
     )
     commands.append(
         {"command": command, "exit_code": exit_code, "stdout": stdout, "stderr": stderr}
@@ -852,7 +952,7 @@ def main(argv: list[str] | None = None) -> int:
                 _skipped_step("post_apply_verification"),
             ]
         )
-        detail = stderr.strip() or stdout.strip() or error_message
+        detail = _git_apply_detail(stdout, stderr, error_message)
         return _fail(
             candidate_run_dir,
             candidate_run_id,
@@ -874,6 +974,7 @@ def main(argv: list[str] | None = None) -> int:
             scope_enforcement,
             external_allowed_files_used,
             allowed_files,
+            patch_apply_metadata,
         )
     steps.append(_step_status("git_apply", "success", exit_code, duration))
 
@@ -919,6 +1020,7 @@ def main(argv: list[str] | None = None) -> int:
             scope_enforcement,
             external_allowed_files_used,
             allowed_files,
+            patch_apply_metadata,
         )
 
     materialization = _build_materialization(
@@ -940,6 +1042,7 @@ def main(argv: list[str] | None = None) -> int:
         scope_enforcement,
         external_allowed_files_used,
         allowed_files,
+        **patch_apply_metadata,
     )
     _write_json(candidate_run_dir / "materialization.json", materialization)
     _write_log(

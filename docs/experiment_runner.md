@@ -64,6 +64,15 @@ The active Step 9 materialization command is
 `orchestrator/patching/apply_patch.py` module is only a compatibility marker for
 a future broader patching API.
 
+Materialization first checks candidate patches with normal `git apply --check`.
+If that check fails because an LLM-generated unified diff has malformed hunk
+line counts, the materializer tries Git's `git apply --check --recount`
+fallback and applies with `git apply --recount` only if the recount check
+succeeds. This fallback only asks Git to infer hunk counts from the patch text;
+it does not change candidate semantics. Deterministic C++ verification and
+benchmark correctness checks still decide whether a materialized candidate is
+valid.
+
 `verify_candidate` is deterministic and does not call any LLM API. It now runs
 the same benchmark-family verification path used by the baseline preparation:
 configure CMake in the isolated workspace, build and run `baseline_smoke_test`,
