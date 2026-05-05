@@ -52,7 +52,7 @@ The benchmark runner prints stable snake_case key-value lines such as `solver_na
 
 Benchmark execution success alone is not enough for a valid baseline artifact: if the executable succeeds but required stdout fields cannot be parsed, the baseline run fails at the parse step while preserving `parse_success=false`, `missing_fields`, `parse_errors`, and any partially parsed metrics. Candidate verification follows the same policy and fails verification on benchmark parse failure because future comparison requires structured metrics.
 
-Policy-diagnostic lines (`min_success_rate`, `require_all_cases_valid`, `use_max_reprojection_error_as_hard_gate`, `reprojection_error_threshold`, `correctness_passed`) are printed by the benchmark runner for traceability but are ignored by the Python parser.
+Policy-diagnostic lines (`min_success_rate`, `require_all_cases_valid`, `use_max_reprojection_error_as_hard_gate`, `reprojection_error_threshold`, `correctness_passed`) and additional metadata (`warmup_iterations`, `timed_iterations`, `random_seed`, `points_per_case`, `runtime_unit`, `valid_cases`, `total_solutions`) are printed by the benchmark runner for traceability and parsed by the Python parser as optional fields.
 
 ## Adapter Validation
 

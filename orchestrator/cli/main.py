@@ -336,6 +336,34 @@ def _run_benchmark_parse_step(
     return step_status, benchmark_parse_result, error_message
 
 
+def _build_benchmark_options(
+    parsed_metrics: dict[str, Any],
+    cmake_build_type: str,
+) -> dict[str, Any] | None:
+    """Build benchmark_options dict from parsed metrics when all keys are available."""
+    required_keys = (
+        "num_cases", "points_per_case", "warmup_iterations",
+        "timed_iterations", "random_seed", "reprojection_error_threshold",
+        "min_success_rate", "require_all_cases_valid",
+        "use_max_reprojection_error_as_hard_gate", "runtime_unit",
+    )
+    if not all(k in parsed_metrics for k in required_keys):
+        return None
+    return {
+        "num_cases": parsed_metrics["num_cases"],
+        "points_per_case": parsed_metrics["points_per_case"],
+        "warmup_iterations": parsed_metrics["warmup_iterations"],
+        "timed_iterations": parsed_metrics["timed_iterations"],
+        "random_seed": parsed_metrics["random_seed"],
+        "reprojection_error_threshold": parsed_metrics["reprojection_error_threshold"],
+        "min_success_rate": parsed_metrics["min_success_rate"],
+        "require_all_cases_valid": parsed_metrics["require_all_cases_valid"],
+        "use_max_reprojection_error_as_hard_gate": parsed_metrics["use_max_reprojection_error_as_hard_gate"],
+        "runtime_unit": parsed_metrics["runtime_unit"],
+        "build_type": cmake_build_type,
+    }
+
+
 def _build_metrics(
     step_statuses: list[dict[str, Any]],
     cmake_build_type: str,
@@ -361,6 +389,8 @@ def _build_metrics(
     )
     parsed_metrics = benchmark_parse_result["metrics"]
 
+    benchmark_options = _build_benchmark_options(parsed_metrics, cmake_build_type)
+
     return {
         "build_success": build_success,
         "smoke_test_success": smoke_test_success,
@@ -372,9 +402,7 @@ def _build_metrics(
             "family": "absolute_pose_solvers",
             "solver": "lambdatwist_p3p",
             "runtime_unit": "ns",
-            "benchmark_options": {
-                "build_type": cmake_build_type,
-            },
+            "benchmark_options": benchmark_options,
             "raw_output_available": benchmark_parse_result["raw_output_available"],
             "parse_success": benchmark_parse_result["parse_success"],
             "missing_fields": benchmark_parse_result["missing_fields"],
@@ -395,6 +423,8 @@ def _build_metrics(
                 "runtime_ns_per_case_median"
             ),
             "parsed_correctness_passed": parsed_metrics.get("correctness_passed"),
+            "parsed_valid_cases": parsed_metrics.get("valid_cases"),
+            "parsed_total_solutions": parsed_metrics.get("total_solutions"),
         },
         "correctness": {
             "basic_smoke_test_passed": smoke_test_success,

@@ -279,6 +279,9 @@ def _empty_benchmark(raw_output_available: bool = False, build_type: str = "Rele
         "parsed_runtime_ns_total_median": None,
         "parsed_runtime_ns_per_case_median": None,
         "parsed_correctness_passed": None,
+        "parsed_valid_cases": None,
+        "parsed_total_solutions": None,
+        "benchmark_options": None,
     }
 
 
@@ -288,6 +291,29 @@ def _benchmark_from_parse(
     build_type: str,
 ) -> dict[str, Any]:
     parsed_metrics = parse_result["metrics"]
+
+    # Build benchmark_options from parsed metrics when available.
+    benchmark_options = None
+    if all(k in parsed_metrics for k in (
+        "num_cases", "points_per_case", "warmup_iterations",
+        "timed_iterations", "random_seed", "reprojection_error_threshold",
+        "min_success_rate", "require_all_cases_valid",
+        "use_max_reprojection_error_as_hard_gate", "runtime_unit",
+    )):
+        benchmark_options = {
+            "num_cases": parsed_metrics["num_cases"],
+            "points_per_case": parsed_metrics["points_per_case"],
+            "warmup_iterations": parsed_metrics["warmup_iterations"],
+            "timed_iterations": parsed_metrics["timed_iterations"],
+            "random_seed": parsed_metrics["random_seed"],
+            "reprojection_error_threshold": parsed_metrics["reprojection_error_threshold"],
+            "min_success_rate": parsed_metrics["min_success_rate"],
+            "require_all_cases_valid": parsed_metrics["require_all_cases_valid"],
+            "use_max_reprojection_error_as_hard_gate": parsed_metrics["use_max_reprojection_error_as_hard_gate"],
+            "runtime_unit": parsed_metrics["runtime_unit"],
+            "build_type": build_type,
+        }
+
     return {
         "family": "absolute_pose_solvers",
         "solver": "lambdatwist_p3p",
@@ -313,6 +339,9 @@ def _benchmark_from_parse(
             "runtime_ns_per_case_median"
         ),
         "parsed_correctness_passed": parsed_metrics.get("correctness_passed"),
+        "parsed_valid_cases": parsed_metrics.get("valid_cases"),
+        "parsed_total_solutions": parsed_metrics.get("total_solutions"),
+        "benchmark_options": benchmark_options,
     }
 
 

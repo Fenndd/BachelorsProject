@@ -85,7 +85,22 @@ Baseline metrics contain success flags and parsed family benchmark values. The p
     "parsed_max_best_reprojection_error": 1.1e-12,
     "parsed_runtime_ns_total_median": 32928700.0,
     "parsed_runtime_ns_per_case_median": 32928.7,
-    "parsed_correctness_passed": true
+    "parsed_correctness_passed": true,
+    "parsed_valid_cases": 1000,
+    "parsed_total_solutions": 3000,
+    "benchmark_options": {
+      "num_cases": 1000,
+      "points_per_case": 3,
+      "warmup_iterations": 3,
+      "timed_iterations": 10,
+      "random_seed": 42,
+      "reprojection_error_threshold": 1e-6,
+      "min_success_rate": 0.99,
+      "require_all_cases_valid": false,
+      "use_max_reprojection_error_as_hard_gate": false,
+      "runtime_unit": "ns",
+      "build_type": "Release"
+    }
   },
   "correctness": {
     "basic_smoke_test_passed": true,

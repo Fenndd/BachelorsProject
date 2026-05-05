@@ -50,7 +50,7 @@ The `run_absolute_pose_lambdatwist_benchmark` exit code and the `correctness_pas
 
 The `absolute_pose_lambdatwist_adapter_validator` uses the same shared function for its `reprojection_check_passed` gate, ensuring consistent correctness semantics between adapter validation and family benchmark evaluation.
 
-Policy-diagnostic lines (`min_success_rate`, `require_all_cases_valid`, `use_max_reprojection_error_as_hard_gate`, `reprojection_error_threshold`, `correctness_passed`) are printed by the benchmark runner for traceability but are ignored by the Python parser (which only reads the core metrics).
+Policy-diagnostic lines (`min_success_rate`, `require_all_cases_valid`, `use_max_reprojection_error_as_hard_gate`, `reprojection_error_threshold`, `correctness_passed`) and additional metadata (`warmup_iterations`, `timed_iterations`, `random_seed`, `points_per_case`, `runtime_unit`, `valid_cases`, `total_solutions`) are printed by the benchmark runner for traceability. The Python parser reads all of these as optional fields, stores them in parsed metrics, and collects them into the `benchmark_options` block for artifact reproducibility.
 
 ## Build Configuration
 

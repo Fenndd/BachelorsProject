@@ -23,6 +23,8 @@ BENCHMARK_FIELDS = [
     "parsed_runtime_ns_total_median",
     "parsed_runtime_ns_per_case_median",
     "parsed_correctness_passed",
+    "parsed_valid_cases",
+    "parsed_total_solutions",
     "runtime_unit",
     "build_type",
     "benchmark_options",

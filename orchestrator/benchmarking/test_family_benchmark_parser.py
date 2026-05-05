@@ -100,6 +100,50 @@ class AbsolutePoseBenchmarkParserTests(unittest.TestCase):
         self.assertIn("runtime_ns_per_case_median", parsed["missing_fields"])
         self.assertEqual(parsed["metrics"]["solver_name"], "lambdatwist_p3p")
 
+    def test_valid_cases_and_total_solutions_parsed_when_present(self) -> None:
+        parsed = parse_absolute_pose_benchmark_output(
+            "\n".join(
+                [
+                    "solver_name: lambdatwist_p3p",
+                    "num_cases: 1000",
+                    "valid_cases: 1000",
+                    "total_solutions: 3000",
+                    "success_rate: 1.0",
+                    "mean_best_reprojection_error: 1.0e-12",
+                    "max_best_reprojection_error: 2.0e-12",
+                    "runtime_ns_total_median: 1234567",
+                    "runtime_ns_per_case_median: 1234.567",
+                    "correctness_passed: true",
+                ]
+            )
+        )
+
+        self.assertTrue(parsed["parse_success"])
+        self.assertEqual(parsed["metrics"]["valid_cases"], 1000)
+        self.assertEqual(parsed["metrics"]["total_solutions"], 3000)
+        self.assertIsInstance(parsed["metrics"]["valid_cases"], int)
+        self.assertIsInstance(parsed["metrics"]["total_solutions"], int)
+
+    def test_valid_cases_and_total_solutions_missing_still_parses(self) -> None:
+        parsed = parse_absolute_pose_benchmark_output(
+            "\n".join(
+                [
+                    "solver_name: lambdatwist_p3p",
+                    "num_cases: 1000",
+                    "success_rate: 1.0",
+                    "mean_best_reprojection_error: 1.0e-12",
+                    "max_best_reprojection_error: 2.0e-12",
+                    "runtime_ns_total_median: 1234567",
+                    "runtime_ns_per_case_median: 1234.567",
+                    "correctness_passed: true",
+                ]
+            )
+        )
+
+        self.assertTrue(parsed["parse_success"])
+        self.assertNotIn("valid_cases", parsed["metrics"])
+        self.assertNotIn("total_solutions", parsed["metrics"])
+
 
 if __name__ == "__main__":
     unittest.main()
