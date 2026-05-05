@@ -361,7 +361,7 @@ def _resolve_allowed_files(
     try:
         return validate_allowed_files_list(
             raw_allowed_files,
-            field_name="--allowed-file",
+            label="--allowed-file",
         )
     except ValueError as exc:
         raise CandidateGenerationFailure(

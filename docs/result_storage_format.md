@@ -13,8 +13,9 @@ For the current baseline phase, a run configures CMake, builds the baseline smok
 3. `absolute_pose_lambdatwist_adapter_validator`
 4. `absolute_pose_lambdatwist_benchmark`
 5. parse `absolute_pose_lambdatwist_benchmark` stdout into structured metrics
+6. check the parsed `correctness_passed` metric
 
-The old `baseline_benchmark` target remains in CMake for compatibility, but the main baseline CLI now uses the family benchmark flow. If adapter validation fails, the family benchmark run step is skipped. If family benchmark execution succeeds but stdout parsing fails, the baseline run fails at `parse_absolute_pose_lambdatwist_benchmark`; benchmark execution success alone is not sufficient for a valid baseline artifact because future comparison needs structured metrics.
+The old `baseline_benchmark` target remains in CMake for compatibility, but the main baseline CLI now uses the family benchmark flow. If adapter validation fails, the family benchmark run step is skipped. If family benchmark execution succeeds but stdout parsing fails, the baseline run fails at `parse_absolute_pose_lambdatwist_benchmark`; benchmark execution success alone is not sufficient for a valid baseline artifact because future comparison needs structured metrics. If parsing succeeds but `correctness_passed=false`, the baseline run fails at `benchmark_correctness_check` while keeping all parsed benchmark metrics in `metrics.json`, `summary.txt`, and `index.jsonl`.
 
 ## Directory Layout
 
@@ -36,7 +37,8 @@ results/
       │  ├─ run_baseline_runner.log
       │  ├─ run_absolute_pose_lambdatwist_adapter_validator.log
       │  ├─ run_absolute_pose_lambdatwist_benchmark.log
-      │  └─ parse_absolute_pose_lambdatwist_benchmark.log
+      │  ├─ parse_absolute_pose_lambdatwist_benchmark.log
+      │  └─ benchmark_correctness_check.log
       └─ summary.txt
 ```
 
@@ -56,10 +58,11 @@ Expected baseline steps are:
 - `run_absolute_pose_lambdatwist_adapter_validator`
 - `run_absolute_pose_lambdatwist_benchmark`
 - `parse_absolute_pose_lambdatwist_benchmark`
+- `benchmark_correctness_check`
 
 ## `metrics.json`
 
-Baseline metrics contain success flags and parsed family benchmark values. The parser reads stable snake_case key-value lines from the family benchmark stdout. A benchmark execution failure fails the baseline run and skips parsing. If benchmark execution succeeds but parsing fails, the baseline run also fails, with `failed_step: "parse_absolute_pose_lambdatwist_benchmark"`. `metrics.json` still records `parse_success: false`, missing fields, parse errors, and any partially parsed values so the artifact remains diagnosable.
+Baseline metrics contain success flags and parsed family benchmark values. The parser reads stable snake_case key-value lines from the family benchmark stdout. A benchmark execution failure fails the baseline run and skips parsing. If benchmark execution succeeds but parsing fails, the baseline run also fails, with `failed_step: "parse_absolute_pose_lambdatwist_benchmark"`. `metrics.json` still records `parse_success: false`, missing fields, parse errors, and any partially parsed values so the artifact remains diagnosable. If parsing succeeds but `parsed_correctness_passed` is `false`, the run fails at `benchmark_correctness_check`; `metrics.json` still records `parse_success: true` and all parsed benchmark values.
 
 ```json
 {
@@ -125,7 +128,21 @@ Each command step writes one log whose filename matches the stable step name. Lo
 
 Materialized candidate runs write `verification.json`, `verification_summary.txt`, and command logs under `verification_logs/`. Verification runs only inside the isolated workspace from `materialization.json`; it configures CMake, runs `baseline_smoke_test`, runs the Lambda Twist P3P adapter validator, runs the absolute-pose family benchmark, and parses benchmark stdout into structured verification metrics.
 
-If benchmark parsing fails, candidate verification fails because later comparison cannot use unstructured benchmark output. This matches the baseline policy. This still does not perform baseline-vs-candidate comparison or best-candidate selection.
+If benchmark parsing fails, candidate verification fails because later comparison cannot use unstructured benchmark output. If parsing succeeds but `parsed_correctness_passed=false`, candidate verification fails at `benchmark_correctness_check` while preserving parsed benchmark metrics in `verification.json`. This matches the baseline policy. This still does not perform baseline-vs-candidate comparison or best-candidate selection.
+
+## Candidate Materialization Scope Fields
+
+`materialization.json` records scope traceability for successful, skipped, and failed materializations:
+
+```json
+{
+  "scope_enforcement": "external_allowed_files",
+  "external_allowed_files_used": true,
+  "allowed_files": ["cpp/external/lambdatwist/p3p.cc"]
+}
+```
+
+When `--allowed-file` is supplied, `scope_enforcement` is `"external_allowed_files"` and `allowed_files` contains the normalized external allowlist. When materialization is run manually without `--allowed-file`, `scope_enforcement` is `"legacy_candidate_declared_target_files"`, `external_allowed_files_used` is `false`, and `allowed_files` records the normalized candidate `target_files` used as the legacy effective allowlist.
 
 ## Benchmark Artifact Audit
 
@@ -162,7 +179,7 @@ The build type defaults to `Release` and is controlled by the `CMAKE_BUILD_TYPE`
 
 ## `summary.txt`
 
-`summary.txt` is a human-readable overview. It lists step statuses, adapter validation status, family benchmark execution status, benchmark parse status, the family benchmark raw output log, the optional parse log, and parsed family benchmark values. If parsing fails, `summary.txt` lists the failed parse step, missing fields, and parse errors.
+`summary.txt` is a human-readable overview. It lists step statuses, adapter validation status, family benchmark execution status, benchmark parse status, the family benchmark raw output log, the optional parse log, and parsed family benchmark values. If parsing fails, `summary.txt` lists the failed parse step, missing fields, and parse errors. If correctness checking fails, it lists `failed_step: benchmark_correctness_check` and still shows the parsed benchmark values.
 
 ## Not Implemented Yet
 

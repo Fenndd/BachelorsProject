@@ -47,11 +47,13 @@ EXPECTED_STEPS = [
     "run_absolute_pose_lambdatwist_adapter_validator",
     "run_absolute_pose_lambdatwist_benchmark",
     "parse_absolute_pose_lambdatwist_benchmark",
+    "benchmark_correctness_check",
 ]
 
 ADAPTER_VALIDATOR_TARGET = "absolute_pose_lambdatwist_adapter_validator"
 FAMILY_BENCHMARK_TARGET = "absolute_pose_lambdatwist_benchmark"
 PARSE_FAMILY_BENCHMARK_STEP = "parse_absolute_pose_lambdatwist_benchmark"
+BENCHMARK_CORRECTNESS_CHECK_STEP = "benchmark_correctness_check"
 BENCHMARK_REQUIRED_FIELDS = [
     "solver_name",
     "num_cases",
@@ -286,6 +288,21 @@ def _build_parse_error_message(benchmark_parse_result: dict[str, Any]) -> str:
     )
 
 
+def _build_benchmark_correctness_error_message(
+    benchmark_parse_result: dict[str, Any]
+) -> str:
+    parsed_metrics = benchmark_parse_result["metrics"]
+    return (
+        "Family benchmark parsed successfully, but correctness_passed=false. "
+        "The baseline is not usable for comparison. "
+        f"success_rate={parsed_metrics.get('success_rate')!r}, "
+        "mean_best_reprojection_error="
+        f"{parsed_metrics.get('mean_best_reprojection_error')!r}, "
+        "max_best_reprojection_error="
+        f"{parsed_metrics.get('max_best_reprojection_error')!r}."
+    )
+
+
 def _run_benchmark_parse_step(
     storage: RunStorage,
     run_dir: Path,
@@ -334,6 +351,46 @@ def _run_benchmark_parse_step(
         print(f"[PARSE] parse errors: {benchmark_parse_result['parse_errors']}")
 
     return step_status, benchmark_parse_result, error_message
+
+
+def _run_benchmark_correctness_check_step(
+    storage: RunStorage,
+    run_dir: Path,
+    benchmark_parse_result: dict[str, Any],
+) -> tuple[dict[str, Any], str | None]:
+    print("\n[STEP] Check parsed benchmark correctness")
+    started = time.perf_counter()
+    correctness_passed = benchmark_parse_result["metrics"].get("correctness_passed")
+    duration_seconds = round(time.perf_counter() - started, 3)
+    passed = correctness_passed is True
+    status = "success" if passed else "failed"
+    error_message = None if passed else _build_benchmark_correctness_error_message(
+        benchmark_parse_result
+    )
+    step_status = {
+        "name": BENCHMARK_CORRECTNESS_CHECK_STEP,
+        "status": status,
+        "exit_code": None,
+        "duration_seconds": duration_seconds,
+    }
+    storage.save_log(
+        run_dir,
+        BENCHMARK_CORRECTNESS_CHECK_STEP,
+        "check parsed correctness_passed metric",
+        REPO_ROOT,
+        None,
+        "\n".join(
+            [
+                f"parse_success: {benchmark_parse_result['parse_success']}",
+                f"correctness_passed: {correctness_passed}",
+                f"status: {status}",
+                "",
+            ]
+        ),
+        "" if error_message is None else error_message,
+    )
+    print(f"[CHECK] correctness_passed={_format_metric_value(correctness_passed)}")
+    return step_status, error_message
 
 
 def _build_benchmark_options(
@@ -819,6 +876,16 @@ def main() -> int:
             if parse_error:
                 failed_step = PARSE_FAMILY_BENCHMARK_STEP
                 error_message = parse_error
+            else:
+                step_status, correctness_error = _run_benchmark_correctness_check_step(
+                    storage,
+                    run_dir,
+                    benchmark_parse_result,
+                )
+                step_statuses.append(step_status)
+                if correctness_error:
+                    failed_step = BENCHMARK_CORRECTNESS_CHECK_STEP
+                    error_message = correctness_error
 
     status = _write_final_artifacts(
         storage,

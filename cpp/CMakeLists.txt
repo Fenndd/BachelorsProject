@@ -159,5 +159,4 @@ add_executable(absolute_pose_correctness_policy_test
 target_link_libraries(absolute_pose_correctness_policy_test
     PRIVATE
         absolute_pose_core
-        absolute_pose_lambdatwist_adapter
 )

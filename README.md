@@ -53,7 +53,14 @@ The automated flow is:
 6. Run `baseline_smoke_test`.
 7. Run `baseline_runner`.
 8. Run `absolute_pose_lambdatwist_adapter_validator`.
-9. Run `absolute_pose_lambdatwist_benchmark` and parse its metrics.
+9. Run `absolute_pose_lambdatwist_benchmark`, parse its metrics, and check the
+   parsed `correctness_passed` metric.
+
+The C++ family benchmark returns `0` when it successfully produces metrics;
+numerical correctness is represented by the printed `correctness_passed` metric.
+If parsing succeeds but `correctness_passed=false`, the Python baseline CLI fails
+explicitly at `benchmark_correctness_check` while preserving parsed metrics in
+`metrics.json`, `summary.txt`, and `index.jsonl`.
 
 ```powershell
 $env:EIGEN3_INCLUDE_DIR="C:\path\to\eigen"
@@ -115,11 +122,17 @@ py -m orchestrator.llm.generate_candidate `
 
 Generated candidate patches can be materialized only into an isolated workspace
 copy under `workspace/candidates/<candidate_run_id>/`. The materialization
-command validates patch scope against `candidate.json["target_files"]` and
-verifies that a non-empty patch changes at least one target file. It does not
-modify the main `cpp/` source tree. The active Step 9 patching command is
-`orchestrator.patching.materialize_candidate`; `orchestrator/patching/apply_patch.py`
-is only a compatibility marker for a future broader patching API.
+command validates patch scope against `candidate.json["target_files"]` and the
+external optimization scope when `--allowed-file` is provided. The main
+experiment pipeline passes `optimization_scope.allowed_files` through to both
+generation and materialization, so candidate-declared target files and diff
+headers must stay inside that external allowlist. Manual materialization without
+`--allowed-file` keeps legacy behavior where candidate `target_files` act as the
+effective allowlist. Materialization verifies that a non-empty patch changes at
+least one target file and does not modify the main `cpp/` source tree. The active
+Step 9 patching command is `orchestrator.patching.materialize_candidate`;
+`orchestrator/patching/apply_patch.py` is only a compatibility marker for a
+future broader patching API.
 
 ```powershell
 py -m orchestrator.patching.materialize_candidate `
@@ -132,7 +145,9 @@ isolated workspace copy. Verification configures CMake, builds and runs
 builds and runs `absolute_pose_lambdatwist_benchmark`, and parses benchmark
 stdout into `verification.json`. It is deterministic, does not call an LLM, does
 not compare performance against the baseline, and does not modify the main
-`cpp/` source tree.
+`cpp/` source tree. If parsing succeeds but `correctness_passed=false`,
+verification fails at `benchmark_correctness_check` while preserving parsed
+benchmark metrics in `verification.json`.
 
 ```powershell
 py -m orchestrator.execution.verify_candidate `

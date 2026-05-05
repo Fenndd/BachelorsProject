@@ -50,6 +50,14 @@ continues with later iterations and variants.
 Materialization and verification operate only on isolated candidate workspaces;
 the main `cpp/` source tree is not modified.
 
+For configured experiments, `optimization_scope.allowed_files` is passed to
+`generate_candidate` as repeated `--allowed-file` arguments and to
+`materialize_candidate` as the external allowlist. The materializer enforces that
+candidate `target_files` and diff header paths remain inside this external
+allowlist. Manual materialization without `--allowed-file` remains supported for
+legacy usage, but the main experiment pipeline always enforces the configured
+scope.
+
 The active Step 9 materialization command is
 `orchestrator.patching.materialize_candidate`. The older
 `orchestrator/patching/apply_patch.py` module is only a compatibility marker for
@@ -60,7 +68,9 @@ the same benchmark-family verification path used by the baseline preparation:
 configure CMake in the isolated workspace, build and run `baseline_smoke_test`,
 build and run the Lambda Twist P3P adapter validator, build and run
 `absolute_pose_lambdatwist_benchmark`, and parse the family benchmark stdout
-into `verification.json`.
+into `verification.json`. If parsing succeeds but `correctness_passed=false`,
+verification fails at `benchmark_correctness_check` while preserving parsed
+metrics.
 
 Candidate verification builds default to **Release** for accurate runtime
 metrics. Set `CMAKE_BUILD_TYPE=Debug` in the environment to override. The build

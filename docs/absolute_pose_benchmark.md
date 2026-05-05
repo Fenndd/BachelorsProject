@@ -38,7 +38,7 @@ The `correctness_policy_passed()` function in `absolute_pose_types.hpp` / `absol
 - If `options.require_all_cases_valid`: also `valid_cases == num_cases`
 - If `options.use_max_reprojection_error_as_hard_gate`: also `max_best_reprojection_error <= options.reprojection_error_threshold`
 
-The benchmark runner uses `correctness_policy_passed()` to set the `correctness_passed` field in its output and the executable exit code. The adapter validator uses the same function for its `reprojection_check_passed` gate, ensuring consistent semantics.
+The benchmark runner uses `correctness_policy_passed()` to set the `correctness_passed` field in its output. The benchmark executable exit code indicates whether metrics were produced successfully; it returns `0` after successful metric production even when `correctness_passed=false`. The adapter validator uses the same function for its `reprojection_check_passed` gate, ensuring consistent correctness semantics.
 
 `BenchmarkOptions` has been extended with the correctness policy fields (`min_success_rate`, `require_all_cases_valid`, `use_max_reprojection_error_as_hard_gate`) alongside the existing `reprojection_error_threshold`.
 
@@ -50,7 +50,7 @@ The benchmark runner uses `correctness_policy_passed()` to set the `correctness_
 
 The benchmark runner prints stable snake_case key-value lines such as `solver_name`, `num_cases`, `success_rate`, `runtime_ns_per_case_median`, and `correctness_passed`. The Python baseline CLI parses these values as an explicit `parse_absolute_pose_lambdatwist_benchmark` step and stores them in `metrics.json`, `summary.txt`, and compact `index.jsonl` fields.
 
-Benchmark execution success alone is not enough for a valid baseline artifact: if the executable succeeds but required stdout fields cannot be parsed, the baseline run fails at the parse step while preserving `parse_success=false`, `missing_fields`, `parse_errors`, and any partially parsed metrics. Candidate verification follows the same policy and fails verification on benchmark parse failure because future comparison requires structured metrics.
+Benchmark execution success means the executable ran and printed metrics; it does not encode numerical correctness in the process exit code. If the executable succeeds but required stdout fields cannot be parsed, the baseline run fails at the parse step while preserving `parse_success=false`, `missing_fields`, `parse_errors`, and any partially parsed metrics. If parsing succeeds but `correctness_passed=false`, baseline and candidate verification fail at `benchmark_correctness_check` while preserving all parsed benchmark metrics.
 
 Policy-diagnostic lines (`min_success_rate`, `require_all_cases_valid`, `use_max_reprojection_error_as_hard_gate`, `reprojection_error_threshold`, `correctness_passed`) and additional metadata (`warmup_iterations`, `timed_iterations`, `random_seed`, `points_per_case`, `runtime_unit`, `valid_cases`, `total_solutions`) are printed by the benchmark runner for traceability and parsed by the Python parser as optional fields.
 
@@ -77,11 +77,11 @@ Python orchestration, candidate comparison, best-candidate selection, and candid
 - `use_max_reprojection_error_as_hard_gate` with max below/above threshold
 - Zero cases (always fails)
 
-The test links against `absolute_pose_benchmark` and does not require a solver adapter.
+The test links against `absolute_pose_core` and does not require a solver adapter.
 
 ## Candidate Verification
 
-`py -m orchestrator.execution.verify_candidate --candidate-run <candidate_run_dir>` runs the benchmark-family path inside the materialized candidate workspace only. It configures and builds the isolated C++ copy, runs `baseline_smoke_test`, runs `absolute_pose_lambdatwist_adapter_validator`, runs `absolute_pose_lambdatwist_benchmark`, and parses the benchmark stdout into structured verification metrics. Benchmark parse failure fails candidate verification. This step is deterministic and does not call an LLM.
+`py -m orchestrator.execution.verify_candidate --candidate-run <candidate_run_dir>` runs the benchmark-family path inside the materialized candidate workspace only. It configures and builds the isolated C++ copy, runs `baseline_smoke_test`, runs `absolute_pose_lambdatwist_adapter_validator`, runs `absolute_pose_lambdatwist_benchmark`, and parses the benchmark stdout into structured verification metrics. Benchmark parse failure fails candidate verification. If parsing succeeds but `correctness_passed=false`, verification fails at `benchmark_correctness_check` while keeping parsed metrics in `verification.json`. This step is deterministic and does not call an LLM.
 
 Candidate verification builds default to **Release** for runtime metric accuracy. The build type is controlled by the `CMAKE_BUILD_TYPE` environment variable (default `Release`) or the optional `--cmake-build-type` CLI argument to `verify_candidate`. The selected build type is recorded in `verification.json`.
 
