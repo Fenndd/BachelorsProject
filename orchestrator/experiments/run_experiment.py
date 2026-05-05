@@ -1,9 +1,11 @@
 """Experiment runner for dry-runs and staged candidate iterations.
 
-This Step 10 runner supports one or more variants. Each variant can run the
-non-benchmark per-iteration pipeline: generate_candidate, optionally
-materialize_candidate, and optionally verify_candidate. It still does not
-benchmark, compare candidates, or select a best candidate.
+This runner supports one or more variants. Each variant can run the staged
+candidate pipeline: generate_candidate, optionally materialize_candidate, and
+optionally verify_candidate. When selection is explicitly enabled in the
+experiment config, the runner compares verified candidate artifacts against an
+explicit baseline run and writes a best-candidate selection artifact. It does
+not promote, merge, or copy candidate code into the main source tree.
 
 Build type for candidate verification:
   The candidate verification stage defaults to Release builds (optimized) so
@@ -39,6 +41,7 @@ from .experiment_config import (
     HistoryPolicyConfig,
     load_experiment_config,
 )
+from .best_candidate_selector import select_best_candidate
 
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -230,6 +233,10 @@ def _print_plan(config: ExperimentConfig, dry_run: bool) -> None:
         f"Optimization scope allowed files: "
         f"{config.optimization_scope.allowed_files}"
     )
+    print("Selection:")
+    print(f"- enabled: {config.selection.enabled}")
+    print(f"- baseline_run_dir: {config.selection.baseline_run_dir or 'none'}")
+    print(f"- write_candidate_decisions: {config.selection.write_candidate_decisions}")
     print("History policy:")
     print(f"- enabled: {config.history_policy.enabled}")
     print(f"- scope: {config.history_policy.scope}")
@@ -904,6 +911,83 @@ def _stage_success_count(records: list[dict[str, Any]], stage_name: str) -> int:
     )
 
 
+def _verified_candidate_run_dirs(records: list[dict[str, Any]]) -> list[Path]:
+    """Return candidate run dirs that produced verification.json, preserving order."""
+
+    candidate_dirs: list[Path] = []
+    seen: set[Path] = set()
+    for record in records:
+        candidate_run_dir = record.get("candidate_run_dir")
+        if not isinstance(candidate_run_dir, str) or not candidate_run_dir.strip():
+            continue
+        candidate_path = _resolve_path(candidate_run_dir)
+        if candidate_path in seen:
+            continue
+        if not (candidate_path / "verification.json").exists():
+            continue
+        seen.add(candidate_path)
+        candidate_dirs.append(candidate_path)
+    return candidate_dirs
+
+
+def _compact_selection_summary(
+    enabled: bool,
+    selection_artifact: Path | None,
+    selection: dict[str, Any] | None,
+) -> dict[str, Any]:
+    if not enabled or selection is None:
+        return {
+            "enabled": enabled,
+            "overall_status": None,
+            "best_candidate_run_dir": None,
+            "counts": None,
+            "best_speedup": None,
+            "best_runtime_reduction_percent": None,
+            "selection_artifact": None,
+        }
+
+    best_metrics = selection.get("best_metrics")
+    best_metrics = best_metrics if isinstance(best_metrics, dict) else {}
+    return {
+        "enabled": True,
+        "overall_status": selection.get("overall_status"),
+        "best_candidate_run_dir": selection.get("best_candidate_run_dir"),
+        "counts": selection.get("counts"),
+        "best_speedup": best_metrics.get("speedup"),
+        "best_runtime_reduction_percent": best_metrics.get(
+            "runtime_reduction_percent"
+        ),
+        "selection_artifact": (
+            _display_path(selection_artifact) if selection_artifact is not None else None
+        ),
+    }
+
+
+def _run_selection(
+    experiment_dir: Path,
+    config: ExperimentConfig,
+    records: list[dict[str, Any]],
+) -> dict[str, Any] | None:
+    if not config.selection.enabled:
+        return None
+
+    if config.selection.baseline_run_dir is None:
+        raise ExperimentConfigError(
+            "Field 'selection.baseline_run_dir' is required when selection.enabled is true."
+        )
+
+    baseline_run_dir = _resolve_path(config.selection.baseline_run_dir)
+    candidate_run_dirs = _verified_candidate_run_dirs(records)
+    selection = select_best_candidate(
+        baseline_run_dir,
+        candidate_run_dirs,
+        write_candidate_decisions=config.selection.write_candidate_decisions,
+    )
+    selection_artifact = experiment_dir / "best_candidate_selection.json"
+    _write_json(selection_artifact, selection)
+    return _compact_selection_summary(True, selection_artifact, selection)
+
+
 def _failed_stage(record: dict[str, Any]) -> str | None:
     for stage_name in ["generation", "materialization", "verification"]:
         if record[stage_name].get("status") == "failed":
@@ -1124,6 +1208,7 @@ def _build_experiment_status(
     config: ExperimentConfig,
     records: list[dict[str, Any]],
     variant_summaries: list[dict[str, Any]],
+    selection_summary: dict[str, Any] | None,
     started_at: datetime,
 ) -> dict[str, Any]:
     successful_iterations = sum(
@@ -1132,7 +1217,7 @@ def _build_experiment_status(
     failed_iterations = sum(
         1 for record in records if record["overall_status"] == "failed"
     )
-    return {
+    status = {
         "experiment_id": experiment_id,
         "experiment_name": config.experiment_name,
         "overall_status": _overall_status(records),
@@ -1150,6 +1235,9 @@ def _build_experiment_status(
         "history_policy": asdict(config.history_policy),
         "variants": variant_summaries,
     }
+    if selection_summary is not None:
+        status["selection"] = selection_summary
+    return status
 
 
 def _build_summary(
@@ -1158,6 +1246,8 @@ def _build_summary(
     status: dict[str, Any],
     records: list[dict[str, Any]],
 ) -> str:
+    selection = status.get("selection")
+    selection = selection if isinstance(selection, dict) else {}
     lines = [
         f"Experiment id: {experiment_id}",
         f"Experiment name: {config.experiment_name}",
@@ -1187,9 +1277,27 @@ def _build_summary(
         f"Successful iterations: {status['successful_iterations']}",
         f"Failed iterations: {status['failed_iterations']}",
         f"Overall status: {status['overall_status']}",
-        "",
-        "Variants:",
     ]
+    if config.selection.enabled:
+        lines.extend(
+            [
+                "Selection:",
+                f"- enabled: {selection.get('enabled')}",
+                f"- overall_status: {selection.get('overall_status') or 'none'}",
+                (
+                    f"- best_candidate_run_dir: "
+                    f"{selection.get('best_candidate_run_dir') or 'none'}"
+                ),
+                f"- counts: {selection.get('counts') or 'none'}",
+                f"- best_speedup: {selection.get('best_speedup') or 'none'}",
+                (
+                    f"- best_runtime_reduction_percent: "
+                    f"{selection.get('best_runtime_reduction_percent') or 'none'}"
+                ),
+                f"- selection_artifact: {selection.get('selection_artifact') or 'none'}",
+            ]
+        )
+    lines.extend(["", "Variants:"])
     for variant_summary in status["variants"]:
         lines.extend(
             [
@@ -1224,13 +1332,7 @@ def _build_summary(
                 f"  verification: {record['verification']['status']}",
             ]
         )
-    lines.extend(
-        [
-            "",
-            "Baseline-vs-candidate comparison and best candidate selection are not implemented yet.",
-            "",
-        ]
-    )
+    lines.extend(["", "Candidate promotion and closed-loop optimization are not implemented.", ""])
     return "\n".join(lines)
 
 
@@ -1248,11 +1350,13 @@ def _write_final_artifacts(
         records,
         llm_metadata_by_variant,
     )
+    selection_summary = _run_selection(experiment_dir, config, records)
     status = _build_experiment_status(
         experiment_id,
         config,
         records,
         variant_summaries,
+        selection_summary,
         started_at,
     )
     _write_json(experiment_dir / "experiment_status.json", status)
@@ -1315,6 +1419,8 @@ def _write_early_failure_artifacts(
         "history_policy": asdict(config.history_policy),
         "variants": _early_variant_summaries(config),
     }
+    if config.selection.enabled:
+        status["selection"] = _compact_selection_summary(True, None, None)
     _write_json(experiment_dir / "experiment_status.json", status)
     lines = [
         f"Experiment id: {experiment_id}",
@@ -1325,11 +1431,28 @@ def _write_early_failure_artifacts(
         f"Failed step: {failed_step}",
         f"Error message: {error_message}",
         f"Total planned iterations: {_total_iterations(config)}",
-        "No iterations were executed.",
-        "",
-        "Baseline-vs-candidate comparison and best candidate selection are not implemented yet.",
-        "",
     ]
+    if config.selection.enabled:
+        lines.extend(
+            [
+                "Selection:",
+                "- enabled: True",
+                "- overall_status: none",
+                "- best_candidate_run_dir: none",
+                "- counts: none",
+                "- best_speedup: none",
+                "- best_runtime_reduction_percent: none",
+                "- selection_artifact: none",
+            ]
+        )
+    lines.extend(
+        [
+            "No iterations were executed.",
+            "",
+            "Candidate promotion and closed-loop optimization are not implemented.",
+            "",
+        ]
+    )
     (experiment_dir / "summary.txt").write_text("\n".join(lines), encoding="utf-8")
 
 

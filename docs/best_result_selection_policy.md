@@ -5,7 +5,8 @@
 This policy defines how candidate optimization results are **filtered**,
 **compared**, **ranked**, and **selected** against a baseline run.
 
-This document defines policy only. It does **not** implement selector code.
+This document defines the implemented pairwise decision and multi-candidate
+selection policy.
 
 Implementation status update (Step 11 / substep 3):
 
@@ -13,7 +14,8 @@ Implementation status update (Step 11 / substep 3):
   `orchestrator/benchmarking/candidate_decision.py`.
 - Multi-candidate best selection is now implemented in
   `orchestrator/experiments/best_candidate_selector.py`.
-- Candidate promotion is still not implemented.
+- Candidate promotion is still not implemented and remains out of scope.
+- Closed-loop optimization is still not implemented and remains out of scope.
 
 ## 2. Scope
 
@@ -26,12 +28,12 @@ artifact layout.
 
 ## 3. Inputs
 
-The future selector is expected to consume:
+The selector consumes:
 
 - a baseline run directory containing `metrics.json`
 - one or more candidate run directories containing `verification.json`
-- `benchmark_artifact_audit.json` (or equivalent output from the existing
-  benchmark artifact audit logic)
+- the existing benchmark artifact audit logic through the pairwise decision
+  helper
 
 Data source rules:
 
@@ -154,28 +156,55 @@ Tie-break order (deterministic):
 
 ## 12. Output of selector
 
-The selector emits a structured JSON summary, with fields such as:
+The selector emits a structured JSON summary with the following fields:
 
-- `baseline_run_dir`
-- `candidate_run_dirs`
-- `best_candidate_run_dir`
-- `overall_status`
-- `decisions`
-- `rejected_count`
-- `valid_not_improved_count`
-- `accepted_improvement_count`
-- `best_speedup`
-- `best_runtime_reduction_percent`
+Top-level:
 
-Suggested `decisions` entries should include at least:
+| Field | Type | Description |
+|---|---|---|
+| `baseline_run_dir` | string | Path to the baseline run directory |
+| `candidate_run_dirs` | string[] | Paths to all candidate run directories |
+| `overall_status` | string | One of `best_candidate_found`, `no_improvement_found`, `all_candidates_rejected`, `no_candidates` |
+| `best_candidate_run_dir` | string\|null | Path of the selected best candidate, or null |
+| `best_candidate_decision_path` | string\|null | Path to the best candidate's `candidate_decision.json`, or null |
+| `counts` | object | Counts summary (see below) |
+| `best_metrics` | object | Metrics of the selected best candidate, or all-null if none (see below) |
+| `decisions` | object[] | Per-candidate decision summaries (see below) |
 
-- `candidate_run_dir`
-- `status`
-- `rejection_reasons`
-- `candidate_runtime_ns_per_case_median`
-- `baseline_runtime_ns_per_case_median`
-- `speedup`
-- `runtime_reduction_percent`
+`counts`:
+
+| Field | Type | Description |
+|---|---|---|
+| `total` | int | Total number of candidates |
+| `rejected` | int | Candidates with status `rejected` |
+| `valid_not_improved` | int | Candidates with status `valid_not_improved` |
+| `accepted_improvement` | int | Candidates with status `accepted_improvement` |
+
+`best_metrics`:
+
+| Field | Type | Description |
+|---|---|---|
+| `runtime_ns_per_case_median` | number\|null | Median runtime of the best candidate in nanoseconds per case |
+| `speedup` | number\|null | Speedup vs baseline |
+| `runtime_reduction_percent` | number\|null | Runtime reduction percent vs baseline |
+| `success_rate` | number\|null | Success rate of the best candidate |
+| `mean_best_reprojection_error` | number\|null | Mean reprojection error of the best candidate |
+| `max_best_reprojection_error` | number\|null | Max reprojection error of the best candidate |
+
+Each entry in `decisions`:
+
+| Field | Type | Description |
+|---|---|---|
+| `candidate_run_dir` | string | Path to the candidate run directory |
+| `status` | string | One of `rejected`, `valid_not_improved`, `accepted_improvement` |
+| `candidate_decision_path` | string\|null | Path to `candidate_decision.json` if written, or null |
+| `runtime_ns_per_case_median` | number\|null | Median runtime in nanoseconds per case |
+| `speedup` | number\|null | Speedup vs baseline |
+| `runtime_reduction_percent` | number\|null | Runtime reduction percent vs baseline |
+| `success_rate` | number\|null | Candidate success rate |
+| `mean_best_reprojection_error` | number\|null | Mean reprojection error |
+| `max_best_reprojection_error` | number\|null | Max reprojection error |
+| `rejection_reasons` | string[] | List of rejection reasons (empty for non-rejected) |
 
 ## 13. Non-goals
 
@@ -187,8 +216,11 @@ This step does **not** implement:
 - LLM prompt changes
 - automatic closed-loop optimization
 
-## 14. Implementation notes for next step
+## 14. Experiment runner integration
 
-The next implementation step should consume this selection output from the
-experiment runner flow and define how downstream reporting and promotion policy
-will use it.
+The experiment runner can optionally execute selection after candidate
+generation/materialization/verification. When enabled, it writes
+`best_candidate_selection.json` under the experiment artifact directory and adds
+a compact selection summary to experiment status/summary artifacts.
+
+Selection does not promote, merge, copy, or commit candidate source code.

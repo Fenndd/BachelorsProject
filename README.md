@@ -11,7 +11,7 @@ The repository scaffold is complete and the first working Lambda Twist baseline 
 The C++ project includes a baseline library target (`lambdatwist_baseline`), a project-owned runner (`baseline_runner`), a smoke test (`baseline_smoke_test`), an old compatibility benchmark (`baseline_benchmark`), and a new absolute-pose family benchmark with a Lambda Twist P3P adapter validator.
 A Python CLI entry point automates the baseline configure/build/test/run/family-benchmark flow from the command line, writes per-run artifacts under `results/runs/<run_id>/`, and appends compact JSONL records to `results/index.jsonl`.
 
-Baseline benchmark parsing and candidate verification with the same family benchmark path are implemented. Baseline-vs-candidate comparison, best candidate selection, advanced reporting or experiment analysis, automatic promotion into the main source tree, and a closed-loop LLM optimization flow are intentionally not implemented yet.
+Baseline benchmark parsing and candidate verification with the same family benchmark path are implemented. Baseline-vs-candidate comparison and best candidate selection are implemented. Advanced reporting or experiment analysis, automatic promotion into the main source tree, and a closed-loop LLM optimization flow are intentionally not implemented yet.
 Environment expectations are documented in `docs/setup.md`, and baseline state details are documented in `docs/baseline.md`.
 
 ## Repository Structure
@@ -154,11 +154,11 @@ py -m orchestrator.execution.verify_candidate `
   --candidate-run results/runs/<candidate_run_id>
 ```
 
-Experiment configs are introduced for future multi-iteration and multi-variant
-runs. The current experiment runner supports dry-run planning, candidate
-generation, and optional materialization/verification according to config
-pipeline flags. Verification includes the family benchmark path, but the runner
-does not compare performance or select a best candidate yet. Experiment runs also write per-variant history artifacts under
+Experiment configs support multi-iteration and multi-variant runs. The current
+experiment runner supports dry-run planning, candidate generation, optional
+materialization/verification, and optional best-candidate selection against an
+explicit baseline run according to config pipeline flags. Verification includes
+the family benchmark path. Experiment runs also write per-variant history artifacts under
 `results/experiments/<experiment_id>/variants/`. The runner can optionally use
 compact variant-local history in later prompts; this history is not shared
 between variants. Sample configs are available at
@@ -172,13 +172,12 @@ save resolved per-variant LLM config snapshots; the Flash-only sample is
 `configs/experiments/deepseek_flash_p3p_parameter_variants.json`. The optional
 `configs/llm_deepseek_pro_max.json` config is intended for later final or
 high-quality runs and is not used by the default cheaper Flash experiments.
-The Step 10 experiment runner is summarized in `docs/experiment_runner.md`.
-Candidate comparison, best candidate selection, candidate promotion into the
-main source tree, and full closed-loop optimization with ranking are still not
-implemented.
+The Step 10/11 experiment runner is summarized in `docs/experiment_runner.md`.
+Candidate promotion into the main source tree and full closed-loop optimization
+with ranking are still not implemented.
 The Step 11 selection policy is documented in
-`docs/best_result_selection_policy.md`, but automatic best-candidate
-selection is still not implemented.
+`docs/best_result_selection_policy.md` and automatic best-candidate selection is
+implemented.
 
 The mock experiment config is useful for checking storage and orchestration
 without calling DeepSeek:
@@ -244,7 +243,7 @@ py -m orchestrator.experiments.run_experiment `
 - Clean baseline files are expected to remain unchanged in repository baseline state.
 - The main project logic and optimization workflow will be built on top of this baseline.
 
-## Current State (Pre-Comparator)
+## Current State
 
 The following features are implemented and verified:
 
@@ -255,14 +254,13 @@ The following features are implemented and verified:
 - Python parser for required and optional benchmark fields
 - Baseline `metrics.json` and candidate `verification.json` with `benchmark_options` block for reproducibility
 - `benchmark_artifact_audit` that compares `benchmark_options` and `build_type` before allowing comparison
+- Baseline-vs-candidate pairwise decision logic
+- Multi-candidate best candidate selection with deterministic tie-breakers
 - `valid_cases` and `total_solutions` parsed when present in benchmark output
 - Experiment runner with multi-variant, iteration, history, and pipeline support
 
 ## Not Implemented Yet
 
-- Baseline-vs-candidate comparison (Step 11)
-- Best candidate selection and ranking
-- Accepted/rejected/improved decision logic
 - Candidate promotion into the main source tree
 - Full closed-loop LLM optimization with ranking
 - Additional solver adapters or benchmark families

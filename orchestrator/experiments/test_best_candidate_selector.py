@@ -196,6 +196,86 @@ class BestCandidateSelectorTests(unittest.TestCase):
 
             self.assertEqual(result["best_candidate_run_dir"], str(candidate_b))
 
+    def test_tie_breaker_lower_max_reprojection_error(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            baseline = _create_baseline(root, parsed_runtime_ns_per_case_median=1000.0)
+            candidate_a = _create_candidate(
+                root,
+                "candidate_a",
+                parsed_runtime_ns_per_case_median=800.0,
+                parsed_success_rate=1.0,
+                parsed_mean_best_reprojection_error=1.0e-12,
+                parsed_max_best_reprojection_error=2.0e-12,
+            )
+            candidate_b = _create_candidate(
+                root,
+                "candidate_b",
+                parsed_runtime_ns_per_case_median=800.0,
+                parsed_success_rate=1.0,
+                parsed_mean_best_reprojection_error=1.0e-12,
+                parsed_max_best_reprojection_error=1.8e-12,
+            )
+
+            result = select_best_candidate(baseline, [candidate_a, candidate_b])
+
+            self.assertEqual(result["best_candidate_run_dir"], str(candidate_b))
+
+    def test_writes_candidate_decisions_by_default(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            baseline = _create_baseline(root, parsed_runtime_ns_per_case_median=1000.0)
+            candidate = _create_candidate(
+                root,
+                "candidate_a",
+                parsed_runtime_ns_per_case_median=800.0,
+            )
+
+            result = select_best_candidate(baseline, [candidate])
+
+            decision_path = candidate / "candidate_decision.json"
+            self.assertTrue(decision_path.exists())
+            self.assertEqual(result["decisions"][0]["candidate_decision_path"], str(decision_path))
+            self.assertEqual(result["best_candidate_decision_path"], str(decision_path))
+
+    def test_can_disable_candidate_decision_writes(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            baseline = _create_baseline(root, parsed_runtime_ns_per_case_median=1000.0)
+            candidate = _create_candidate(
+                root,
+                "candidate_a",
+                parsed_runtime_ns_per_case_median=800.0,
+            )
+
+            result = select_best_candidate(
+                baseline,
+                [candidate],
+                write_candidate_decisions=False,
+            )
+
+            self.assertFalse((candidate / "candidate_decision.json").exists())
+            self.assertIsNone(result["decisions"][0]["candidate_decision_path"])
+            self.assertIsNone(result["best_candidate_decision_path"])
+
+    def test_missing_candidate_directory_does_not_crash(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            baseline = _create_baseline(root)
+
+            missing = root / "nonexistent_candidate"
+            # Do not create the directory
+
+            result = select_best_candidate(baseline, [missing])
+
+            self.assertEqual(result["overall_status"], "all_candidates_rejected")
+            self.assertEqual(result["counts"]["total"], 1)
+            self.assertEqual(result["counts"]["rejected"], 1)
+            self.assertIsNone(result["best_candidate_run_dir"])
+            self.assertIsNone(result["best_candidate_decision_path"])
+            # candidate_decision_path should be null for missing directory
+            self.assertIsNone(result["decisions"][0]["candidate_decision_path"])
+
     def test_deterministic_tie_breaker_earlier_input_order(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)

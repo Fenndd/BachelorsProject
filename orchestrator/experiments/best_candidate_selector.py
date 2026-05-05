@@ -22,12 +22,15 @@ if str(REPO_ROOT) not in sys.path:
 
 from orchestrator.benchmarking.candidate_decision import (
     evaluate_candidate_against_baseline,
+    write_candidate_decision,
 )
 
 
 def select_best_candidate(
     baseline_run_dir: Path,
     candidate_run_dirs: list[Path],
+    *,
+    write_candidate_decisions: bool = True,
 ) -> dict[str, Any]:
     """Evaluate many candidates against one baseline and select the best valid one.
 
@@ -69,7 +72,10 @@ def select_best_candidate(
 
     for candidate_path in candidate_paths:
         decision = evaluate_candidate_against_baseline(baseline_path, candidate_path)
-        summary = _decision_summary(candidate_path, decision)
+        decision_path: Path | None = None
+        if write_candidate_decisions and candidate_path.is_dir():
+            decision_path = write_candidate_decision(candidate_path, decision)
+        summary = _decision_summary(candidate_path, decision, decision_path)
         summaries.append(summary)
 
         status = summary.get("status")
@@ -117,7 +123,11 @@ def select_best_candidate(
     }
 
 
-def _decision_summary(candidate_run_dir: Path, decision: dict[str, Any]) -> dict[str, Any]:
+def _decision_summary(
+    candidate_run_dir: Path,
+    decision: dict[str, Any],
+    decision_path: Path | None,
+) -> dict[str, Any]:
     candidate_metrics = decision.get("candidate_metrics")
     candidate_metrics = candidate_metrics if isinstance(candidate_metrics, dict) else {}
 
@@ -128,8 +138,13 @@ def _decision_summary(candidate_run_dir: Path, decision: dict[str, Any]) -> dict
     if not isinstance(rejection_reasons, list):
         rejection_reasons = []
 
-    decision_path = candidate_run_dir / "candidate_decision.json"
-    decision_path_text = str(decision_path) if decision_path.exists() else None
+    existing_decision_path = candidate_run_dir / "candidate_decision.json"
+    if decision_path is not None:
+        decision_path_text = str(decision_path)
+    elif existing_decision_path.exists():
+        decision_path_text = str(existing_decision_path)
+    else:
+        decision_path_text = None
 
     return {
         "candidate_run_dir": str(candidate_run_dir),
