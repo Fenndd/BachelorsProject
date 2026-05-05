@@ -40,7 +40,11 @@ EXPECTED_STEPS = [
     "run_absolute_pose_lambdatwist_adapter_validator",
     "run_absolute_pose_lambdatwist_benchmark",
     "parse_absolute_pose_lambdatwist_benchmark",
+    "benchmark_correctness_check",
 ]
+
+PARSE_FAMILY_BENCHMARK_STEP = "parse_absolute_pose_lambdatwist_benchmark"
+BENCHMARK_CORRECTNESS_CHECK_STEP = "benchmark_correctness_check"
 
 BENCHMARK_REQUIRED_FIELDS = [
     "solver_name",
@@ -343,6 +347,18 @@ def _benchmark_from_parse(
         "parsed_total_solutions": parsed_metrics.get("total_solutions"),
         "benchmark_options": benchmark_options,
     }
+
+
+def _build_benchmark_correctness_error_message(benchmark: dict[str, Any]) -> str:
+    return (
+        "Family benchmark parsed successfully, but correctness_passed=false. "
+        "The candidate is numerically incorrect and is not usable for comparison. "
+        f"success_rate={benchmark.get('parsed_success_rate')!r}, "
+        "mean_best_reprojection_error="
+        f"{benchmark.get('parsed_mean_best_reprojection_error')!r}, "
+        "max_best_reprojection_error="
+        f"{benchmark.get('parsed_max_best_reprojection_error')!r}."
+    )
 
 
 def _build_verification(
@@ -807,14 +823,14 @@ def main(argv: list[str] | None = None) -> int:
         if parse_result["parse_success"]:
             step_statuses.append(
                 _step_status(
-                    "parse_absolute_pose_lambdatwist_benchmark",
+                    PARSE_FAMILY_BENCHMARK_STEP,
                     "success",
                     None,
                     parse_duration,
                 )
             )
         else:
-            failed_step = "parse_absolute_pose_lambdatwist_benchmark"
+            failed_step = PARSE_FAMILY_BENCHMARK_STEP
             error_message = (
                 "Could not parse family benchmark output. "
                 f"Missing fields: {parse_result['missing_fields']}; "
@@ -822,12 +838,36 @@ def main(argv: list[str] | None = None) -> int:
             )
             step_statuses.append(
                 _step_status(
-                    "parse_absolute_pose_lambdatwist_benchmark",
+                    PARSE_FAMILY_BENCHMARK_STEP,
                     "failed",
                     None,
                     parse_duration,
                 )
             )
+        if parse_result["parse_success"]:
+            correctness_started = time.perf_counter()
+            correctness_passed = benchmark.get("parsed_correctness_passed") is True
+            correctness_duration = round(time.perf_counter() - correctness_started, 3)
+            if correctness_passed:
+                step_statuses.append(
+                    _step_status(
+                        BENCHMARK_CORRECTNESS_CHECK_STEP,
+                        "success",
+                        None,
+                        correctness_duration,
+                    )
+                )
+            else:
+                failed_step = BENCHMARK_CORRECTNESS_CHECK_STEP
+                error_message = _build_benchmark_correctness_error_message(benchmark)
+                step_statuses.append(
+                    _step_status(
+                        BENCHMARK_CORRECTNESS_CHECK_STEP,
+                        "failed",
+                        None,
+                        correctness_duration,
+                    )
+                )
 
     try:
         return _finalize(

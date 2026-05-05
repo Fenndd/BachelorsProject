@@ -7,8 +7,10 @@ import unittest
 from pathlib import Path
 
 from orchestrator.cli.main import (
+    BENCHMARK_CORRECTNESS_CHECK_STEP,
     PARSE_FAMILY_BENCHMARK_STEP,
     _benchmark_parse_result_from_output,
+    _build_benchmark_correctness_error_message,
     _build_index_record,
     _build_metrics,
     _build_status,
@@ -81,6 +83,80 @@ class BaselineParsePolicyTests(unittest.TestCase):
         self.assertTrue(metrics["benchmark"]["parse_success"])
         self.assertEqual(metrics["benchmark"]["parsed_runtime_ns_per_case_median"], 1000.0)
         self.assertTrue(metrics["benchmark"]["parsed_correctness_passed"])
+
+    def test_parse_success_correctness_false_fails_but_preserves_metrics(self) -> None:
+        parse_result = _benchmark_parse_result_from_output(
+            "\n".join(
+                [
+                    "solver_name: lambdatwist_p3p",
+                    "num_cases: 1000",
+                    "success_rate: 0.5",
+                    "mean_best_reprojection_error: 1e-3",
+                    "max_best_reprojection_error: 2e-3",
+                    "runtime_ns_total_median: 1000000",
+                    "runtime_ns_per_case_median: 1000",
+                    "correctness_passed: false",
+                ]
+            )
+        )
+        steps = [
+            *_successful_steps(),
+            _step(PARSE_FAMILY_BENCHMARK_STEP, "success"),
+            _step(BENCHMARK_CORRECTNESS_CHECK_STEP, "failed"),
+        ]
+        error_message = _build_benchmark_correctness_error_message(parse_result)
+
+        status = _build_status(steps, BENCHMARK_CORRECTNESS_CHECK_STEP, error_message)
+        metrics = _build_metrics(steps, "Release", parse_result)
+
+        self.assertEqual(status["overall_status"], "failed")
+        self.assertEqual(status["failed_step"], BENCHMARK_CORRECTNESS_CHECK_STEP)
+        self.assertTrue(metrics["benchmark"]["parse_success"])
+        self.assertIs(metrics["benchmark"]["parsed_correctness_passed"], False)
+        self.assertEqual(metrics["benchmark"]["parsed_runtime_ns_per_case_median"], 1000.0)
+        self.assertIn("correctness_passed=false", error_message)
+
+    def test_correctness_failure_index_and_summary_preserve_metrics(self) -> None:
+        parse_result = _benchmark_parse_result_from_output(
+            "\n".join(
+                [
+                    "solver_name: lambdatwist_p3p",
+                    "num_cases: 1000",
+                    "success_rate: 0.5",
+                    "mean_best_reprojection_error: 1e-3",
+                    "max_best_reprojection_error: 2e-3",
+                    "runtime_ns_total_median: 1000000",
+                    "runtime_ns_per_case_median: 1000",
+                    "correctness_passed: false",
+                ]
+            )
+        )
+        steps = [
+            *_successful_steps(),
+            _step(PARSE_FAMILY_BENCHMARK_STEP, "success"),
+            _step(BENCHMARK_CORRECTNESS_CHECK_STEP, "failed"),
+        ]
+        status = _build_status(
+            steps,
+            BENCHMARK_CORRECTNESS_CHECK_STEP,
+            _build_benchmark_correctness_error_message(parse_result),
+        )
+        metrics = _build_metrics(steps, "Release", parse_result)
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            run_dir = Path(tmpdir) / "test_baseline"
+            index_record = _build_index_record(
+                _metadata(), status, metrics, run_dir, Path(tmpdir)
+            )
+            summary = _build_summary(run_dir, _metadata(), status, metrics, "Release")
+
+        self.assertEqual(index_record["overall_status"], "failed")
+        self.assertEqual(index_record["failed_step"], BENCHMARK_CORRECTNESS_CHECK_STEP)
+        self.assertTrue(index_record["family_benchmark_parse_success"])
+        self.assertIs(index_record["family_benchmark_correctness_passed"], False)
+        self.assertEqual(index_record["family_benchmark_runtime_ns_per_case_median"], 1000.0)
+        self.assertIn(f"Failed step: {BENCHMARK_CORRECTNESS_CHECK_STEP}", summary)
+        self.assertIn("- correctness passed: false", summary)
 
     def test_parse_failure_fails_status_and_preserves_partial_metrics(self) -> None:
         parse_result = _benchmark_parse_result_from_output(

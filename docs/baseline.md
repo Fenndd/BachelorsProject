@@ -34,14 +34,15 @@ The standard baseline CLI now configures CMake, builds the smoke test, runner, a
 3. `absolute_pose_lambdatwist_adapter_validator`
 4. `absolute_pose_lambdatwist_benchmark`
 5. `parse_absolute_pose_lambdatwist_benchmark`
+6. `benchmark_correctness_check`
 
 The adapter validator runs before the family benchmark. If validation fails, the family benchmark run and parse steps are skipped. If the family benchmark build fails, `failed_step` remains `build_absolute_pose_lambdatwist_benchmark`. If the family benchmark run fails, `failed_step` remains `run_absolute_pose_lambdatwist_benchmark`. The parse step fails only when benchmark execution completed successfully but stdout could not be parsed into the required structured metrics.
 
-Benchmark execution success alone is not sufficient for a valid baseline run. Parsed structured metrics are required for future baseline-vs-candidate comparison, so a parse failure makes the baseline CLI exit with code `1` and records `failed_step: "parse_absolute_pose_lambdatwist_benchmark"` in `status.json` and `index.jsonl`. `metrics.json` still preserves `parse_success`, `missing_fields`, `parse_errors`, and any partially parsed values for diagnosis.
+Benchmark execution success alone is not sufficient for a valid baseline run. Parsed structured metrics are required for future baseline-vs-candidate comparison, so a parse failure makes the baseline CLI exit with code `1` and records `failed_step: "parse_absolute_pose_lambdatwist_benchmark"` in `status.json` and `index.jsonl`. `metrics.json` still preserves `parse_success`, `missing_fields`, `parse_errors`, and any partially parsed values for diagnosis. If parsing succeeds but `correctness_passed=false`, the baseline CLI exits with code `1`, records `failed_step: "benchmark_correctness_check"`, and still preserves all parsed benchmark metrics in `metrics.json`, `summary.txt`, and `index.jsonl`.
 
 ## Correctness Policy
 
-The `run_absolute_pose_lambdatwist_benchmark` exit code and the `correctness_passed` field in the benchmark output are determined by the shared `correctness_policy_passed()` function in `absolute_pose_types.hpp` / `absolute_pose_benchmark.cpp`. This function enforces:
+The `correctness_passed` field in `run_absolute_pose_lambdatwist_benchmark` output is determined by the shared `correctness_policy_passed()` function in `absolute_pose_types.hpp` / `absolute_pose_benchmark.cpp`. The benchmark executable returns `0` when it successfully produces metrics; it does not encode `correctness_passed` in the process exit code. The policy function enforces:
 
 - `success_rate >= options.min_success_rate` (default: 0.99)
 - `mean_best_reprojection_error <= options.reprojection_error_threshold` (default: 1e-6)

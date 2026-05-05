@@ -17,13 +17,21 @@ import subprocess
 import sys
 import time
 from datetime import datetime
-from pathlib import Path, PurePosixPath
+from pathlib import Path
 from typing import Any
+
+from orchestrator.patching.scope_validation import (
+    normalize_repo_path,
+    validate_allowed_files_list,
+    validate_patch_scope,
+)
 
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_WORKSPACE_ROOT = "workspace/candidates"
 DEFAULT_SOURCE_ROOT = "cpp"
+EXTERNAL_SCOPE_ENFORCEMENT = "external_allowed_files"
+LEGACY_SCOPE_ENFORCEMENT = "legacy_candidate_declared_target_files"
 
 
 def _parse_args(argv: list[str]) -> argparse.Namespace:
@@ -85,22 +93,20 @@ def _display_path(path: Path) -> str:
 
 
 def _normalize_candidate_path(path_text: str) -> str:
-    normalized_text = path_text.strip().replace("\\", "/")
-    if not normalized_text:
-        raise ValueError("path is empty")
-    if "\x00" in normalized_text:
-        raise ValueError(f"path contains a null byte: {path_text!r}")
-    if normalized_text.startswith("/"):
-        raise ValueError(f"path must be relative: {path_text!r}")
-    if len(normalized_text) >= 2 and normalized_text[1] == ":":
-        raise ValueError(f"path must not include a drive prefix: {path_text!r}")
+    return normalize_repo_path(path_text)
 
-    path = PurePosixPath(normalized_text)
-    if path.is_absolute() or ".." in path.parts:
-        raise ValueError(f"path must stay inside the workspace: {path_text!r}")
-    if not path.parts:
-        raise ValueError("path is empty")
-    return path.as_posix()
+
+def _resolve_scope_metadata(
+    raw_allowed_files: list[str] | None,
+    target_files: list[str],
+) -> tuple[str, bool, list[str]]:
+    if raw_allowed_files is None or not raw_allowed_files:
+        return LEGACY_SCOPE_ENFORCEMENT, False, list(target_files)
+    return (
+        EXTERNAL_SCOPE_ENFORCEMENT,
+        True,
+        validate_allowed_files_list(raw_allowed_files, label="--allowed-file"),
+    )
 
 
 def _validate_target_files(candidate_data: dict[str, Any]) -> list[str]:
@@ -325,6 +331,9 @@ def _build_materialization(
     keep_failed_workspace: bool,
     started_at: datetime,
     steps: list[dict[str, Any]],
+    scope_enforcement: str,
+    external_allowed_files_used: bool,
+    allowed_files: list[str],
 ) -> dict[str, Any]:
     return {
         "overall_status": overall_status,
@@ -337,6 +346,9 @@ def _build_materialization(
         "target_files": target_files,
         "patched_files": patched_files,
         "changed_files": changed_files,
+        "scope_enforcement": scope_enforcement,
+        "external_allowed_files_used": external_allowed_files_used,
+        "allowed_files": allowed_files,
         "post_apply_verification": post_apply_verification,
         "workspace_removed_on_failure": workspace_removed_on_failure,
         "keep_failed_workspace": keep_failed_workspace,
@@ -378,6 +390,12 @@ def _write_log(
         "",
         "Patched files parsed from diff:",
         *_format_log_list(materialization["patched_files"]),
+        "",
+        f"Scope enforcement: {materialization['scope_enforcement']}",
+        "External allowed files used: "
+        f"{str(materialization['external_allowed_files_used']).lower()}",
+        "Allowed files:",
+        *_format_log_list(materialization["allowed_files"]),
         "",
         "Changed files detected after apply:",
         *_format_log_list(materialization["changed_files"]),
@@ -435,6 +453,9 @@ def _fail(
     error_message: str,
     steps: list[dict[str, Any]],
     commands: list[dict[str, Any]],
+    scope_enforcement: str,
+    external_allowed_files_used: bool,
+    allowed_files: list[str],
 ) -> int:
     workspace_removed_on_failure = False
     if not keep_failed_workspace and rollback_workspace and workspace_path.exists():
@@ -461,6 +482,9 @@ def _fail(
         keep_failed_workspace,
         started_at,
         steps,
+        scope_enforcement,
+        external_allowed_files_used,
+        allowed_files,
     )
     _write_json(candidate_run_dir / "materialization.json", materialization)
     _write_log(
@@ -481,49 +505,6 @@ def _fail(
     return 1
 
 
-def _validate_patch_scope_with_allowed_files(
-    target_files: list[str],
-    patched_files: list[str],
-    allowed_files: list[str] | None,
-) -> None:
-    """Validate that candidate scope does not exceed the external allowlist.
-
-    If *allowed_files* is None (not provided), fall back to the legacy behavior
-    (LLM-declared target_files as its own allowlist). This preserves backward
-    compatibility for manual usage outside the main experiment pipeline but is
-    NOT secure for the main optimization pipeline.
-
-    When *allowed_files* is provided (secure mode), enforce:
-
-        candidate target_files ⊆ external allowed_files
-        patched files from diff ⊆ candidate target_files
-        patched files from diff ⊆ external allowed_files
-    """
-    if allowed_files is None:
-        # Legacy compatibility mode: no external allowlist provided.
-        # target_files is already validated, and patched_files validated
-        # against target_files.
-        return
-
-    allowed_set = set(allowed_files)
-
-    # Check: candidate target_files ⊆ external allowed_files
-    target_outside = [f for f in target_files if f not in allowed_set]
-    if target_outside:
-        raise ValueError(
-            "candidate target_files outside allowed optimization scope: "
-            + ", ".join(target_outside)
-        )
-
-    # Check: patched files from diff ⊆ external allowed_files
-    patched_outside = [f for f in patched_files if f not in allowed_set]
-    if patched_outside:
-        raise ValueError(
-            "candidate.diff modifies files outside allowed optimization scope: "
-            + ", ".join(patched_outside)
-        )
-
-
 def _skip_noop_candidate(
     candidate_run_dir: Path,
     candidate_run_id: str,
@@ -535,6 +516,9 @@ def _skip_noop_candidate(
     keep_failed_workspace: bool,
     started_at: datetime,
     steps: list[dict[str, Any]],
+    scope_enforcement: str,
+    external_allowed_files_used: bool,
+    allowed_files: list[str],
 ) -> int:
     steps.extend(
         [
@@ -561,6 +545,9 @@ def _skip_noop_candidate(
         keep_failed_workspace,
         started_at,
         steps,
+        scope_enforcement,
+        external_allowed_files_used,
+        allowed_files,
     )
     _write_json(candidate_run_dir / "materialization.json", materialization)
     _write_log(
@@ -605,6 +592,11 @@ def main(argv: list[str] | None = None) -> int:
     patched_files: list[str] = []
     changed_files: list[str] = []
     patch_text = ""
+    scope_enforcement = (
+        EXTERNAL_SCOPE_ENFORCEMENT if args.allowed_files else LEGACY_SCOPE_ENFORCEMENT
+    )
+    external_allowed_files_used = bool(args.allowed_files)
+    allowed_files: list[str] = []
 
     if not candidate_run_dir.exists() or not candidate_run_dir.is_dir():
         print("Final status: failed")
@@ -631,12 +623,8 @@ def main(argv: list[str] | None = None) -> int:
         patch_text = patch_path.read_text(encoding="utf-8")
         patch_has_changes = bool(patch_text.strip())
         patched_files = _parse_patched_files(patch_text) if patch_has_changes else []
-
-        # Enforce external optimization scope if allowed files are provided
-        _validate_patch_scope_with_allowed_files(
-            target_files=target_files,
-            patched_files=patched_files,
-            allowed_files=args.allowed_files,
+        scope_enforcement, external_allowed_files_used, allowed_files = (
+            _resolve_scope_metadata(args.allowed_files, target_files)
         )
 
         if patch_has_changes:
@@ -644,18 +632,9 @@ def main(argv: list[str] | None = None) -> int:
                 raise ValueError(
                     "candidate.diff is non-empty, but no patched file paths could be parsed."
                 )
-            unexpected_files = [
-                patched_file
-                for patched_file in patched_files
-                if patched_file not in set(target_files)
-            ]
-            if unexpected_files:
-                raise ValueError(
-                    "candidate.diff targets files not listed in "
-                    "candidate.json['target_files']: "
-                    + ", ".join(unexpected_files)
-                )
+            validate_patch_scope(target_files, patched_files, allowed_files)
         else:
+            validate_patch_scope(target_files, patched_files, allowed_files)
             if candidate_data.get("expected_effect") == "none":
                 validation_duration = round(time.perf_counter() - validation_started, 3)
                 steps.append(
@@ -674,6 +653,9 @@ def main(argv: list[str] | None = None) -> int:
                     args.keep_failed_workspace,
                     started_at,
                     steps,
+                    scope_enforcement,
+                    external_allowed_files_used,
+                    allowed_files,
                 )
             raise ValueError(
                 "candidate.diff is empty, but candidate expected_effect is not 'none'."
@@ -715,6 +697,9 @@ def main(argv: list[str] | None = None) -> int:
             str(exc),
             steps,
             commands,
+            scope_enforcement,
+            external_allowed_files_used,
+            allowed_files,
         )
 
     copy_started = time.perf_counter()
@@ -766,6 +751,9 @@ def main(argv: list[str] | None = None) -> int:
             str(exc),
             steps,
             commands,
+            scope_enforcement,
+            external_allowed_files_used,
+            allowed_files,
         )
 
     hash_started = time.perf_counter()
@@ -807,6 +795,9 @@ def main(argv: list[str] | None = None) -> int:
             str(exc),
             steps,
             commands,
+            scope_enforcement,
+            external_allowed_files_used,
+            allowed_files,
         )
 
     command, exit_code, stdout, stderr, duration, error_message = _run_git_apply(
@@ -842,6 +833,9 @@ def main(argv: list[str] | None = None) -> int:
             detail,
             steps,
             commands,
+            scope_enforcement,
+            external_allowed_files_used,
+            allowed_files,
         )
     steps.append(_step_status("git_apply_check", "success", exit_code, duration))
 
@@ -877,6 +871,9 @@ def main(argv: list[str] | None = None) -> int:
             detail,
             steps,
             commands,
+            scope_enforcement,
+            external_allowed_files_used,
+            allowed_files,
         )
     steps.append(_step_status("git_apply", "success", exit_code, duration))
 
@@ -919,6 +916,9 @@ def main(argv: list[str] | None = None) -> int:
             str(exc),
             steps,
             commands,
+            scope_enforcement,
+            external_allowed_files_used,
+            allowed_files,
         )
 
     materialization = _build_materialization(
@@ -937,6 +937,9 @@ def main(argv: list[str] | None = None) -> int:
         args.keep_failed_workspace,
         started_at,
         steps,
+        scope_enforcement,
+        external_allowed_files_used,
+        allowed_files,
     )
     _write_json(candidate_run_dir / "materialization.json", materialization)
     _write_log(
