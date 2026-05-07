@@ -8,6 +8,7 @@ candidate diff only inside that workspace copy.
 from __future__ import annotations
 
 import argparse
+import difflib
 import fnmatch
 import hashlib
 import json
@@ -32,6 +33,12 @@ DEFAULT_WORKSPACE_ROOT = "workspace/candidates"
 DEFAULT_SOURCE_ROOT = "cpp"
 EXTERNAL_SCOPE_ENFORCEMENT = "external_allowed_files"
 LEGACY_SCOPE_ENFORCEMENT = "legacy_candidate_declared_target_files"
+CANDIDATE_TYPE_UNIFIED_DIFF = "unified_diff"
+CANDIDATE_TYPE_LINE_RANGE_EDITS = "line_range_edits"
+SUPPORTED_CANDIDATE_TYPES = {
+    CANDIDATE_TYPE_UNIFIED_DIFF,
+    CANDIDATE_TYPE_LINE_RANGE_EDITS,
+}
 
 
 def _parse_args(argv: list[str]) -> argparse.Namespace:
@@ -196,6 +203,274 @@ def _parse_patched_files(patch_text: str) -> list[str]:
     return patched_files
 
 
+def _candidate_type(candidate_data: dict[str, Any]) -> str:
+    candidate_type = candidate_data.get("candidate_type", CANDIDATE_TYPE_UNIFIED_DIFF)
+    if not isinstance(candidate_type, str) or not candidate_type.strip():
+        raise ValueError("candidate.json field 'candidate_type' must be a non-empty string.")
+    candidate_type = candidate_type.strip()
+    if candidate_type not in SUPPORTED_CANDIDATE_TYPES:
+        raise ValueError(
+            "Unsupported candidate_type in candidate.json: "
+            f"{candidate_type!r}. Supported values: "
+            + ", ".join(sorted(SUPPORTED_CANDIDATE_TYPES))
+        )
+    return candidate_type
+
+
+def _is_positive_int(value: Any) -> bool:
+    return isinstance(value, int) and not isinstance(value, bool) and value > 0
+
+
+def _validate_line_range_edits(
+    candidate_data: dict[str, Any], target_files: list[str]
+) -> list[dict[str, Any]]:
+    if "edits" not in candidate_data:
+        raise ValueError("line_range_edits candidate.json is missing required field 'edits'.")
+
+    raw_edits = candidate_data["edits"]
+    if not isinstance(raw_edits, list):
+        raise ValueError("line_range_edits candidate.json field 'edits' must be a list.")
+
+    expected_effect = candidate_data.get("expected_effect")
+    if expected_effect != "none" and not raw_edits:
+        raise ValueError(
+            "line_range_edits candidate has no edits, but expected_effect is not 'none'."
+        )
+
+    target_set = set(target_files)
+    validated_edits: list[dict[str, Any]] = []
+    for index, edit in enumerate(raw_edits):
+        label = f"line_range_edits edit {index}"
+        if not isinstance(edit, dict):
+            raise ValueError(f"{label} must be a JSON object.")
+
+        raw_file = edit.get("file")
+        if not isinstance(raw_file, str) or not raw_file.strip():
+            raise ValueError(f"{label} field 'file' must be a non-empty string.")
+        try:
+            edit_file = _normalize_candidate_path(raw_file)
+        except ValueError as exc:
+            raise ValueError(f"{label} field 'file' is invalid: {exc}") from exc
+        if edit_file not in target_set:
+            raise ValueError(
+                f"{label} modifies file not listed in candidate.json['target_files']: "
+                f"{edit_file}"
+            )
+
+        start_line = edit.get("start_line")
+        end_line = edit.get("end_line")
+        if not _is_positive_int(start_line):
+            raise ValueError(f"{label} field 'start_line' must be a positive integer.")
+        if not _is_positive_int(end_line):
+            raise ValueError(f"{label} field 'end_line' must be a positive integer.")
+        if start_line > end_line:
+            raise ValueError(f"{label} requires start_line <= end_line.")
+
+        original = edit.get("original")
+        replace = edit.get("replace")
+        if not isinstance(original, str) or original == "":
+            raise ValueError(f"{label} field 'original' must be a non-empty string.")
+        if not isinstance(replace, str):
+            raise ValueError(f"{label} field 'replace' must be a string.")
+
+        validated_edits.append(
+            {
+                "index": index,
+                "file": edit_file,
+                "start_line": start_line,
+                "end_line": end_line,
+                "original": original,
+                "replace": replace,
+            }
+        )
+
+    return validated_edits
+
+
+def _unique_files_from_edits(edits: list[dict[str, Any]]) -> list[str]:
+    files: list[str] = []
+    seen: set[str] = set()
+    for edit in edits:
+        edit_file = edit["file"]
+        if edit_file not in seen:
+            files.append(edit_file)
+            seen.add(edit_file)
+    return files
+
+
+def _split_preserving_line_endings(text: str) -> list[str]:
+    return text.splitlines(keepends=True)
+
+
+def _range_text_from_lines(lines: list[str], start_line: int, end_line: int) -> str:
+    return "".join(lines[start_line - 1 : end_line])
+
+
+def _replacement_lines(replace: str, selected_text: str) -> list[str]:
+    if replace == "":
+        return []
+    if selected_text.endswith("\r\n") and "\r\n" not in replace:
+        replace = replace.replace("\n", "\r\n")
+    return _split_preserving_line_endings(replace)
+
+
+def _content_without_trailing_line_endings(text: str) -> str:
+    return "\n".join(line.rstrip("\r\n") for line in text.splitlines(keepends=True))
+
+
+def _line_ending_suffix(text: str) -> str:
+    if text.endswith("\r\n"):
+        return "\r\n"
+    if text.endswith("\n"):
+        return "\n"
+    return ""
+
+
+def _replacement_lines_for_line_range(replace: str, selected_text: str) -> list[str]:
+    if replace == "":
+        return []
+    line_ending = _line_ending_suffix(selected_text)
+    replacement = replace
+    if line_ending and not replacement.endswith(("\n", "\r\n")):
+        replacement += line_ending
+    return _replacement_lines(replacement, selected_text)
+
+
+def _replace_exactly_once(text: str, original: str, replace: str) -> tuple[str, int]:
+    first = text.find(original)
+    if first == -1:
+        return text, 0
+    second = text.find(original, first + max(len(original), 1))
+    if second != -1:
+        return text, 2
+    return text[:first] + replace + text[first + len(original) :], 1
+
+
+def _apply_single_line_range_edit(
+    text: str,
+    edit: dict[str, Any],
+    *,
+    allow_exact_search_fallback: bool,
+) -> tuple[str, dict[str, Any]]:
+    lines = _split_preserving_line_endings(text)
+    start_line = edit["start_line"]
+    end_line = edit["end_line"]
+    result = {
+        "index": edit["index"],
+        "file": edit["file"],
+        "start_line": start_line,
+        "end_line": end_line,
+        "method": None,
+        "status": "failed",
+        "detail": None,
+    }
+
+    if end_line <= len(lines):
+        selected_text = _range_text_from_lines(lines, start_line, end_line)
+        selected_content = _content_without_trailing_line_endings(selected_text)
+        if selected_text == edit["original"] or selected_content == edit["original"]:
+            lines[start_line - 1 : end_line] = _replacement_lines_for_line_range(
+                edit["replace"], selected_text
+            )
+            result.update({"method": "line_range", "status": "success"})
+            return "".join(lines), result
+
+    if not allow_exact_search_fallback:
+        result["detail"] = "line range did not match and exact-search fallback is disabled."
+        raise ValueError(result["detail"])
+
+    replaced_text, occurrence_count = _replace_exactly_once(
+        text, edit["original"], edit["replace"]
+    )
+    if occurrence_count == 1:
+        result.update({"method": "exact_search_fallback", "status": "success"})
+        return replaced_text, result
+    if occurrence_count == 0:
+        result["detail"] = (
+            f"edit {edit['index']} for {edit['file']} did not match line range and "
+            "original text was not found by exact-search fallback."
+        )
+        raise ValueError(result["detail"])
+
+    result["detail"] = (
+        f"edit {edit['index']} for {edit['file']} did not match line range and "
+        "exact-search fallback is ambiguous because original text occurs multiple times."
+    )
+    raise ValueError(result["detail"])
+
+
+def _apply_line_range_edits(
+    workspace_path: Path,
+    edits: list[dict[str, Any]],
+    *,
+    allow_exact_search_fallback: bool = True,
+) -> dict[str, Any]:
+    grouped: dict[str, list[dict[str, Any]]] = {}
+    for edit in edits:
+        grouped.setdefault(edit["file"], []).append(edit)
+
+    results: list[dict[str, Any]] = []
+    before_text_by_file: dict[str, str] = {}
+    after_text_by_file: dict[str, str] = {}
+
+    for edit_file, file_edits in grouped.items():
+        file_path = workspace_path / edit_file
+        if not file_path.exists() or not file_path.is_file():
+            raise FileNotFoundError(f"line_range_edits target file not found: {file_path}")
+
+        original_text = file_path.read_text(encoding="utf-8")
+        current_text = original_text
+        before_text_by_file[edit_file] = original_text
+
+        for edit in sorted(file_edits, key=lambda item: item["start_line"], reverse=True):
+            current_text, edit_result = _apply_single_line_range_edit(
+                current_text,
+                edit,
+                allow_exact_search_fallback=allow_exact_search_fallback,
+            )
+            results.append(edit_result)
+
+        after_text_by_file[edit_file] = current_text
+        file_path.write_text(current_text, encoding="utf-8")
+
+    exact_matches = sum(1 for result in results if result["method"] == "line_range")
+    fallback_matches = sum(
+        1 for result in results if result["method"] == "exact_search_fallback"
+    )
+    return {
+        "before_text_by_file": before_text_by_file,
+        "after_text_by_file": after_text_by_file,
+        "results": sorted(results, key=lambda result: result["index"]),
+        "exact_matches": exact_matches,
+        "fallback_matches": fallback_matches,
+        "fallback_used": fallback_matches > 0,
+        "allow_exact_search_fallback": allow_exact_search_fallback,
+    }
+
+
+def _generate_unified_diff(
+    before_text_by_file: dict[str, str],
+    after_text_by_file: dict[str, str],
+    output_path: Path,
+) -> Path:
+    diff_parts: list[str] = []
+    for file_path in sorted(before_text_by_file):
+        before_text = before_text_by_file[file_path]
+        after_text = after_text_by_file[file_path]
+        if before_text == after_text:
+            continue
+        diff_parts.extend(
+            difflib.unified_diff(
+                before_text.splitlines(keepends=True),
+                after_text.splitlines(keepends=True),
+                fromfile=f"a/{file_path}",
+                tofile=f"b/{file_path}",
+            )
+        )
+    output_path.write_text("".join(diff_parts), encoding="utf-8")
+    return output_path
+
+
 def _file_hash(path: Path) -> str | None:
     if not path.exists():
         return None
@@ -318,6 +593,7 @@ def _run_git_apply(
 
 def _default_patch_apply_metadata() -> dict[str, Any]:
     return {
+        "candidate_type": CANDIDATE_TYPE_UNIFIED_DIFF,
         "patch_apply_strategy": "not_run",
         "git_apply_recount_used": False,
         "git_apply_initial_check_failed": False,
@@ -362,12 +638,15 @@ def _build_materialization(
     git_apply_initial_check_failed: bool,
     git_apply_initial_check_error: str | None,
     git_apply_recount_check_error: str | None,
+    candidate_type: str = CANDIDATE_TYPE_UNIFIED_DIFF,
+    **extra_metadata: Any,
 ) -> dict[str, Any]:
-    return {
+    materialization = {
         "overall_status": overall_status,
         "failed_step": failed_step,
         "error_message": error_message,
         "candidate_run_id": candidate_run_id,
+        "candidate_type": candidate_type,
         "workspace_path": _display_path(workspace_path),
         "source_root": source_root,
         "patch_file": _display_path(patch_path),
@@ -389,6 +668,8 @@ def _build_materialization(
         "finished_at": datetime.now().astimezone().isoformat(timespec="seconds"),
         "steps": steps,
     }
+    materialization.update(extra_metadata)
+    return materialization
 
 
 def _format_command(command: list[str]) -> str:
@@ -416,6 +697,7 @@ def _write_log(
         f"Candidate run directory: {candidate_run_dir}",
         f"Workspace path: {workspace_path}",
         f"Source root: {source_root}",
+        f"Candidate type: {materialization.get('candidate_type', CANDIDATE_TYPE_UNIFIED_DIFF)}",
         f"Patch file path: {patch_path}",
         "",
         "Target files:",
@@ -435,6 +717,15 @@ def _write_log(
         "",
         f"Post-apply verification: {materialization['post_apply_verification']}",
         f"Patch apply strategy: {materialization['patch_apply_strategy']}",
+        f"Line-range edit count: {materialization.get('line_range_edit_count', 'n/a')}",
+        "Line-range exact matches: "
+        f"{materialization.get('line_range_exact_matches', 'n/a')}",
+        "Line-range fallback matches: "
+        f"{materialization.get('line_range_fallback_matches', 'n/a')}",
+        "Line-range fallback used: "
+        f"{materialization.get('line_range_fallback_used', 'n/a')}",
+        "Generated diff path: "
+        f"{materialization.get('generated_diff_path') or 'none'}",
         f"Git apply recount used: {materialization['git_apply_recount_used']}",
         "Initial git apply check failed: "
         f"{materialization['git_apply_initial_check_failed']}",
@@ -447,6 +738,18 @@ def _write_log(
         "",
         "Commands:",
     ]
+
+    edit_results = materialization.get("line_range_edit_results") or []
+    if edit_results:
+        lines.extend(["", "Line-range edit results:"])
+        for result in edit_results:
+            lines.append(
+                "- edit {index} {file}:{start_line}-{end_line} "
+                "status={status} method={method}".format(**result)
+            )
+            if result.get("detail"):
+                lines.append(f"  detail: {result['detail']}")
+        lines.append("")
 
     if not commands:
         lines.append("(none)")
@@ -562,6 +865,7 @@ def _skip_noop_candidate(
     scope_enforcement: str,
     external_allowed_files_used: bool,
     allowed_files: list[str],
+    patch_apply_metadata: dict[str, Any] | None = None,
 ) -> int:
     steps.extend(
         [
@@ -591,7 +895,7 @@ def _skip_noop_candidate(
         scope_enforcement,
         external_allowed_files_used,
         allowed_files,
-        **_default_patch_apply_metadata(),
+        **(patch_apply_metadata or _default_patch_apply_metadata()),
     )
     _write_json(candidate_run_dir / "materialization.json", materialization)
     _write_log(
@@ -628,13 +932,16 @@ def main(argv: list[str] | None = None) -> int:
 
     print(f"Candidate run id: {candidate_run_id}")
     print(f"Workspace path: {workspace_path}")
-    print(f"Patch file path: {patch_path}")
 
     steps: list[dict[str, Any]] = []
     commands: list[dict[str, Any]] = []
     target_files: list[str] = []
     patched_files: list[str] = []
     changed_files: list[str] = []
+    candidate_type = CANDIDATE_TYPE_UNIFIED_DIFF
+    line_range_edits: list[dict[str, Any]] = []
+    generated_diff_path: Path | None = None
+    line_range_apply_result: dict[str, Any] | None = None
     patch_text = ""
     scope_enforcement = (
         EXTERNAL_SCOPE_ENFORCEMENT if args.allowed_files else LEGACY_SCOPE_ENFORCEMENT
@@ -657,30 +964,78 @@ def main(argv: list[str] | None = None) -> int:
     try:
         if not candidate_json_path.exists():
             raise FileNotFoundError(f"candidate.json not found: {candidate_json_path}")
-        if not patch_path.exists():
-            raise FileNotFoundError(f"candidate.diff not found: {patch_path}")
 
         candidate_data = json.loads(candidate_json_path.read_text(encoding="utf-8-sig"))
         if not isinstance(candidate_data, dict):
             raise ValueError(f"candidate.json must contain a JSON object: {candidate_json_path}")
 
+        candidate_type = _candidate_type(candidate_data)
+        patch_apply_metadata["candidate_type"] = candidate_type
+        if candidate_type == CANDIDATE_TYPE_LINE_RANGE_EDITS:
+            patch_path = (candidate_run_dir / "candidate.generated.diff").resolve()
+            generated_diff_path = patch_path
+        elif not patch_path.exists():
+            raise FileNotFoundError(f"candidate.diff not found: {patch_path}")
+
         target_files = _validate_target_files(candidate_data)
-        patch_text = patch_path.read_text(encoding="utf-8")
-        patch_has_changes = bool(patch_text.strip())
-        patched_files = _parse_patched_files(patch_text) if patch_has_changes else []
         scope_enforcement, external_allowed_files_used, allowed_files = (
             _resolve_scope_metadata(args.allowed_files, target_files)
         )
 
-        if patch_has_changes:
-            if not patched_files:
+        if candidate_type == CANDIDATE_TYPE_UNIFIED_DIFF:
+            patch_text = patch_path.read_text(encoding="utf-8")
+            patch_has_changes = bool(patch_text.strip())
+            patched_files = _parse_patched_files(patch_text) if patch_has_changes else []
+            if patch_has_changes:
+                if not patched_files:
+                    raise ValueError(
+                        "candidate.diff is non-empty, but no patched file paths could be parsed."
+                    )
+                validate_patch_scope(target_files, patched_files, allowed_files)
+            else:
+                validate_patch_scope(target_files, patched_files, allowed_files)
+                if candidate_data.get("expected_effect") == "none":
+                    validation_duration = round(time.perf_counter() - validation_started, 3)
+                    steps.append(
+                        _step_status(
+                            "validate_patch_scope", "success", None, validation_duration
+                        )
+                    )
+                    return _skip_noop_candidate(
+                        candidate_run_dir,
+                        candidate_run_id,
+                        workspace_path,
+                        args.source_root,
+                        patch_path,
+                        target_files,
+                        patched_files,
+                        args.keep_failed_workspace,
+                        started_at,
+                        steps,
+                        scope_enforcement,
+                        external_allowed_files_used,
+                        allowed_files,
+                        patch_apply_metadata,
+                    )
                 raise ValueError(
-                    "candidate.diff is non-empty, but no patched file paths could be parsed."
+                    "candidate.diff is empty, but candidate expected_effect is not 'none'."
                 )
-            validate_patch_scope(target_files, patched_files, allowed_files)
         else:
+            line_range_edits = _validate_line_range_edits(candidate_data, target_files)
+            patched_files = _unique_files_from_edits(line_range_edits)
             validate_patch_scope(target_files, patched_files, allowed_files)
-            if candidate_data.get("expected_effect") == "none":
+            patch_apply_metadata.update(
+                {
+                    "line_range_edit_count": len(line_range_edits),
+                    "line_range_exact_matches": 0,
+                    "line_range_fallback_matches": 0,
+                    "line_range_fallback_used": False,
+                    "line_range_allow_exact_search_fallback": True,
+                    "generated_diff_path": _display_path(generated_diff_path),
+                    "line_range_edit_results": [],
+                }
+            )
+            if candidate_data.get("expected_effect") == "none" and not line_range_edits:
                 validation_duration = round(time.perf_counter() - validation_started, 3)
                 steps.append(
                     _step_status(
@@ -701,15 +1056,15 @@ def main(argv: list[str] | None = None) -> int:
                     scope_enforcement,
                     external_allowed_files_used,
                     allowed_files,
+                    patch_apply_metadata,
                 )
-            raise ValueError(
-                "candidate.diff is empty, but candidate expected_effect is not 'none'."
-            )
 
         validation_duration = round(time.perf_counter() - validation_started, 3)
         steps.append(
             _step_status("validate_patch_scope", "success", None, validation_duration)
         )
+        print(f"Candidate type: {candidate_type}")
+        print(f"Patch file path: {patch_path}")
     except (OSError, ValueError, json.JSONDecodeError) as exc:
         validation_duration = round(time.perf_counter() - validation_started, 3)
         steps.extend(
@@ -745,6 +1100,7 @@ def main(argv: list[str] | None = None) -> int:
             scope_enforcement,
             external_allowed_files_used,
             allowed_files,
+            patch_apply_metadata,
         )
 
     copy_started = time.perf_counter()
@@ -799,6 +1155,7 @@ def main(argv: list[str] | None = None) -> int:
             scope_enforcement,
             external_allowed_files_used,
             allowed_files,
+            patch_apply_metadata,
         )
 
     hash_started = time.perf_counter()
@@ -843,7 +1200,176 @@ def main(argv: list[str] | None = None) -> int:
             scope_enforcement,
             external_allowed_files_used,
             allowed_files,
+            patch_apply_metadata,
         )
+
+    if candidate_type == CANDIDATE_TYPE_LINE_RANGE_EDITS:
+        apply_started = time.perf_counter()
+        try:
+            line_range_apply_result = _apply_line_range_edits(
+                workspace_path,
+                line_range_edits,
+                allow_exact_search_fallback=True,
+            )
+            assert generated_diff_path is not None
+            _generate_unified_diff(
+                line_range_apply_result["before_text_by_file"],
+                line_range_apply_result["after_text_by_file"],
+                generated_diff_path,
+            )
+            apply_duration = round(time.perf_counter() - apply_started, 3)
+            steps.extend(
+                [
+                    _skipped_step("git_apply_check"),
+                    _step_status("line_range_apply", "success", None, apply_duration),
+                ]
+            )
+            patch_apply_metadata.update(
+                {
+                    "patch_apply_strategy": "line_range_edits",
+                    "line_range_exact_matches": line_range_apply_result["exact_matches"],
+                    "line_range_fallback_matches": line_range_apply_result[
+                        "fallback_matches"
+                    ],
+                    "line_range_fallback_used": line_range_apply_result[
+                        "fallback_used"
+                    ],
+                    "line_range_allow_exact_search_fallback": line_range_apply_result[
+                        "allow_exact_search_fallback"
+                    ],
+                    "generated_diff_path": _display_path(generated_diff_path),
+                    "line_range_edit_results": line_range_apply_result["results"],
+                }
+            )
+        except (OSError, ValueError) as exc:
+            apply_duration = round(time.perf_counter() - apply_started, 3)
+            patch_apply_metadata.update(
+                {
+                    "patch_apply_strategy": "line_range_edits_failed",
+                    "line_range_edit_count": len(line_range_edits),
+                    "generated_diff_path": _display_path(generated_diff_path),
+                }
+            )
+            steps.extend(
+                [
+                    _skipped_step("git_apply_check"),
+                    _step_status("line_range_apply", "failed", None, apply_duration),
+                    _skipped_step("post_apply_verification"),
+                ]
+            )
+            return _fail(
+                candidate_run_dir,
+                candidate_run_id,
+                workspace_root,
+                workspace_path,
+                args.source_root,
+                patch_path,
+                target_files,
+                patched_files,
+                changed_files,
+                "not_run",
+                args.keep_failed_workspace,
+                True,
+                started_at,
+                "line_range_apply",
+                str(exc),
+                steps,
+                commands,
+                scope_enforcement,
+                external_allowed_files_used,
+                allowed_files,
+                patch_apply_metadata,
+            )
+
+        verification_started = time.perf_counter()
+        try:
+            after_hashes = _hash_workspace_target_files(workspace_path, target_files)
+            changed_files = _detect_changed_files(before_hashes, after_hashes)
+            if line_range_edits and not changed_files:
+                raise ValueError(
+                    "line_range_edits applied successfully, but no target file hash changed."
+                )
+            verification_duration = round(time.perf_counter() - verification_started, 3)
+            steps.append(
+                _step_status(
+                    "post_apply_verification", "success", None, verification_duration
+                )
+            )
+        except (OSError, ValueError) as exc:
+            verification_duration = round(time.perf_counter() - verification_started, 3)
+            patch_apply_metadata["patch_apply_strategy"] = "line_range_edits_failed"
+            steps.append(
+                _step_status(
+                    "post_apply_verification", "failed", None, verification_duration
+                )
+            )
+            return _fail(
+                candidate_run_dir,
+                candidate_run_id,
+                workspace_root,
+                workspace_path,
+                args.source_root,
+                patch_path,
+                target_files,
+                patched_files,
+                changed_files,
+                "failed",
+                args.keep_failed_workspace,
+                True,
+                started_at,
+                "post_apply_verification",
+                str(exc),
+                steps,
+                commands,
+                scope_enforcement,
+                external_allowed_files_used,
+                allowed_files,
+                patch_apply_metadata,
+            )
+
+        materialization = _build_materialization(
+            "success",
+            None,
+            None,
+            candidate_run_id,
+            workspace_path,
+            args.source_root,
+            patch_path,
+            target_files,
+            patched_files,
+            changed_files,
+            "success",
+            False,
+            args.keep_failed_workspace,
+            started_at,
+            steps,
+            scope_enforcement,
+            external_allowed_files_used,
+            allowed_files,
+            **patch_apply_metadata,
+        )
+        _write_json(candidate_run_dir / "materialization.json", materialization)
+        _write_log(
+            candidate_run_dir / "apply_candidate.log",
+            candidate_run_id,
+            candidate_run_dir,
+            workspace_path,
+            args.source_root,
+            patch_path,
+            commands,
+            materialization,
+        )
+
+        print("Final status: success")
+        print(f"Candidate run id: {candidate_run_id}")
+        print(f"Workspace path: {workspace_path}")
+        print("Changed files:")
+        for changed_file in changed_files:
+            print(f"- {changed_file}")
+        print(f"Generated diff: {generated_diff_path}")
+        print(f"Main source tree was not modified: {args.source_root}")
+        print(f"Artifact log: {candidate_run_dir / 'apply_candidate.log'}")
+        return 0
 
     command, exit_code, stdout, stderr, duration, error_message = _run_git_apply(
         args.git_exe, workspace_path, patch_path, check_only=True
