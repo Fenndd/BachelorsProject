@@ -322,6 +322,10 @@ def _build_generation_command(
         config.target_file,
         "--max-source-chars",
         str(config.candidate_generation.max_source_chars),
+        "--candidate-type",
+        config.candidate_format.type,
+        "--source-presentation",
+        config.candidate_format.source_presentation,
     ]
     if context_text is not None:
         command.extend(["--context", context_text])
