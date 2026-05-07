@@ -219,6 +219,7 @@ def _write_resolved_variant_llm_configs(
 def _print_plan(config: ExperimentConfig, dry_run: bool) -> None:
     pipeline = config.pipeline
     candidate_generation = config.candidate_generation
+    candidate_format = config.candidate_format
 
     print("Experiment dry run" if dry_run else "Experiment plan")
     print(f"Experiment name: {config.experiment_name}")
@@ -229,6 +230,17 @@ def _print_plan(config: ExperimentConfig, dry_run: bool) -> None:
     print(f"- materialize_candidate: {pipeline.materialize_candidate}")
     print(f"- verify_candidate: {pipeline.verify_candidate}")
     print(f"Max source chars: {candidate_generation.max_source_chars}")
+    print("Candidate format:")
+    print(f"- type: {candidate_format.type}")
+    print(f"- source_presentation: {candidate_format.source_presentation}")
+    print(
+        f"- require_original_verification: "
+        f"{candidate_format.require_original_verification}"
+    )
+    print(
+        f"- allow_exact_search_fallback: "
+        f"{candidate_format.allow_exact_search_fallback}"
+    )
     print(
         f"Optimization scope allowed files: "
         f"{config.optimization_scope.allowed_files}"
@@ -1232,6 +1244,7 @@ def _build_experiment_status(
         "llm_config": config.llm_config,
         "target_file": config.target_file,
         "pipeline": asdict(config.pipeline),
+        "candidate_format": asdict(config.candidate_format),
         "history_policy": asdict(config.history_policy),
         "variants": variant_summaries,
     }
@@ -1257,6 +1270,17 @@ def _build_summary(
         f"- generate_candidate: {config.pipeline.generate_candidate}",
         f"- materialize_candidate: {config.pipeline.materialize_candidate}",
         f"- verify_candidate: {config.pipeline.verify_candidate}",
+        "Candidate format:",
+        f"- type: {config.candidate_format.type}",
+        f"- source_presentation: {config.candidate_format.source_presentation}",
+        (
+            f"- require_original_verification: "
+            f"{config.candidate_format.require_original_verification}"
+        ),
+        (
+            f"- allow_exact_search_fallback: "
+            f"{config.candidate_format.allow_exact_search_fallback}"
+        ),
         "History policy:",
         f"- enabled: {config.history_policy.enabled}",
         f"- scope: {config.history_policy.scope}",
@@ -1416,6 +1440,7 @@ def _write_early_failure_artifacts(
         "llm_config": config.llm_config,
         "target_file": config.target_file,
         "pipeline": asdict(config.pipeline),
+        "candidate_format": asdict(config.candidate_format),
         "history_policy": asdict(config.history_policy),
         "variants": _early_variant_summaries(config),
     }
@@ -1427,6 +1452,17 @@ def _write_early_failure_artifacts(
         f"Experiment name: {config.experiment_name}",
         f"Description: {config.description or 'none'}",
         f"Target file: {config.target_file}",
+        "Candidate format:",
+        f"- type: {config.candidate_format.type}",
+        f"- source_presentation: {config.candidate_format.source_presentation}",
+        (
+            f"- require_original_verification: "
+            f"{config.candidate_format.require_original_verification}"
+        ),
+        (
+            f"- allow_exact_search_fallback: "
+            f"{config.candidate_format.allow_exact_search_fallback}"
+        ),
         "Overall status: failed",
         f"Failed step: {failed_step}",
         f"Error message: {error_message}",
