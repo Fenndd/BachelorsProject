@@ -39,6 +39,8 @@ Data source rules:
 
 - Baseline benchmark metrics are loaded from `metrics.json`.
 - Candidate benchmark verification metrics are loaded from `verification.json`.
+- Selection consumes verified benchmark artifacts and is independent of raw LLM candidate format.
+- It works for both `unified_diff` and `line_range_edits` candidates as long as `verification.json` exists.
 
 ## 4. Required benchmark fields
 
@@ -213,7 +215,7 @@ This step does **not** implement:
 - candidate promotion
 - benchmark modification
 - benchmark threshold modification
-- LLM prompt changes
+- candidate generation prompt format or materialization format
 - automatic closed-loop optimization
 
 ## 14. Experiment runner integration

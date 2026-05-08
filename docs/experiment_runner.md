@@ -14,6 +14,7 @@ Experiment configs live under `configs/experiments/`. A config defines:
 - `target_file`: the source file sent to candidate generation.
 - `pipeline`: which non-benchmark stages are enabled.
 - `candidate_generation`: generation limits such as `max_source_chars`.
+- `candidate_format`: selects candidate edit format and source presentation.
 - `history_policy`: optional variant-local prompt history.
 - `selection`: optional baseline-vs-candidates best result selection.
 - `variants`: one or more model/config/context/parameter setups.
@@ -23,6 +24,28 @@ Single-setup legacy configs remain supported by creating one synthetic
 
 `configs/experiments/mock_p3p_basic.json` uses the offline mock LLM config and
 is intended for reproducible storage/orchestration checks without an API key.
+
+Example line-range candidate format config:
+
+```json
+{
+  "candidate_format": {
+    "type": "line_range_edits",
+    "source_presentation": "line_numbered",
+    "require_original_verification": true,
+    "allow_exact_search_fallback": true
+  }
+}
+```
+
+## Candidate Formats
+
+The experiment runner passes `candidate_format.type` and `candidate_format.source_presentation` to `generate_candidate`.
+
+- `unified_diff`: legacy/fallback format using plain source, `candidate.diff`, and `git apply` materialization.
+- `line_range_edits`: preferred robust format using `line_numbered` source, `candidate.edits.json`, deterministic line-range materialization, and system-generated `candidate.generated.diff`.
+
+See `docs/candidate_edit_formats.md` for the dedicated format reference.
 
 ## Variants And Iterations
 
@@ -53,25 +76,28 @@ the main `cpp/` source tree is not modified.
 
 For configured experiments, `optimization_scope.allowed_files` is passed to
 `generate_candidate` as repeated `--allowed-file` arguments and to
-`materialize_candidate` as the external allowlist. The materializer enforces that
-candidate `target_files` and diff header paths remain inside this external
-allowlist. Manual materialization without `--allowed-file` remains supported for
-legacy usage, but the main experiment pipeline always enforces the configured
-scope.
+`materialize_candidate` as the external allowlist. For `unified_diff`, candidate
+`target_files` and diff header paths are checked against `allowed_files`. For
+`line_range_edits`, candidate `target_files` and `edits[].file` are checked
+against `allowed_files`. Manual materialization without `--allowed-file` remains
+supported for legacy usage, but the main experiment pipeline always enforces the
+configured scope.
 
 The active Step 9 materialization command is
 `orchestrator.patching.materialize_candidate`. The older
 `orchestrator/patching/apply_patch.py` module is only a compatibility marker for
 a future broader patching API.
 
-Materialization first checks candidate patches with normal `git apply --check`.
-If that check fails because an LLM-generated unified diff has malformed hunk
-line counts, the materializer tries Git's `git apply --check --recount`
-fallback and applies with `git apply --recount` only if the recount check
-succeeds. This fallback only asks Git to infer hunk counts from the patch text;
-it does not change candidate semantics. Deterministic C++ verification and
-benchmark correctness checks still decide whether a materialized candidate is
-valid.
+For `unified_diff`, materialization checks candidate patches with normal
+`git apply --check`. If that check fails because an LLM-generated unified diff
+has malformed hunk line counts, the materializer tries Git's
+`git apply --check --recount` fallback and applies with `git apply --recount`
+only if the recount check succeeds.
+
+For `line_range_edits`, materialization does not require `candidate.diff`. It
+verifies line ranges, applies deterministic edits, and writes
+`candidate.generated.diff`. Deterministic C++ verification and benchmark
+correctness checks still decide whether a materialized candidate is valid.
 
 `verify_candidate` is deterministic and does not call any LLM API. It now runs
 the same benchmark-family verification path used by the baseline preparation:
@@ -212,6 +238,26 @@ results/experiments/<experiment_id>/
 
 Generated experiment outputs are ignored by git.
 
+Candidate run artifacts are written under `results/runs/<candidate_run_id>/`:
+
+```text
+results/runs/<candidate_run_id>/
+|- metadata.json
+|- status.json
+|- summary.txt
+|- llm_request.json
+|- llm_response.json
+|- candidate.json
+|- candidate.diff             # unified_diff only
+|- candidate.edits.json       # line_range_edits only
+|- candidate.generated.diff   # line_range_edits after materialization
+|- materialization.json
+|- apply_candidate.log
+|- verification.json
+|- verification_summary.txt
+|- candidate_decision.json    # when selection writes pairwise decisions
+```
+
 ## Optimization Scope (Strict File Access Control)
 
 The main optimization pipeline enforces a strict optimization scope. LLM
@@ -263,8 +309,8 @@ work without changes.
 During the main experiment pipeline, the materializer enforces:
 
 1. **candidate target_files ⊆ external allowed_files**
-2. **patched files from diff ⊆ candidate target_files**
-3. **patched files from diff ⊆ external allowed_files**
+2. **patched files from diff or edits[].file ⊆ candidate target_files**
+3. **patched files from diff or edits[].file ⊆ external allowed_files**
 
 If any check fails, the materializer exits with a clear error message such as:
 
@@ -277,6 +323,8 @@ or:
 ```
 candidate.diff modifies files outside allowed optimization scope: cpp/CMakeLists.txt
 ```
+
+For `line_range_edits`, equivalent scope failures refer to `edits[].file`.
 
 ### Fallback for Manual Usage
 
@@ -335,4 +383,4 @@ comparison.
 The experiment runner still does not implement:
 
 - promotion of candidates into the main source tree
-- full closed-loop optimization with ranking
+- closed-loop optimization that automatically promotes/reuses selected candidates

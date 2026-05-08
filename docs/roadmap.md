@@ -1,39 +1,52 @@
-﻿# High-Level Roadmap
+# High-Level Roadmap
 
 ## 1. Project Scaffold
+
 - Finalize repository structure, base documentation, and placeholder configuration files.
 - Status: completed.
 
 ## 2. Baseline Integration
+
 - Integrate imported baseline solver into project-level execution flow boundaries.
 - Status: completed at the minimal working baseline level.
 
 ## 3. Validation and Benchmarking
+
 - Define validation strategy and benchmarking protocol for baseline and optimized variants.
-- Status: started with the absolute-pose benchmark family.
-- Current state: Lambda Twist P3P has a smoke test, adapter validator, family benchmark, and parsed benchmark metrics for baseline and candidate verification.
-- Not complete: broader datasets, additional solver families, benchmark statistics, and comparison methodology are not implemented.
+- Status: completed for the current Lambda Twist P3P absolute-pose path.
+- Current state: Lambda Twist P3P has a smoke test, adapter validator, family benchmark, parsed baseline metrics, parsed candidate verification metrics, artifact audit, and selection-compatible runtime/correctness fields.
+- Not complete: broader datasets, additional solver families, advanced benchmark statistics, and direct JSON metrics output from C++ benchmarks.
 
 ## 4. First LLM Integration
+
 - Introduce initial LLM-driven code modification and evaluation loop entry point.
-- Status: completed at the first connected-LLM level.
-- Current state: DeepSeek V4 Flash is connected through a small standard-library client, controlled optimization prompts can be generated, responses are parsed into validated candidate artifacts, and LLM candidate runs are stored under `results/runs/<run_id>_llm_candidate/`. A deterministic mock LLM config is also available for offline candidate-generation tests without an API key.
-- Not complete: generated candidates are not automatically promoted into the main `cpp/` source tree, and candidates are not compared or ranked.
+- Status: completed.
+- Current state: DeepSeek and mock LLM paths are available, controlled prompt builder is implemented, response parser supports `unified_diff` and `line_range_edits`, and candidate artifacts are stored under `results/runs/`.
+- Not complete: automatic promotion into the main `cpp/` source tree.
 
 ## 4a. Candidate Materialization and Benchmark Verification
-- Materialize generated candidate diffs only in isolated workspace copies and run deterministic benchmark-family verification.
-- Status: started.
-- Current state: non-empty candidate diffs can be applied under `workspace/candidates/<candidate_run_id>/`, without modifying the main `cpp/` source tree. Materialized candidates can be configured, smoke-tested, adapter-validated, benchmarked with the absolute-pose family benchmark, and parsed through the candidate verification command.
-- Not complete: performance comparison and promotion of accepted candidates are not implemented.
+
+- Materialize generated candidates only in isolated workspace copies and run deterministic benchmark-family verification.
+- Status: completed for the minimal P3P scenario.
+- Current state: `unified_diff` materialization works with `git apply` and `--recount` fallback. `line_range_edits` materialization works with deterministic line-range edits. Candidate verification runs smoke test, adapter validator, benchmark, and benchmark parser.
+- Not complete: promotion.
+
+## 4b. Candidate Edit Format Layer
+
+- Separate semantic optimization from mechanical patch application.
+- Status: implemented.
+- Current state: `candidate_format` config support, `plain`/`unified_diff` path, `line_numbered`/`line_range_edits` path, `candidate.edits.json` artifact, `candidate.generated.diff` artifact, and real DeepSeek Pro Max `line_range_edits` full-cycle completion.
 
 ## 5. Iterative Optimization Pipeline
+
 - Build iterative optimization workflow with controlled experiment tracking.
-- Status: started.
-- Current state: an experiment runner can execute configured candidate-generation iterations, optionally materialize candidates, optionally benchmark-verify materialized candidates, and write experiment artifacts under `results/experiments/<experiment_id>/`.
-- Not complete: run comparison, best candidate selection, and closed-loop optimization with ranking are not implemented.
+- Status: implemented at controlled experiment-runner level.
+- Current state: multi-variant runs, multi-iteration runs, variant-local history, generation, materialization, verification, pairwise decisions, and best-candidate selection are implemented.
+- Not complete: closed-loop automatic promotion/reuse based on selected candidate.
 
 ## 6. Experiment Management and Reporting
+
 - Consolidate experiment metadata, result storage, and reporting outputs.
-- Status: started at the storage and experiment-artifact level.
-- Current state: baseline runs, LLM candidate runs, and experiment runs write persistent artifacts. Baseline and LLM candidate runs also append compact records to `results/index.jsonl`.
-- Not complete: advanced reporting, experiment analysis, benchmark statistics, and candidate comparison reports are not implemented.
+- Status: partially implemented.
+- Current state: experiment artifacts, `iterations.jsonl`, `experiment_status.json`, `summary.txt`, candidate decisions, and `best_candidate_selection.json` are implemented.
+- Not complete: advanced reporting, plots, final aggregated tables/statistics, and broader experiment analysis.

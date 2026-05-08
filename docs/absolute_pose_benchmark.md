@@ -62,7 +62,7 @@ The validator currently covers the only implemented adapter, Lambda Twist P3P. I
 
 Exit code `0` means the adapter is accepted. Exit code `1` means the adapter is rejected and should not be used for fixed benchmark evaluation until investigated.
 
-Python orchestration, candidate comparison, best-candidate selection, and candidate promotion are not part of adapter validation yet.
+Adapter validation is intentionally independent from candidate comparison and selection. Pairwise candidate decision and best-candidate selection are implemented in the Python benchmarking/experiment layer, not inside the adapter validator.
 
 ## Correctness Policy Unit Test
 
@@ -91,7 +91,7 @@ Candidate verification builds default to **Release** for runtime metric accuracy
 
 The audit verifies that both artifacts parsed successfully, use the same benchmark family and solver, use the same number of cases, expose nanosecond runtime metrics, and include correctness/reprojection fields. It writes `benchmark_artifact_audit.json` into the candidate run directory.
 
-The audit only answers whether later comparison is safe. It does not decide whether the candidate is faster, better, accepted, rejected, or promotable.
+The audit only checks comparability. Pairwise candidate decision is implemented separately, and multi-candidate best selection is implemented separately. Neither audit nor selection promotes code.
 
 ## Build Type
 
@@ -112,7 +112,6 @@ The benchmark artifact audit checks that baseline and candidate artifacts have t
 ## Not Implemented Yet
 
 - JSON metrics output
-- comparator and best-candidate selection
 - candidate promotion
 - additional absolute pose solvers
 - other solver families such as relative pose, homography, triangulation, PnP, EPnP, or UPnP
