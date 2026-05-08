@@ -493,10 +493,28 @@ def _skipped_verification_stage(reason: str) -> dict[str, Any]:
     return record
 
 
+def _noop_candidate_instruction(candidate_format_type: str) -> str:
+    if candidate_format_type == "line_range_edits":
+        return (
+            "If no safe new optimization is available, return a no-op candidate "
+            "with expected_effect=\"none\" and edits=[]."
+        )
+    if candidate_format_type == "unified_diff":
+        return (
+            "If no safe new optimization is available, return a no-op candidate "
+            "with expected_effect=\"none\" and an empty unified_diff."
+        )
+    return (
+        "If no safe new optimization is available, return a no-op candidate for "
+        "the active candidate format."
+    )
+
+
 def build_variant_history_context(
     variant_id: str,
     previous_records: list[dict[str, Any]],
     history_policy: HistoryPolicyConfig,
+    candidate_format_type: str = "unified_diff",
 ) -> tuple[str | None, dict[str, Any]]:
     metadata: dict[str, Any] = {
         "enabled": history_policy.enabled,
@@ -566,8 +584,7 @@ def build_variant_history_context(
             "",
             (
                 "Do not repeat the same candidate. Prefer a different small, safe "
-                "optimization. If no safe new optimization is available, return a "
-                "no-op candidate with expected_effect=\"none\" and an empty unified_diff."
+                f"optimization. {_noop_candidate_instruction(candidate_format_type)}"
             ),
         ]
     )
@@ -817,6 +834,7 @@ def _run_iteration(
         variant.variant_id,
         previous_variant_records,
         config.history_policy,
+        config.candidate_format.type,
     )
     history_metadata = _write_history_context_file(
         experiment_dir,

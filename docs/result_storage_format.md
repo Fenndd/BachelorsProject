@@ -128,11 +128,45 @@ Each command step writes one log whose filename matches the stable step name. Lo
 
 Materialized candidate runs write `verification.json`, `verification_summary.txt`, and command logs under `verification_logs/`. Verification runs only inside the isolated workspace from `materialization.json`; it configures CMake, runs `baseline_smoke_test`, runs the Lambda Twist P3P adapter validator, runs the absolute-pose family benchmark, and parses benchmark stdout into structured verification metrics.
 
-If benchmark parsing fails, candidate verification fails because later comparison cannot use unstructured benchmark output. If parsing succeeds but `parsed_correctness_passed=false`, candidate verification fails at `benchmark_correctness_check` while preserving parsed benchmark metrics in `verification.json`. This matches the baseline policy. This still does not perform baseline-vs-candidate comparison or best-candidate selection.
+If benchmark parsing fails, candidate verification fails because later comparison cannot use unstructured benchmark output. If parsing succeeds but `parsed_correctness_passed=false`, candidate verification fails at `benchmark_correctness_check` while preserving parsed benchmark metrics in `verification.json`. This matches the baseline policy.
 
-## Candidate Materialization Fields
+Verification itself does not compare against baseline. Pairwise candidate decision and multi-candidate selection are separate stages that consume verified artifacts.
 
-`materialization.json` records scope traceability for successful, skipped, and failed materializations:
+## Candidate Generation Artifacts
+
+All candidate runs write:
+
+- `metadata.json`
+- `status.json`
+- `summary.txt`
+- `llm_request.json`
+- `llm_response.json`
+- `candidate.json`
+
+For `unified_diff`:
+
+- `candidate.diff`
+
+For `line_range_edits`:
+
+- `candidate.edits.json`
+- `candidate.diff` is not required
+
+## Candidate Materialization Artifacts
+
+`materialization.json` records scope traceability for successful, skipped, and failed materializations. Common fields include:
+
+- `overall_status`
+- `candidate_type`
+- `workspace_path`
+- `target_files`
+- `patched_files`
+- `changed_files`
+- `scope_enforcement`
+- `allowed_files`
+- `patch_apply_strategy`
+
+Scope fields example:
 
 ```json
 {
@@ -144,14 +178,53 @@ If benchmark parsing fails, candidate verification fails because later compariso
 
 When `--allowed-file` is supplied, `scope_enforcement` is `"external_allowed_files"` and `allowed_files` contains the normalized external allowlist. When materialization is run manually without `--allowed-file`, `scope_enforcement` is `"legacy_candidate_declared_target_files"`, `external_allowed_files_used` is `false`, and `allowed_files` records the normalized candidate `target_files` used as the legacy effective allowlist.
 
-`materialization.json` also records patch-apply strategy metadata. Normal patch
-application uses `"patch_apply_strategy": "git_apply"`. If normal
-`git apply --check` fails but `git apply --check --recount` succeeds, the
-materializer applies with `git apply --recount` and records
-`"patch_apply_strategy": "git_apply_recount"`,
-`"git_apply_recount_used": true`, and the initial check error. If both checks
-fail, it records `"patch_apply_strategy": "git_apply_recount_failed"` and
-preserves both normal-check and recount-check error details.
+### `unified_diff` materialization fields
+
+`patch_apply_strategy` can be:
+
+- `git_apply`
+- `git_apply_recount`
+- `git_apply_recount_failed`
+- `not_run`
+
+Additional unified-diff fields include:
+
+- `git_apply_recount_used`
+- `git_apply_initial_check_failed`
+- `git_apply_initial_check_error`
+- `git_apply_recount_check_error`
+
+### `line_range_edits` materialization fields
+
+`patch_apply_strategy` can be:
+
+- `line_range_edits`
+- `line_range_edits_failed`
+- `not_run`
+
+Additional line-range fields include:
+
+- `line_range_edit_count`
+- `line_range_exact_matches`
+- `line_range_fallback_matches`
+- `line_range_fallback_used`
+- `line_range_edit_results`
+- `generated_diff_path`
+- `candidate.generated.diff`
+
+Example:
+
+```json
+{
+  "candidate_type": "line_range_edits",
+  "patch_apply_strategy": "line_range_edits",
+  "line_range_edit_count": 2,
+  "line_range_exact_matches": 2,
+  "line_range_fallback_matches": 0,
+  "line_range_fallback_used": false,
+  "generated_diff_path": "results/runs/<candidate_run_id>/candidate.generated.diff"
+}
+```
 
 ## Benchmark Artifact Audit
 
@@ -161,7 +234,7 @@ The audit loads baseline benchmark metrics from `metrics.json` and candidate ben
 
 If build type is recorded in both baseline and candidate artifacts, the audit checks they match (`same_build_type`). A mismatch produces `build_type_mismatch`. If one or both artifacts do not include build type, the audit warns with `build_type_not_recorded` for backward compatibility with older artifacts.
 
-The audit result records whether artifacts are comparable, but it does not rank candidates or choose a better version.
+The audit checks comparability. `candidate_decision` consumes audit output to make pairwise baseline-vs-candidate decisions. `best_candidate_selector` consumes pairwise decisions to select the best candidate among verified candidates.
 
 ## Build Type Recording
 
@@ -192,6 +265,7 @@ The build type defaults to `Release` and is controlled by the `CMAKE_BUILD_TYPE`
 
 ## Not Implemented Yet
 
-- Baseline-vs-candidate comparison
-- Best candidate selection
 - Candidate promotion into the main source tree
+- Advanced reporting/plots
+- JSON metrics output directly from C++ benchmarks
+- Additional solver families/adapters

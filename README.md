@@ -1,267 +1,157 @@
-﻿# Automated Optimization of C++ 3D Vision Algorithms Using LLMs
+# Automated Optimization of C++ 3D Vision Algorithms Using LLMs
 
 ## Short Project Overview
 
-This repository supports a bachelor thesis focused on automated optimization of C++ 3D vision algorithms with LLM support.
-The first minimal case study is a P3P solver.
+This repository supports a bachelor thesis on automated optimization of C++ 3D vision algorithms using LLM-generated candidates. The current minimal case study is the Lambda Twist P3P solver in the absolute-pose solver benchmark family.
+
+The project combines a C++ baseline and benchmark layer under `cpp/`, a Python orchestration layer under `orchestrator/`, persistent artifacts under `results/`, and isolated candidate workspaces under `workspace/`.
 
 ## Current Status
 
-The repository scaffold is complete and the first working Lambda Twist baseline is established.
-The C++ project includes a baseline library target (`lambdatwist_baseline`), a project-owned runner (`baseline_runner`), a smoke test (`baseline_smoke_test`), an old compatibility benchmark (`baseline_benchmark`), and a new absolute-pose family benchmark with a Lambda Twist P3P adapter validator.
-A Python CLI entry point automates the baseline configure/build/test/run/family-benchmark flow from the command line, writes per-run artifacts under `results/runs/<run_id>/`, and appends compact JSONL records to `results/index.jsonl`.
+Implemented now:
 
-Baseline benchmark parsing and candidate verification with the same family benchmark path are implemented. Baseline-vs-candidate comparison and best candidate selection are implemented. Advanced reporting or experiment analysis, automatic promotion into the main source tree, and a closed-loop LLM optimization flow are intentionally not implemented yet.
-Environment expectations are documented in `docs/setup.md`, and baseline state details are documented in `docs/baseline.md`.
+- Baseline automation through `orchestrator/cli/main.py`.
+- Absolute-pose benchmark family for Lambda Twist P3P, including adapter validation and parsed benchmark metrics.
+- LLM candidate generation through `orchestrator.llm.generate_candidate`.
+- The **Candidate Edit Format Layer** with `unified_diff` and `line_range_edits`.
+- Candidate materialization and verification in isolated workspaces.
+- Pairwise candidate decision and multi-candidate best-result selection.
+
+Not implemented yet:
+
+- Candidate promotion into the main `cpp/` source tree.
+- Closed-loop optimization that automatically promotes or reuses selected candidates.
+- Advanced reporting, plots, or final aggregated experiment analysis.
+- Additional solver families/adapters beyond the current minimal Lambda Twist P3P path.
+
+The real DeepSeek Pro Max line-range full-cycle config exists at `configs/experiments/deepseek_pro_max_p3p_line_range_full_cycle_selection.json`. Real DeepSeek runs require `DEEPSEEK_API_KEY`.
 
 ## Repository Structure
 
 ```text
 .
-|- cpp/            # C++ algorithm layer, tests and benchmark placeholders, external baselines
-|- orchestrator/   # Python orchestration (minimal baseline CLI + scaffold modules)
-|- configs/        # Placeholder configuration files
-|- workspace/      # Reserved temporary run workspace
-|- results/        # Persistent run artifacts and the JSONL run index
+|- cpp/            # C++ algorithm layer, tests, benchmark targets, external baselines
+|- orchestrator/   # Python baseline, LLM, materialization, verification, selection, experiments
+|- configs/        # LLM, mock candidate, and experiment configs
+|- workspace/      # Isolated candidate workspaces
+|- results/        # Persistent baseline, candidate, verification, decision, experiment artifacts
 |- docs/           # Project documentation
 `- scripts/        # Helper scripts only
 ```
 
 ## Architecture
 
-The project is structured around a C++ algorithmic core and a Python automation layer. Experiment runs use `workspace/` for temporary artifacts and `results/` for persistent outputs, including per-run directories and `results/index.jsonl`, but full experiment management is not implemented yet.
-The planned persistent run output format is documented in `docs/result_storage_format.md`.
+The baseline CLI and the LLM experiment runner are separate entry points:
 
-The baseline CLI and the LLM experiment runner are intentionally separate entry
-points. `orchestrator/cli/main.py` remains the baseline configure/build/run
-command. `orchestrator.experiments.run_experiment` is the main entry point for
-LLM optimization experiments.
+- `orchestrator/cli/main.py` prepares and records clean baseline runs.
+- `orchestrator.experiments.run_experiment` runs configured LLM optimization experiments.
+
+Experiment runs use `workspace/` for isolated candidate copies and `results/` for persistent outputs. Candidate materialization never modifies the main `cpp/` source tree.
+
+See `docs/architecture.md`, `docs/experiment_runner.md`, `docs/result_storage_format.md`, `docs/candidate_edit_formats.md`, and `docs/best_result_selection_policy.md`.
 
 ## Baseline Automation
 
-The minimal baseline command-line flow is available through `orchestrator/cli/main.py`.
-It requires `EIGEN3_INCLUDE_DIR` and optionally supports `CMAKE_EXE`, `CMAKE_GENERATOR`, `CMAKE_CXX_COMPILER`, and `CMAKE_MAKE_PROGRAM`.
-On Windows outside CLion, explicit toolchain environment variables may be needed so CMake does not select an unavailable default generator.
-
-The automated flow is:
-
-1. Configure CMake.
-2. Build `baseline_smoke_test`.
-3. Build `baseline_runner`.
-4. Build `absolute_pose_lambdatwist_adapter_validator`.
-5. Build `absolute_pose_lambdatwist_benchmark`.
-6. Run `baseline_smoke_test`.
-7. Run `baseline_runner`.
-8. Run `absolute_pose_lambdatwist_adapter_validator`.
-9. Run `absolute_pose_lambdatwist_benchmark`, parse its metrics, and check the
-   parsed `correctness_passed` metric.
-
-The C++ family benchmark returns `0` when it successfully produces metrics;
-numerical correctness is represented by the printed `correctness_passed` metric.
-If parsing succeeds but `correctness_passed=false`, the Python baseline CLI fails
-explicitly at `benchmark_correctness_check` while preserving parsed metrics in
-`metrics.json`, `summary.txt`, and `index.jsonl`.
+The baseline command-line flow requires `EIGEN3_INCLUDE_DIR` and optionally supports `CMAKE_EXE`, `CMAKE_GENERATOR`, `CMAKE_CXX_COMPILER`, and `CMAKE_MAKE_PROGRAM`.
 
 ```powershell
 $env:EIGEN3_INCLUDE_DIR="C:\path\to\eigen"
-$env:CMAKE_GENERATOR="MinGW Makefiles"
-$env:CMAKE_CXX_COMPILER="C:\path\to\g++.exe"
-$env:CMAKE_MAKE_PROGRAM="C:\path\to\mingw32-make.exe"
 py orchestrator/cli/main.py
 ```
 
-If `python` is available on `PATH`, `python orchestrator/cli/main.py` is also valid.
-Set `CMAKE_EXE` only when the intended `cmake.exe` is not already selected by `PATH`.
+The flow configures CMake, builds/runs `baseline_smoke_test`, `baseline_runner`, `absolute_pose_lambdatwist_adapter_validator`, and `absolute_pose_lambdatwist_benchmark`, parses metrics, and checks `correctness_passed`. Benchmark and evaluation builds default to **Release**.
 
-### Build Configuration
+## LLM Candidate Generation and Candidate Edit Formats
 
-Benchmark and evaluation builds default to **Release** for accurate runtime metrics. Override with:
+LLM candidate generation is implemented by `orchestrator.llm.generate_candidate`. It supports two candidate formats selected with `--candidate-type` and experiment `candidate_format.type`.
+
+### `unified_diff`
+
+`unified_diff` is the legacy/fallback format. The LLM receives plain source and returns a `unified_diff` string. Generation writes `candidate.diff`; materialization applies it with `git apply` and can use a `git apply --recount` fallback for malformed hunk counts.
+
+### `line_range_edits`
+
+`line_range_edits` is the preferred robust format for real full-cycle LLM experiments. The LLM receives `line_numbered` source and returns structured `edits[]` entries with `file`, `start_line`, `end_line`, `original`, and `replace`. Generation writes `candidate.edits.json`; materialization applies the edits deterministically and writes the system-generated `candidate.generated.diff`.
+
+See `docs/candidate_edit_formats.md` for details.
+
+## Candidate Materialization and Verification
+
+Materialization runs only inside `workspace/candidates/<candidate_run_id>/`.
+
+The materializer enforces `optimization_scope.allowed_files` from experiment configs:
+
+- `unified_diff`: candidate `target_files` and diff header paths must remain allowed.
+- `line_range_edits`: candidate `target_files` and `edits[].file` must remain allowed.
+
+Verification configures/builds/runs inside the isolated candidate workspace and writes `verification.json`. It does not call an LLM and does not modify the main `cpp/` source tree.
+
+## Experiment Runner Commands
+
+Baseline:
 
 ```powershell
-$env:CMAKE_BUILD_TYPE="Debug"
+py orchestrator/cli/main.py
 ```
 
-Or on Unix:
+Line-range mock full-cycle experiment:
 
-```bash
-export CMAKE_BUILD_TYPE=Debug
+```powershell
+py -m orchestrator.experiments.run_experiment `
+  --config configs/experiments/mock_p3p_line_range_full_cycle_selection.json
 ```
 
-The build type is recorded in run artifacts (`metadata.json`, `verification.json`) and verified by the benchmark artifact audit. Debug builds are not suitable for performance comparisons.
+Line-range DeepSeek Pro Max dry-run:
 
-## LLM Adapter
+```powershell
+py -m orchestrator.experiments.run_experiment `
+  --config configs/experiments/deepseek_pro_max_p3p_line_range_full_cycle_selection.json `
+  --dry-run
+```
 
-The first connected LLM is DeepSeek V4 Flash using `DEEPSEEK_API_KEY`.
-The LLM layer also includes a controlled optimization prompt builder with conservative C++/Eigen safety rules and a response parser with basic candidate diff sanity checks.
-Automatic patch application or promotion to the main source tree is not implemented, and candidates are not integrated into the baseline pipeline yet. Candidate diffs can only be materialized in isolated workspace copies.
+Line-range DeepSeek Pro Max real run:
 
 ```powershell
 $env:DEEPSEEK_API_KEY="..."
-py -m orchestrator.llm.deepseek_client `
-  --config configs/llm_deepseek_flash.json `
-  --system 'You are a strict JSON-only assistant. Return only valid JSON. No markdown. No explanation.' `
-  --user 'Return exactly this JSON object and nothing else: {"status":"ok"}'
-```
-
-Manual candidate generation is also available. It reads a source file, sends a controlled prompt to DeepSeek, parses the response, and saves `llm_request.json`, `llm_response.json`, `candidate.json`, and `candidate.diff` artifacts. Candidate patches are saved but not applied.
-
-```powershell
-py -m orchestrator.llm.generate_candidate `
-  --config configs/llm_deepseek_flash.json `
-  --source cpp/external/lambdatwist/p3p.cc
-```
-
-For offline development, the same candidate-generation path can use a deterministic
-mock response without an API key or network call:
-
-```powershell
-py -m orchestrator.llm.generate_candidate `
-  --config configs/llm_mock_candidate.json `
-  --source cpp/external/lambdatwist/p3p.cc
-```
-
-Generated candidate patches can be materialized only into an isolated workspace
-copy under `workspace/candidates/<candidate_run_id>/`. The materialization
-command validates patch scope against `candidate.json["target_files"]` and the
-external optimization scope when `--allowed-file` is provided. The main
-experiment pipeline passes `optimization_scope.allowed_files` through to both
-generation and materialization, so candidate-declared target files and diff
-headers must stay inside that external allowlist. Manual materialization without
-`--allowed-file` keeps legacy behavior where candidate `target_files` act as the
-effective allowlist. Materialization verifies that a non-empty patch changes at
-least one target file and does not modify the main `cpp/` source tree. The active
-Step 9 patching command is `orchestrator.patching.materialize_candidate`;
-`orchestrator/patching/apply_patch.py` is only a compatibility marker for a
-future broader patching API.
-
-```powershell
-py -m orchestrator.patching.materialize_candidate `
-  --candidate-run results/runs/<candidate_run_id>
-```
-
-A successfully materialized candidate can then be verified inside the same
-isolated workspace copy. Verification configures CMake, builds and runs
-`baseline_smoke_test`, builds and runs the Lambda Twist P3P adapter validator,
-builds and runs `absolute_pose_lambdatwist_benchmark`, and parses benchmark
-stdout into `verification.json`. It is deterministic, does not call an LLM, does
-not compare performance against the baseline, and does not modify the main
-`cpp/` source tree. If parsing succeeds but `correctness_passed=false`,
-verification fails at `benchmark_correctness_check` while preserving parsed
-benchmark metrics in `verification.json`.
-
-```powershell
-py -m orchestrator.execution.verify_candidate `
-  --candidate-run results/runs/<candidate_run_id>
-```
-
-Experiment configs support multi-iteration and multi-variant runs. The current
-experiment runner supports dry-run planning, candidate generation, optional
-materialization/verification, and optional best-candidate selection against an
-explicit baseline run according to config pipeline flags. Verification includes
-the family benchmark path. Experiment runs also write per-variant history artifacts under
-`results/experiments/<experiment_id>/variants/`. The runner can optionally use
-compact variant-local history in later prompts; this history is not shared
-between variants. Sample configs are available at
-`configs/experiments/deepseek_flash_p3p_basic.json`,
-`configs/experiments/deepseek_flash_p3p_generate_materialize_verify.json`, and
-`configs/experiments/deepseek_flash_p3p_variants.json`. A variant-local history
-example is available at
-`configs/experiments/deepseek_flash_p3p_variants_with_history.json`.
-Experiment variants can also apply reproducible LLM parameter overrides and
-save resolved per-variant LLM config snapshots; the Flash-only sample is
-`configs/experiments/deepseek_flash_p3p_parameter_variants.json`. The optional
-`configs/llm_deepseek_pro_max.json` config is intended for later final or
-high-quality runs and is not used by the default cheaper Flash experiments.
-The Step 10/11 experiment runner is summarized in `docs/experiment_runner.md`.
-Candidate promotion into the main source tree and full closed-loop optimization
-with ranking are still not implemented.
-The Step 11 selection policy is documented in
-`docs/best_result_selection_policy.md` and automatic best-candidate selection is
-implemented.
-
-The mock experiment config is useful for checking storage and orchestration
-without calling DeepSeek:
-
-```powershell
 py -m orchestrator.experiments.run_experiment `
-  --config configs/experiments/mock_p3p_basic.json
+  --config configs/experiments/deepseek_pro_max_p3p_line_range_full_cycle_selection.json
 ```
 
-```powershell
-py -m orchestrator.experiments.run_experiment `
-  --config configs/experiments/deepseek_flash_p3p_basic.json `
-  --dry-run
-```
+Mock configs do not require an API key.
 
-```powershell
-py -m orchestrator.experiments.run_experiment `
-  --config configs/experiments/deepseek_flash_p3p_basic.json
-```
+## Selection
 
-```powershell
-py -m orchestrator.experiments.run_experiment `
-  --config configs/experiments/deepseek_flash_p3p_generate_materialize_verify.json
-```
+Pairwise candidate decision and multi-candidate best-result selection are implemented. Selection consumes verified benchmark artifacts and an explicit `selection.baseline_run_dir`. It writes `candidate_decision.json` when configured and `best_candidate_selection.json` for experiment-level selection.
 
-```powershell
-py -m orchestrator.experiments.run_experiment `
-  --config configs/experiments/deepseek_flash_p3p_variants.json `
-  --dry-run
-```
-
-```powershell
-py -m orchestrator.experiments.run_experiment `
-  --config configs/experiments/deepseek_flash_p3p_variants.json
-```
-
-```powershell
-py -m orchestrator.experiments.run_experiment `
-  --config configs/experiments/deepseek_flash_p3p_variants_with_history.json `
-  --dry-run
-```
-
-```powershell
-py -m orchestrator.experiments.run_experiment `
-  --config configs/experiments/deepseek_flash_p3p_variants_with_history.json
-```
-
-```powershell
-py -m orchestrator.experiments.run_experiment `
-  --config configs/experiments/deepseek_flash_p3p_parameter_variants.json `
-  --dry-run
-```
-
-```powershell
-py -m orchestrator.experiments.run_experiment `
-  --config configs/experiments/deepseek_flash_p3p_parameter_variants.json
-```
+Selection does not promote, merge, copy, or commit candidate code.
 
 ## External Baseline Code
 
-- `cpp/external/lambdatwist/` contains an imported third-party baseline P3P solver.
+- `cpp/external/lambdatwist/` contains imported third-party baseline P3P solver code.
 - This code is not original project source code.
 - Clean baseline files are expected to remain unchanged in repository baseline state.
-- The main project logic and optimization workflow will be built on top of this baseline.
+- Candidate changes are materialized only in isolated workspace copies unless future promotion support is implemented.
 
 ## Current State
 
-The following features are implemented and verified:
+The following features are implemented and verified at the current minimal level:
 
-- Project-owned adapter validator for Lambda Twist P3P
-- Deterministic synthetic case generation and correctness policy with configurable thresholds
-- Family benchmark architecture with core/adapter/runner separation via CMake targets
-- Stable snake-case key-value benchmark stdout with optional metadata fields
-- Python parser for required and optional benchmark fields
-- Baseline `metrics.json` and candidate `verification.json` with `benchmark_options` block for reproducibility
-- `benchmark_artifact_audit` that compares `benchmark_options` and `build_type` before allowing comparison
-- Baseline-vs-candidate pairwise decision logic
-- Multi-candidate best candidate selection with deterministic tie-breakers
-- `valid_cases` and `total_solutions` parsed when present in benchmark output
-- Experiment runner with multi-variant, iteration, history, and pipeline support
+- Project-owned adapter validator for Lambda Twist P3P.
+- Deterministic synthetic case generation and correctness policy with configurable thresholds.
+- Family benchmark architecture with core/adapter/runner separation via CMake targets.
+- Stable snake-case key-value benchmark stdout with optional metadata fields.
+- Python parser for required and optional benchmark fields.
+- Baseline `metrics.json` and candidate `verification.json` with `benchmark_options` for reproducibility.
+- `benchmark_artifact_audit` comparability checks.
+- Pairwise `candidate_decision.json` logic.
+- Multi-candidate `best_candidate_selection.json` selection.
+- Experiment runner with multi-variant, iteration, history, candidate generation, materialization, verification, and selection.
+- `candidate_format` support for `unified_diff` and `line_range_edits`.
 
 ## Not Implemented Yet
 
-- Candidate promotion into the main source tree
-- Full closed-loop LLM optimization with ranking
-- Additional solver adapters or benchmark families
-- JSON metrics output from C++ benchmarks
+- Candidate promotion into the main source tree.
+- Closed-loop optimization that automatically promotes or reuses selected candidates.
+- Additional solver adapters or benchmark families.
+- JSON metrics output directly from C++ benchmarks.
+- Advanced reporting, plots, and final aggregated experiment analysis.

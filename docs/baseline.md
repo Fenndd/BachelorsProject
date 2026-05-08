@@ -81,8 +81,14 @@ The selected build type:
 
 Baseline and candidate benchmarks should only be compared when built with the same build type. The benchmark artifact audit enforces this check.
 
+## Relation to Candidate Pipeline
+
+Baseline `metrics.json` is the reference artifact used by `benchmark_artifact_audit`, pairwise candidate decision, and best-candidate selection.
+
+Candidate verification produces `verification.json` using the same absolute-pose benchmark family. Selection compares verified candidates against an explicit `selection.baseline_run_dir` from experiment config. The baseline itself remains clean and separate from candidate workspaces.
+
 ## Not Implemented Yet
 
-- Candidate benchmark execution and comparison against the baseline
-- Best candidate selection and promotion into the main source tree
+- Candidate promotion into the main source tree
 - Full reporting and experiment analysis
+- Additional baseline solver adapters
