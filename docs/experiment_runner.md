@@ -112,7 +112,7 @@ Candidate verification builds default to **Release** for accurate runtime
 metrics. Set `CMAKE_BUILD_TYPE=Debug` in the environment to override. The build
 type is recorded in `verification.json`.
 
-Benchmark artifacts can be audited manually before future comparison work:
+Benchmark artifacts can be audited manually or as part of pairwise candidate decision and selection:
 
 ```powershell
 py -m orchestrator.benchmarking.audit_benchmark_pair `

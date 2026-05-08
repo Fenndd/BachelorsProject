@@ -82,12 +82,15 @@ candidate.json + candidate.diff
 For `line_range_edits`:
 
 ```text
-candidate.json + candidate.edits.json
+candidate.json
+  -> read edits[]
   -> copy workspace
   -> verify line ranges
   -> apply edits
   -> generate candidate.generated.diff
 ```
+
+`candidate.edits.json` is an auxiliary generated artifact for inspection and debugging; the materializer reads edits from `candidate.json`.
 
 ## Recommendation
 
