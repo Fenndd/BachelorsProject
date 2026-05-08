@@ -70,6 +70,18 @@ def _parse_args(argv: list[str]) -> argparse.Namespace:
             "Defaults to the --source path if not provided."
         ),
     )
+    parser.add_argument(
+        "--candidate-type",
+        choices=["unified_diff", "line_range_edits"],
+        default="unified_diff",
+        help="Candidate edit format to request from the LLM.",
+    )
+    parser.add_argument(
+        "--source-presentation",
+        choices=["plain", "line_numbered"],
+        default="plain",
+        help="Source presentation format to use in the optimization prompt.",
+    )
     return parser.parse_args(argv)
 
 
@@ -150,6 +162,7 @@ def _build_metadata(
     target_file: str,
     client: DeepSeekClient | None,
     started_at: datetime,
+    candidate_format: dict[str, str],
 ) -> dict[str, Any]:
     config = client.config if client is not None else None
     return {
@@ -162,6 +175,7 @@ def _build_metadata(
         "reasoning_effort": config.reasoning_effort if config else None,
         "started_at": started_at.isoformat(timespec="seconds"),
         "finished_at": None,
+        "candidate_format": candidate_format,
         "repository": _repository_info(),
     }
 
@@ -170,11 +184,13 @@ def _build_status(
     overall_status: str,
     failed_step: str | None,
     error_message: str | None,
+    candidate_format: dict[str, str] | None = None,
 ) -> dict[str, Any]:
     return {
         "overall_status": overall_status,
         "failed_step": failed_step,
         "error_message": error_message,
+        "candidate_format": candidate_format,
     }
 
 
@@ -190,6 +206,8 @@ def _build_summary(
         f"Target file: {metadata['target_file']}",
         f"Provider: {metadata['provider']}",
         f"Model: {metadata['model']}",
+        f"Candidate format: {metadata['candidate_format']['type']}",
+        f"Source presentation: {metadata['candidate_format']['source_presentation']}",
         f"Overall status: {status['overall_status']}",
         f"Failed step: {status['failed_step'] or 'none'}",
         f"Error message: {status['error_message'] or 'none'}",
@@ -230,6 +248,7 @@ def _build_index_record(
         "finished_at": metadata["finished_at"],
         "provider": metadata["provider"],
         "model": metadata["model"],
+        "candidate_format": metadata["candidate_format"],
         "target_file": metadata["target_file"],
         "risk_level": candidate.risk_level if candidate is not None else None,
         "expected_effect": candidate.expected_effect if candidate is not None else None,
@@ -255,6 +274,16 @@ def _save_final_artifacts(
     return storage.append_index_record(
         _build_index_record(metadata, status, candidate, run_dir)
     )
+
+
+def _save_candidate_artifacts(run_dir: Path, candidate: OptimizationCandidate) -> None:
+    _write_json(run_dir / "candidate.json", asdict(candidate))
+    if candidate.candidate_type == "unified_diff":
+        _write_text(run_dir / "candidate.diff", candidate.unified_diff)
+    elif candidate.candidate_type == "line_range_edits":
+        _write_json(run_dir / "candidate.edits.json", {"edits": asdict(candidate)["edits"]})
+    else:
+        raise ValueError(f"Unsupported candidate_type: {candidate.candidate_type}")
 
 
 def _print_final_summary(
@@ -374,6 +403,10 @@ def main(argv: list[str] | None = None) -> int:
     config_path = _resolve_path(args.config)
     source_path = _resolve_path(args.source)
     target_file = _display_path(source_path)
+    candidate_format = {
+        "type": args.candidate_type,
+        "source_presentation": args.source_presentation,
+    }
 
     # Resolve allowed files early
     allowed_files = _resolve_allowed_files(args.allowed_files, target_file)
@@ -390,14 +423,14 @@ def main(argv: list[str] | None = None) -> int:
     print(f"Run directory: {run_dir}")
 
     client: DeepSeekClient | None = None
-    metadata = _build_metadata(run_id, target_file, client, started_at)
+    metadata = _build_metadata(run_id, target_file, client, started_at, candidate_format)
     candidate: OptimizationCandidate | None = None
 
     status: dict[str, Any]
     try:
         client = _load_client(config_path)
 
-        metadata = _build_metadata(run_id, target_file, client, started_at)
+        metadata = _build_metadata(run_id, target_file, client, started_at, candidate_format)
         print(f"Provider/model: {client.config.provider}/{client.config.model}")
 
         try:
@@ -410,6 +443,8 @@ def main(argv: list[str] | None = None) -> int:
             source_code=source_code,
             additional_context=args.context,
             allowed_files=allowed_files,
+            candidate_type=args.candidate_type,
+            source_presentation=args.source_presentation,
         )
 
         try:
@@ -421,6 +456,7 @@ def main(argv: list[str] | None = None) -> int:
                     "system_prompt": system_prompt,
                     "user_prompt": user_prompt,
                     "additional_context": args.context,
+                    "candidate_format": candidate_format,
                 },
             )
         except OSError as exc:
@@ -455,19 +491,18 @@ def main(argv: list[str] | None = None) -> int:
             raise CandidateGenerationFailure("parse_response", str(exc)) from exc
 
         try:
-            _write_json(run_dir / "candidate.json", asdict(candidate))
-            _write_text(run_dir / "candidate.diff", candidate.unified_diff)
+            _save_candidate_artifacts(run_dir, candidate)
         except OSError as exc:
             raise CandidateGenerationFailure("save_artifacts", str(exc)) from exc
 
-        status = _build_status("success", None, None)
+        status = _build_status("success", None, None, candidate_format)
     except CandidateGenerationFailure as exc:
-        status = _build_status("failed", exc.failed_step, exc.error_message)
+        status = _build_status("failed", exc.failed_step, exc.error_message, candidate_format)
 
     try:
         index_path = _save_final_artifacts(storage, run_dir, metadata, status, candidate)
     except OSError as exc:
-        status = _build_status("failed", "save_artifacts", str(exc))
+        status = _build_status("failed", "save_artifacts", str(exc), candidate_format)
         _print_final_summary(status, run_dir, candidate)
         return 1
 

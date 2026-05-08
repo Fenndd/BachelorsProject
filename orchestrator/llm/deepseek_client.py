@@ -86,7 +86,7 @@ class DeepSeekClient:
         )
 
         try:
-            with request.urlopen(http_request, timeout=60) as response:
+            with request.urlopen(http_request, timeout=400) as response:
                 response_body = response.read().decode("utf-8")
         except error.HTTPError as exc:
             error_body = exc.read().decode("utf-8", errors="replace")

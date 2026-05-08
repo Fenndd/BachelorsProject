@@ -1,0 +1,26 @@
+{
+  "experiment_name": "deepseek_pro_max_p3p_full_cycle_selection",
+  "description": "First controlled full-cycle P3P optimization run using DeepSeek Pro Max, with candidate generation, materialization, verification, benchmark comparison, and best-candidate selection.",
+  "llm_config": "configs/llm_deepseek_flash.json",
+  "target_file": "cpp/external/lambdatwist/p3p.cc",
+  "iterations": 1,
+  "additional_context": "Propose only one small, local, safe runtime optimization. Preserve numerical behavior. Do not change public APIs. Do not change benchmark, tests, adapter, validator, CMake, orchestrator, configs, docs, or result files. If no safe optimization is available, return a no-op candidate. Return a git-apply-compatible unified diff. Every hunk must contain exact original context lines from the provided source file. Do not abbreviate hunks. Do not omit trailing context lines. Do not use incomplete hunks. Ensure hunk line counts match the actual number of removed, added, and context lines.",
+  "optimization_scope": {
+    "allowed_files": [
+      "cpp/external/lambdatwist/p3p.cc"
+    ]
+  },
+  "pipeline": {
+    "generate_candidate": true,
+    "materialize_candidate": true,
+    "verify_candidate": true
+  },
+  "candidate_generation": {
+    "max_source_chars": 120000
+  },
+  "selection": {
+    "enabled": true,
+    "baseline_run_dir": "results/runs/2026-05-05_04-49-26_baseline",
+    "write_candidate_decisions": true
+  }
+}

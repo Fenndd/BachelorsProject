@@ -130,7 +130,7 @@ Materialized candidate runs write `verification.json`, `verification_summary.txt
 
 If benchmark parsing fails, candidate verification fails because later comparison cannot use unstructured benchmark output. If parsing succeeds but `parsed_correctness_passed=false`, candidate verification fails at `benchmark_correctness_check` while preserving parsed benchmark metrics in `verification.json`. This matches the baseline policy. This still does not perform baseline-vs-candidate comparison or best-candidate selection.
 
-## Candidate Materialization Scope Fields
+## Candidate Materialization Fields
 
 `materialization.json` records scope traceability for successful, skipped, and failed materializations:
 
@@ -143,6 +143,15 @@ If benchmark parsing fails, candidate verification fails because later compariso
 ```
 
 When `--allowed-file` is supplied, `scope_enforcement` is `"external_allowed_files"` and `allowed_files` contains the normalized external allowlist. When materialization is run manually without `--allowed-file`, `scope_enforcement` is `"legacy_candidate_declared_target_files"`, `external_allowed_files_used` is `false`, and `allowed_files` records the normalized candidate `target_files` used as the legacy effective allowlist.
+
+`materialization.json` also records patch-apply strategy metadata. Normal patch
+application uses `"patch_apply_strategy": "git_apply"`. If normal
+`git apply --check` fails but `git apply --check --recount` succeeds, the
+materializer applies with `git apply --recount` and records
+`"patch_apply_strategy": "git_apply_recount"`,
+`"git_apply_recount_used": true`, and the initial check error. If both checks
+fail, it records `"patch_apply_strategy": "git_apply_recount_failed"` and
+preserves both normal-check and recount-check error details.
 
 ## Benchmark Artifact Audit
 

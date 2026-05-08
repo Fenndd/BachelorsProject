@@ -1,0 +1,32 @@
+{
+  "experiment_name": "deepseek_pro_max_p3p_line_range_full_cycle_selection",
+  "description": "Controlled full-cycle P3P optimization run using DeepSeek Pro Max and the line_range_edits candidate format, with candidate generation, deterministic line-range materialization, verification, benchmark comparison, and best-candidate selection.",
+  "llm_config": "configs/llm_deepseek_pro_max.json",
+  "target_file": "cpp/external/lambdatwist/p3p.cc",
+  "iterations": 1,
+  "additional_context": "Propose only one small, local, safe runtime optimization. Use line_range_edits only. Do not return unified_diff. Use start_line/end_line from the numbered source shown in the prompt. The original field must exactly match the source text without line-number prefixes. The replace field must contain only replacement source text. Preserve numerical behavior. Do not change public APIs. Do not change benchmark, tests, adapter, validator, CMake, orchestrator, configs, docs, or result files. If no safe optimization is available, return a no-op candidate with expected_effect=\"none\" and edits=[].",
+  "optimization_scope": {
+    "allowed_files": [
+      "cpp/external/lambdatwist/p3p.cc"
+    ]
+  },
+  "pipeline": {
+    "generate_candidate": true,
+    "materialize_candidate": true,
+    "verify_candidate": true
+  },
+  "candidate_generation": {
+    "max_source_chars": 120000
+  },
+  "candidate_format": {
+    "type": "line_range_edits",
+    "source_presentation": "line_numbered",
+    "require_original_verification": true,
+    "allow_exact_search_fallback": true
+  },
+  "selection": {
+    "enabled": true,
+    "baseline_run_dir": "results/runs/2026-05-05_04-49-26_baseline",
+    "write_candidate_decisions": true
+  }
+}
