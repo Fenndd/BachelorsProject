@@ -238,6 +238,33 @@ results/experiments/<experiment_id>/
 
 Generated experiment outputs are ignored by git.
 
+## Closed-loop Stage 1 Artifact Model
+
+Closed-loop optimization is being introduced in stages. Stage 1 defines the
+state and artifact schema only; it does not change the current experiment runner
+behavior and does not promote candidates into the repository source tree.
+
+The mutable experiment-local current best source is stored outside `cpp/` under:
+
+```text
+workspace/experiments/<experiment_id>/current_best_source/
+workspace/experiments/<experiment_id>/current_best_state.json
+```
+
+Final closed-loop outputs are stored under the experiment result directory:
+
+```text
+results/experiments/<experiment_id>/final_optimized_source/
+results/experiments/<experiment_id>/final_optimized_source.diff
+results/experiments/<experiment_id>/closed_loop_iterations.jsonl
+results/experiments/<experiment_id>/closed_loop_summary.json
+```
+
+`closed_loop_iterations.jsonl` stores one compact JSON object per closed-loop
+iteration. `closed_loop_summary.json` stores the final experiment summary as
+human-readable JSON. The main `cpp/` source tree remains the clean baseline and
+must not be modified automatically by experiments.
+
 Candidate run artifacts are written under `results/runs/<candidate_run_id>/`:
 
 ```text
