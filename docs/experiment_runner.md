@@ -99,6 +99,38 @@ verifies line ranges, applies deterministic edits, and writes
 `candidate.generated.diff`. Deterministic C++ verification and benchmark
 correctness checks still decide whether a materialized candidate is valid.
 
+### Materialization Base Source Root
+
+Candidate materialization separates the logical repo-relative candidate paths
+from the physical source tree copied into the isolated workspace. By default,
+old behavior is preserved: `materialize_candidate` copies the legacy
+`--source-root` value, which defaults to `cpp`, into the candidate workspace so
+paths such as `cpp/external/lambdatwist/p3p.cc` still resolve under
+`workspace/candidates/<candidate_run_id>/cpp/...`.
+
+For closed-loop preparation, materialization also accepts an explicit
+repo-like base source root:
+
+```powershell
+py -m orchestrator.patching.materialize_candidate `
+  --candidate-run results/runs/<candidate_run_id> `
+  --base-source-root workspace/experiments/<experiment_id>/current_best_source `
+  --overwrite `
+  --allowed-file cpp/external/lambdatwist/p3p.cc
+```
+
+In this mode, `--base-source-root` must contain repo-relative paths directly,
+for example
+`workspace/experiments/<experiment_id>/current_best_source/cpp/external/lambdatwist/p3p.cc`.
+The materializer copies that tree into the isolated candidate workspace and
+applies the candidate there. It never modifies `--base-source-root` directly and
+never modifies the main `cpp/` source tree automatically.
+
+`--source-root` remains supported for backward compatibility. To avoid ambiguous
+copy semantics, an explicit `--source-root` cannot be combined with
+`--base-source-root`. The experiment runner's normal non-closed-loop flow does
+not pass `--base-source-root`, so existing experiment behavior is unchanged.
+
 `verify_candidate` is deterministic and does not call any LLM API. It now runs
 the same benchmark-family verification path used by the baseline preparation:
 configure CMake in the isolated workspace, build and run `baseline_smoke_test`,
@@ -342,6 +374,19 @@ Stage 3 prepares candidate generation for that future runner by allowing it to
 read from `current_best_source` via `--source-root` while preserving the logical
 repo-relative target path seen by the LLM. It still does not implement candidate
 promotion, current-best updates, or full closed-loop orchestration.
+
+Stage 4 prepares materialization for the same future runner by allowing
+`materialize_candidate` to copy and apply candidates relative to an explicit
+`--base-source-root`. In future closed-loop iterations, generation will read
+from `current_best_source` and materialization will receive the same directory as
+`--base-source-root`, so `line_range_edits` line numbers and original text refer
+to the same source version the LLM saw. The per-candidate
+`candidate.generated.diff` is therefore an iteration-local diff from
+`base_source_root` to the materialized candidate workspace. The future
+`final_optimized_source.diff` is a separate final reporting artifact that will be
+generated against the original clean baseline. Stage 4 still does not implement
+candidate promotion, current-best state updates, final optimized source storage,
+or full closed-loop orchestration.
 
 ## Optimization Scope (Strict File Access Control)
 

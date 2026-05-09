@@ -341,6 +341,7 @@ def _build_generation_command(
 def _build_materialization_command(
     candidate_run_dir: str,
     config: ExperimentConfig,
+    base_source_root: str | None = None,
 ) -> list[str]:
     command = [
         sys.executable,
@@ -350,6 +351,8 @@ def _build_materialization_command(
         candidate_run_dir,
         "--overwrite",
     ]
+    if base_source_root is not None:
+        command.extend(["--base-source-root", base_source_root])
     # Pass each allowed file as a separate --allowed-file argument
     for allowed_file in config.optimization_scope.allowed_files:
         command.extend(["--allowed-file", allowed_file])

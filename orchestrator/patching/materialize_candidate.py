@@ -31,6 +31,9 @@ from orchestrator.patching.scope_validation import (
 REPO_ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_WORKSPACE_ROOT = "workspace/candidates"
 DEFAULT_SOURCE_ROOT = "cpp"
+SOURCE_ROOT_MODE_REPO_DEFAULT = "repo_default"
+SOURCE_ROOT_MODE_LEGACY_SOURCE_ROOT = "legacy_source_root"
+SOURCE_ROOT_MODE_EXPLICIT_BASE_SOURCE_ROOT = "explicit_base_source_root"
 EXTERNAL_SCOPE_ENFORCEMENT = "external_allowed_files"
 LEGACY_SCOPE_ENFORCEMENT = "legacy_candidate_declared_target_files"
 CANDIDATE_TYPE_UNIFIED_DIFF = "unified_diff"
@@ -57,8 +60,17 @@ def _parse_args(argv: list[str]) -> argparse.Namespace:
     )
     parser.add_argument(
         "--source-root",
-        default=DEFAULT_SOURCE_ROOT,
+        default=None,
         help="Project source root to copy into the candidate workspace.",
+    )
+    parser.add_argument(
+        "--base-source-root",
+        default=None,
+        help=(
+            "Explicit repo-like base source root to copy from. The directory must "
+            "contain repo-relative paths such as cpp/external/lambdatwist/p3p.cc. "
+            "When omitted, legacy --source-root behavior is preserved."
+        ),
     )
     parser.add_argument("--git-exe", default="git", help="git executable to use.")
     parser.add_argument(
@@ -90,6 +102,41 @@ def _resolve_path(path_text: str) -> Path:
     if not path.is_absolute():
         path = REPO_ROOT / path
     return path.resolve()
+
+
+def _resolve_base_source_root(args: argparse.Namespace) -> tuple[Path, str, str, str]:
+    """Resolve materialization source-root semantics.
+
+    Returns ``(base_source_root_path, source_root_text, base_source_root_display,
+    source_root_mode)``. ``source_root_text`` is retained for backward-compatible
+    artifact fields, while ``base_source_root`` is the clearer Stage 4 name.
+    """
+
+    if args.base_source_root is not None and args.source_root is not None:
+        raise ValueError(
+            "--base-source-root cannot be combined with explicit --source-root; "
+            "use one source-root mode to avoid ambiguous workspace copy semantics."
+        )
+
+    if args.base_source_root is not None:
+        base_source_root_path = _resolve_path(args.base_source_root)
+        source_root_text = args.base_source_root
+        source_root_mode = SOURCE_ROOT_MODE_EXPLICIT_BASE_SOURCE_ROOT
+    elif args.source_root is not None:
+        base_source_root_path = _resolve_path(args.source_root)
+        source_root_text = args.source_root
+        source_root_mode = SOURCE_ROOT_MODE_LEGACY_SOURCE_ROOT
+    else:
+        base_source_root_path = _resolve_path(DEFAULT_SOURCE_ROOT)
+        source_root_text = DEFAULT_SOURCE_ROOT
+        source_root_mode = SOURCE_ROOT_MODE_REPO_DEFAULT
+
+    return (
+        base_source_root_path,
+        source_root_text,
+        _display_path(base_source_root_path),
+        source_root_mode,
+    )
 
 
 def _display_path(path: Path) -> str:
@@ -539,6 +586,24 @@ def _copy_ignore(directory: str, names: list[str]) -> set[str]:
     return ignored
 
 
+def _copy_base_source_tree(
+    base_source_root_path: Path,
+    workspace_path: Path,
+    source_root_mode: str,
+) -> None:
+    if source_root_mode == SOURCE_ROOT_MODE_EXPLICIT_BASE_SOURCE_ROOT:
+        shutil.copytree(
+            base_source_root_path,
+            workspace_path,
+            ignore=_copy_ignore,
+            dirs_exist_ok=True,
+        )
+        return
+
+    workspace_source_path = workspace_path / base_source_root_path.name
+    shutil.copytree(base_source_root_path, workspace_source_path, ignore=_copy_ignore)
+
+
 def _ensure_deletable_workspace(workspace_path: Path, workspace_root: Path) -> None:
     workspace_path = workspace_path.resolve()
     workspace_root = workspace_root.resolve()
@@ -697,6 +762,8 @@ def _write_log(
         f"Candidate run directory: {candidate_run_dir}",
         f"Workspace path: {workspace_path}",
         f"Source root: {source_root}",
+        f"Base source root: {materialization.get('base_source_root') or source_root}",
+        f"Source root mode: {materialization.get('source_root_mode') or 'unknown'}",
         f"Candidate type: {materialization.get('candidate_type', CANDIDATE_TYPE_UNIFIED_DIFF)}",
         f"Patch file path: {patch_path}",
         "",
@@ -726,6 +793,8 @@ def _write_log(
         f"{materialization.get('line_range_fallback_used', 'n/a')}",
         "Generated diff path: "
         f"{materialization.get('generated_diff_path') or 'none'}",
+        "Generated diff base: "
+        f"{materialization.get('generated_diff_base') or 'none'}",
         f"Git apply recount used: {materialization['git_apply_recount_used']}",
         "Initial git apply check failed: "
         f"{materialization['git_apply_initial_check_failed']}",
@@ -925,13 +994,26 @@ def main(argv: list[str] | None = None) -> int:
     candidate_run_id = candidate_run_dir.name
     workspace_root = _resolve_path(args.workspace_root)
     workspace_path = workspace_root / candidate_run_id
-    source_root_path = _resolve_path(args.source_root)
-    workspace_source_path = workspace_path / source_root_path.name
+    try:
+        (
+            base_source_root_path,
+            source_root_text,
+            base_source_root_display,
+            source_root_mode,
+        ) = _resolve_base_source_root(args)
+    except ValueError as exc:
+        print("Final status: failed")
+        print("Failed step: parse_args")
+        print(f"ERROR: {exc}", file=sys.stderr)
+        print("Workspace removed on failure: False")
+        return 1
     candidate_json_path = candidate_run_dir / "candidate.json"
     patch_path = (candidate_run_dir / "candidate.diff").resolve()
 
     print(f"Candidate run id: {candidate_run_id}")
     print(f"Workspace path: {workspace_path}")
+    print(f"Base source root: {base_source_root_display}")
+    print(f"Source root mode: {source_root_mode}")
 
     steps: list[dict[str, Any]] = []
     commands: list[dict[str, Any]] = []
@@ -949,6 +1031,12 @@ def main(argv: list[str] | None = None) -> int:
     external_allowed_files_used = bool(args.allowed_files)
     allowed_files: list[str] = []
     patch_apply_metadata = _default_patch_apply_metadata()
+    source_root_metadata = {
+        "base_source_root": base_source_root_display,
+        "source_root_mode": source_root_mode,
+        "generated_diff_base": None,
+    }
+    patch_apply_metadata.update(source_root_metadata)
 
     if not candidate_run_dir.exists() or not candidate_run_dir.is_dir():
         print("Final status: failed")
@@ -1005,7 +1093,7 @@ def main(argv: list[str] | None = None) -> int:
                         candidate_run_dir,
                         candidate_run_id,
                         workspace_path,
-                        args.source_root,
+                        source_root_text,
                         patch_path,
                         target_files,
                         patched_files,
@@ -1046,7 +1134,7 @@ def main(argv: list[str] | None = None) -> int:
                     candidate_run_dir,
                     candidate_run_id,
                     workspace_path,
-                    args.source_root,
+                    source_root_text,
                     patch_path,
                     target_files,
                     patched_files,
@@ -1084,7 +1172,7 @@ def main(argv: list[str] | None = None) -> int:
             candidate_run_id,
             workspace_root,
             workspace_path,
-            args.source_root,
+            source_root_text,
             patch_path,
             target_files,
             patched_files,
@@ -1106,8 +1194,8 @@ def main(argv: list[str] | None = None) -> int:
     copy_started = time.perf_counter()
     workspace_touched = False
     try:
-        if not source_root_path.exists() or not source_root_path.is_dir():
-            raise FileNotFoundError(f"Source root not found: {source_root_path}")
+        if not base_source_root_path.exists() or not base_source_root_path.is_dir():
+            raise FileNotFoundError(f"Base source root not found: {base_source_root_path}")
 
         if workspace_path.exists():
             if not args.overwrite:
@@ -1120,7 +1208,7 @@ def main(argv: list[str] | None = None) -> int:
 
         workspace_path.mkdir(parents=True, exist_ok=True)
         workspace_touched = True
-        shutil.copytree(source_root_path, workspace_source_path, ignore=_copy_ignore)
+        _copy_base_source_tree(base_source_root_path, workspace_path, source_root_mode)
         copy_duration = round(time.perf_counter() - copy_started, 3)
         steps.append(_step_status("copy_source_tree", "success", None, copy_duration))
     except (OSError, ValueError) as exc:
@@ -1139,7 +1227,7 @@ def main(argv: list[str] | None = None) -> int:
             candidate_run_id,
             workspace_root,
             workspace_path,
-            args.source_root,
+            source_root_text,
             patch_path,
             target_files,
             patched_files,
@@ -1184,7 +1272,7 @@ def main(argv: list[str] | None = None) -> int:
             candidate_run_id,
             workspace_root,
             workspace_path,
-            args.source_root,
+            source_root_text,
             patch_path,
             target_files,
             patched_files,
@@ -1238,6 +1326,7 @@ def main(argv: list[str] | None = None) -> int:
                         "allow_exact_search_fallback"
                     ],
                     "generated_diff_path": _display_path(generated_diff_path),
+                    "generated_diff_base": "base_source_root",
                     "line_range_edit_results": line_range_apply_result["results"],
                 }
             )
@@ -1262,7 +1351,7 @@ def main(argv: list[str] | None = None) -> int:
                 candidate_run_id,
                 workspace_root,
                 workspace_path,
-                args.source_root,
+                source_root_text,
                 patch_path,
                 target_files,
                 patched_files,
@@ -1308,7 +1397,7 @@ def main(argv: list[str] | None = None) -> int:
                 candidate_run_id,
                 workspace_root,
                 workspace_path,
-                args.source_root,
+                source_root_text,
                 patch_path,
                 target_files,
                 patched_files,
@@ -1333,7 +1422,7 @@ def main(argv: list[str] | None = None) -> int:
             None,
             candidate_run_id,
             workspace_path,
-            args.source_root,
+            source_root_text,
             patch_path,
             target_files,
             patched_files,
@@ -1354,7 +1443,7 @@ def main(argv: list[str] | None = None) -> int:
             candidate_run_id,
             candidate_run_dir,
             workspace_path,
-            args.source_root,
+            source_root_text,
             patch_path,
             commands,
             materialization,
@@ -1367,7 +1456,7 @@ def main(argv: list[str] | None = None) -> int:
         for changed_file in changed_files:
             print(f"- {changed_file}")
         print(f"Generated diff: {generated_diff_path}")
-        print(f"Main source tree was not modified: {args.source_root}")
+        print(f"Base source root was not modified: {base_source_root_display}")
         print(f"Artifact log: {candidate_run_dir / 'apply_candidate.log'}")
         return 0
 
@@ -1401,6 +1490,7 @@ def main(argv: list[str] | None = None) -> int:
                 "git_apply_initial_check_error": initial_check_detail,
                 "git_apply_recount_check_error": recount_check_detail,
             }
+            patch_apply_metadata.update(source_root_metadata)
             steps.extend(
                 [
                     _step_status("git_apply_check", "failed", recount_exit_code, duration + recount_duration),
@@ -1419,7 +1509,7 @@ def main(argv: list[str] | None = None) -> int:
                 candidate_run_id,
                 workspace_root,
                 workspace_path,
-                args.source_root,
+                source_root_text,
                 patch_path,
                 target_files,
                 patched_files,
@@ -1445,6 +1535,7 @@ def main(argv: list[str] | None = None) -> int:
             "git_apply_initial_check_error": initial_check_detail,
             "git_apply_recount_check_error": None,
         }
+        patch_apply_metadata.update(source_root_metadata)
         steps.append(
             _step_status(
                 "git_apply_check",
@@ -1462,6 +1553,7 @@ def main(argv: list[str] | None = None) -> int:
             "git_apply_initial_check_error": None,
             "git_apply_recount_check_error": None,
         }
+        patch_apply_metadata.update(source_root_metadata)
         steps.append(_step_status("git_apply_check", "success", exit_code, duration))
         apply_recount = False
 
@@ -1484,7 +1576,7 @@ def main(argv: list[str] | None = None) -> int:
             candidate_run_id,
             workspace_root,
             workspace_path,
-            args.source_root,
+            source_root_text,
             patch_path,
             target_files,
             patched_files,
@@ -1530,7 +1622,7 @@ def main(argv: list[str] | None = None) -> int:
             candidate_run_id,
             workspace_root,
             workspace_path,
-            args.source_root,
+            source_root_text,
             patch_path,
             target_files,
             patched_files,
@@ -1555,7 +1647,7 @@ def main(argv: list[str] | None = None) -> int:
         None,
         candidate_run_id,
         workspace_path,
-        args.source_root,
+        source_root_text,
         patch_path,
         target_files,
         patched_files,
@@ -1576,7 +1668,7 @@ def main(argv: list[str] | None = None) -> int:
         candidate_run_id,
         candidate_run_dir,
         workspace_path,
-        args.source_root,
+        source_root_text,
         patch_path,
         commands,
         materialization,
@@ -1588,7 +1680,7 @@ def main(argv: list[str] | None = None) -> int:
     print("Changed files:")
     for changed_file in changed_files:
         print(f"- {changed_file}")
-    print(f"Main source tree was not modified: {args.source_root}")
+    print(f"Base source root was not modified: {base_source_root_display}")
     print(f"Artifact log: {candidate_run_dir / 'apply_candidate.log'}")
     return 0
 
