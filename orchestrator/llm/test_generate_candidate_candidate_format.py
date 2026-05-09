@@ -115,6 +115,8 @@ class GenerateCandidateCandidateFormatTests(unittest.TestCase):
             metadata = _build_metadata(
                 "run-id",
                 TARGET_FILE,
+                ".",
+                TARGET_FILE,
                 None,
                 datetime(2026, 1, 1),
                 LINE_RANGE_FORMAT,

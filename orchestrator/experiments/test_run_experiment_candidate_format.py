@@ -71,6 +71,22 @@ class RunExperimentCandidateFormatTests(unittest.TestCase):
             "line_numbered",
         )
 
+    def test_generation_command_can_pass_optional_source_root(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            config = load_experiment_config(_write_config(Path(tmpdir)))
+
+        command = _build_generation_command(
+            config,
+            "llm.json",
+            None,
+            source_root="workspace/experiments/exp_001/current_best_source",
+        )
+
+        self.assertEqual(
+            command[command.index("--source-root") + 1],
+            "workspace/experiments/exp_001/current_best_source",
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -311,6 +311,7 @@ def _build_generation_command(
     config: ExperimentConfig,
     llm_config_path: str,
     context_text: str | None,
+    source_root: str | None = None,
 ) -> list[str]:
     command = [
         sys.executable,
@@ -327,6 +328,8 @@ def _build_generation_command(
         "--source-presentation",
         config.candidate_format.source_presentation,
     ]
+    if source_root is not None:
+        command.extend(["--source-root", source_root])
     if context_text is not None:
         command.extend(["--context", context_text])
     # Pass each allowed file as a separate --allowed-file argument

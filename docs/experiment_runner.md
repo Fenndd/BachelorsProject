@@ -233,6 +233,34 @@ py -m orchestrator.llm.generate_candidate `
   --source cpp/external/lambdatwist/p3p.cc
 ```
 
+### Generation Source Root
+
+Candidate generation separates the logical target file from the physical source
+root used for reading source code. By default, `--source-root` is the repository
+root, so existing commands continue to read `cpp/external/lambdatwist/p3p.cc`
+from the clean repo source tree.
+
+For closed-loop preparation, `generate_candidate` can instead read from an
+experiment-local current-best source tree:
+
+```powershell
+py -m orchestrator.llm.generate_candidate `
+  --config configs/llm_mock_line_range_p3p.json `
+  --source cpp/external/lambdatwist/p3p.cc `
+  --source-root workspace/experiments/<experiment_id>/current_best_source `
+  --candidate-type line_range_edits `
+  --source-presentation line_numbered
+```
+
+This reads the physical file
+`workspace/experiments/<experiment_id>/current_best_source/cpp/external/lambdatwist/p3p.cc`,
+but the LLM prompt, candidate `target_files`, `allowed_files`, and candidate
+metadata still use the stable repo-relative logical path
+`cpp/external/lambdatwist/p3p.cc`. The temporary workspace path is recorded in
+artifacts for traceability but is not presented as the optimization target file.
+The main `cpp/` source tree remains the clean baseline and is not modified
+automatically.
+
 ## Artifacts
 
 A real experiment writes:
@@ -309,6 +337,11 @@ full closed-loop runner and current-best state updates are not implemented yet.
 When they are added, only `decision_vs_current_best.json` should control whether
 a verified candidate becomes the new current best; `decision_vs_original_baseline.json`
 is intended for reporting/control.
+
+Stage 3 prepares candidate generation for that future runner by allowing it to
+read from `current_best_source` via `--source-root` while preserving the logical
+repo-relative target path seen by the LLM. It still does not implement candidate
+promotion, current-best updates, or full closed-loop orchestration.
 
 ## Optimization Scope (Strict File Access Control)
 

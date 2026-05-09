@@ -154,6 +154,32 @@ For `line_range_edits`:
 - `candidate.edits.json`
 - `candidate.diff` is not required
 
+Candidate generation records both the logical target path and the physical source
+location used to read the prompt source. `target_file` remains the stable
+repo-relative path shown to the LLM and used in candidate `target_files` and
+`allowed_files`. `source_root` defaults to the repository root, but future
+closed-loop runs can point it at an experiment-local current-best source tree.
+
+Example fields in `metadata.json`:
+
+```json
+{
+  "target_file": "cpp/external/lambdatwist/p3p.cc",
+  "source_root": "workspace/experiments/<experiment_id>/current_best_source",
+  "physical_source_path": "workspace/experiments/<experiment_id>/current_best_source/cpp/external/lambdatwist/p3p.cc",
+  "candidate_format": {
+    "type": "line_range_edits",
+    "source_presentation": "line_numbered"
+  }
+}
+```
+
+`llm_request.json` also records `target_file`, `source_root`,
+`physical_source_path`, `allowed_files`, prompts, additional context, and
+candidate format. The prompt schema and candidate JSON schema are unchanged; the
+LLM still sees the logical repo-relative target file, not the temporary
+workspace path.
+
 ## Candidate Materialization Artifacts
 
 `materialization.json` records scope traceability for successful, skipped, and failed materializations. Common fields include:

@@ -50,6 +50,15 @@ def _parse_args(argv: list[str]) -> argparse.Namespace:
     parser.add_argument("--config", required=True, help="Path to the LLM config JSON.")
     parser.add_argument("--source", required=True, help="Path to the target source file.")
     parser.add_argument(
+        "--source-root",
+        default=None,
+        help=(
+            "Physical root directory to read --source from. Defaults to the "
+            "repository root. When provided, --source must be a repo-relative "
+            "logical path."
+        ),
+    )
+    parser.add_argument(
         "--context",
         default=None,
         help="Optional extra context to include in the optimization prompt.",
@@ -90,6 +99,46 @@ def _resolve_path(path_text: str) -> Path:
     if not path.is_absolute():
         path = REPO_ROOT / path
     return path.resolve()
+
+
+def _resolve_source_root(source_root_text: str | None) -> Path:
+    if source_root_text is None:
+        return REPO_ROOT
+    return _resolve_path(source_root_text)
+
+
+def _resolve_logical_target_file(
+    source_text: str,
+    source_root_provided: bool,
+) -> str:
+    """Resolve --source to the repo-relative logical target path.
+
+    With a custom source root, --source is intentionally required to be logical
+    and repo-relative so the physical source location cannot leak into the LLM
+    prompt or candidate target paths.
+    """
+    source_path = Path(source_text)
+    if source_root_provided and source_path.is_absolute():
+        raise CandidateGenerationFailure(
+            "parse_args",
+            "--source must be a repo-relative logical path when --source-root is provided.",
+        )
+
+    if source_path.is_absolute():
+        try:
+            return source_path.resolve().relative_to(REPO_ROOT).as_posix()
+        except ValueError as exc:
+            raise CandidateGenerationFailure(
+                "parse_args",
+                f"Absolute --source must be inside the repository root: {source_path}",
+            ) from exc
+
+    try:
+        return normalize_repo_path(source_text)
+    except ValueError as exc:
+        raise CandidateGenerationFailure(
+            "parse_args", f"Invalid --source value: {exc}"
+        ) from exc
 
 
 def _display_path(path: Path) -> str:
@@ -160,6 +209,8 @@ def _read_source(source_path: Path, max_source_chars: int) -> str:
 def _build_metadata(
     run_id: str,
     target_file: str,
+    source_root: str,
+    physical_source_path: str,
     client: DeepSeekClient | None,
     started_at: datetime,
     candidate_format: dict[str, str],
@@ -169,6 +220,8 @@ def _build_metadata(
         "run_id": run_id,
         "scenario": "llm_candidate",
         "target_file": target_file,
+        "source_root": source_root,
+        "physical_source_path": physical_source_path,
         "provider": config.provider if config else "unknown",
         "model": config.model if config else "unknown",
         "thinking_enabled": config.thinking_enabled if config else None,
@@ -401,8 +454,19 @@ def _resolve_allowed_files(
 def main(argv: list[str] | None = None) -> int:
     args = _parse_args(sys.argv[1:] if argv is None else argv)
     config_path = _resolve_path(args.config)
-    source_path = _resolve_path(args.source)
-    target_file = _display_path(source_path)
+    source_root = _resolve_source_root(args.source_root)
+    try:
+        target_file = _resolve_logical_target_file(
+            args.source,
+            source_root_provided=args.source_root is not None,
+        )
+    except CandidateGenerationFailure as exc:
+        status = _build_status("failed", exc.failed_step, exc.error_message)
+        _print_final_summary(status, None, None)
+        return 1
+    source_path = (source_root / target_file).resolve()
+    source_root_display = _display_path(source_root)
+    physical_source_path_display = _display_path(source_path)
     candidate_format = {
         "type": args.candidate_type,
         "source_presentation": args.source_presentation,
@@ -420,17 +484,35 @@ def main(argv: list[str] | None = None) -> int:
         return 1
 
     print(f"Target file: {target_file}")
+    print(f"Source root: {source_root_display}")
+    print(f"Physical source path: {physical_source_path_display}")
     print(f"Run directory: {run_dir}")
 
     client: DeepSeekClient | None = None
-    metadata = _build_metadata(run_id, target_file, client, started_at, candidate_format)
+    metadata = _build_metadata(
+        run_id,
+        target_file,
+        source_root_display,
+        physical_source_path_display,
+        client,
+        started_at,
+        candidate_format,
+    )
     candidate: OptimizationCandidate | None = None
 
     status: dict[str, Any]
     try:
         client = _load_client(config_path)
 
-        metadata = _build_metadata(run_id, target_file, client, started_at, candidate_format)
+        metadata = _build_metadata(
+            run_id,
+            target_file,
+            source_root_display,
+            physical_source_path_display,
+            client,
+            started_at,
+            candidate_format,
+        )
         print(f"Provider/model: {client.config.provider}/{client.config.model}")
 
         try:
@@ -452,6 +534,8 @@ def main(argv: list[str] | None = None) -> int:
                 run_dir / "llm_request.json",
                 {
                     "target_file": target_file,
+                    "source_root": source_root_display,
+                    "physical_source_path": physical_source_path_display,
                     "allowed_files": allowed_files,
                     "system_prompt": system_prompt,
                     "user_prompt": user_prompt,
