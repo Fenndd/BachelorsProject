@@ -1,8 +1,9 @@
-"""Pairwise baseline-vs-candidate benchmark decision helpers.
+"""Pairwise reference-vs-candidate benchmark decision helpers.
 
-This module evaluates exactly one candidate run against exactly one baseline run.
-It relies on the existing benchmark artifact audit module for artifact loading and
-comparability checks, then applies correctness-first acceptance gates.
+This module evaluates exactly one candidate run against exactly one explicit
+reference run. The reference may be the original baseline or a previously
+verified candidate. Baseline-vs-candidate helpers remain available for backward
+compatibility with the original selection path.
 """
 
 from __future__ import annotations
@@ -21,10 +22,18 @@ if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 from orchestrator.benchmarking.benchmark_artifact_audit import (
-    audit_comparable_benchmark_pair,
-    load_baseline_benchmark_artifact,
+    audit_comparable_benchmark_artifacts,
     load_candidate_benchmark_artifact,
+    load_reference_benchmark_artifact,
 )
+
+
+REFERENCE_KIND_BASELINE = "baseline"
+REFERENCE_KIND_VERIFIED_CANDIDATE = "verified_candidate"
+ALLOWED_REFERENCE_KINDS = {
+    REFERENCE_KIND_BASELINE,
+    REFERENCE_KIND_VERIFIED_CANDIDATE,
+}
 
 
 @dataclass(frozen=True)
@@ -48,15 +57,44 @@ def evaluate_candidate_against_baseline(
     valid, runtime comparison using parsed_runtime_ns_per_case_median.
     """
 
-    baseline_path = Path(baseline_run_dir)
+    decision = evaluate_candidate_against_reference(
+        baseline_run_dir,
+        candidate_run_dir,
+        reference_kind=REFERENCE_KIND_BASELINE,
+        thresholds=thresholds,
+    )
+    decision["baseline_run_dir"] = decision["reference_run_dir"]
+    decision["baseline_metrics"] = decision["reference_metrics"]
+    if isinstance(decision.get("audit"), dict):
+        decision["audit"].setdefault("baseline", decision["audit"].get("reference"))
+    return decision
+
+
+def evaluate_candidate_against_reference(
+    reference_run_dir: Path,
+    candidate_run_dir: Path,
+    reference_kind: str,
+    thresholds: CandidateDecisionThresholds | None = None,
+) -> dict[str, Any]:
+    """Evaluate one candidate run against one explicit reference run.
+
+    ``reference_kind`` must be ``baseline`` or ``verified_candidate``. Baseline
+    references load ``metrics.json``; verified-candidate references load
+    ``verification.json``. Candidate metrics are always loaded from
+    ``verification.json``.
+    """
+
+    _validate_reference_kind(reference_kind)
+
+    reference_path = Path(reference_run_dir)
     candidate_path = Path(candidate_run_dir)
     effective_thresholds = thresholds or CandidateDecisionThresholds()
 
-    baseline_artifact = load_baseline_benchmark_artifact(baseline_path)
+    reference_artifact = load_reference_benchmark_artifact(reference_path, reference_kind)
     candidate_artifact = load_candidate_benchmark_artifact(candidate_path)
-    audit = audit_comparable_benchmark_pair(baseline_artifact, candidate_artifact)
+    audit = audit_comparable_benchmark_artifacts(reference_artifact, candidate_artifact)
 
-    baseline = _normalized_from_audit(audit, "baseline")
+    reference = _normalized_from_audit(audit, "reference")
     candidate = _normalized_from_audit(audit, "candidate")
 
     rejection_reasons: list[str] = []
@@ -66,24 +104,24 @@ def evaluate_candidate_against_baseline(
 
     if candidate.get("parsed_correctness_passed") is not True:
         rejection_reasons.append("candidate_correctness_not_true")
-    if baseline.get("parsed_correctness_passed") is not True:
-        rejection_reasons.append("baseline_correctness_not_true")
+    if reference.get("parsed_correctness_passed") is not True:
+        rejection_reasons.append("reference_correctness_not_true")
 
-    baseline_runtime = baseline.get("parsed_runtime_ns_per_case_median")
+    reference_runtime = reference.get("parsed_runtime_ns_per_case_median")
     candidate_runtime = candidate.get("parsed_runtime_ns_per_case_median")
-    baseline_runtime_num = _to_finite_number(baseline_runtime)
+    reference_runtime_num = _to_finite_number(reference_runtime)
     candidate_runtime_num = _to_finite_number(candidate_runtime)
 
-    if not _is_positive_finite_number(baseline_runtime):
-        rejection_reasons.append("baseline_runtime_invalid")
+    if not _is_positive_finite_number(reference_runtime):
+        rejection_reasons.append("reference_runtime_invalid")
     if not _is_positive_finite_number(candidate_runtime):
         rejection_reasons.append("candidate_runtime_invalid")
 
-    baseline_success_rate = _to_finite_number(baseline.get("parsed_success_rate"))
+    reference_success_rate = _to_finite_number(reference.get("parsed_success_rate"))
     candidate_success_rate = _to_finite_number(candidate.get("parsed_success_rate"))
-    if baseline_success_rate is not None and candidate_success_rate is not None:
+    if reference_success_rate is not None and candidate_success_rate is not None:
         min_allowed_success_rate = (
-            baseline_success_rate - effective_thresholds.allowed_success_rate_drop
+            reference_success_rate - effective_thresholds.allowed_success_rate_drop
         )
         if candidate_success_rate < min_allowed_success_rate:
             rejection_reasons.append(
@@ -91,15 +129,15 @@ def evaluate_candidate_against_baseline(
                 f"(candidate={candidate_success_rate}, minimum={min_allowed_success_rate})"
             )
 
-    baseline_mean_error = _to_finite_number(
-        baseline.get("parsed_mean_best_reprojection_error")
+    reference_mean_error = _to_finite_number(
+        reference.get("parsed_mean_best_reprojection_error")
     )
     candidate_mean_error = _to_finite_number(
         candidate.get("parsed_mean_best_reprojection_error")
     )
-    if baseline_mean_error is not None and candidate_mean_error is not None:
+    if reference_mean_error is not None and candidate_mean_error is not None:
         max_allowed_mean_error = (
-            baseline_mean_error * effective_thresholds.max_mean_reprojection_error_ratio
+            reference_mean_error * effective_thresholds.max_mean_reprojection_error_ratio
         )
         if candidate_mean_error > max_allowed_mean_error:
             rejection_reasons.append(
@@ -107,13 +145,13 @@ def evaluate_candidate_against_baseline(
                 f"(candidate={candidate_mean_error}, maximum={max_allowed_mean_error})"
             )
 
-    baseline_max_error = _to_finite_number(
-        baseline.get("parsed_max_best_reprojection_error")
+    reference_max_error = _to_finite_number(
+        reference.get("parsed_max_best_reprojection_error")
     )
     candidate_max_error = _to_finite_number(candidate.get("parsed_max_best_reprojection_error"))
-    if baseline_max_error is not None and candidate_max_error is not None:
+    if reference_max_error is not None and candidate_max_error is not None:
         max_allowed_max_error = (
-            baseline_max_error * effective_thresholds.max_max_reprojection_error_ratio
+            reference_max_error * effective_thresholds.max_max_reprojection_error_ratio
         )
         if candidate_max_error > max_allowed_max_error:
             rejection_reasons.append(
@@ -131,14 +169,14 @@ def evaluate_candidate_against_baseline(
     if rejection_reasons:
         status = "rejected"
     else:
-        if baseline_runtime_num is None or candidate_runtime_num is None:
+        if reference_runtime_num is None or candidate_runtime_num is None:
             status = "rejected"
             rejection_reasons.append("runtime_comparison_unavailable")
         else:
-            candidate_runtime_lower = candidate_runtime_num < baseline_runtime_num
-            speedup = baseline_runtime_num / candidate_runtime_num
+            candidate_runtime_lower = candidate_runtime_num < reference_runtime_num
+            speedup = reference_runtime_num / candidate_runtime_num
             runtime_reduction_percent = (
-                (baseline_runtime_num - candidate_runtime_num) / baseline_runtime_num
+                (reference_runtime_num - candidate_runtime_num) / reference_runtime_num
             ) * 100.0
             comparison = {
                 "speedup": speedup,
@@ -153,13 +191,14 @@ def evaluate_candidate_against_baseline(
 
     return {
         "status": status,
-        "baseline_run_dir": str(baseline_path),
+        "reference_kind": reference_kind,
+        "reference_run_dir": str(reference_path),
         "candidate_run_dir": str(candidate_path),
         "audit": audit,
         "audit_issues": _audit_issues(audit),
         "thresholds": asdict(effective_thresholds),
         "rejection_reasons": rejection_reasons,
-        "baseline_metrics": _metrics_summary(baseline),
+        "reference_metrics": _metrics_summary(reference),
         "candidate_metrics": _metrics_summary(candidate),
         "comparison": comparison,
     }
@@ -168,16 +207,45 @@ def evaluate_candidate_against_baseline(
 def write_candidate_decision(
     candidate_run_dir: Path,
     decision: dict[str, Any],
+    filename: str = "candidate_decision.json",
 ) -> Path:
     """Write a pairwise candidate decision artifact and return its path."""
 
     candidate_path = Path(candidate_run_dir)
-    output_path = candidate_path / "candidate_decision.json"
+    safe_filename = _validate_decision_filename(filename)
+    output_path = candidate_path / safe_filename
     output_path.write_text(
         json.dumps(decision, indent=2, ensure_ascii=False) + "\n",
         encoding="utf-8",
     )
     return output_path
+
+
+def _validate_reference_kind(reference_kind: str) -> None:
+    if reference_kind not in ALLOWED_REFERENCE_KINDS:
+        raise ValueError(
+            "invalid reference_kind "
+            f"{reference_kind!r}; expected one of: baseline, verified_candidate"
+        )
+
+
+def _validate_decision_filename(filename: str) -> str:
+    if not isinstance(filename, str) or not filename:
+        raise ValueError("decision filename must be a non-empty string")
+    filename_path = Path(filename)
+    if filename_path.is_absolute():
+        raise ValueError(f"unsafe decision filename {filename!r}: absolute paths are not allowed")
+    if filename_path.name != filename:
+        raise ValueError(
+            f"unsafe decision filename {filename!r}: path separators are not allowed"
+        )
+    if "/" in filename or "\\" in filename:
+        raise ValueError(
+            f"unsafe decision filename {filename!r}: path separators are not allowed"
+        )
+    if filename in {".", ".."} or ".." in filename_path.parts:
+        raise ValueError(f"unsafe decision filename {filename!r}: traversal is not allowed")
+    return filename
 
 
 def _normalized_from_audit(audit: dict[str, Any], role: str) -> dict[str, Any]:
@@ -251,11 +319,40 @@ def _unique_preserving_order(values: list[str]) -> list[str]:
 
 def _parse_args(argv: list[str]) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Evaluate one candidate run against one baseline run."
+        description="Evaluate one candidate run against one baseline or reference run."
     )
-    parser.add_argument("--baseline-run", required=True, help="Baseline run directory.")
+    parser.add_argument(
+        "--baseline-run",
+        required=False,
+        help="Baseline run directory for backward-compatible baseline-vs-candidate mode.",
+    )
+    parser.add_argument(
+        "--reference-run",
+        required=False,
+        help="Reference run directory for generic reference-vs-candidate mode.",
+    )
+    parser.add_argument(
+        "--reference-kind",
+        choices=sorted(ALLOWED_REFERENCE_KINDS),
+        default=None,
+        help="Reference artifact kind for --reference-run.",
+    )
     parser.add_argument("--candidate-run", required=True, help="Candidate run directory.")
-    return parser.parse_args(argv)
+    parser.add_argument(
+        "--output-filename",
+        default="candidate_decision.json",
+        help="Decision artifact filename to write inside the candidate run directory.",
+    )
+    args = parser.parse_args(argv)
+    if args.baseline_run and args.reference_run:
+        parser.error("use either --baseline-run or --reference-run, not both")
+    if args.reference_run and not args.reference_kind:
+        parser.error("--reference-kind is required when --reference-run is used")
+    if args.reference_kind and not args.reference_run:
+        parser.error("--reference-kind requires --reference-run")
+    if not args.baseline_run and not args.reference_run:
+        parser.error("one of --baseline-run or --reference-run is required")
+    return args
 
 
 def _resolve_path(path_text: str) -> Path:
@@ -268,13 +365,21 @@ def _resolve_path(path_text: str) -> Path:
 def main(argv: list[str] | None = None) -> int:
     try:
         args = _parse_args(sys.argv[1:] if argv is None else argv)
-        baseline_run = _resolve_path(args.baseline_run)
         candidate_run = _resolve_path(args.candidate_run)
 
-        decision = evaluate_candidate_against_baseline(baseline_run, candidate_run)
+        if args.baseline_run:
+            baseline_run = _resolve_path(args.baseline_run)
+            decision = evaluate_candidate_against_baseline(baseline_run, candidate_run)
+        else:
+            reference_run = _resolve_path(args.reference_run)
+            decision = evaluate_candidate_against_reference(
+                reference_run,
+                candidate_run,
+                reference_kind=args.reference_kind,
+            )
         decision_json = json.dumps(decision, indent=2, ensure_ascii=False)
         print(decision_json)
-        write_candidate_decision(candidate_run, decision)
+        write_candidate_decision(candidate_run, decision, filename=args.output_filename)
 
         status = decision.get("status")
         if status == "rejected":

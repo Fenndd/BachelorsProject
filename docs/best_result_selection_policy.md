@@ -3,19 +3,21 @@
 ## 1. Purpose
 
 This policy defines how candidate optimization results are **filtered**,
-**compared**, **ranked**, and **selected** against a baseline run.
+**compared**, **ranked**, and **selected** against a reference run.
 
 This document defines the implemented pairwise decision and multi-candidate
 selection policy.
 
-Implementation status update (Step 11 / substep 3):
+Implementation status update:
 
-- Pairwise baseline-vs-candidate decision is now implemented in
+- Pairwise reference-vs-candidate decision is implemented in
   `orchestrator/benchmarking/candidate_decision.py`.
+- The original baseline-vs-candidate API remains available as a compatibility
+  wrapper for current best-result selection.
 - Multi-candidate best selection is now implemented in
   `orchestrator/experiments/best_candidate_selector.py`.
 - Candidate promotion is still not implemented and remains out of scope.
-- Closed-loop optimization is still not implemented and remains out of scope.
+- The full closed-loop runner is still not implemented and remains out of scope.
 
 ## 2. Scope
 
@@ -28,17 +30,28 @@ artifact layout.
 
 ## 3. Inputs
 
-The selector consumes:
+The current multi-candidate selector consumes:
 
 - a baseline run directory containing `metrics.json`
 - one or more candidate run directories containing `verification.json`
 - the existing benchmark artifact audit logic through the pairwise decision
   helper
 
+The lower-level pairwise comparator now also supports an explicit generic
+reference:
+
+- `reference_kind = "baseline"`: load the reference benchmark from
+  `<reference_run_dir>/metrics.json`
+- `reference_kind = "verified_candidate"`: load the reference benchmark from
+  `<reference_run_dir>/verification.json`
+- candidate benchmark metrics are still loaded from
+  `<candidate_run_dir>/verification.json`
+
 Data source rules:
 
 - Baseline benchmark metrics are loaded from `metrics.json`.
 - Candidate benchmark verification metrics are loaded from `verification.json`.
+- Verified-candidate reference metrics are loaded from `verification.json`.
 - Selection consumes verified benchmark artifacts and is independent of raw LLM candidate format.
 - It works for both `unified_diff` and `line_range_edits` candidates as long as `verification.json` exists.
 
@@ -63,13 +76,13 @@ The following benchmark fields are required for comparison:
 
 A candidate must be rejected (`rejected`) if any of the following is true:
 
-1. Artifact audit says baseline/candidate artifacts are not comparable.
+1. Artifact audit says reference/candidate artifacts are not comparable.
 2. Benchmark artifact is missing.
 3. Benchmark `parse_success` is not `true`.
 4. `parsed_correctness_passed` is not `true`.
 5. Runtime is missing, zero, negative, non-finite, or otherwise invalid.
 6. `runtime_unit` is not `ns`.
-7. Any of the following differ from baseline:
+7. Any of the following differ from the reference:
    - `family`
    - `solver`
    - `parsed_num_cases`
@@ -105,12 +118,12 @@ Conservative default thresholds for first implementation:
 Interpretation:
 
 - Candidate success rate must be at least
-  `baseline_success_rate - allowed_success_rate_drop`.
+  `reference_success_rate - allowed_success_rate_drop`.
 - Candidate mean reprojection error ratio
-  (`candidate_mean / baseline_mean`) must be
+  (`candidate_mean / reference_mean`) must be
   `<= max_mean_reprojection_error_ratio`.
 - Candidate max reprojection error ratio
-  (`candidate_max / baseline_max`) must be
+  (`candidate_max / reference_max`) must be
   `<= max_max_reprojection_error_ratio`.
 
 These defaults may become configurable later, but the first selector
@@ -124,9 +137,9 @@ Pairwise candidate statuses:
   - Candidate failed at least one hard rejection gate.
 - `valid_not_improved`
   - Candidate passed all hard gates but does not improve runtime versus
-    baseline.
+    the reference.
 - `accepted_improvement`
-  - Candidate passed all hard gates and improves runtime versus baseline.
+  - Candidate passed all hard gates and improves runtime versus the reference.
 
 Experiment-level selection status is reported separately by the multi-candidate
 selector and does not introduce an additional pairwise status in
@@ -136,12 +149,12 @@ selector and does not introduce an additional pairwise status in
 
 Runtime improvement formulas:
 
-- `speedup = baseline_runtime_ns_per_case_median / candidate_runtime_ns_per_case_median`
-- `runtime_reduction_percent = ((baseline_runtime - candidate_runtime) / baseline_runtime) * 100`
+- `speedup = reference_runtime_ns_per_case_median / candidate_runtime_ns_per_case_median`
+- `runtime_reduction_percent = ((reference_runtime - candidate_runtime) / reference_runtime) * 100`
 
 Where:
 
-- `baseline_runtime = baseline parsed_runtime_ns_per_case_median`
+- `reference_runtime = reference parsed_runtime_ns_per_case_median`
 - `candidate_runtime = candidate parsed_runtime_ns_per_case_median`
 
 ## 11. Best candidate selection rule
@@ -226,3 +239,22 @@ generation/materialization/verification. When enabled, it writes
 a compact selection summary to experiment status/summary artifacts.
 
 Selection does not promote, merge, copy, or commit candidate source code.
+
+## 15. Closed-loop comparison preparation
+
+The comparator can now compare a new verified candidate against either:
+
+1. the original baseline run (`reference_kind="baseline"`), or
+2. a previously accepted verified candidate run used as the current best
+   (`reference_kind="verified_candidate"`).
+
+A future closed-loop runner is expected to write two decision artifacts for each
+verified candidate:
+
+- `decision_vs_current_best.json`
+- `decision_vs_original_baseline.json`
+
+Only `decision_vs_current_best.json` should decide whether the candidate becomes
+the new current best. `decision_vs_original_baseline.json` is for reporting,
+control, and traceability. This stage does not update current-best state and does
+not modify the main `cpp/` source tree automatically.

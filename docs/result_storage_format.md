@@ -130,7 +130,9 @@ Materialized candidate runs write `verification.json`, `verification_summary.txt
 
 If benchmark parsing fails, candidate verification fails because later comparison cannot use unstructured benchmark output. If parsing succeeds but `parsed_correctness_passed=false`, candidate verification fails at `benchmark_correctness_check` while preserving parsed benchmark metrics in `verification.json`. This matches the baseline policy.
 
-Verification itself does not compare against baseline. Pairwise candidate decision and multi-candidate selection are separate stages that consume verified artifacts.
+Verification itself does not compare against baseline. Pairwise candidate
+decision and multi-candidate selection are separate stages that consume verified
+artifacts.
 
 ## Candidate Generation Artifacts
 
@@ -230,11 +232,45 @@ Example:
 
 `py -m orchestrator.benchmarking.audit_benchmark_pair --baseline-run <baseline_run_dir> --candidate-run <candidate_run_dir>` writes `<candidate_run_dir>/benchmark_artifact_audit.json`.
 
-The audit loads baseline benchmark metrics from `metrics.json` and candidate benchmark metrics from `verification.json`. It checks artifact presence, parse success, required structured fields, matching family/solver/case count, runtime availability, correctness availability, and nanosecond runtime units. If benchmark options are not recorded yet, the audit emits `benchmark_options_not_recorded` as a warning instead of failing.
+The baseline audit path loads baseline benchmark metrics from `metrics.json` and
+candidate benchmark metrics from `verification.json`. The generic comparison
+path can also load a reference verified candidate from `verification.json` by
+using `reference_kind="verified_candidate"`. Candidate benchmark metrics are
+always loaded from `verification.json`.
+
+The audit checks artifact presence, parse success, required structured fields,
+matching family/solver/case count, runtime availability, correctness
+availability, and nanosecond runtime units. If benchmark options are not recorded
+yet, the audit emits `benchmark_options_not_recorded` as a warning instead of
+failing.
 
 If build type is recorded in both baseline and candidate artifacts, the audit checks they match (`same_build_type`). A mismatch produces `build_type_mismatch`. If one or both artifacts do not include build type, the audit warns with `build_type_not_recorded` for backward compatibility with older artifacts.
 
-The audit checks comparability. `candidate_decision` consumes audit output to make pairwise baseline-vs-candidate decisions. `best_candidate_selector` consumes pairwise decisions to select the best candidate among verified candidates.
+The audit checks comparability. `candidate_decision` consumes audit output to
+make pairwise reference-vs-candidate decisions. The old baseline-vs-candidate
+API remains supported for compatibility. `best_candidate_selector` continues to
+consume baseline-vs-candidate decisions to select the best candidate among
+verified candidates.
+
+Decision artifacts are human-readable JSON. The default writer still produces:
+
+```text
+results/runs/<candidate_run_id>/candidate_decision.json
+```
+
+For future closed-loop runs, the same writer can safely emit additional decision
+artifact names inside the candidate run directory:
+
+```text
+results/runs/<candidate_run_id>/decision_vs_current_best.json
+results/runs/<candidate_run_id>/decision_vs_original_baseline.json
+```
+
+Only `decision_vs_current_best.json` is intended to decide whether a verified
+candidate becomes the new current best. `decision_vs_original_baseline.json` is
+for reporting/control. Stage 2 does not implement the closed-loop runner, does
+not update `current_best_state.json`, and does not modify the main `cpp/` source
+tree automatically.
 
 ## Build Type Recording
 
@@ -266,6 +302,7 @@ The build type defaults to `Release` and is controlled by the `CMAKE_BUILD_TYPE`
 ## Not Implemented Yet
 
 - Candidate promotion into the main source tree
+- Closed-loop current-best updates
 - Advanced reporting/plots
 - JSON metrics output directly from C++ benchmarks
 - Additional solver families/adapters

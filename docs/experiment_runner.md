@@ -125,6 +125,23 @@ directory and checks whether the baseline and candidate metrics are safe to
 compare. Pairwise candidate decisions and multi-candidate best-result selection
 are implemented separately and still do not promote code.
 
+The pairwise decision helper also supports explicit reference-vs-candidate
+comparison for closed-loop preparation:
+
+```powershell
+py -m orchestrator.benchmarking.candidate_decision `
+  --reference-run results/runs/<reference_run_id> `
+  --reference-kind verified_candidate `
+  --candidate-run results/runs/<candidate_run_id> `
+  --output-filename decision_vs_current_best.json
+```
+
+Use `--reference-kind baseline` when the reference run stores benchmark metrics
+in `metrics.json`; use `--reference-kind verified_candidate` when the reference
+is a previously verified candidate storing benchmark metrics in
+`verification.json`. The old `--baseline-run ... --candidate-run ...` command
+remains supported and still writes `candidate_decision.json` by default.
+
 ## Best Candidate Selection
 
 Selection is disabled by default. Enable it with a top-level `selection` block:
@@ -283,7 +300,15 @@ results/runs/<candidate_run_id>/
 |- verification.json
 |- verification_summary.txt
 |- candidate_decision.json    # when selection writes pairwise decisions
+|- decision_vs_current_best.json       # future closed-loop comparison artifact
+|- decision_vs_original_baseline.json  # future closed-loop reporting artifact
 ```
+
+Stage 2 only adds support for writing these generic decision artifact names. The
+full closed-loop runner and current-best state updates are not implemented yet.
+When they are added, only `decision_vs_current_best.json` should control whether
+a verified candidate becomes the new current best; `decision_vs_original_baseline.json`
+is intended for reporting/control.
 
 ## Optimization Scope (Strict File Access Control)
 
@@ -411,3 +436,4 @@ The experiment runner still does not implement:
 
 - promotion of candidates into the main source tree
 - closed-loop optimization that automatically promotes/reuses selected candidates
+- automatic current-best state updates
