@@ -180,12 +180,80 @@ candidate format. The prompt schema and candidate JSON schema are unchanged; the
 LLM still sees the logical repo-relative target file, not the temporary
 workspace path.
 
-Generation and materialization now both have configurable physical source roots
-for closed-loop preparation. Generation uses `--source-root` to read the source
-shown to the LLM while keeping candidate paths logical and repo-relative.
-Materialization uses `--base-source-root` to copy the same source version into an
-isolated candidate workspace before applying the candidate. The candidate JSON
-schema is unchanged.
+Generation and materialization both have configurable physical source roots for
+closed-loop runs. Generation uses `--source-root` to read the source shown to the
+LLM while keeping candidate paths logical and repo-relative. Materialization uses
+`--base-source-root` to copy the same source version into an isolated candidate
+workspace before applying the candidate. The candidate JSON schema is unchanged.
+
+## Closed-loop Experiment Artifacts
+
+When an experiment config sets:
+
+```json
+{
+  "closed_loop": {"enabled": true}
+}
+```
+
+Stage 5 runs an iterative current-best optimization flow. Closed-loop mode
+currently supports exactly one variant and requires `selection.baseline_run_dir`
+as the original baseline reference. The baseline run directory must contain
+`metrics.json`.
+
+The current best source and mutable state are stored under `workspace/`, not in
+the main `cpp/` tree:
+
+```text
+workspace/experiments/<experiment_id>/current_best_source/
+workspace/experiments/<experiment_id>/current_best_state.json
+```
+
+At initialization, `current_best_source/` is populated from the clean repository
+`cpp/` tree while preserving repo-relative paths such as:
+
+```text
+workspace/experiments/<experiment_id>/current_best_source/cpp/external/lambdatwist/p3p.cc
+```
+
+Per-iteration records are appended compactly to:
+
+```text
+results/experiments/<experiment_id>/closed_loop_iterations.jsonl
+```
+
+Each closed-loop iteration generates from `current_best_source` using
+`--source-root`, materializes against the same source version using
+`--base-source-root`, verifies the materialized candidate, compares it against
+the current best, and also compares it against the original baseline. The runner
+does not early-stop; all planned iterations are attempted.
+
+Candidate promotion is controlled only by:
+
+```text
+results/runs/<candidate_run_id>/decision_vs_current_best.json
+```
+
+If that decision has `status: "accepted_improvement"`, the materialized
+workspace recorded in `materialization.json` as `workspace_path` replaces
+`current_best_source/`, and `current_best_state.json` is updated. The companion
+artifact:
+
+```text
+results/runs/<candidate_run_id>/decision_vs_original_baseline.json
+```
+
+is written for reporting/control and does not control promotion.
+
+No-op candidates are recorded with status `no_op` when `expected_effect` is
+`"none"` and the edit payload is empty (`edits` for `line_range_edits`, or
+`unified_diff` for `unified_diff`). They do not run materialization or
+verification.
+
+Stage 5 intentionally does not write `final_optimized_source/`,
+`final_optimized_source.diff`, or a full `closed_loop_summary.json`; those are
+reserved for later stages. The main `cpp/` source tree is never modified
+automatically.
 
 ## Candidate Materialization Artifacts
 
@@ -315,19 +383,18 @@ Decision artifacts are human-readable JSON. The default writer still produces:
 results/runs/<candidate_run_id>/candidate_decision.json
 ```
 
-For future closed-loop runs, the same writer can safely emit additional decision
-artifact names inside the candidate run directory:
+For closed-loop runs, the same writer emits additional decision artifact names
+inside the candidate run directory:
 
 ```text
 results/runs/<candidate_run_id>/decision_vs_current_best.json
 results/runs/<candidate_run_id>/decision_vs_original_baseline.json
 ```
 
-Only `decision_vs_current_best.json` is intended to decide whether a verified
-candidate becomes the new current best. `decision_vs_original_baseline.json` is
-for reporting/control. Stage 2 does not implement the closed-loop runner, does
-not update `current_best_state.json`, and does not modify the main `cpp/` source
-tree automatically.
+Only `decision_vs_current_best.json` decides whether a verified candidate becomes
+the new current best. `decision_vs_original_baseline.json` is for
+reporting/control. Closed-loop promotion updates only the experiment-local
+`current_best_source/`; it does not modify the main `cpp/` source tree.
 
 ## Build Type Recording
 
@@ -359,7 +426,8 @@ The build type defaults to `Release` and is controlled by the `CMAKE_BUILD_TYPE`
 ## Not Implemented Yet
 
 - Candidate promotion into the main source tree
-- Closed-loop current-best updates
+- Final closed-loop optimized-source artifact export
+- Compact benchmark-aware closed-loop LLM history
 - Advanced reporting/plots
 - JSON metrics output directly from C++ benchmarks
 - Additional solver families/adapters

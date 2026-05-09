@@ -55,6 +55,11 @@ class SelectionConfig:
 
 
 @dataclass(frozen=True)
+class ClosedLoopConfig:
+    enabled: bool
+
+
+@dataclass(frozen=True)
 class ExperimentVariantConfig:
     variant_id: str
     description: str | None
@@ -87,6 +92,7 @@ class ExperimentConfig:
     candidate_format: CandidateFormatConfig
     history_policy: HistoryPolicyConfig
     selection: SelectionConfig
+    closed_loop: ClosedLoopConfig
     optimization_scope: OptimizationScopeConfig
     variants: list[ExperimentVariantConfig]
     llm_config: str | None = None
@@ -120,6 +126,11 @@ def load_experiment_config(path: Path | str) -> ExperimentConfig:
     target_file_raw = _required_non_empty_string(payload, "target_file")
     target_file = normalize_repo_path(target_file_raw)
     optimization_scope = _load_optimization_scope(payload, target_file)
+    selection = _load_selection(payload)
+    closed_loop = _load_closed_loop(payload)
+    variants = _load_variants(payload)
+
+    _validate_closed_loop_requirements(closed_loop, selection, variants)
 
     return ExperimentConfig(
         experiment_name=_required_non_empty_string(payload, "experiment_name"),
@@ -129,9 +140,10 @@ def load_experiment_config(path: Path | str) -> ExperimentConfig:
         candidate_generation=_load_candidate_generation(payload),
         candidate_format=_load_candidate_format(payload),
         history_policy=_load_history_policy(payload),
-        selection=_load_selection(payload),
+        selection=selection,
+        closed_loop=closed_loop,
         optimization_scope=optimization_scope,
-        variants=_load_variants(payload),
+        variants=variants,
         llm_config=(
             payload.get("llm_config") if isinstance(payload.get("llm_config"), str) else None
         ),
@@ -418,6 +430,35 @@ def _load_selection(payload: dict[str, Any]) -> SelectionConfig:
         baseline_run_dir=baseline_run_dir,
         write_candidate_decisions=write_candidate_decisions,
     )
+
+
+def _load_closed_loop(payload: dict[str, Any]) -> ClosedLoopConfig:
+    closed_loop = payload.get("closed_loop")
+    if closed_loop is None:
+        return ClosedLoopConfig(enabled=False)
+
+    if not isinstance(closed_loop, dict):
+        raise ExperimentConfigError("Field 'closed_loop' must be an object if present.")
+
+    return ClosedLoopConfig(enabled=_required_bool(closed_loop, "enabled"))
+
+
+def _validate_closed_loop_requirements(
+    closed_loop: ClosedLoopConfig,
+    selection: SelectionConfig,
+    variants: list[ExperimentVariantConfig],
+) -> None:
+    if not closed_loop.enabled:
+        return
+
+    if len(variants) != 1:
+        raise ExperimentConfigError(
+            "Closed-loop mode currently supports exactly one variant."
+        )
+    if selection.baseline_run_dir is None:
+        raise ExperimentConfigError(
+            "Field 'selection.baseline_run_dir' is required when closed_loop.enabled is true."
+        )
 
 
 def _load_variants(payload: dict[str, Any]) -> list[ExperimentVariantConfig]:

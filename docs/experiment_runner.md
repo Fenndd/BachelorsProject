@@ -17,6 +17,7 @@ Experiment configs live under `configs/experiments/`. A config defines:
 - `candidate_format`: selects candidate edit format and source presentation.
 - `history_policy`: optional variant-local prompt history.
 - `selection`: optional baseline-vs-candidates best result selection.
+- `closed_loop`: optional iterative current-best optimization mode.
 - `variants`: one or more model/config/context/parameter setups.
 
 Single-setup legacy configs remain supported by creating one synthetic
@@ -315,11 +316,35 @@ results/experiments/<experiment_id>/
 
 Generated experiment outputs are ignored by git.
 
-## Closed-loop Stage 1 Artifact Model
+## Closed-loop Optimization Mode (Stage 5)
 
 Closed-loop optimization is being introduced in stages. Stage 1 defines the
-state and artifact schema only; it does not change the current experiment runner
-behavior and does not promote candidates into the repository source tree.
+state and artifact schema. Stage 5 adds the first real closed-loop orchestration
+flow while still keeping the main `cpp/` source tree clean.
+
+Enable it with:
+
+```json
+{
+  "closed_loop": {
+    "enabled": true
+  },
+  "selection": {
+    "enabled": false,
+    "baseline_run_dir": "results/runs/<baseline_run_id>"
+  }
+}
+```
+
+Stage 5 constraints:
+
+- exactly one variant is supported; multiple variants fail with a clear error
+- `selection.baseline_run_dir` is required as the original baseline reference,
+  even when `selection.enabled=false`
+- all planned iterations are attempted; there is no early stopping
+- compact LLM history, final optimized source artifacts, final diffs, final
+  closed-loop summary/reporting, and multi-variant strategies are intentionally
+  left for later stages
 
 The mutable experiment-local current best source is stored outside `cpp/` under:
 
@@ -337,10 +362,40 @@ results/experiments/<experiment_id>/closed_loop_iterations.jsonl
 results/experiments/<experiment_id>/closed_loop_summary.json
 ```
 
-`closed_loop_iterations.jsonl` stores one compact JSON object per closed-loop
-iteration. `closed_loop_summary.json` stores the final experiment summary as
-human-readable JSON. The main `cpp/` source tree remains the clean baseline and
-must not be modified automatically by experiments.
+In Stage 5, `closed_loop_iterations.jsonl` stores one compact JSON object per
+closed-loop iteration and `current_best_state.json` is updated after every
+iteration. `final_optimized_source/`, `final_optimized_source.diff`, and a full
+`closed_loop_summary.json` are reserved for later stages and are not written by
+the Stage 5 runner.
+
+At experiment start, the runner initializes
+`workspace/experiments/<experiment_id>/current_best_source/` by copying the clean
+repository `cpp/` tree into a repo-like layout, for example:
+
+```text
+workspace/experiments/<experiment_id>/current_best_source/cpp/external/lambdatwist/p3p.cc
+```
+
+Each iteration then runs:
+
+1. `generate_candidate` with `--source-root workspace/experiments/<experiment_id>/current_best_source`
+2. `materialize_candidate` with `--base-source-root workspace/experiments/<experiment_id>/current_best_source`
+3. `verify_candidate`
+4. pairwise comparison against the current best
+5. pairwise comparison against the original baseline
+
+Only `decision_vs_current_best.json` controls promotion. If its status is
+`accepted_improvement`, the materialized workspace from `materialization.json`
+`workspace_path` replaces `current_best_source`, and `current_best_state.json` is
+updated to point at the accepted candidate. `decision_vs_original_baseline.json`
+is written for reporting/control but does not control promotion.
+
+No-op candidates (`expected_effect="none"` with empty `edits` for
+`line_range_edits`, or empty `unified_diff` for `unified_diff`) are recorded as
+`no_op` and do not run materialization or verification.
+
+The main `cpp/` source tree remains the clean baseline and is never modified
+automatically by closed-loop experiments.
 
 Candidate run artifacts are written under `results/runs/<candidate_run_id>/`:
 
@@ -360,15 +415,13 @@ results/runs/<candidate_run_id>/
 |- verification.json
 |- verification_summary.txt
 |- candidate_decision.json    # when selection writes pairwise decisions
-|- decision_vs_current_best.json       # future closed-loop comparison artifact
-|- decision_vs_original_baseline.json  # future closed-loop reporting artifact
+|- decision_vs_current_best.json       # closed-loop promotion decision
+|- decision_vs_original_baseline.json  # closed-loop reporting/control decision
 ```
 
-Stage 2 only adds support for writing these generic decision artifact names. The
-full closed-loop runner and current-best state updates are not implemented yet.
-When they are added, only `decision_vs_current_best.json` should control whether
-a verified candidate becomes the new current best; `decision_vs_original_baseline.json`
-is intended for reporting/control.
+Only `decision_vs_current_best.json` controls whether a verified candidate
+becomes the new current best; `decision_vs_original_baseline.json` is for
+reporting/control.
 
 Stage 3 prepares candidate generation for that future runner by allowing it to
 read from `current_best_source` via `--source-root` while preserving the logical
@@ -384,9 +437,11 @@ to the same source version the LLM saw. The per-candidate
 `candidate.generated.diff` is therefore an iteration-local diff from
 `base_source_root` to the materialized candidate workspace. The future
 `final_optimized_source.diff` is a separate final reporting artifact that will be
-generated against the original clean baseline. Stage 4 still does not implement
-candidate promotion, current-best state updates, final optimized source storage,
-or full closed-loop orchestration.
+generated against the original clean baseline.
+Stage 5 implements candidate promotion into the experiment-local
+`current_best_source` and current-best state updates. It still does not implement
+final optimized source storage, final diffs, compact benchmark-aware history, or
+full selector/reporting adaptation.
 
 ## Optimization Scope (Strict File Access Control)
 
@@ -513,5 +568,6 @@ comparison.
 The experiment runner still does not implement:
 
 - promotion of candidates into the main source tree
-- closed-loop optimization that automatically promotes/reuses selected candidates
-- automatic current-best state updates
+- compact benchmark-aware closed-loop LLM history
+- final optimized source artifacts and final optimized source diffs
+- final closed-loop summary/reporting and multi-variant closed-loop strategies
