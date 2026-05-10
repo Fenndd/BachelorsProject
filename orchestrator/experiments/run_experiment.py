@@ -53,7 +53,6 @@ from .closed_loop_state import (
     ClosedLoopSummary,
     CurrentBestState,
     IterationStatus,
-    append_closed_loop_iteration_record,
     count_iteration_statuses,
     to_plain_dict,
     write_closed_loop_summary,
@@ -741,12 +740,22 @@ def _write_closed_loop_history_context_file(
 
 def _candidate_field_summary(candidate_path: Path) -> dict[str, Any]:
     candidate = _read_json_object(candidate_path)
+    candidate_type = candidate.get("candidate_type", "unified_diff")
+    edits = candidate.get("edits")
+    structured_edit_count = (
+        len(edits)
+        if candidate_type == "line_range_edits" and isinstance(edits, list)
+        else None
+    )
     return {
         "candidate_summary": candidate.get("summary"),
         "risk_level": candidate.get("risk_level"),
         "expected_effect": candidate.get("expected_effect"),
         "target_files": candidate.get("target_files"),
         "requires_manual_review": candidate.get("requires_manual_review"),
+        "candidate_type": candidate_type,
+        "structured_edit_count": structured_edit_count,
+        "candidate_edits_present": bool(structured_edit_count),
         "unified_diff_present": bool(candidate.get("unified_diff")),
     }
 
@@ -758,6 +767,9 @@ def _empty_generation_fields() -> dict[str, Any]:
         "expected_effect": None,
         "target_files": None,
         "requires_manual_review": None,
+        "candidate_type": None,
+        "structured_edit_count": None,
+        "candidate_edits_present": None,
         "unified_diff_present": None,
     }
 
@@ -861,7 +873,28 @@ def _materialization_stage_record(
     record["target_files"] = materialization.get("target_files")
     record["patched_files"] = materialization.get("patched_files")
     record["changed_files"] = materialization.get("changed_files")
+    record["materialization_match_summary"] = _materialization_match_summary(materialization)
     return record
+
+
+def _materialization_match_summary(materialization: dict[str, Any]) -> dict[str, Any] | None:
+    if materialization.get("candidate_type") != "line_range_edits" and materialization.get("line_range_edit_count") is None:
+        return None
+    edit_results = materialization.get("line_range_edit_results")
+    edit_results = edit_results if isinstance(edit_results, list) else []
+    return {
+        "line_range_exact_matches": materialization.get("line_range_exact_matches", 0),
+        "line_range_trailing_whitespace_tolerant_matches": materialization.get("line_range_trailing_whitespace_tolerant_matches", 0),
+        "line_range_surrounding_whitespace_tolerant_matches": materialization.get("line_range_surrounding_whitespace_tolerant_matches", 0),
+        "line_range_fallback_matches": materialization.get("line_range_fallback_matches", 0),
+        "line_range_fallback_used": bool(materialization.get("line_range_fallback_used")),
+        "invalid_line_range_fallback_used": any(
+            isinstance(result, dict)
+            and result.get("match_mode") == "invalid_line_range_exact_search_fallback"
+            for result in edit_results
+        ),
+        "line_range_edit_count": materialization.get("line_range_edit_count", 0),
+    }
 
 
 def _verification_stage_record(
@@ -1175,6 +1208,9 @@ def _variant_record_history(record: dict[str, Any]) -> dict[str, Any]:
         "risk_level": generation.get("risk_level"),
         "expected_effect": generation.get("expected_effect"),
         "requires_manual_review": generation.get("requires_manual_review"),
+        "candidate_type": generation.get("candidate_type"),
+        "structured_edit_count": generation.get("structured_edit_count"),
+        "candidate_edits_present": generation.get("candidate_edits_present"),
         "unified_diff_present": generation.get("unified_diff_present"),
         "materialization_status": materialization.get("status"),
         "verification_status": verification.get("status"),
@@ -1826,6 +1862,7 @@ def _build_closed_loop_iteration_record(
     current_best_iteration_after: int,
     failure_stage: str | None = None,
     failure_reason: str | None = None,
+    materialization_match_summary: dict[str, Any] | None = None,
 ) -> ClosedLoopIterationRecord:
     record = ClosedLoopIterationRecord(
         experiment_id=experiment_id,
@@ -1847,6 +1884,7 @@ def _build_closed_loop_iteration_record(
         current_best_iteration_after=current_best_iteration_after,
         failure_stage=failure_stage,
         failure_reason=failure_reason,
+        materialization_match_summary=materialization_match_summary,
         history_included=False,
         history_guidance=None,
         created_at=_now_iso(),
@@ -1863,7 +1901,12 @@ def _append_closed_loop_record_and_state(
     state: CurrentBestState,
     record: ClosedLoopIterationRecord,
 ) -> None:
-    append_closed_loop_iteration_record(paths.closed_loop_iterations_path, record)
+    paths.closed_loop_iterations_path.parent.mkdir(parents=True, exist_ok=True)
+    with paths.closed_loop_iterations_path.open("a", encoding="utf-8") as output_file:
+        output_file.write(
+            json.dumps(_portable_plain_dict(record), ensure_ascii=False, separators=(",", ":"))
+            + "\n"
+        )
     _write_current_best_state(paths, state)
 
 
@@ -2037,6 +2080,7 @@ def write_closed_loop_selection_report(
             "target_file": summary.target_file,
             "final_optimized_source_dir": _display_path(summary.final_optimized_source_dir),
             "final_optimized_source_diff_path": _display_path(summary.final_optimized_source_diff_path),
+            "performance_reference": "original_baseline",
             "final_speedup_vs_original_baseline": summary.final_speedup_vs_original_baseline,
             "final_runtime_reduction_percent": summary.final_runtime_reduction_percent,
             "status_counts": summary.status_counts,
@@ -2168,11 +2212,11 @@ def _build_closed_loop_summary_text(
         f"Accepted improvements: {accepted_improvements}",
         f"Final best iteration: {summary.final_best_iteration}",
         (
-            "Final speedup vs original baseline: "
+            "Final speedup ratio vs original baseline: "
             f"{_format_optional_float(summary.final_speedup_vs_original_baseline)}"
         ),
         (
-            "Final runtime reduction percent: "
+            "Final runtime reduction percent vs original baseline: "
             f"{_format_optional_float(summary.final_runtime_reduction_percent)}"
         ),
         "Status counts:",
@@ -2358,6 +2402,7 @@ def _run_closed_loop_experiment(
                 current_best_iteration_after=state.current_best_iteration,
                 failure_stage="materialization",
                 failure_reason=materialization_record.get("error_message") or materialization_record.get("failed_step"),
+                materialization_match_summary=materialization_record.get("materialization_match_summary"),
             )
             records.append(record)
             _append_closed_loop_record_and_state(closed_loop_paths, state, record)
@@ -2389,6 +2434,7 @@ def _run_closed_loop_experiment(
                 current_best_iteration_after=state.current_best_iteration,
                 failure_stage="verification",
                 failure_reason=verification_record.get("error_message") or verification_record.get("failed_step"),
+                materialization_match_summary=materialization_record.get("materialization_match_summary"),
             )
             records.append(record)
             _append_closed_loop_record_and_state(closed_loop_paths, state, record)
@@ -2438,6 +2484,7 @@ def _run_closed_loop_experiment(
             decision_vs_original_baseline=decision_vs_original_baseline,
             current_best_updated=current_best_updated,
             current_best_iteration_after=state.current_best_iteration,
+            materialization_match_summary=materialization_record.get("materialization_match_summary"),
         )
         records.append(record)
         _append_closed_loop_record_and_state(closed_loop_paths, state, record)

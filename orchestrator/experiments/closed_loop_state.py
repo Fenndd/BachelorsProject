@@ -131,6 +131,7 @@ class ClosedLoopIterationRecord:
     current_best_iteration_after: int | None = None
     failure_stage: str | None = None
     failure_reason: str | None = None
+    materialization_match_summary: dict[str, Any] | None = None
     history_included: bool = False
     history_guidance: str | None = None
     created_at: str | None = None

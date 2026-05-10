@@ -256,6 +256,9 @@ def _normalize_artifact(artifact: dict[str, Any]) -> dict[str, Any]:
     if not isinstance(benchmark, dict):
         benchmark = {}
     normalized = {field: benchmark.get(field) for field in BENCHMARK_FIELDS}
+    benchmark_options = normalized.get("benchmark_options")
+    if normalized.get("build_type") is None and isinstance(benchmark_options, dict):
+        normalized["build_type"] = benchmark_options.get("build_type")
     normalized["source_artifact"] = artifact.get("artifact_path")
     return normalized
 

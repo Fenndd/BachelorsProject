@@ -295,20 +295,40 @@ def _build_summary(
     ]
 
     if candidate is not None:
+        field_summary = _candidate_field_summary(candidate)
         lines.extend(
             [
                 f"Candidate summary: {candidate.summary}",
                 f"Risk level: {candidate.risk_level}",
                 f"Expected effect: {candidate.expected_effect}",
                 f"Target files: {', '.join(candidate.target_files)}",
-                f"Unified diff present: {bool(candidate.unified_diff)}",
+                f"Candidate type: {field_summary['candidate_type']}",
             ]
         )
+        if candidate.candidate_type == "line_range_edits":
+            lines.extend(
+                [
+                    f"Structured edits count: {field_summary['structured_edit_count']}",
+                    f"Candidate edits present: {field_summary['candidate_edits_present']}",
+                ]
+            )
+        else:
+            lines.append(f"Unified diff present: {field_summary['unified_diff_present']}")
     else:
         lines.append("Candidate summary: none")
 
     lines.extend(["", f"Artifact directory: {_display_path(run_dir)}", ""])
     return "\n".join(lines)
+
+
+def _candidate_field_summary(candidate: OptimizationCandidate) -> dict[str, Any]:
+    structured_edit_count = len(candidate.edits) if candidate.candidate_type == "line_range_edits" else None
+    return {
+        "candidate_type": candidate.candidate_type,
+        "structured_edit_count": structured_edit_count,
+        "candidate_edits_present": bool(structured_edit_count),
+        "unified_diff_present": bool(candidate.unified_diff),
+    }
 
 
 def _build_index_record(
@@ -317,6 +337,12 @@ def _build_index_record(
     candidate: OptimizationCandidate | None,
     run_dir: Path,
 ) -> dict[str, Any]:
+    candidate_fields = _candidate_field_summary(candidate) if candidate is not None else {
+        "candidate_type": None,
+        "structured_edit_count": None,
+        "candidate_edits_present": None,
+        "unified_diff_present": False,
+    }
     return {
         "run_id": metadata["run_id"],
         "scenario": "llm_candidate",
@@ -331,7 +357,10 @@ def _build_index_record(
         "target_file": metadata["target_file"],
         "risk_level": candidate.risk_level if candidate is not None else None,
         "expected_effect": candidate.expected_effect if candidate is not None else None,
-        "unified_diff_present": bool(candidate and candidate.unified_diff),
+        "candidate_type": candidate_fields["candidate_type"],
+        "structured_edit_count": candidate_fields["structured_edit_count"],
+        "candidate_edits_present": candidate_fields["candidate_edits_present"],
+        "unified_diff_present": candidate_fields["unified_diff_present"],
         "requires_manual_review": (
             candidate.requires_manual_review if candidate is not None else None
         ),
@@ -375,10 +404,16 @@ def _print_final_summary(
 
     _safe_print(f"Final status: {status['overall_status']}")
     if status["overall_status"] == "success" and candidate is not None:
+        field_summary = _candidate_field_summary(candidate)
         _safe_print(f"Candidate summary: {candidate.summary}")
         _safe_print(f"Risk level: {candidate.risk_level}")
         _safe_print(f"Expected effect: {candidate.expected_effect}")
-        _safe_print(f"Unified diff present: {bool(candidate.unified_diff)}")
+        _safe_print(f"Candidate type: {field_summary['candidate_type']}")
+        if candidate.candidate_type == "line_range_edits":
+            _safe_print(f"Structured edits count: {field_summary['structured_edit_count']}")
+            _safe_print(f"Candidate edits present: {field_summary['candidate_edits_present']}")
+        else:
+            _safe_print(f"Unified diff present: {field_summary['unified_diff_present']}")
     else:
         _safe_print(f"Failed step: {status['failed_step']}")
         _safe_print(f"Error message: {status['error_message']}")

@@ -139,12 +139,40 @@ class _ClosedLoopHarness:
         if stage_name == "materialize_candidate":
             self.materialization_commands.append(command)
             if status == "materialization_failed":
-                _write_json(candidate_dir / "materialization.json", {"overall_status": "failed", "failed_step": "apply", "error_message": "bad patch"})
+                _write_json(candidate_dir / "materialization.json", {
+                    "overall_status": "failed",
+                    "failed_step": "apply",
+                    "error_message": "fallback_no_match: original text was not found by exact-search fallback",
+                    "candidate_type": "line_range_edits",
+                    "line_range_edit_count": 1,
+                    "line_range_exact_matches": 0,
+                    "line_range_trailing_whitespace_tolerant_matches": 0,
+                    "line_range_surrounding_whitespace_tolerant_matches": 0,
+                    "line_range_fallback_matches": 0,
+                    "line_range_fallback_used": False,
+                    "line_range_edit_results": [
+                        {"index": 0, "status": "failed", "failure_reason": "fallback_no_match"}
+                    ],
+                })
                 return {"exit_code": 1, "stdout": "", "stderr": "", "duration_seconds": 0.1}
             workspace = self.root / "workspace" / "candidates" / f"candidate_{variant_iteration}"
             (workspace / TARGET_FILE).parent.mkdir(parents=True, exist_ok=True)
             (workspace / TARGET_FILE).write_text(f"candidate {variant_iteration}\n", encoding="utf-8")
-            _write_json(candidate_dir / "materialization.json", {"overall_status": "success", "workspace_path": str(workspace), "changed_files": [TARGET_FILE]})
+            _write_json(candidate_dir / "materialization.json", {
+                "overall_status": "success",
+                "workspace_path": str(workspace),
+                "changed_files": [TARGET_FILE],
+                "candidate_type": "line_range_edits",
+                "line_range_edit_count": 1,
+                "line_range_exact_matches": 1,
+                "line_range_trailing_whitespace_tolerant_matches": 0,
+                "line_range_surrounding_whitespace_tolerant_matches": 0,
+                "line_range_fallback_matches": 0,
+                "line_range_fallback_used": False,
+                "line_range_edit_results": [
+                    {"index": 0, "status": "success", "match_mode": "line_range_exact"}
+                ],
+            })
             return {"exit_code": 0, "stdout": "", "stderr": "", "duration_seconds": 0.1}
 
         if stage_name == "verify_candidate":
@@ -288,7 +316,9 @@ class RunExperimentClosedLoopTests(unittest.TestCase):
         self.assertFalse(records[0]["history_included"])
         self.assertIsNone(records[0]["history_guidance"])
         self.assertTrue(records[1]["history_included"])
-        self.assertIn("line_range_edits", records[1]["history_guidance"])
+        self.assertIn("original text was not found exactly", records[1]["history_guidance"])
+        self.assertEqual(records[1]["materialization_match_summary"]["line_range_edit_count"], 1)
+        self.assertFalse(records[1]["materialization_match_summary"]["invalid_line_range_fallback_used"])
         self.assertTrue(records[2]["history_included"])
         self.assertIn("break build", records[2]["history_guidance"])
         self.assertFalse(records[3]["history_included"])

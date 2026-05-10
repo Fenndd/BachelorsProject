@@ -350,7 +350,8 @@ def test_final_diff_and_summary_use_accepted_candidate_decision(
         accepted_improvements=1,
     )
     assert "Closed-loop mode: enabled" in text
-    assert "Final speedup vs original baseline: 1.25" in text
+    assert "Final speedup ratio vs original baseline: 1.25" in text
+    assert "Final runtime reduction percent vs original baseline: 20.0" in text
     assert "final optimized source:" in text
     assert "final diff:" in text
     assert "closed-loop summary:" in text
@@ -464,6 +465,7 @@ def test_closed_loop_selection_report_is_reporting_only(
     assert report["status_counts"] == summary.status_counts
     assert report["control_decision"]["final_best_iteration"] == 1
     assert report["control_decision"]["final_best_run_dir"] == "results/runs/candidate_001"
+    assert report["final_analysis"]["performance_reference"] == "original_baseline"
     assert report["final_analysis"]["final_speedup_vs_original_baseline"] == 1.25
     best = report["best_verified_candidate_vs_original_baseline"]
     assert best["iteration"] == 1

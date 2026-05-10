@@ -396,6 +396,93 @@ def _line_range_matches_trailing_whitespace_tolerant(selected_text: str, origina
     return selected_lines == original_lines
 
 
+def _strip_surrounding_spaces_tabs_per_line(text: str) -> list[str]:
+    return [line.rstrip("\r\n").strip(" \t") for line in text.splitlines(keepends=True)]
+
+
+def _line_range_matches_surrounding_whitespace_tolerant(
+    selected_text: str,
+    original: str,
+) -> bool:
+    selected_lines = _strip_surrounding_spaces_tabs_per_line(selected_text)
+    original_lines = _strip_surrounding_spaces_tabs_per_line(original)
+    return len(selected_lines) == len(original_lines) and selected_lines == original_lines
+
+
+def _split_line_body_and_ending(line: str) -> tuple[str, str]:
+    if line.endswith("\r\n"):
+        return line[:-2], "\r\n"
+    if line.endswith("\n"):
+        return line[:-1], "\n"
+    return line, ""
+
+
+def _leading_spaces_tabs(text: str) -> str:
+    return text[: len(text) - len(text.lstrip(" \t"))]
+
+
+def _common_indentation(lines: list[str]) -> str:
+    indents: list[str] = []
+    for line in lines:
+        body, _ending = _split_line_body_and_ending(line)
+        if not body.strip(" \t"):
+            continue
+        indents.append(_leading_spaces_tabs(body))
+    if not indents:
+        return ""
+    common = indents[0]
+    for indent in indents[1:]:
+        while common and not indent.startswith(common):
+            common = common[:-1]
+        if not common:
+            break
+    return common
+
+
+def _adapt_replacement_indentation_to_actual_source(
+    replace: str,
+    selected_text: str,
+    original: str,
+) -> str:
+    selected_lines = _split_preserving_line_endings(selected_text)
+    original_lines = _split_preserving_line_endings(original)
+    replacement = replace
+    line_ending = _line_ending_suffix(selected_text)
+    if line_ending and replacement and not replacement.endswith(("\n", "\r\n")):
+        replacement += line_ending
+    replacement_lines = _split_preserving_line_endings(replacement)
+    if not replacement_lines:
+        return replacement
+
+    selected_nonblank = [
+        line for line in selected_lines if _split_line_body_and_ending(line)[0].strip(" \t")
+    ]
+    original_nonblank = [
+        line for line in original_lines if _split_line_body_and_ending(line)[0].strip(" \t")
+    ]
+    if not selected_nonblank or not original_nonblank:
+        raise ValueError("Cannot safely adapt indentation for an all-blank line range.")
+
+    if len(selected_lines) == 1 and len(replacement_lines) == 1:
+        actual_indent = _leading_spaces_tabs(_split_line_body_and_ending(selected_lines[0])[0])
+        replace_body, replace_ending = _split_line_body_and_ending(replacement_lines[0])
+        return actual_indent + replace_body.lstrip(" \t") + replace_ending
+
+    actual_base_indent = _common_indentation(selected_lines)
+    replacement_base_indent = _common_indentation(replacement_lines)
+    adapted_lines: list[str] = []
+    for line in replacement_lines:
+        body, ending = _split_line_body_and_ending(line)
+        if not body.strip(" \t"):
+            adapted_lines.append(ending)
+            continue
+        if replacement_base_indent and not body.startswith(replacement_base_indent):
+            raise ValueError("Replacement indentation is inconsistent with its base indentation.")
+        relative_body = body[len(replacement_base_indent) :] if replacement_base_indent else body.lstrip(" \t")
+        adapted_lines.append(actual_base_indent + relative_body + ending)
+    return "".join(adapted_lines)
+
+
 def _line_ending_suffix(text: str) -> str:
     if text.endswith("\r\n"):
         return "\r\n"
@@ -430,6 +517,7 @@ def _line_range_result(edit: dict[str, Any]) -> dict[str, Any]:
         "file": edit["file"],
         "start_line": edit["start_line"],
         "end_line": edit["end_line"],
+        "line_range_valid": None,
         "status": "failed",
         "match_mode": "none",
         "method": None,
@@ -471,7 +559,9 @@ def _apply_single_line_range_edit(
 
     if start_line > len(lines) or end_line > len(lines):
         selected_text = None
+        result["line_range_valid"] = False
     else:
+        result["line_range_valid"] = True
         selected_text = _range_text_from_lines(lines, start_line, end_line)
         selected_content = _content_without_trailing_line_endings(selected_text)
         if selected_text == edit["original"] or selected_content == edit["original"]:
@@ -502,6 +592,35 @@ def _apply_single_line_range_edit(
             )
             return "".join(lines), result
 
+        if _line_range_matches_surrounding_whitespace_tolerant(selected_text, edit["original"]):
+            try:
+                adapted_replace = _adapt_replacement_indentation_to_actual_source(
+                    edit["replace"], selected_text, edit["original"]
+                )
+            except ValueError as exc:
+                detail = (
+                    "line range matched after ignoring leading/trailing spaces/tabs, "
+                    f"but replacement indentation could not be adapted safely: {exc}"
+                )
+                _fail_line_range_result(
+                    result,
+                    failure_reason="line_range_surrounding_whitespace_mismatch",
+                    detail=detail,
+                )
+                raise LineRangeEditApplyError(detail, [result]) from exc
+            lines[start_line - 1 : end_line] = _replacement_lines_for_line_range(
+                adapted_replace, selected_text
+            )
+            result.update(
+                {
+                    "method": "line_range",
+                    "match_mode": "line_range_surrounding_whitespace_tolerant",
+                    "status": "success",
+                    "detail": "line range matched original text after ignoring leading/trailing spaces/tabs; replacement indentation adapted to actual source.",
+                }
+            )
+            return "".join(lines), result
+
     if not allow_exact_search_fallback:
         reason = "invalid_line_range" if selected_text is None else "fallback_not_allowed"
         detail = "line range is outside the target file." if selected_text is None else "line range did not match and exact-search fallback is disabled."
@@ -512,10 +631,15 @@ def _apply_single_line_range_edit(
         text, edit["original"], edit["replace"]
     )
     if occurrence_count == 1:
+        match_mode = (
+            "invalid_line_range_exact_search_fallback"
+            if result["line_range_valid"] is False
+            else "exact_search_fallback"
+        )
         result.update(
             {
                 "method": "exact_search_fallback",
-                "match_mode": "exact_search_fallback",
+                "match_mode": match_mode,
                 "status": "success",
                 "fallback_match_count": 1,
                 "detail": "line range did not match; unique exact-search fallback applied.",
@@ -546,6 +670,34 @@ def _apply_single_line_range_edit(
         fallback_match_count=occurrence_count,
     )
     raise LineRangeEditApplyError(detail, [result])
+
+
+def _not_attempted_line_range_result(edit: dict[str, Any]) -> dict[str, Any]:
+    result = _line_range_result(edit)
+    result.update(
+        {
+            "line_range_valid": None,
+            "status": "not_attempted",
+            "match_mode": "none",
+            "method": None,
+            "failure_reason": "previous_edit_failed",
+            "fallback_match_count": None,
+            "detail": "Not attempted because a previous edit failed.",
+        }
+    )
+    return result
+
+
+def _complete_line_range_results_after_failure(
+    edits: list[dict[str, Any]],
+    partial_results: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    completed = list(partial_results)
+    present_indexes = {result.get("index") for result in completed}
+    for edit in edits:
+        if edit["index"] not in present_indexes:
+            completed.append(_not_attempted_line_range_result(edit))
+    return sorted(completed, key=lambda result: result["index"])
 
 
 def _apply_line_range_edits(
@@ -586,7 +738,11 @@ def _apply_line_range_edits(
                     allow_exact_search_fallback=allow_exact_search_fallback,
                 )
             except LineRangeEditApplyError as exc:
-                raise LineRangeEditApplyError(str(exc), [*results, *exc.results]) from exc
+                complete_results = _complete_line_range_results_after_failure(
+                    edits,
+                    [*results, *exc.results],
+                )
+                raise LineRangeEditApplyError(str(exc), complete_results) from exc
             results.append(edit_result)
 
         after_text_by_file[edit_file] = current_text
@@ -603,12 +759,18 @@ def _apply_line_range_edits(
     fallback_matches = sum(
         1 for result in results if result["method"] == "exact_search_fallback"
     )
+    surrounding_whitespace_tolerant_matches = sum(
+        1
+        for result in results
+        if result["match_mode"] == "line_range_surrounding_whitespace_tolerant"
+    )
     return {
         "before_text_by_file": before_text_by_file,
         "after_text_by_file": after_text_by_file,
         "results": sorted(results, key=lambda result: result["index"]),
         "exact_matches": exact_matches,
         "trailing_whitespace_tolerant_matches": trailing_whitespace_tolerant_matches,
+        "surrounding_whitespace_tolerant_matches": surrounding_whitespace_tolerant_matches,
         "fallback_matches": fallback_matches,
         "fallback_used": fallback_matches > 0,
         "allow_exact_search_fallback": allow_exact_search_fallback,
@@ -929,6 +1091,8 @@ def _write_log(
         f"{materialization.get('line_range_exact_matches', 'n/a')}",
         "Line-range trailing-whitespace tolerant matches: "
         f"{materialization.get('line_range_trailing_whitespace_tolerant_matches', 'n/a')}",
+        "Line-range surrounding-whitespace tolerant matches: "
+        f"{materialization.get('line_range_surrounding_whitespace_tolerant_matches', 'n/a')}",
         "Line-range fallback matches: "
         f"{materialization.get('line_range_fallback_matches', 'n/a')}",
         "Line-range fallback used: "
@@ -1143,6 +1307,7 @@ def main(argv: list[str] | None = None) -> int:
             base_source_root_display,
             source_root_mode,
         ) = _resolve_base_source_root(args)
+        source_root_text = base_source_root_display
     except ValueError as exc:
         print("Final status: failed")
         print("Failed step: parse_args")
@@ -1165,6 +1330,7 @@ def main(argv: list[str] | None = None) -> int:
     candidate_type = CANDIDATE_TYPE_UNIFIED_DIFF
     line_range_edits: list[dict[str, Any]] = []
     generated_diff_path: Path | None = None
+    generated_diff_created = False
     line_range_apply_result: dict[str, Any] | None = None
     patch_text = ""
     scope_enforcement = (
@@ -1259,10 +1425,12 @@ def main(argv: list[str] | None = None) -> int:
                     "line_range_edit_count": len(line_range_edits),
                     "line_range_exact_matches": 0,
                     "line_range_trailing_whitespace_tolerant_matches": 0,
+                    "line_range_surrounding_whitespace_tolerant_matches": 0,
                     "line_range_fallback_matches": 0,
                     "line_range_fallback_used": False,
                     "line_range_allow_exact_search_fallback": args.allow_exact_search_fallback,
-                    "generated_diff_path": _display_path(generated_diff_path),
+                    "generated_diff_path": None,
+                    "generated_diff_created": False,
                     "line_range_edit_results": [],
                 }
             )
@@ -1448,6 +1616,7 @@ def main(argv: list[str] | None = None) -> int:
                 line_range_apply_result["after_text_by_file"],
                 generated_diff_path,
             )
+            generated_diff_created = generated_diff_path.exists()
             apply_duration = round(time.perf_counter() - apply_started, 3)
             steps.extend(
                 [
@@ -1462,6 +1631,9 @@ def main(argv: list[str] | None = None) -> int:
                     "line_range_trailing_whitespace_tolerant_matches": line_range_apply_result[
                         "trailing_whitespace_tolerant_matches"
                     ],
+                    "line_range_surrounding_whitespace_tolerant_matches": line_range_apply_result[
+                        "surrounding_whitespace_tolerant_matches"
+                    ],
                     "line_range_fallback_matches": line_range_apply_result[
                         "fallback_matches"
                     ],
@@ -1472,6 +1644,7 @@ def main(argv: list[str] | None = None) -> int:
                         "allow_exact_search_fallback"
                     ],
                     "generated_diff_path": _display_path(generated_diff_path),
+                    "generated_diff_created": generated_diff_created,
                     "generated_diff_base": "base_source_root",
                     "line_range_edit_results": line_range_apply_result["results"],
                 }
@@ -1487,7 +1660,8 @@ def main(argv: list[str] | None = None) -> int:
                 {
                     "patch_apply_strategy": "line_range_edits_failed",
                     "line_range_edit_count": len(line_range_edits),
-                    "generated_diff_path": _display_path(generated_diff_path),
+                    "generated_diff_path": _display_path(generated_diff_path) if generated_diff_created and generated_diff_path is not None else None,
+                    "generated_diff_created": generated_diff_created,
                 }
             )
             steps.extend(

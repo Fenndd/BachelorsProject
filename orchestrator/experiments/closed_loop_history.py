@@ -59,6 +59,22 @@ FALLBACK_DISABLED_GUIDANCE = (
     "Previous candidate failed because exact line-range matching failed and fallback was disabled. "
     "Use a precise line range and exact original text."
 )
+LEADING_WHITESPACE_GUIDANCE = (
+    "Previous candidate used different leading indentation than the numbered source. "
+    "Copy original indentation from the selected source lines."
+)
+FALLBACK_NO_MATCH_GUIDANCE = (
+    "Previous candidate failed because original text was not found exactly. "
+    "Copy original text from the selected numbered source lines."
+)
+INVALID_LINE_RANGE_GUIDANCE = (
+    "Previous candidate used a line range outside the file. Use the integer labels "
+    "shown before the '|' separator in the numbered source."
+)
+INVALID_LINE_RANGE_FALLBACK_GUIDANCE = (
+    "Previous candidate relied on exact-search fallback because its line range was outside the file. "
+    "Use the exact line labels from the numbered source."
+)
 BELOW_THRESHOLD_GUIDANCE = (
     "This improvement was too small to accept as reliable; avoid repeating the same "
     "pattern unless combined with a clearer optimization."
@@ -270,6 +286,10 @@ def _decision_non_acceptance_reasons(decision: Any) -> list[str]:
 
 
 def _materialization_failure_guidance(record: dict[str, Any]) -> str:
+    match_summary_text = _compact_text(record.get("materialization_match_summary"), max_chars=500)
+    if match_summary_text and '"invalid_line_range_fallback_used":true' in match_summary_text.lower():
+        return INVALID_LINE_RANGE_FALLBACK_GUIDANCE
+
     text = " ".join(
         value
         for value in [
@@ -279,6 +299,14 @@ def _materialization_failure_guidance(record: dict[str, Any]) -> str:
         ]
         if value
     ).lower()
+    if "invalid_line_range_exact_search_fallback" in text:
+        return INVALID_LINE_RANGE_FALLBACK_GUIDANCE
+    if any(token in text for token in ["line_range_leading_whitespace_mismatch", "line_range_surrounding_whitespace_mismatch"]):
+        return LEADING_WHITESPACE_GUIDANCE
+    if "fallback_no_match" in text or "not found by exact-search fallback" in text:
+        return FALLBACK_NO_MATCH_GUIDANCE
+    if "invalid_line_range" in text or "line range is outside" in text or "line range outside" in text:
+        return INVALID_LINE_RANGE_GUIDANCE
     if any(token in text for token in ["ambiguous", "multiple matches", "occurs multiple", "repeated text"]):
         return AMBIGUOUS_MATERIALIZATION_GUIDANCE
     if "fallback" in text and "disabled" in text:

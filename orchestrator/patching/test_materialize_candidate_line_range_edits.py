@@ -161,9 +161,12 @@ class MaterializeCandidateLineRangeEditsTests(unittest.TestCase):
             self.assertEqual(materialization["base_source_root"], str(source_root.resolve()))
             self.assertEqual(materialization["source_root_mode"], "legacy_source_root")
             self.assertEqual(materialization["line_range_exact_matches"], 1)
+            self.assertEqual(materialization["line_range_surrounding_whitespace_tolerant_matches"], 0)
             self.assertTrue(materialization["workspace_retained"])
             self.assertTrue(materialization["workspace_exists_after_run"])
             self.assertEqual(materialization["generated_diff_base"], "base_source_root")
+            self.assertTrue(materialization["generated_diff_created"])
+            self.assertTrue(materialization["generated_diff_path"].endswith("candidate.generated.diff"))
             self.assertEqual(_workspace_file(materialization).read_text(encoding="utf-8"), "int value = 2;\n")
             self.assertEqual((source_root / "example.cpp").read_text(encoding="utf-8"), "int value = 1;\n")
             self.assertEqual((REPO_ROOT / P3P_TARGET_FILE).read_text(encoding="utf-8"), repo_text_before)
@@ -251,7 +254,83 @@ class MaterializeCandidateLineRangeEditsTests(unittest.TestCase):
             self.assertEqual(result["status"], "success")
             self.assertEqual(result["match_mode"], "line_range_trailing_whitespace_tolerant")
 
-    def test_line_range_leading_whitespace_mismatch_still_fails(self) -> None:
+    def test_single_line_surrounding_whitespace_tolerant_success_adapts_indent(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmp_path = Path(tmpdir)
+            source_root = tmp_path / "cpp"
+            actual_indent = " " * 20
+            llm_indent = " " * 24
+            _write_source(source_root, f"{actual_indent}refine_lambda(x);\n")
+            run_dir = tmp_path / "candidate_leading_whitespace"
+            _line_candidate(
+                run_dir,
+                edits=[
+                    {
+                        "file": TARGET_FILE,
+                        "start_line": 1,
+                        "end_line": 1,
+                        "original": f"{llm_indent}refine_lambda(x);",
+                        "replace": f"{llm_indent}refine_lambda_fast(x);",
+                    }
+                ],
+            )
+
+            exit_code = _materialize(
+                tmp_path,
+                run_dir,
+                source_root,
+                allow_exact_search_fallback=False,
+            )
+
+            self.assertEqual(exit_code, 0)
+            materialization = _read_materialization(run_dir)
+            self.assertEqual(
+                _workspace_file(materialization).read_text(encoding="utf-8"),
+                f"{actual_indent}refine_lambda_fast(x);\n",
+            )
+            self.assertEqual(materialization["line_range_surrounding_whitespace_tolerant_matches"], 1)
+            result = materialization["line_range_edit_results"][0]
+            self.assertEqual(result["match_mode"], "line_range_surrounding_whitespace_tolerant")
+            self.assertTrue(result["line_range_valid"])
+
+    def test_multi_line_surrounding_whitespace_tolerant_success_preserves_relative_indent(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmp_path = Path(tmpdir)
+            source_root = tmp_path / "cpp"
+            _write_source(source_root, "    if (ok) {\n        do_a();\n    }\n")
+            run_dir = tmp_path / "candidate_multi_leading_whitespace"
+            _line_candidate(
+                run_dir,
+                edits=[
+                    {
+                        "file": TARGET_FILE,
+                        "start_line": 1,
+                        "end_line": 3,
+                        "original": "        if (ok) {\n            do_a();\n        }",
+                        "replace": "        if (ok) {\n            do_b();\n            do_c();\n        }",
+                    }
+                ],
+            )
+
+            exit_code = _materialize(
+                tmp_path,
+                run_dir,
+                source_root,
+                allow_exact_search_fallback=False,
+            )
+
+            self.assertEqual(exit_code, 0)
+            materialization = _read_materialization(run_dir)
+            self.assertEqual(
+                _workspace_file(materialization).read_text(encoding="utf-8"),
+                "    if (ok) {\n        do_b();\n        do_c();\n    }\n",
+            )
+            self.assertEqual(
+                materialization["line_range_edit_results"][0]["match_mode"],
+                "line_range_surrounding_whitespace_tolerant",
+            )
+
+    def test_line_range_leading_whitespace_mismatch_direct_apply_succeeds(self) -> None:
         edit = {
             "index": 0,
             "file": TARGET_FILE,
@@ -261,14 +340,14 @@ class MaterializeCandidateLineRangeEditsTests(unittest.TestCase):
             "replace": "int value = 2;",
         }
 
-        with self.assertRaises(ValueError) as ctx:
-            _apply_single_line_range_edit(
-                "  int value = 1;\n",
-                edit,
-                allow_exact_search_fallback=False,
-            )
+        text, result = _apply_single_line_range_edit(
+            "  int value = 1;\n",
+            edit,
+            allow_exact_search_fallback=False,
+        )
 
-        self.assertIn("fallback is disabled", str(ctx.exception))
+        self.assertEqual(text, "  int value = 2;\n")
+        self.assertEqual(result["match_mode"], "line_range_surrounding_whitespace_tolerant")
 
     def test_line_range_internal_whitespace_mismatch_still_fails(self) -> None:
         edit = {
@@ -283,6 +362,25 @@ class MaterializeCandidateLineRangeEditsTests(unittest.TestCase):
         with self.assertRaises(ValueError) as ctx:
             _apply_single_line_range_edit(
                 "int  value = 1;\n",
+                edit,
+                allow_exact_search_fallback=False,
+            )
+
+        self.assertIn("fallback is disabled", str(ctx.exception))
+
+    def test_line_range_different_line_counts_do_not_match_surrounding_whitespace_tolerant(self) -> None:
+        edit = {
+            "index": 0,
+            "file": TARGET_FILE,
+            "start_line": 1,
+            "end_line": 1,
+            "original": "int value = 1;\nint other = 2;",
+            "replace": "int value = 3;",
+        }
+
+        with self.assertRaises(ValueError) as ctx:
+            _apply_single_line_range_edit(
+                "  int value = 1;\n",
                 edit,
                 allow_exact_search_fallback=False,
             )
@@ -522,6 +620,37 @@ class MaterializeCandidateLineRangeEditsTests(unittest.TestCase):
             self.assertEqual(materialization["line_range_fallback_matches"], 1)
             self.assertTrue(materialization["line_range_fallback_used"])
             self.assertTrue(materialization["line_range_allow_exact_search_fallback"])
+            result = materialization["line_range_edit_results"][0]
+            self.assertEqual(result["match_mode"], "exact_search_fallback")
+            self.assertTrue(result["line_range_valid"])
+
+    def test_invalid_line_range_exact_search_fallback_success_records_specific_mode(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmp_path = Path(tmpdir)
+            source_root = tmp_path / "cpp"
+            _write_source(source_root, "int unique = 7;\n")
+            run_dir = tmp_path / "candidate_invalid_range_fallback"
+            _line_candidate(
+                run_dir,
+                edits=[
+                    {
+                        "file": TARGET_FILE,
+                        "start_line": 99,
+                        "end_line": 99,
+                        "original": "int unique = 7;",
+                        "replace": "int unique = 8;",
+                    }
+                ],
+            )
+
+            exit_code = _materialize(tmp_path, run_dir, source_root)
+
+            self.assertEqual(exit_code, 0)
+            materialization = _read_materialization(run_dir)
+            result = materialization["line_range_edit_results"][0]
+            self.assertEqual(result["match_mode"], "invalid_line_range_exact_search_fallback")
+            self.assertFalse(result["line_range_valid"])
+            self.assertEqual(result["fallback_match_count"], 1)
 
     def test_line_range_mismatch_cli_fallback_disabled_fails(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -620,6 +749,56 @@ class MaterializeCandidateLineRangeEditsTests(unittest.TestCase):
             failed = materialization["line_range_edit_results"][0]
             self.assertEqual(failed["failure_reason"], "fallback_no_match")
             self.assertEqual(failed["fallback_match_count"], 0)
+            self.assertIsNone(materialization["generated_diff_path"])
+            self.assertFalse(materialization["generated_diff_created"])
+            self.assertFalse((run_dir / "candidate.generated.diff").exists())
+
+    def test_failed_multiple_edits_include_not_attempted_results_sorted_by_index(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmp_path = Path(tmpdir)
+            source_root = tmp_path / "cpp"
+            _write_source(source_root, "int a = 1;\nint b = 2;\nint c = 3;\n")
+            run_dir = tmp_path / "candidate_partial_failure"
+            _line_candidate(
+                run_dir,
+                edits=[
+                    {
+                        "file": TARGET_FILE,
+                        "start_line": 1,
+                        "end_line": 1,
+                        "original": "int a = 1;",
+                        "replace": "int a = 10;",
+                    },
+                    {
+                        "file": TARGET_FILE,
+                        "start_line": 2,
+                        "end_line": 2,
+                        "original": "int missing = 9;",
+                        "replace": "int missing = 10;",
+                    },
+                    {
+                        "file": TARGET_FILE,
+                        "start_line": 3,
+                        "end_line": 3,
+                        "original": "int c = 3;",
+                        "replace": "int c = 30;",
+                    },
+                ],
+            )
+
+            exit_code = _materialize(tmp_path, run_dir, source_root)
+
+            self.assertEqual(exit_code, 1)
+            materialization = _read_materialization(run_dir)
+            results = materialization["line_range_edit_results"]
+            self.assertEqual([result["index"] for result in results], [0, 1, 2])
+            self.assertEqual(len(results), 3)
+            self.assertEqual(results[0]["status"], "not_attempted")
+            self.assertEqual(results[0]["failure_reason"], "previous_edit_failed")
+            self.assertEqual(results[1]["status"], "failed")
+            self.assertEqual(results[1]["failure_reason"], "fallback_no_match")
+            self.assertEqual(results[2]["status"], "success")
+            self.assertEqual(results[2]["match_mode"], "line_range_exact")
 
     def test_edit_file_outside_target_files_rejected(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -663,6 +842,46 @@ class MaterializeCandidateLineRangeEditsTests(unittest.TestCase):
             self.assertEqual(materialization["candidate_type"], "line_range_edits")
             self.assertEqual(materialization["patch_apply_strategy"], "not_run")
             self.assertFalse((run_dir / "candidate.diff").exists())
+
+    def test_repo_internal_base_source_root_paths_are_portable_in_materialization(self) -> None:
+        workspace_parent = REPO_ROOT / "workspace"
+        workspace_parent.mkdir(exist_ok=True)
+        with tempfile.TemporaryDirectory(dir=workspace_parent) as tmpdir:
+            base_source_root = Path(tmpdir) / "current_best_source"
+            _write_source(base_source_root / "cpp", "int value = 1;\n")
+            run_dir = Path(tmpdir) / "candidate_portable_paths"
+            _line_candidate(
+                run_dir,
+                edits=[
+                    {
+                        "file": TARGET_FILE,
+                        "start_line": 1,
+                        "end_line": 1,
+                        "original": "int value = 1;",
+                        "replace": "int value = 2;",
+                    }
+                ],
+            )
+
+            exit_code = materialize_main(
+                [
+                    "--candidate-run",
+                    str(run_dir),
+                    "--workspace-root",
+                    str(Path(tmpdir) / "workspaces"),
+                    "--base-source-root",
+                    str(base_source_root),
+                    "--overwrite",
+                    "--allowed-file",
+                    TARGET_FILE,
+                ]
+            )
+
+            self.assertEqual(exit_code, 0)
+            materialization = _read_materialization(run_dir)
+            self.assertEqual(materialization["source_root"], materialization["base_source_root"])
+            self.assertTrue(materialization["source_root"].startswith("workspace/"))
+            self.assertNotIn(str(base_source_root.resolve()), json.dumps(materialization))
 
     def test_legacy_unified_diff_still_works(self) -> None:
         diff_text = "\n".join(

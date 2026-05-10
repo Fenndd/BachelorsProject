@@ -294,6 +294,53 @@ def test_materialization_failed_fallback_disabled_gets_precise_range_guidance() 
     assert "precise line range and exact original text" in guidance
 
 
+def test_materialization_failed_leading_whitespace_gets_indentation_guidance() -> None:
+    guidance = build_history_guidance(
+        _record(
+            "materialization_failed",
+            failure_reason="line_range_surrounding_whitespace_mismatch",
+        )
+    )
+
+    assert guidance is not None
+    assert "different leading indentation" in guidance
+    assert "Copy original indentation" in guidance
+
+
+def test_materialization_failed_fallback_no_match_gets_exact_text_guidance() -> None:
+    guidance = build_history_guidance(
+        _record("materialization_failed", failure_reason="fallback_no_match")
+    )
+
+    assert guidance is not None
+    assert "original text was not found exactly" in guidance
+    assert "Copy original text" in guidance
+
+
+def test_materialization_failed_invalid_line_range_gets_line_label_guidance() -> None:
+    guidance = build_history_guidance(
+        _record("materialization_failed", failure_reason="invalid_line_range")
+    )
+
+    assert guidance is not None
+    assert "line range outside the file" in guidance
+    assert "integer labels" in guidance
+
+
+def test_materialization_failed_invalid_line_range_fallback_summary_gets_specific_guidance() -> None:
+    guidance = build_history_guidance(
+        _record(
+            "materialization_failed",
+            failure_reason="line range recovered",
+            materialization_match_summary={"invalid_line_range_fallback_used": True},
+        )
+    )
+
+    assert guidance is not None
+    assert "relied on exact-search fallback" in guidance
+    assert "exact line labels" in guidance
+
+
 def test_generic_materialization_failed_keeps_generic_guidance() -> None:
     guidance = build_history_guidance(
         _record("materialization_failed", failure_reason="target file missing")
