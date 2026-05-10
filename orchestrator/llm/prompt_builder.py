@@ -244,7 +244,7 @@ Line range edit rules:
 - For multi-line edits, original and replace may contain newline characters.
 - If changing multiple locations is necessary, return multiple edit objects.
 - Keep edits minimal.
-- The materializer will verify that actual lines start_line..end_line exactly match original before applying.
+- The materializer will verify that actual lines start_line..end_line match original before applying. Exact text is required; trailing spaces at line ends may be tolerated by the materializer, but do not rely on this.
 
 Required JSON output schema:
 {

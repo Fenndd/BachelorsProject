@@ -510,13 +510,22 @@ def _parse_candidate_run_dir(stdout: str) -> str | None:
 def _looks_like_candidate_run_dir(value: str) -> bool:
     if not value:
         return False
-    normalized = value.replace("\\", "/")
-    if "/results/runs/" in normalized or normalized.startswith("results/runs/"):
-        return True
     path = _resolve_path(value)
-    if path.exists() and path.is_dir():
-        return any((path / name).exists() for name in ("candidate.json", "status.json", "llm_request.json"))
-    return False
+    if not path.exists() or not path.is_dir():
+        return False
+    if not any((path / name).exists() for name in ("candidate.json", "llm_request.json")):
+        return False
+    status_path = path / "status.json"
+    if not status_path.exists():
+        return True
+    try:
+        status = _read_json_object(status_path)
+    except (OSError, ValueError, json.JSONDecodeError):
+        return False
+    scenario = status.get("scenario")
+    if scenario is not None and scenario != "llm_candidate":
+        return False
+    return True
 
 
 def _skipped_stage(reason: str) -> dict[str, Any]:
@@ -1786,6 +1795,7 @@ def _compact_decision_summary(decision: dict[str, Any] | None) -> dict[str, Any]
         "comparison": comparison,
         "thresholds": decision.get("thresholds"),
         "rejection_reasons": decision.get("rejection_reasons"),
+        "non_acceptance_reasons": decision.get("non_acceptance_reasons"),
         "audit_issues": decision.get("audit_issues"),
     }
 
@@ -2060,13 +2070,27 @@ def _compact_candidate_attempt(record: ClosedLoopIterationRecord) -> dict[str, A
 def _compact_report_decision(decision: dict[str, Any] | str | None) -> dict[str, Any] | str | None:
     if not isinstance(decision, dict):
         return decision
+    comparison = decision.get("comparison")
+    comparison = comparison if isinstance(comparison, dict) else {}
     return {
         "status": decision.get("status"),
         "reference_kind": decision.get("reference_kind"),
-        "speedup": decision.get("speedup"),
-        "runtime_reduction_percent": decision.get("runtime_reduction_percent"),
+        "speedup": _numeric_or_none(comparison.get("speedup"), decision.get("speedup")),
+        "runtime_reduction_percent": _numeric_or_none(
+            comparison.get("runtime_reduction_percent"),
+            decision.get("runtime_reduction_percent"),
+        ),
+        "comparison": comparison,
         "rejection_reasons": decision.get("rejection_reasons"),
+        "non_acceptance_reasons": decision.get("non_acceptance_reasons"),
     }
+
+
+def _numeric_or_none(*values: Any) -> float | None:
+    for value in values:
+        if isinstance(value, (int, float)) and not isinstance(value, bool):
+            return float(value)
+    return None
 
 
 def _best_verified_candidate_vs_original_baseline(
@@ -2082,17 +2106,17 @@ def _best_verified_candidate_vs_original_baseline(
         status = decision.get("status")
         if status not in {"accepted_improvement", "valid_not_improved"}:
             continue
-        speedup = attempt.get("speedup_vs_original_baseline")
+        speedup = _numeric_or_none(decision.get("speedup"), attempt.get("speedup_vs_original_baseline"))
         if not isinstance(speedup, (int, float)) or isinstance(speedup, bool):
             continue
         if best_speedup is None or float(speedup) > best_speedup:
             best_speedup = float(speedup)
-            runtime_reduction = decision.get("runtime_reduction_percent")
+            runtime_reduction = _numeric_or_none(decision.get("runtime_reduction_percent"))
             best_attempt = {
                 "iteration": attempt.get("iteration"),
                 "candidate_run_dir": attempt.get("candidate_run_dir"),
                 "speedup": best_speedup,
-                "runtime_reduction_percent": runtime_reduction if isinstance(runtime_reduction, (int, float)) and not isinstance(runtime_reduction, bool) else None,
+                "runtime_reduction_percent": runtime_reduction,
                 "matches_final_current_best": attempt.get("candidate_run_dir") == final_current_best_run_dir,
                 "status": status,
             }

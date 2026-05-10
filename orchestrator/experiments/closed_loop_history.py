@@ -199,9 +199,10 @@ def _result_text(record: dict[str, Any]) -> str | None:
         return "accepted and already included in the current source"
 
     if status == "valid_not_improved":
-        below_threshold_result = _below_threshold_result_text(record)
-        if below_threshold_result is not None:
-            return below_threshold_result
+        if _is_runtime_improvement_below_threshold(record):
+            below_threshold_result = _below_threshold_result_text(record)
+            if below_threshold_result is not None:
+                return below_threshold_result
         if speedup is not None:
             if speedup < 1.0:
                 return f"{speedup:.2f}x speedup vs current best; {_slower_percent_from_speedup(speedup)} slower"
@@ -252,6 +253,22 @@ def _decision_rejection_reasons(decision: Any) -> list[str]:
     return reasons
 
 
+def _decision_non_acceptance_reasons(decision: Any) -> list[str]:
+    if not isinstance(decision, dict):
+        return []
+    raw_reasons = decision.get("non_acceptance_reasons")
+    if not isinstance(raw_reasons, list):
+        return []
+    reasons: list[str] = []
+    for reason in raw_reasons:
+        text = _compact_text(reason)
+        if text:
+            reasons.append(text)
+        if len(reasons) >= 3:
+            break
+    return reasons
+
+
 def _materialization_failure_guidance(record: dict[str, Any]) -> str:
     text = " ".join(
         value
@@ -282,9 +299,10 @@ def _materialization_failure_guidance(record: dict[str, Any]) -> str:
 
 
 def _is_runtime_improvement_below_threshold(record: dict[str, Any]) -> bool:
-    return "runtime_improvement_below_minimum_threshold" in _decision_rejection_reasons(
-        record.get("decision_vs_current_best")
-    )
+    decision = record.get("decision_vs_current_best")
+    if "runtime_improvement_below_minimum_threshold" in _decision_non_acceptance_reasons(decision):
+        return True
+    return "runtime_improvement_below_minimum_threshold" in _decision_rejection_reasons(decision)
 
 
 def _below_threshold_result_text(record: dict[str, Any]) -> str | None:

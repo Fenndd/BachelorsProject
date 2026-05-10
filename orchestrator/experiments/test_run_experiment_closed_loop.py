@@ -167,6 +167,7 @@ class _ClosedLoopHarness:
             "candidate_run_dir": str(candidate_run_dir),
             "comparison": {"speedup": 1.1 if decision_status == "accepted_improvement" else 1.0, "runtime_reduction_percent": 10.0},
             "rejection_reasons": [] if decision_status != "rejected" else ["not safe"],
+            "non_acceptance_reasons": [],
         }
 
 
@@ -313,6 +314,28 @@ class RunExperimentClosedLoopTests(unittest.TestCase):
         self.assertNotIn("--allow-exact-search-fallback", command)
 
     def test_parse_candidate_run_dir_supports_canonical_and_narrow_fallbacks(self) -> None:
+        temp = tempfile.TemporaryDirectory()
+        self.addCleanup(temp.cleanup)
+        root = Path(temp.name)
+        original_repo_root = runner.REPO_ROOT
+        self.addCleanup(setattr, runner, "REPO_ROOT", original_repo_root)
+        runner.REPO_ROOT = root
+        fallback_run = root / "results" / "runs" / "candidate_2"
+        fallback_run.mkdir(parents=True)
+        _write_json(fallback_run / "candidate.json", _candidate_payload())
+        fallback_request_run = root / "results" / "runs" / "candidate_3"
+        fallback_request_run.mkdir(parents=True)
+        _write_json(fallback_request_run / "llm_request.json", {"ok": True})
+        empty_run = root / "results" / "runs" / "empty"
+        empty_run.mkdir(parents=True)
+        baseline_like = root / "results" / "runs" / "baseline"
+        baseline_like.mkdir(parents=True)
+        _write_json(baseline_like / "metrics.json", _benchmark_payload())
+        wrong_status = root / "results" / "runs" / "wrong_status"
+        wrong_status.mkdir(parents=True)
+        _write_json(wrong_status / "candidate.json", _candidate_payload())
+        _write_json(wrong_status / "status.json", {"scenario": "baseline"})
+
         self.assertEqual(
             runner._parse_candidate_run_dir("CANDIDATE_RUN_DIR=results/runs/candidate_1\n"),
             "results/runs/candidate_1",
@@ -325,6 +348,10 @@ class RunExperimentClosedLoopTests(unittest.TestCase):
             runner._parse_candidate_run_dir("Artifacts saved to: results/runs/candidate_3\n"),
             "results/runs/candidate_3",
         )
+        self.assertIsNone(runner._parse_candidate_run_dir("Run directory: results/runs/missing\n"))
+        self.assertIsNone(runner._parse_candidate_run_dir("Run directory: results/runs/empty\n"))
+        self.assertIsNone(runner._parse_candidate_run_dir("Run directory: results/runs/baseline\n"))
+        self.assertIsNone(runner._parse_candidate_run_dir("Run directory: results/runs/wrong_status\n"))
         self.assertIsNone(runner._parse_candidate_run_dir("Run directory: workspace/not_a_candidate\n"))
 
     def test_initialization_creates_current_best_source_and_state(self) -> None:
@@ -449,6 +476,7 @@ class RunExperimentClosedLoopTests(unittest.TestCase):
                 "candidate_run_dir": str(candidate_run_dir),
                 "comparison": {"speedup": speedup, "runtime_reduction_percent": 20.0 if iteration == 1 else -5.0},
                 "rejection_reasons": [],
+                "non_acceptance_reasons": [],
             }
 
         originals = {

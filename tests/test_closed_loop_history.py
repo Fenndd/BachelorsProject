@@ -154,7 +154,8 @@ def test_valid_not_improved_below_runtime_threshold_has_specific_history() -> No
                 speedup_vs_current_best=1.001,
                 decision_vs_current_best={
                     "status": "valid_not_improved",
-                    "rejection_reasons": ["runtime_improvement_below_minimum_threshold"],
+                    "rejection_reasons": [],
+                    "non_acceptance_reasons": ["runtime_improvement_below_minimum_threshold"],
                     "thresholds": {"min_runtime_reduction_percent": 0.5},
                     "comparison": {
                         "speedup": 1.001,
@@ -169,6 +170,56 @@ def test_valid_not_improved_below_runtime_threshold_has_specific_history() -> No
     assert context is not None
     assert "0.1% faster than current best, below the 0.5% acceptance threshold" in context
     assert "too small to accept as reliable" in context
+
+
+def test_valid_not_improved_below_runtime_threshold_legacy_rejection_reason_fallback() -> None:
+    context = build_closed_loop_history_context(
+        [
+            _record(
+                "valid_not_improved",
+                speedup_vs_current_best=1.001,
+                decision_vs_current_best={
+                    "status": "valid_not_improved",
+                    "rejection_reasons": ["runtime_improvement_below_minimum_threshold"],
+                    "thresholds": {"min_runtime_reduction_percent": 0.5},
+                    "comparison": {
+                        "speedup": 1.001,
+                        "runtime_reduction_percent": 0.1,
+                        "candidate_runtime_lower": True,
+                    },
+                },
+            )
+        ]
+    )
+
+    assert context is not None
+    assert "0.1% faster than current best, below the 0.5% acceptance threshold" in context
+
+
+def test_valid_not_improved_without_threshold_reason_uses_normal_guidance() -> None:
+    context = build_closed_loop_history_context(
+        [
+            _record(
+                "valid_not_improved",
+                speedup_vs_current_best=1.0,
+                decision_vs_current_best={
+                    "status": "valid_not_improved",
+                    "rejection_reasons": [],
+                    "non_acceptance_reasons": [],
+                    "thresholds": {"min_runtime_reduction_percent": 0.5},
+                    "comparison": {
+                        "speedup": 1.0,
+                        "runtime_reduction_percent": 0.0,
+                        "candidate_runtime_lower": False,
+                    },
+                },
+            )
+        ]
+    )
+
+    assert context is not None
+    assert "correct but not faster than current best" in context
+    assert "Do not repeat this optimization pattern" in context
 
 
 def test_accepted_result_text_uses_runtime_slowdown_percent_from_speedup() -> None:

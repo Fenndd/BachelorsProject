@@ -31,7 +31,7 @@ TARGET_FILE = "cpp/external/lambdatwist/p3p.cc"
 
 def _config(iterations: int = 2) -> ExperimentConfig:
     return ExperimentConfig(
-        experiment_name="Stage 7 final artifacts",
+        experiment_name="closed_loop_final_artifacts",
         description=None,
         target_file=TARGET_FILE,
         pipeline=ExperimentPipelineConfig(
@@ -164,6 +164,17 @@ def _state(
 
 
 def _record(iteration: int, status: IterationStatus) -> ClosedLoopIterationRecord:
+    comparison_speedup = 1.1 if status == IterationStatus.ACCEPTED_IMPROVEMENT else 1.0
+    comparison_runtime_reduction = 9.1 if status == IterationStatus.ACCEPTED_IMPROVEMENT else 0.0
+    decision = {
+        "status": status.value,
+        "comparison": {
+            "speedup": comparison_speedup,
+            "runtime_reduction_percent": comparison_runtime_reduction,
+        },
+        "rejection_reasons": ["correctness_failed"] if status == IterationStatus.REJECTED else [],
+        "non_acceptance_reasons": [],
+    }
     return ClosedLoopIterationRecord(
         experiment_id="exp_001",
         iteration=iteration,
@@ -171,8 +182,8 @@ def _record(iteration: int, status: IterationStatus) -> ClosedLoopIterationRecor
         base_source_kind="current_best",
         reference_best_iteration_before=max(0, iteration - 1),
         candidate_run_dir=Path(f"results/runs/candidate_{iteration:03d}") if status != IterationStatus.GENERATION_FAILED else None,
-        decision_vs_current_best={"status": status.value, "speedup": 1.1} if status in {IterationStatus.ACCEPTED_IMPROVEMENT, IterationStatus.VALID_NOT_IMPROVED, IterationStatus.REJECTED} else None,
-        decision_vs_original_baseline={"status": status.value, "speedup": 1.2} if status in {IterationStatus.ACCEPTED_IMPROVEMENT, IterationStatus.VALID_NOT_IMPROVED, IterationStatus.REJECTED} else None,
+        decision_vs_current_best=decision if status in {IterationStatus.ACCEPTED_IMPROVEMENT, IterationStatus.VALID_NOT_IMPROVED, IterationStatus.REJECTED} else None,
+        decision_vs_original_baseline=decision if status in {IterationStatus.ACCEPTED_IMPROVEMENT, IterationStatus.VALID_NOT_IMPROVED, IterationStatus.REJECTED} else None,
         speedup_vs_current_best=1.1 if status == IterationStatus.ACCEPTED_IMPROVEMENT else None,
         speedup_vs_original_baseline=1.2 if status == IterationStatus.ACCEPTED_IMPROVEMENT else None,
         current_best_updated=status == IterationStatus.ACCEPTED_IMPROVEMENT,
@@ -457,8 +468,8 @@ def test_closed_loop_selection_report_is_reporting_only(
     best = report["best_verified_candidate_vs_original_baseline"]
     assert best["iteration"] == 1
     assert best["candidate_run_dir"] == "results/runs/candidate_001"
-    assert best["speedup"] == 1.2
-    assert best["runtime_reduction_percent"] is None
+    assert best["speedup"] == 1.1
+    assert best["runtime_reduction_percent"] == 9.1
     assert best["matches_final_current_best"] is True
     assert best["status"] == "accepted_improvement"
     assert report["safety"] == {
@@ -503,11 +514,15 @@ def test_selection_report_best_verified_match_false_and_none(tmp_path: Path, mon
         created_at="2026-05-10T05:00:00+02:00",
         finished_at="2026-05-10T05:10:00+02:00",
     )
-    better_non_final = _record(2, IterationStatus.VALID_NOT_IMPROVED)
+    better_non_final = _record(2, IterationStatus.ACCEPTED_IMPROVEMENT)
     better_non_final.decision_vs_original_baseline = {
-        "status": "valid_not_improved",
-        "speedup": 1.5,
-        "runtime_reduction_percent": 33.3,
+        "status": "accepted_improvement",
+        "comparison": {
+            "speedup": 1.5,
+            "runtime_reduction_percent": 33.3,
+        },
+        "rejection_reasons": [],
+        "non_acceptance_reasons": [],
     }
     better_non_final.speedup_vs_original_baseline = 1.5
     report_path = run_experiment.write_closed_loop_selection_report(
@@ -520,6 +535,44 @@ def test_selection_report_best_verified_match_false_and_none(tmp_path: Path, mon
     assert report["best_verified_candidate_vs_original_baseline"]["candidate_run_dir"] == "results/runs/candidate_002"
     assert report["best_verified_candidate_vs_original_baseline"]["runtime_reduction_percent"] == 33.3
     assert report["best_verified_candidate_vs_original_baseline"]["matches_final_current_best"] is False
+
+    below_threshold = _record(3, IterationStatus.VALID_NOT_IMPROVED)
+    below_threshold.decision_vs_original_baseline = {
+        "status": "valid_not_improved",
+        "comparison": {
+            "speedup": 1.001,
+            "runtime_reduction_percent": 0.1,
+        },
+        "rejection_reasons": [],
+        "non_acceptance_reasons": ["runtime_improvement_below_minimum_threshold"],
+    }
+    below_threshold.speedup_vs_original_baseline = 1.001
+    below_path = run_experiment.write_closed_loop_selection_report(
+        repo_root / "results" / "experiments" / "exp_003",
+        state,
+        summary,
+        [_record(1, IterationStatus.ACCEPTED_IMPROVEMENT), below_threshold],
+    )
+    below_report = json.loads(below_path.read_text(encoding="utf-8"))
+    assert below_report["best_verified_candidate_vs_original_baseline"]["candidate_run_dir"] == "results/runs/candidate_001"
+    assert below_report["best_verified_candidate_vs_original_baseline"]["status"] == "accepted_improvement"
+
+    legacy = _record(4, IterationStatus.ACCEPTED_IMPROVEMENT)
+    legacy.decision_vs_original_baseline = {
+        "status": "accepted_improvement",
+        "speedup": 1.4,
+        "runtime_reduction_percent": 28.6,
+    }
+    legacy.speedup_vs_original_baseline = None
+    legacy_path = run_experiment.write_closed_loop_selection_report(
+        repo_root / "results" / "experiments" / "exp_004",
+        state,
+        summary,
+        [legacy],
+    )
+    legacy_report = json.loads(legacy_path.read_text(encoding="utf-8"))
+    assert legacy_report["best_verified_candidate_vs_original_baseline"]["speedup"] == 1.4
+    assert legacy_report["best_verified_candidate_vs_original_baseline"]["runtime_reduction_percent"] == 28.6
 
     no_best_path = run_experiment.write_closed_loop_selection_report(
         repo_root / "results" / "experiments" / "exp_002",

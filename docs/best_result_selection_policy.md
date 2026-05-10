@@ -146,6 +146,8 @@ Pairwise candidate statuses:
     the reference by the minimum required amount.
   - This includes candidates that are faster but below the minimum runtime
     reduction threshold.
+  - Non-rejected candidates can include `non_acceptance_reasons` explaining why
+    they were not accepted.
 - `accepted_improvement`
   - Candidate passed all hard gates and improves runtime versus the reference by
     at least the minimum runtime reduction threshold.
@@ -169,7 +171,9 @@ For `accepted_improvement`, the candidate must pass correctness/comparability
 gates, have lower runtime than the reference, and have
 `runtime_reduction_percent >= min_runtime_reduction_percent`. A faster candidate
 below this threshold is recorded as `valid_not_improved` with comparison metrics
-still present and reason `runtime_improvement_below_minimum_threshold`.
+still present and `non_acceptance_reasons` containing
+`runtime_improvement_below_minimum_threshold`. Its `rejection_reasons` remain
+empty because it passed hard rejection gates.
 
 Where:
 
@@ -239,6 +243,7 @@ Each entry in `decisions`:
 | `mean_best_reprojection_error` | number\|null | Mean reprojection error |
 | `max_best_reprojection_error` | number\|null | Max reprojection error |
 | `rejection_reasons` | string[] | List of rejection reasons (empty for non-rejected) |
+| `non_acceptance_reasons` | string[] | Reasons a valid non-rejected candidate was not accepted, when present |
 
 ## 13. Non-goals
 

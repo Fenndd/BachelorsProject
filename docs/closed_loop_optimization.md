@@ -71,7 +71,11 @@ Closed-loop iteration records can use these statuses:
 Only `accepted_improvement` updates `current_best_source`. A verified candidate
 must pass correctness/comparability gates and reduce runtime by at least the
 default `min_runtime_reduction_percent = 0.5` to be accepted. Faster candidates
-below that threshold are `valid_not_improved` and are not promoted.
+below that threshold are `valid_not_improved` and are not promoted. Such
+candidates are valid rather than rejected; their decision artifacts use
+`non_acceptance_reasons`, for example
+`runtime_improvement_below_minimum_threshold`, while `rejection_reasons` stays
+reserved for hard rejection/correctness/audit failures.
 
 ## Decision Artifacts
 

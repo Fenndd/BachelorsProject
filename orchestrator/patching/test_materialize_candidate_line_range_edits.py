@@ -24,6 +24,35 @@ def _write_source(source_root: Path, text: str) -> None:
     (source_root / "example.cpp").write_text(text, encoding="utf-8")
 
 
+def _write_build_artifacts(source_root: Path) -> None:
+    for relative in [
+        "build/temp.obj",
+        "build-codex/cache.txt",
+        "cmake-build-debug/cache.txt",
+        "CMakeFiles/generated.txt",
+        "Testing/test.xml",
+    ]:
+        path = source_root / relative
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text("generated\n", encoding="utf-8")
+    for relative in [
+        "CMakeCache.txt",
+        "build.ninja",
+        ".ninja_log",
+        "tool.exe",
+        "object.obj",
+        "object.o",
+        "symbols.pdb",
+        "link.ilk",
+        "library.dll",
+        "libtemp.lib",
+        "libtemp.a",
+    ]:
+        path = source_root / relative
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text("generated\n", encoding="utf-8")
+
+
 def _line_candidate(
     run_dir: Path,
     *,
@@ -140,6 +169,52 @@ class MaterializeCandidateLineRangeEditsTests(unittest.TestCase):
             self.assertEqual((REPO_ROOT / P3P_TARGET_FILE).read_text(encoding="utf-8"), repo_text_before)
             self.assertTrue((run_dir / "candidate.generated.diff").exists())
             self.assertFalse((run_dir / "candidate.diff").exists())
+
+    def test_source_copy_excludes_build_cache_and_generated_artifacts(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmp_path = Path(tmpdir)
+            source_root = tmp_path / "cpp"
+            _write_source(source_root, "int value = 1;\n")
+            _write_build_artifacts(source_root)
+            run_dir = tmp_path / "candidate_ignore_artifacts"
+            _line_candidate(
+                run_dir,
+                edits=[
+                    {
+                        "file": TARGET_FILE,
+                        "start_line": 1,
+                        "end_line": 1,
+                        "original": "int value = 1;",
+                        "replace": "int value = 2;",
+                    }
+                ],
+            )
+
+            exit_code = _materialize(tmp_path, run_dir, source_root)
+
+            self.assertEqual(exit_code, 0)
+            materialization = _read_materialization(run_dir)
+            workspace_source = Path(materialization["workspace_path"]) / "cpp"
+            self.assertEqual((workspace_source / "example.cpp").read_text(encoding="utf-8"), "int value = 2;\n")
+            for relative in [
+                "build",
+                "build-codex",
+                "cmake-build-debug",
+                "CMakeFiles",
+                "Testing",
+                "CMakeCache.txt",
+                "build.ninja",
+                ".ninja_log",
+                "tool.exe",
+                "object.obj",
+                "object.o",
+                "symbols.pdb",
+                "link.ilk",
+                "library.dll",
+                "libtemp.lib",
+                "libtemp.a",
+            ]:
+                self.assertFalse((workspace_source / relative).exists(), relative)
 
     def test_line_range_trailing_whitespace_tolerant_success(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:

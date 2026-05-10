@@ -164,6 +164,7 @@ def evaluate_candidate_against_reference(
             )
 
     rejection_reasons = _unique_preserving_order(rejection_reasons)
+    non_acceptance_reasons: list[str] = []
     comparison = {
         "speedup": None,
         "runtime_reduction_percent": None,
@@ -196,7 +197,7 @@ def evaluate_candidate_against_reference(
             else:
                 status = "valid_not_improved"
                 if candidate_runtime_lower:
-                    rejection_reasons.append(
+                    non_acceptance_reasons.append(
                         "runtime_improvement_below_minimum_threshold"
                     )
 
@@ -209,6 +210,7 @@ def evaluate_candidate_against_reference(
         "audit_issues": _audit_issues(audit),
         "thresholds": asdict(effective_thresholds),
         "rejection_reasons": rejection_reasons,
+        "non_acceptance_reasons": _unique_preserving_order(non_acceptance_reasons),
         "reference_metrics": _metrics_summary(reference),
         "candidate_metrics": _metrics_summary(candidate),
         "comparison": comparison,

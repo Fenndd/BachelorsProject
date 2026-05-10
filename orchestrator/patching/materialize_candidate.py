@@ -699,9 +699,24 @@ def _skipped_step(name: str) -> dict[str, Any]:
 def _copy_ignore(directory: str, names: list[str]) -> set[str]:
     ignored = set()
     for name in names:
-        if name in {"build", "CMakeFiles", "Testing"}:
+        if name in {"build", "CMakeFiles", "Testing", "CMakeCache.txt", "build.ninja"}:
             ignored.add(name)
-        elif fnmatch.fnmatch(name, "cmake-build-*"):
+        elif any(
+            fnmatch.fnmatch(name, pattern)
+            for pattern in [
+                "build-*",
+                "cmake-build-*",
+                ".ninja_*",
+                "*.exe",
+                "*.obj",
+                "*.o",
+                "*.pdb",
+                "*.ilk",
+                "*.dll",
+                "*.lib",
+                "*.a",
+            ]
+        ):
             ignored.add(name)
     return ignored
 

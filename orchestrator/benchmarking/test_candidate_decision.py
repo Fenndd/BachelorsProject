@@ -148,6 +148,7 @@ class CandidateDecisionTests(unittest.TestCase):
 
         self.assertEqual(decision["status"], "valid_not_improved")
         self.assertEqual(decision["rejection_reasons"], [])
+        self.assertEqual(decision["non_acceptance_reasons"], [])
         self.assertFalse(decision["comparison"]["candidate_runtime_lower"])
         self.assertAlmostEqual(decision["comparison"]["speedup"], 1000.0 / 1200.0)
         self.assertAlmostEqual(
@@ -163,6 +164,7 @@ class CandidateDecisionTests(unittest.TestCase):
 
         self.assertEqual(decision["status"], "accepted_improvement")
         self.assertEqual(decision["rejection_reasons"], [])
+        self.assertEqual(decision["non_acceptance_reasons"], [])
         self.assertTrue(decision["comparison"]["candidate_runtime_lower"])
         self.assertAlmostEqual(decision["comparison"]["speedup"], 1000.0 / 990.0)
         self.assertAlmostEqual(decision["comparison"]["runtime_reduction_percent"], 1.0)
@@ -175,11 +177,12 @@ class CandidateDecisionTests(unittest.TestCase):
         )
 
         self.assertEqual(decision["status"], "valid_not_improved")
+        self.assertEqual(decision["rejection_reasons"], [])
         self.assertTrue(decision["comparison"]["candidate_runtime_lower"])
         self.assertAlmostEqual(decision["comparison"]["runtime_reduction_percent"], 0.1)
         self.assertIn(
             "runtime_improvement_below_minimum_threshold",
-            decision["rejection_reasons"],
+            decision["non_acceptance_reasons"],
         )
         self.assertEqual(decision["thresholds"]["min_runtime_reduction_percent"], 0.5)
         self.assertEqual(decision["thresholds"]["absolute_reprojection_error_tolerance"], 1.0e-10)
@@ -198,6 +201,7 @@ class CandidateDecisionTests(unittest.TestCase):
         self.assertIn("comparison", decision)
         self.assertIn("status", decision)
         self.assertIn("rejection_reasons", decision)
+        self.assertIn("non_acceptance_reasons", decision)
         self.assertEqual(decision["baseline_run_dir"], decision["reference_run_dir"])
         self.assertEqual(decision["baseline_metrics"], decision["reference_metrics"])
         self.assertIn("baseline", decision["audit"])
