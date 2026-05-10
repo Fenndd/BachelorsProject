@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+import pytest
 
 from orchestrator.experiments.closed_loop_state import (
     ClosedLoopIterationRecord,
@@ -75,12 +76,57 @@ def _baseline_state(root: Path) -> CurrentBestState:
     )
 
 
+def _candidate_state(root: Path) -> CurrentBestState:
+    candidate_run_dir = root / "results" / "runs" / "candidate_001"
+    return CurrentBestState(
+        experiment_id="exp_001",
+        target_file="cpp/external/lambdatwist/p3p.cc",
+        original_baseline_run_dir=root / "results" / "runs" / "baseline",
+        original_baseline_metrics_path=root / "results" / "runs" / "baseline" / "metrics.json",
+        current_best_iteration=1,
+        current_best_is_baseline=False,
+        current_best_source_dir=root / "workspace" / "experiments" / "exp_001" / "current_best_source",
+        current_best_run_dir=candidate_run_dir,
+        current_best_metrics_path=candidate_run_dir / "verification.json",
+        accepted_improvements=1,
+        updated_at="2026-05-09T23:31:00+02:00",
+    )
+
+
 def test_current_best_state_can_represent_baseline_iteration_zero(tmp_path: Path) -> None:
     state = _baseline_state(tmp_path)
 
     assert state.current_best_iteration == 0
     assert state.current_best_is_baseline is True
     assert state.accepted_improvements == 0
+
+
+def test_current_best_state_can_represent_accepted_candidate(tmp_path: Path) -> None:
+    state = _candidate_state(tmp_path)
+
+    assert state.current_best_iteration == 1
+    assert state.current_best_is_baseline is False
+    assert state.accepted_improvements == 1
+
+
+def test_current_best_state_rejects_iteration_zero_non_baseline(tmp_path: Path) -> None:
+    with pytest.raises(ValueError, match="iteration is 0"):
+        CurrentBestState(**{**_baseline_state(tmp_path).__dict__, "current_best_is_baseline": False})
+
+
+def test_current_best_state_rejects_candidate_iteration_marked_baseline(tmp_path: Path) -> None:
+    with pytest.raises(ValueError, match="greater than 0"):
+        CurrentBestState(**{**_candidate_state(tmp_path).__dict__, "current_best_is_baseline": True})
+
+
+def test_current_best_state_rejects_baseline_with_accepted_improvements(tmp_path: Path) -> None:
+    with pytest.raises(ValueError, match="accepted_improvements must be 0"):
+        CurrentBestState(**{**_baseline_state(tmp_path).__dict__, "accepted_improvements": 1})
+
+
+def test_current_best_state_rejects_candidate_without_accepted_improvement(tmp_path: Path) -> None:
+    with pytest.raises(ValueError, match="at least 1"):
+        CurrentBestState(**{**_candidate_state(tmp_path).__dict__, "accepted_improvements": 0})
 
 
 def test_current_best_state_serializes_path_fields_to_strings(tmp_path: Path) -> None:

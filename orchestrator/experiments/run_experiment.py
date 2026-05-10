@@ -4,8 +4,10 @@ This runner supports one or more variants. Each variant can run the staged
 candidate pipeline: generate_candidate, optionally materialize_candidate, and
 optionally verify_candidate. When selection is explicitly enabled in the
 experiment config, the runner compares verified candidate artifacts against an
-explicit baseline run and writes a best-candidate selection artifact. It does
-not promote, merge, or copy candidate code into the main source tree.
+explicit baseline run and writes a best-candidate selection artifact. It never
+promotes candidates into the main ``cpp/`` source tree. In closed-loop mode it
+can promote accepted candidates only into the experiment-local
+``current_best_source`` workspace.
 
 Build type for candidate verification:
   The candidate verification stage defaults to Release builds (optimized) so
@@ -378,6 +380,10 @@ def _build_materialization_command(
     ]
     if base_source_root is not None:
         command.extend(["--base-source-root", base_source_root])
+    if config.candidate_format.allow_exact_search_fallback:
+        command.append("--allow-exact-search-fallback")
+    else:
+        command.append("--no-allow-exact-search-fallback")
     # Pass each allowed file as a separate --allowed-file argument
     for allowed_file in config.optimization_scope.allowed_files:
         command.extend(["--allowed-file", allowed_file])
@@ -1871,7 +1877,7 @@ def finalize_closed_loop_artifacts(
     started_at: datetime,
     finished_at: str,
 ) -> tuple[ClosedLoopSummary, Path]:
-    """Write Stage 7 final closed-loop artifacts after all iterations finish."""
+    """Write final closed-loop artifacts after all iterations finish."""
 
     copy_final_optimized_source(paths, config)
     write_final_optimized_source_diff(paths, config)
@@ -1904,6 +1910,7 @@ def write_closed_loop_selection_report(
     experiment_dir: Path,
     state: CurrentBestState,
     summary: ClosedLoopSummary,
+    records: list[ClosedLoopIterationRecord] | None = None,
 ) -> Path:
     """Write reporting-only final closed-loop selection analysis.
 
@@ -1913,8 +1920,24 @@ def write_closed_loop_selection_report(
     """
 
     report_path = experiment_dir / "closed_loop_selection_report.json"
+    candidate_attempts = [_compact_candidate_attempt(record) for record in (records or [])]
     payload = {
         "report_type": "closed_loop_final_selection_report",
+        "experiment_id": summary.experiment_id,
+        "target_file": summary.target_file,
+        "mode": "closed_loop",
+        "promotion_policy": "decision_vs_current_best.accepted_improvement_only",
+        "final_current_best": {
+            "iteration": state.current_best_iteration,
+            "is_baseline": state.current_best_is_baseline,
+            "run_dir": str(state.current_best_run_dir),
+            "source_dir": str(state.current_best_source_dir),
+            "metrics_path": str(state.current_best_metrics_path),
+            "accepted_improvements": state.accepted_improvements,
+        },
+        "best_verified_candidate_vs_original_baseline": _best_verified_candidate_vs_original_baseline(candidate_attempts),
+        "candidate_attempts": candidate_attempts,
+        "status_counts": summary.status_counts,
         "control_decision": {
             "promotion_policy": "decision_vs_current_best.accepted_improvement_only",
             "final_best_iteration": state.current_best_iteration,
@@ -1939,6 +1962,60 @@ def write_closed_loop_selection_report(
     }
     _write_json(report_path, payload)
     return report_path
+
+
+def _compact_candidate_attempt(record: ClosedLoopIterationRecord) -> dict[str, Any]:
+    return {
+        "iteration": record.iteration,
+        "status": record.status.value if isinstance(record.status, IterationStatus) else record.status,
+        "candidate_run_dir": str(record.candidate_run_dir) if record.candidate_run_dir is not None else None,
+        "decision_vs_current_best": _compact_report_decision(record.decision_vs_current_best),
+        "decision_vs_original_baseline": _compact_report_decision(record.decision_vs_original_baseline),
+        "speedup_vs_current_best": record.speedup_vs_current_best,
+        "speedup_vs_original_baseline": record.speedup_vs_original_baseline,
+        "current_best_updated": record.current_best_updated,
+        "failure_stage": record.failure_stage,
+        "failure_reason": record.failure_reason,
+    }
+
+
+def _compact_report_decision(decision: dict[str, Any] | str | None) -> dict[str, Any] | str | None:
+    if not isinstance(decision, dict):
+        return decision
+    return {
+        "status": decision.get("status"),
+        "reference_kind": decision.get("reference_kind"),
+        "speedup": decision.get("speedup"),
+        "runtime_reduction_percent": decision.get("runtime_reduction_percent"),
+        "rejection_reasons": decision.get("rejection_reasons"),
+    }
+
+
+def _best_verified_candidate_vs_original_baseline(
+    candidate_attempts: list[dict[str, Any]],
+) -> dict[str, Any] | None:
+    best_attempt: dict[str, Any] | None = None
+    best_speedup: float | None = None
+    for attempt in candidate_attempts:
+        decision = attempt.get("decision_vs_original_baseline")
+        if not isinstance(decision, dict):
+            continue
+        status = decision.get("status")
+        if status not in {"accepted_improvement", "valid_not_improved"}:
+            continue
+        speedup = attempt.get("speedup_vs_original_baseline")
+        if not isinstance(speedup, (int, float)) or isinstance(speedup, bool):
+            continue
+        if best_speedup is None or float(speedup) > best_speedup:
+            best_speedup = float(speedup)
+            best_attempt = {
+                "iteration": attempt.get("iteration"),
+                "candidate_run_dir": attempt.get("candidate_run_dir"),
+                "status_vs_original_baseline": status,
+                "speedup_vs_original_baseline": best_speedup,
+                "current_best_updated": attempt.get("current_best_updated"),
+            }
+    return best_attempt
 
 
 def _closed_loop_status_block(
@@ -2271,7 +2348,7 @@ def _run_closed_loop_experiment(
         started_at=started_at,
         finished_at=finished_at,
     )
-    selection_report_path = write_closed_loop_selection_report(experiment_dir, state, summary)
+    selection_report_path = write_closed_loop_selection_report(experiment_dir, state, summary, records)
     final_status = {
         "experiment_id": experiment_id,
         "experiment_name": config.experiment_name,

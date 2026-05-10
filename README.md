@@ -27,6 +27,7 @@ Not implemented yet:
 - Additional solver families/adapters beyond the current minimal Lambda Twist P3P path.
 - JSON metrics output directly from C++ benchmarks.
 - Advanced plots and broader statistical dashboards or aggregate reports.
+- Memory measurement; the current prototype focuses on runtime and correctness/reprojection metrics.
 
 ## Repository Structure
 

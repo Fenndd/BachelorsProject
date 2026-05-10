@@ -60,6 +60,40 @@ def test_failed_statuses_require_candidate_information() -> None:
     )
 
 
+def test_valid_not_improved_requires_useful_pattern_information() -> None:
+    assert should_include_in_closed_loop_history(
+        _record(
+            "valid_not_improved",
+            candidate_run_dir=None,
+            candidate_summary="Try cached arithmetic",
+            candidate_expected_effect=None,
+            speedup_vs_current_best=None,
+        )
+    )
+    assert should_include_in_closed_loop_history(
+        _record(
+            "valid_not_improved",
+            candidate_run_dir=None,
+            candidate_summary=None,
+            candidate_expected_effect=None,
+            speedup_vs_current_best=0.99,
+        )
+    )
+    assert not should_include_in_closed_loop_history(
+        _record(
+            "valid_not_improved",
+            candidate_run_dir=None,
+            candidate_summary=None,
+            candidate_expected_effect=None,
+            speedup_vs_current_best=None,
+        )
+    )
+    assert not should_include_in_closed_loop_history(_record("no_op"))
+    assert not should_include_in_closed_loop_history(
+        _record("generation_failed", candidate_run_dir=None, candidate_summary=None)
+    )
+
+
 def test_history_text_contains_compact_benchmark_aware_entries() -> None:
     records = [
         _record("accepted_improvement", iteration=1),

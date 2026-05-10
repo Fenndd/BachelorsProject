@@ -1,9 +1,8 @@
-"""Closed-loop optimization state and artifact models.
+"""Closed-loop optimization data contracts and artifact helpers.
 
-This module defines only the Stage 1 closed-loop data contracts: paths,
-serializable state records, JSON/JSONL artifact helpers, and status counting.
-It deliberately does not run generation, materialization, verification, or
-candidate promotion.
+This module defines closed-loop paths, serializable state records, JSON/JSONL
+artifact helpers, and status counting. It deliberately does not run generation,
+materialization, verification, or candidate promotion.
 """
 
 from __future__ import annotations
@@ -90,6 +89,18 @@ class CurrentBestState:
         if self.current_best_iteration == 0 and not self.current_best_is_baseline:
             raise ValueError(
                 "current_best_is_baseline must be true when current_best_iteration is 0"
+            )
+        if self.current_best_iteration > 0 and self.current_best_is_baseline:
+            raise ValueError(
+                "current_best_is_baseline must be false when current_best_iteration is greater than 0"
+            )
+        if self.current_best_is_baseline and self.accepted_improvements != 0:
+            raise ValueError(
+                "accepted_improvements must be 0 when current best is the baseline"
+            )
+        if self.current_best_iteration > 0 and self.accepted_improvements < 1:
+            raise ValueError(
+                "accepted_improvements must be at least 1 when current_best_iteration is greater than 0"
             )
 
 

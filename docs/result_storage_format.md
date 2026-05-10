@@ -573,3 +573,5 @@ when available, and paths to `final_optimized_source/`,
 - Advanced plots, broader statistical dashboards, and additional aggregate analyses
 - JSON metrics output directly from C++ benchmarks
 - Additional solver families/adapters
+- Configurable minimum runtime-improvement thresholds or repeated-benchmark confidence policies
+- Memory measurement; the current minimal P3P pipeline records runtime and correctness/reprojection metrics only

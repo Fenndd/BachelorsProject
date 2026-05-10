@@ -146,3 +146,5 @@ Key artifacts are:
 - Automatic promotion into the main `cpp/` source tree is not implemented.
 - Multi-variant closed-loop strategy is not implemented.
 - Additional solver families beyond the current minimal Lambda Twist P3P path are not implemented.
+- Candidate acceptance currently uses strict lower median runtime after correctness and comparability gates. There is no configurable minimum runtime-reduction or confidence threshold yet; future work may add `min_runtime_reduction_percent`, minimum speedup, or repeated-benchmark confidence policies.
+- The current minimal P3P prototype focuses on runtime and correctness/reprojection metrics. Memory measurement is not implemented yet and remains future optional work.

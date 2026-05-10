@@ -62,9 +62,14 @@ def _unified_diff_candidate(run_dir: Path, diff_text: str) -> None:
     (run_dir / "candidate.diff").write_text(diff_text, encoding="utf-8")
 
 
-def _materialize(tmp_path: Path, run_dir: Path, source_root: Path) -> int:
-    return materialize_main(
-        [
+def _materialize(
+    tmp_path: Path,
+    run_dir: Path,
+    source_root: Path,
+    *,
+    allow_exact_search_fallback: bool = True,
+) -> int:
+    args = [
             "--candidate-run",
             str(run_dir),
             "--workspace-root",
@@ -75,7 +80,12 @@ def _materialize(tmp_path: Path, run_dir: Path, source_root: Path) -> int:
             "--allowed-file",
             TARGET_FILE,
         ]
+    args.append(
+        "--allow-exact-search-fallback"
+        if allow_exact_search_fallback
+        else "--no-allow-exact-search-fallback"
     )
+    return materialize_main(args)
 
 
 def _read_materialization(run_dir: Path) -> dict[str, Any]:
@@ -353,6 +363,40 @@ class MaterializeCandidateLineRangeEditsTests(unittest.TestCase):
             materialization = _read_materialization(run_dir)
             self.assertEqual(materialization["line_range_fallback_matches"], 1)
             self.assertTrue(materialization["line_range_fallback_used"])
+            self.assertTrue(materialization["line_range_allow_exact_search_fallback"])
+
+    def test_line_range_mismatch_cli_fallback_disabled_fails(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmp_path = Path(tmpdir)
+            source_root = tmp_path / "cpp"
+            _write_source(source_root, "int a = 1;\nint unique = 7;\n")
+            run_dir = tmp_path / "candidate_no_fallback"
+            _line_candidate(
+                run_dir,
+                edits=[
+                    {
+                        "file": TARGET_FILE,
+                        "start_line": 1,
+                        "end_line": 1,
+                        "original": "int unique = 7;",
+                        "replace": "int unique = 8;",
+                    }
+                ],
+            )
+
+            exit_code = _materialize(
+                tmp_path,
+                run_dir,
+                source_root,
+                allow_exact_search_fallback=False,
+            )
+
+            self.assertEqual(exit_code, 1)
+            materialization = _read_materialization(run_dir)
+            self.assertEqual(materialization["overall_status"], "failed")
+            self.assertEqual(materialization["failed_step"], "line_range_apply")
+            self.assertFalse(materialization["line_range_allow_exact_search_fallback"])
+            self.assertIn("fallback is disabled", materialization["error_message"])
 
     def test_fallback_ambiguous_failure(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:

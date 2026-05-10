@@ -94,6 +94,19 @@ def _parse_args(argv: list[str]) -> argparse.Namespace:
             "must be a subset of these allowed files."
         ),
     )
+    parser.set_defaults(allow_exact_search_fallback=True)
+    parser.add_argument(
+        "--allow-exact-search-fallback",
+        dest="allow_exact_search_fallback",
+        action="store_true",
+        help="Allow line_range_edits to fall back to unique exact-text search when line numbers do not match (default).",
+    )
+    parser.add_argument(
+        "--no-allow-exact-search-fallback",
+        dest="allow_exact_search_fallback",
+        action="store_false",
+        help="Disable exact-text fallback for line_range_edits; line ranges must match exactly.",
+    )
     return parser.parse_args(argv)
 
 
@@ -1118,7 +1131,7 @@ def main(argv: list[str] | None = None) -> int:
                     "line_range_exact_matches": 0,
                     "line_range_fallback_matches": 0,
                     "line_range_fallback_used": False,
-                    "line_range_allow_exact_search_fallback": True,
+                    "line_range_allow_exact_search_fallback": args.allow_exact_search_fallback,
                     "generated_diff_path": _display_path(generated_diff_path),
                     "line_range_edit_results": [],
                 }
@@ -1297,7 +1310,7 @@ def main(argv: list[str] | None = None) -> int:
             line_range_apply_result = _apply_line_range_edits(
                 workspace_path,
                 line_range_edits,
-                allow_exact_search_fallback=True,
+                allow_exact_search_fallback=args.allow_exact_search_fallback,
             )
             assert generated_diff_path is not None
             _generate_unified_diff(

@@ -43,7 +43,7 @@ def _benchmark_payload(runtime: float = 1000.0) -> dict[str, Any]:
     }
 
 
-def _config_payload(root: Path, *, iterations: int = 1) -> dict[str, Any]:
+def _config_payload(root: Path, *, iterations: int = 1, allow_exact_search_fallback: bool = True) -> dict[str, Any]:
     return {
         "experiment_name": "closed loop test",
         "target_file": TARGET_FILE,
@@ -58,7 +58,7 @@ def _config_payload(root: Path, *, iterations: int = 1) -> dict[str, Any]:
             "type": "line_range_edits",
             "source_presentation": "line_numbered",
             "require_original_verification": True,
-            "allow_exact_search_fallback": True,
+            "allow_exact_search_fallback": allow_exact_search_fallback,
         },
         "closed_loop": {"enabled": True},
         "selection": {
@@ -70,9 +70,9 @@ def _config_payload(root: Path, *, iterations: int = 1) -> dict[str, Any]:
     }
 
 
-def _write_config(root: Path, *, iterations: int = 1) -> Path:
+def _write_config(root: Path, *, iterations: int = 1, allow_exact_search_fallback: bool = True) -> Path:
     path = root / "config.json"
-    _write_json(path, _config_payload(root, iterations=iterations))
+    _write_json(path, _config_payload(root, iterations=iterations, allow_exact_search_fallback=allow_exact_search_fallback))
     return path
 
 
@@ -282,6 +282,7 @@ class RunExperimentClosedLoopTests(unittest.TestCase):
         self.assertEqual(harness.stage_calls.count("generate_candidate"), 5)
         self.assertIn("--source-root", harness.generated_commands[0])
         self.assertIn("--base-source-root", harness.materialization_commands[0])
+        self.assertIn("--allow-exact-search-fallback", harness.materialization_commands[0])
         records = [json.loads(line) for line in paths.closed_loop_iterations_path.read_text(encoding="utf-8").splitlines()]
         self.assertFalse(records[0]["history_included"])
         self.assertIsNone(records[0]["history_guidance"])
@@ -292,6 +293,24 @@ class RunExperimentClosedLoopTests(unittest.TestCase):
         self.assertFalse(records[3]["history_included"])
         self.assertIsNone(records[3]["history_guidance"])
         self.assertTrue(records[4]["history_included"])
+
+    def test_materialization_command_propagates_disabled_exact_search_fallback(self) -> None:
+        temp = tempfile.TemporaryDirectory()
+        self.addCleanup(temp.cleanup)
+        root = Path(temp.name)
+        _create_repo_layout(root)
+        config_path = _write_config(root, allow_exact_search_fallback=False)
+        config = load_experiment_config(config_path)
+
+        command = runner._build_materialization_command(
+            "results/runs/candidate_1",
+            config,
+            base_source_root="workspace/experiments/exp/current_best_source",
+        )
+
+        self.assertIn("--base-source-root", command)
+        self.assertIn("--no-allow-exact-search-fallback", command)
+        self.assertNotIn("--allow-exact-search-fallback", command)
 
     def test_initialization_creates_current_best_source_and_state(self) -> None:
         root, _harness = self._run_with_statuses(["no_op"])

@@ -120,7 +120,15 @@ def _record(iteration: int, status: IterationStatus) -> ClosedLoopIterationRecor
         status=status,
         base_source_kind="current_best",
         reference_best_iteration_before=max(0, iteration - 1),
+        candidate_run_dir=Path(f"results/runs/candidate_{iteration:03d}") if status != IterationStatus.GENERATION_FAILED else None,
+        decision_vs_current_best={"status": status.value, "speedup": 1.1} if status in {IterationStatus.ACCEPTED_IMPROVEMENT, IterationStatus.VALID_NOT_IMPROVED, IterationStatus.REJECTED} else None,
+        decision_vs_original_baseline={"status": status.value, "speedup": 1.2} if status in {IterationStatus.ACCEPTED_IMPROVEMENT, IterationStatus.VALID_NOT_IMPROVED, IterationStatus.REJECTED} else None,
+        speedup_vs_current_best=1.1 if status == IterationStatus.ACCEPTED_IMPROVEMENT else None,
+        speedup_vs_original_baseline=1.2 if status == IterationStatus.ACCEPTED_IMPROVEMENT else None,
+        current_best_updated=status == IterationStatus.ACCEPTED_IMPROVEMENT,
         current_best_iteration_after=max(0, iteration - 1),
+        failure_stage="generation" if status == IterationStatus.GENERATION_FAILED else None,
+        failure_reason="failed" if status == IterationStatus.GENERATION_FAILED else None,
     )
 
 
@@ -329,10 +337,33 @@ def test_closed_loop_selection_report_is_reporting_only(
         repo_root / "results" / "experiments" / "exp_001",
         state,
         summary,
+        [
+            _record(1, IterationStatus.ACCEPTED_IMPROVEMENT),
+            _record(2, IterationStatus.VALID_NOT_IMPROVED),
+            _record(3, IterationStatus.REJECTED),
+            _record(4, IterationStatus.NO_OP),
+            _record(5, IterationStatus.GENERATION_FAILED),
+        ],
     )
 
     report = json.loads(report_path.read_text(encoding="utf-8"))
     assert report["control_decision"]["promotion_policy"] == "decision_vs_current_best.accepted_improvement_only"
+    assert report["experiment_id"] == "exp_001"
+    assert report["target_file"] == TARGET_FILE
+    assert report["mode"] == "closed_loop"
+    assert report["final_current_best"]["iteration"] == 1
+    assert len(report["candidate_attempts"]) == 5
+    assert [attempt["status"] for attempt in report["candidate_attempts"]] == [
+        "accepted_improvement",
+        "valid_not_improved",
+        "rejected",
+        "no_op",
+        "generation_failed",
+    ]
+    assert "candidate_summary" not in report["candidate_attempts"][0]
+    assert "audit" not in json.dumps(report["candidate_attempts"])
+    assert "diff --git" not in json.dumps(report)
+    assert report["status_counts"] == summary.status_counts
     assert report["control_decision"]["final_best_iteration"] == 1
     assert report["final_analysis"]["final_speedup_vs_original_baseline"] == 1.25
     assert report["safety"] == {

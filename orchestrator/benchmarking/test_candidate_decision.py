@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import math
 import tempfile
 import unittest
 from pathlib import Path
@@ -401,6 +402,38 @@ class CandidateDecisionTests(unittest.TestCase):
         )
         self.assertIsNone(decision["comparison"]["speedup"])
         self.assertIsNone(decision["comparison"]["runtime_reduction_percent"])
+
+    def test_non_finite_candidate_accuracy_metrics_are_not_comparable(self) -> None:
+        cases = [
+            {"parsed_success_rate": math.nan},
+            {"parsed_mean_best_reprojection_error": math.inf},
+            {"parsed_max_best_reprojection_error": math.nan},
+        ]
+        for overrides in cases:
+            with self.subTest(overrides=overrides):
+                decision = _evaluate(candidate_overrides=overrides)
+
+                self.assertEqual(decision["status"], "rejected")
+                self.assertFalse(decision["audit"]["comparable"])
+                self.assertIn("candidate_artifact_invalid", decision["audit"]["failed_checks"])
+                self.assertIn("audit_not_comparable", decision["rejection_reasons"])
+                self.assertIsNone(decision["comparison"]["speedup"])
+
+    def test_non_finite_reference_accuracy_metrics_are_not_comparable(self) -> None:
+        cases = [
+            {"parsed_success_rate": math.nan},
+            {"parsed_mean_best_reprojection_error": math.inf},
+            {"parsed_max_best_reprojection_error": -math.inf},
+        ]
+        for overrides in cases:
+            with self.subTest(overrides=overrides):
+                decision = _evaluate(baseline_overrides=overrides)
+
+                self.assertEqual(decision["status"], "rejected")
+                self.assertFalse(decision["audit"]["comparable"])
+                self.assertIn("reference_artifact_invalid", decision["audit"]["failed_checks"])
+                self.assertIn("audit_not_comparable", decision["rejection_reasons"])
+                self.assertIsNone(decision["comparison"]["speedup"])
 
 
 if __name__ == "__main__":

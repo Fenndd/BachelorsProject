@@ -147,7 +147,7 @@ def _has_useful_pattern_information(record: dict[str, Any]) -> bool:
     if status == "accepted_improvement":
         return record.get("speedup_vs_current_best") is not None or record.get("candidate_run_dir") is not None
     if status == "valid_not_improved":
-        return True
+        return record.get("candidate_run_dir") is not None or record.get("speedup_vs_current_best") is not None
     return False
 
 
