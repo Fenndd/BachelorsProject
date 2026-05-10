@@ -9,7 +9,10 @@ from pathlib import Path
 from typing import Any
 
 from orchestrator.experiments.experiment_config import load_experiment_config
-from orchestrator.experiments.run_experiment import _build_generation_command
+from orchestrator.experiments.run_experiment import (
+    _build_generation_command,
+    _build_materialization_command,
+)
 
 
 def _base_config_payload(candidate_format: dict[str, Any] | None = None) -> dict[str, Any]:
@@ -69,6 +72,37 @@ class RunExperimentCandidateFormatTests(unittest.TestCase):
         self.assertEqual(
             command[command.index("--source-presentation") + 1],
             "line_numbered",
+        )
+
+    def test_generation_command_can_pass_optional_source_root(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            config = load_experiment_config(_write_config(Path(tmpdir)))
+
+        command = _build_generation_command(
+            config,
+            "llm.json",
+            None,
+            source_root="workspace/experiments/exp_001/current_best_source",
+        )
+
+        self.assertEqual(
+            command[command.index("--source-root") + 1],
+            "workspace/experiments/exp_001/current_best_source",
+        )
+
+    def test_materialization_command_can_pass_optional_base_source_root(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            config = load_experiment_config(_write_config(Path(tmpdir)))
+
+        command = _build_materialization_command(
+            "results/runs/candidate_001",
+            config,
+            base_source_root="workspace/experiments/exp_001/current_best_source",
+        )
+
+        self.assertEqual(
+            command[command.index("--base-source-root") + 1],
+            "workspace/experiments/exp_001/current_best_source",
         )
 
 

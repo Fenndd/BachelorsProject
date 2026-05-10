@@ -232,13 +232,19 @@ The edits must target only files listed in target_files.
 
 Line range edit rules:
 - start_line and end_line refer to the numbered source shown in the prompt.
+- Line numbers are the integer labels shown before the "|" separator in the source block.
+- Use those exact shown line labels as start_line and end_line.
+- Do not offset, expand, infer, or transform line numbers.
+- If the same code appears multiple times, target the intended occurrence by its exact shown line range.
+- For repeated code blocks, include enough original lines to make the edit unambiguous.
 - original must contain the exact original source text for that range.
 - original must NOT include the "0001 | " line-number prefix.
+- original must preserve the exact source text from the selected lines, excluding only the line-number prefix.
 - replace must contain only the replacement source text.
 - For multi-line edits, original and replace may contain newline characters.
 - If changing multiple locations is necessary, return multiple edit objects.
 - Keep edits minimal.
-- The materializer will verify that actual lines start_line..end_line exactly match original before applying.
+- The materializer will verify that actual lines start_line..end_line match original before applying. Exact text is required; trailing spaces at line ends may be tolerated by the materializer, but do not rely on this.
 
 Required JSON output schema:
 {

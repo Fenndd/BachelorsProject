@@ -62,6 +62,67 @@ class ExperimentConfigCandidateFormatTests(unittest.TestCase):
         self.assertEqual(config.candidate_format.source_presentation, "plain")
         self.assertTrue(config.candidate_format.require_original_verification)
         self.assertTrue(config.candidate_format.allow_exact_search_fallback)
+        self.assertFalse(config.closed_loop.enabled)
+
+    def test_closed_loop_enabled_loads_with_baseline_run_dir(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            payload = _base_config_payload()
+            payload["closed_loop"] = {"enabled": True}
+            payload["selection"] = {
+                "enabled": False,
+                "baseline_run_dir": str(root / "baseline"),
+            }
+            config_path = root / "experiment_config.json"
+            config_path.write_text(json.dumps(payload), encoding="utf-8")
+
+            config = load_experiment_config(config_path)
+
+        self.assertTrue(config.closed_loop.enabled)
+
+    def test_closed_loop_with_multiple_variants_fails_clearly(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            payload = _base_config_payload()
+            payload.pop("llm_config")
+            payload.pop("iterations")
+            payload["closed_loop"] = {"enabled": True}
+            payload["selection"] = {"enabled": False, "baseline_run_dir": str(root / "baseline")}
+            payload["variants"] = [
+                {"variant_id": "a", "llm_config": "configs/llm_mock_candidate.json", "iterations": 1},
+                {"variant_id": "b", "llm_config": "configs/llm_mock_candidate.json", "iterations": 1},
+            ]
+            config_path = root / "experiment_config.json"
+            config_path.write_text(json.dumps(payload), encoding="utf-8")
+
+            with self.assertRaises(ExperimentConfigError) as ctx:
+                load_experiment_config(config_path)
+
+        self.assertIn("Closed-loop mode currently supports exactly one variant", str(ctx.exception))
+
+    def test_closed_loop_requires_baseline_run_dir(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            payload = _base_config_payload()
+            payload["closed_loop"] = {"enabled": True}
+            config_path = root / "experiment_config.json"
+            config_path.write_text(json.dumps(payload), encoding="utf-8")
+
+            with self.assertRaises(ExperimentConfigError) as ctx:
+                load_experiment_config(config_path)
+
+        self.assertIn("selection.baseline_run_dir", str(ctx.exception))
+
+    def test_closed_loop_enabled_must_be_boolean(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            payload = _base_config_payload()
+            payload["closed_loop"] = {"enabled": "true"}
+            config_path = root / "experiment_config.json"
+            config_path.write_text(json.dumps(payload), encoding="utf-8")
+
+            with self.assertRaises(ExperimentConfigError):
+                load_experiment_config(config_path)
 
     def test_explicit_unified_diff_plain_loads_successfully(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:

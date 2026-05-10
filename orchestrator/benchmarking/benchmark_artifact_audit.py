@@ -1,13 +1,17 @@
 """Audit benchmark artifacts for safe future comparison.
 
-This module checks whether baseline and candidate benchmark metric artifacts are
+This module checks whether reference and candidate benchmark metric artifacts are
 well-formed and comparable. It intentionally does not decide which artifact is
 better, faster, accepted, or rejected.
+
+Baseline-vs-candidate helpers remain available for backward compatibility with
+the original selection path.
 """
 
 from __future__ import annotations
 
 import json
+import math
 from pathlib import Path
 from typing import Any
 
@@ -44,6 +48,32 @@ def load_candidate_benchmark_artifact(candidate_run_dir: Path) -> dict[str, Any]
         candidate_run_dir,
         verification_path,
         "verification.json",
+    )
+
+
+def load_verified_candidate_benchmark_artifact(run_dir: Path) -> dict[str, Any]:
+    """Load the benchmark section from a verified candidate run's verification.json."""
+    return load_candidate_benchmark_artifact(run_dir)
+
+
+def load_reference_benchmark_artifact(
+    reference_run_dir: Path,
+    reference_kind: str,
+) -> dict[str, Any]:
+    """Load a reference benchmark artifact using an explicit reference kind.
+
+    Supported reference kinds are:
+    - ``baseline``: load ``metrics.json``
+    - ``verified_candidate``: load ``verification.json``
+    """
+
+    if reference_kind == "baseline":
+        return load_baseline_benchmark_artifact(reference_run_dir)
+    if reference_kind == "verified_candidate":
+        return load_verified_candidate_benchmark_artifact(reference_run_dir)
+    raise ValueError(
+        "invalid reference_kind "
+        f"{reference_kind!r}; expected one of: baseline, verified_candidate"
     )
 
 
@@ -104,34 +134,52 @@ def audit_comparable_benchmark_pair(
     candidate_artifact: dict[str, Any],
 ) -> dict[str, Any]:
     """Audit whether two benchmark artifacts are safe to compare later."""
-    baseline_audit = audit_single_benchmark_artifact(baseline_artifact, "baseline")
+    audit = audit_comparable_benchmark_artifacts(
+        baseline_artifact,
+        candidate_artifact,
+        reference_role="baseline",
+        reference_invalid_check="baseline_artifact_invalid",
+    )
+    audit["baseline"] = audit["reference"]
+    return audit
+
+
+def audit_comparable_benchmark_artifacts(
+    reference_artifact: dict[str, Any],
+    candidate_artifact: dict[str, Any],
+    *,
+    reference_role: str = "reference",
+    reference_invalid_check: str = "reference_artifact_invalid",
+) -> dict[str, Any]:
+    """Audit whether reference and candidate artifacts are safe to compare later."""
+    reference_audit = audit_single_benchmark_artifact(reference_artifact, reference_role)
     candidate_audit = audit_single_benchmark_artifact(candidate_artifact, "candidate")
-    baseline = baseline_audit["normalized_artifact"]
+    reference = reference_audit["normalized_artifact"]
     candidate = candidate_audit["normalized_artifact"]
 
     checks = {
-        "same_family": baseline.get("family") == candidate.get("family")
-        and baseline.get("family") is not None,
-        "same_solver": baseline.get("solver") == candidate.get("solver")
-        and baseline.get("solver") is not None,
-        "same_num_cases": baseline.get("parsed_num_cases")
+        "same_family": reference.get("family") == candidate.get("family")
+        and reference.get("family") is not None,
+        "same_solver": reference.get("solver") == candidate.get("solver")
+        and reference.get("solver") is not None,
+        "same_num_cases": reference.get("parsed_num_cases")
         == candidate.get("parsed_num_cases")
-        and baseline.get("parsed_num_cases") is not None,
+        and reference.get("parsed_num_cases") is not None,
         "runtime_available": _is_positive_number(
-            baseline.get("parsed_runtime_ns_per_case_median")
+            reference.get("parsed_runtime_ns_per_case_median")
         )
         and _is_positive_number(candidate.get("parsed_runtime_ns_per_case_median")),
-        "correctness_available": baseline.get("parsed_correctness_passed") is not None
+        "correctness_available": reference.get("parsed_correctness_passed") is not None
         and candidate.get("parsed_correctness_passed") is not None,
-        "runtime_unit_ns": baseline.get("runtime_unit") == "ns"
+        "runtime_unit_ns": reference.get("runtime_unit") == "ns"
         and candidate.get("runtime_unit") == "ns",
     }
 
     failed_checks: list[str] = []
-    warnings = list(baseline_audit["warnings"]) + list(candidate_audit["warnings"])
+    warnings = list(reference_audit["warnings"]) + list(candidate_audit["warnings"])
 
-    if not baseline_audit["passed"]:
-        failed_checks.append("baseline_artifact_invalid")
+    if not reference_audit["passed"]:
+        failed_checks.append(reference_invalid_check)
     if not candidate_audit["passed"]:
         failed_checks.append("candidate_artifact_invalid")
 
@@ -139,23 +187,23 @@ def audit_comparable_benchmark_pair(
         if not passed:
             failed_checks.append(check_name)
 
-    baseline_options = baseline.get("benchmark_options")
+    reference_options = reference.get("benchmark_options")
     candidate_options = candidate.get("benchmark_options")
-    if baseline_options is None or candidate_options is None:
+    if reference_options is None or candidate_options is None:
         checks["same_benchmark_options"] = None
         warnings.append("benchmark_options_not_recorded")
-    elif baseline_options != candidate_options:
+    elif reference_options != candidate_options:
         checks["same_benchmark_options"] = False
         failed_checks.append("benchmark_options_mismatch")
     else:
         checks["same_benchmark_options"] = True
 
-    baseline_build_type = baseline.get("build_type")
+    reference_build_type = reference.get("build_type")
     candidate_build_type = candidate.get("build_type")
-    if baseline_build_type is None or candidate_build_type is None:
+    if reference_build_type is None or candidate_build_type is None:
         checks["same_build_type"] = None
         warnings.append("build_type_not_recorded")
-    elif baseline_build_type != candidate_build_type:
+    elif reference_build_type != candidate_build_type:
         checks["same_build_type"] = False
         failed_checks.append("build_type_mismatch")
     else:
@@ -167,7 +215,7 @@ def audit_comparable_benchmark_pair(
         "comparable": comparable,
         "failed_checks": failed_checks,
         "warnings": _unique_preserving_order(warnings),
-        "baseline": baseline_audit,
+        "reference": reference_audit,
         "candidate": candidate_audit,
         "checks": checks,
     }
@@ -208,6 +256,9 @@ def _normalize_artifact(artifact: dict[str, Any]) -> dict[str, Any]:
     if not isinstance(benchmark, dict):
         benchmark = {}
     normalized = {field: benchmark.get(field) for field in BENCHMARK_FIELDS}
+    benchmark_options = normalized.get("benchmark_options")
+    if normalized.get("build_type") is None and isinstance(benchmark_options, dict):
+        normalized["build_type"] = benchmark_options.get("build_type")
     normalized["source_artifact"] = artifact.get("artifact_path")
     return normalized
 
@@ -250,7 +301,11 @@ def _check_positive_number(
 
 
 def _is_number(value: object) -> bool:
-    return isinstance(value, (int, float)) and not isinstance(value, bool)
+    return (
+        isinstance(value, (int, float))
+        and not isinstance(value, bool)
+        and math.isfinite(float(value))
+    )
 
 
 def _is_positive_number(value: object) -> bool:

@@ -3,16 +3,19 @@
 from __future__ import annotations
 
 import json
+import sys
 import tempfile
 import unittest
 from datetime import datetime
 from pathlib import Path
 
 from orchestrator.llm.generate_candidate import (
+    _build_index_record,
     _build_metadata,
     _build_status,
     _build_summary,
     _parse_args,
+    _print_final_summary,
     _save_candidate_artifacts,
 )
 from orchestrator.llm.response_parser import LineRangeEdit, OptimizationCandidate
@@ -115,6 +118,8 @@ class GenerateCandidateCandidateFormatTests(unittest.TestCase):
             metadata = _build_metadata(
                 "run-id",
                 TARGET_FILE,
+                ".",
+                TARGET_FILE,
                 None,
                 datetime(2026, 1, 1),
                 LINE_RANGE_FORMAT,
@@ -127,6 +132,98 @@ class GenerateCandidateCandidateFormatTests(unittest.TestCase):
         self.assertEqual(status["candidate_format"], LINE_RANGE_FORMAT)
         self.assertIn("Candidate format: line_range_edits", summary)
         self.assertIn("Source presentation: line_numbered", summary)
+        self.assertIn("Candidate type: line_range_edits", summary)
+        self.assertIn("Structured edits count: 1", summary)
+        self.assertIn("Candidate edits present: True", summary)
+        self.assertNotIn("Unified diff present", summary)
+
+    def test_line_range_index_record_uses_candidate_edits_fields(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            run_dir = Path(tmpdir)
+            metadata = _build_metadata(
+                "run-id",
+                TARGET_FILE,
+                ".",
+                TARGET_FILE,
+                None,
+                datetime(2026, 1, 1),
+                LINE_RANGE_FORMAT,
+            )
+            status = _build_status("success", None, None, LINE_RANGE_FORMAT)
+
+            record = _build_index_record(metadata, status, _candidate("line_range_edits"), run_dir)
+
+        self.assertEqual(record["candidate_type"], "line_range_edits")
+        self.assertEqual(record["structured_edit_count"], 1)
+        self.assertTrue(record["candidate_edits_present"])
+        self.assertFalse(record["unified_diff_present"])
+
+    def test_unified_diff_summary_keeps_unified_diff_field(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            run_dir = Path(tmpdir)
+            metadata = _build_metadata(
+                "run-id",
+                TARGET_FILE,
+                ".",
+                TARGET_FILE,
+                None,
+                datetime(2026, 1, 1),
+                UNIFIED_FORMAT,
+            )
+            metadata["finished_at"] = metadata["started_at"]
+            status = _build_status("success", None, None, UNIFIED_FORMAT)
+            summary = _build_summary(run_dir, metadata, status, _candidate("unified_diff"))
+
+        self.assertIn("Candidate type: unified_diff", summary)
+        self.assertIn("Unified diff present: True", summary)
+        self.assertNotIn("Structured edits count", summary)
+
+    def test_final_summary_prints_run_dir_before_unicode_candidate_summary(self) -> None:
+        class StrictAsciiStdout:
+            encoding = "ascii"
+
+            def __init__(self) -> None:
+                self.lines: list[str] = []
+
+            def write(self, text: str) -> int:
+                text.encode("ascii")
+                self.lines.append(text)
+                return len(text)
+
+            def flush(self) -> None:
+                pass
+
+        stdout = StrictAsciiStdout()
+        original_stdout = sys.stdout
+        try:
+            sys.stdout = stdout  # type: ignore[assignment]
+            _print_final_summary(
+                _build_status("success", None, None, LINE_RANGE_FORMAT),
+                Path("results/runs/llm_candidate_unicode"),
+                OptimizationCandidate(
+                    schema_version="1.1",
+                    candidate_type="line_range_edits",
+                    summary="well‑optimized no-op candidate",
+                    rationale="rationale",
+                    risk_level="low",
+                    expected_effect="none",
+                    target_files=[TARGET_FILE],
+                    correctness_notes="correctness",
+                    unified_diff="",
+                    edits=[],
+                    requires_manual_review=False,
+                ),
+            )
+        finally:
+            sys.stdout = original_stdout
+
+        output = "".join(stdout.lines)
+        self.assertTrue(output.startswith("CANDIDATE_RUN_DIR="))
+        self.assertIn("well?optimized", output)
+        self.assertIn("Candidate type: line_range_edits", output)
+        self.assertIn("Structured edits count: 0", output)
+        self.assertIn("Candidate edits present: False", output)
+        self.assertNotIn("Unified diff present", output)
 
 
 if __name__ == "__main__":

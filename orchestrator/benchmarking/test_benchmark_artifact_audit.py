@@ -5,6 +5,7 @@ from __future__ import annotations
 import unittest
 
 from orchestrator.benchmarking.benchmark_artifact_audit import (
+    audit_comparable_benchmark_artifacts,
     audit_comparable_benchmark_pair,
     audit_single_benchmark_artifact,
 )
@@ -131,6 +132,30 @@ class BenchmarkArtifactAuditTests(unittest.TestCase):
 
         self.assertTrue(audit["comparable"])
         self.assertTrue(audit["checks"]["same_build_type"])
+
+    def test_build_type_from_benchmark_options_is_normalized(self) -> None:
+        reference_options = {"build_type": "Release", "runtime_unit": "ns"}
+        candidate_options = {"build_type": "Release", "runtime_unit": "ns"}
+
+        audit = audit_comparable_benchmark_artifacts(
+            _loaded_artifact(benchmark_options=reference_options),
+            _loaded_artifact(build_type="Release", benchmark_options=candidate_options),
+        )
+
+        self.assertTrue(audit["comparable"])
+        self.assertTrue(audit["checks"]["same_build_type"])
+        self.assertNotIn("build_type_not_recorded", audit["warnings"])
+
+    def test_build_type_mismatch_fails_when_options_build_type_differs(self) -> None:
+        audit = audit_comparable_benchmark_artifacts(
+            _loaded_artifact(benchmark_options={"build_type": "Release"}),
+            _loaded_artifact(benchmark_options={"build_type": "Debug"}),
+        )
+
+        self.assertFalse(audit["comparable"])
+        self.assertFalse(audit["checks"]["same_build_type"])
+        self.assertIn("build_type_mismatch", audit["failed_checks"])
+        self.assertNotIn("build_type_not_recorded", audit["warnings"])
 
     def test_build_type_mismatch_fails_pair(self) -> None:
         audit = audit_comparable_benchmark_pair(

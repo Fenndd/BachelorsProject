@@ -130,7 +130,9 @@ Materialized candidate runs write `verification.json`, `verification_summary.txt
 
 If benchmark parsing fails, candidate verification fails because later comparison cannot use unstructured benchmark output. If parsing succeeds but `parsed_correctness_passed=false`, candidate verification fails at `benchmark_correctness_check` while preserving parsed benchmark metrics in `verification.json`. This matches the baseline policy.
 
-Verification itself does not compare against baseline. Pairwise candidate decision and multi-candidate selection are separate stages that consume verified artifacts.
+Verification itself does not compare against baseline. Pairwise candidate
+decision and multi-candidate selection are separate stages that consume verified
+artifacts.
 
 ## Candidate Generation Artifacts
 
@@ -152,6 +154,236 @@ For `line_range_edits`:
 - `candidate.edits.json`
 - `candidate.diff` is not required
 
+Candidate generation records both the logical target path and the physical source
+location used to read the prompt source. `target_file` remains the stable
+repo-relative path shown to the LLM and used in candidate `target_files` and
+`allowed_files`. `source_root` defaults to the repository root. In closed-loop
+runs it points at the experiment-local current-best source tree.
+
+Example fields in `metadata.json`:
+
+```json
+{
+  "target_file": "cpp/external/lambdatwist/p3p.cc",
+  "source_root": "workspace/experiments/<experiment_id>/current_best_source",
+  "physical_source_path": "workspace/experiments/<experiment_id>/current_best_source/cpp/external/lambdatwist/p3p.cc",
+  "candidate_format": {
+    "type": "line_range_edits",
+    "source_presentation": "line_numbered"
+  }
+}
+```
+
+`llm_request.json` also records `target_file`, `source_root`,
+`physical_source_path`, `allowed_files`, prompts, additional context, and
+candidate format. The prompt schema and candidate JSON schema are unchanged; the
+LLM still sees the logical repo-relative target file, not the temporary
+workspace path.
+
+Generation and materialization both have configurable physical source roots for
+closed-loop runs. Generation uses `--source-root` to read the source shown to the
+LLM while keeping candidate paths logical and repo-relative. Materialization uses
+`--base-source-root` to copy the same source version into an isolated candidate
+workspace before applying the candidate. The candidate JSON schema is unchanged.
+
+## Closed-loop Experiment Artifacts
+
+When an experiment config sets:
+
+```json
+{
+  "closed_loop": {"enabled": true}
+}
+```
+
+Closed-loop mode runs an iterative current-best optimization flow with compact
+benchmark-aware LLM history and final result artifacts. It currently supports
+exactly one variant and requires `selection.baseline_run_dir` as the original
+baseline reference. The baseline run directory must contain `metrics.json`.
+
+The current best source and mutable state are stored under `workspace/`, not in
+the main `cpp/` tree:
+
+```text
+workspace/experiments/<experiment_id>/current_best_source/
+workspace/experiments/<experiment_id>/current_best_state.json
+```
+
+At initialization, `current_best_source/` is populated from the clean repository
+`cpp/` tree while preserving repo-relative paths such as:
+
+```text
+workspace/experiments/<experiment_id>/current_best_source/cpp/external/lambdatwist/p3p.cc
+```
+
+Per-iteration records are appended compactly to:
+
+```text
+results/experiments/<experiment_id>/closed_loop_iterations.jsonl
+```
+
+The JSONL file is not rewritten at finalization; each line remains one compact
+iteration record.
+
+Each closed-loop iteration generates from `current_best_source` using
+`--source-root`, materializes against the same source version using
+`--base-source-root`, verifies the materialized candidate, compares it against
+the current best, and also compares it against the original baseline. Before
+generation, the runner builds compact plain-text history from all previous
+meaningful closed-loop iterations and passes it to `generate_candidate` through
+`--context` together with any configured additional context. The runner does not
+early-stop; all planned iterations are attempted.
+
+Candidate promotion is controlled only by:
+
+```text
+results/runs/<candidate_run_id>/decision_vs_current_best.json
+```
+
+If that decision has `status: "accepted_improvement"`, the materialized
+workspace recorded in `materialization.json` as `workspace_path` replaces
+`current_best_source/`, and `current_best_state.json` is updated. The companion
+artifact:
+
+```text
+results/runs/<candidate_run_id>/decision_vs_original_baseline.json
+```
+
+is written for reporting/control and does not control promotion.
+
+No-op candidates are recorded with status `no_op` when `expected_effect` is
+`"none"` and the edit payload is empty (`edits` for `line_range_edits`, or
+`unified_diff` for `unified_diff`). They do not run materialization or
+verification.
+
+After all planned iterations have been attempted, the runner writes final
+closed-loop artifacts under the experiment result directory:
+
+```text
+results/experiments/<experiment_id>/final_optimized_source/
+results/experiments/<experiment_id>/final_optimized_source.diff
+results/experiments/<experiment_id>/closed_loop_summary.json
+results/experiments/<experiment_id>/closed_loop_selection_report.json
+results/experiments/<experiment_id>/current_best_state.json
+```
+
+`final_optimized_source/` is a copy of the final workspace
+`current_best_source/` tree and preserves repo-relative structure, for example:
+
+```text
+results/experiments/<experiment_id>/final_optimized_source/cpp/external/lambdatwist/p3p.cc
+```
+
+It is written even when no improvement was accepted, in which case it is
+baseline-equivalent. The copy does not modify the workspace current-best source
+and never modifies `REPO_ROOT/cpp`.
+
+`final_optimized_source.diff` is a unified diff from the original clean baseline
+source to the final optimized source. It is generated for at least the
+experiment `target_file`, with headers such as:
+
+```text
+--- a/cpp/external/lambdatwist/p3p.cc
++++ b/cpp/external/lambdatwist/p3p.cc
+```
+
+If the final source matches the original baseline, the diff file exists and may
+be empty. This final diff is distinct from per-iteration
+`candidate.generated.diff`, which compares that iteration's current best source
+to the candidate workspace.
+
+`closed_loop_summary.json` is human-readable JSON with:
+
+- `experiment_id`
+- `target_file`
+- `total_iterations`
+- `completed_iterations`
+- `original_baseline_run_dir`
+- `original_baseline_metrics_path`
+- `final_best_iteration`
+- `final_best_candidate_run_dir`
+- `final_optimized_source_dir`
+- `final_optimized_source_diff_path`
+- `final_speedup_vs_original_baseline`
+- `final_runtime_reduction_percent`
+- `iterations_after_final_best`
+- `status_counts` for every closed-loop iteration status, including zero counts
+- `created_at`
+- `finished_at`
+
+If the final best remains the baseline, speedup is `1.0` and runtime reduction is
+`0.0`. If the final best is an accepted candidate, these values are read from the
+candidate's `decision_vs_original_baseline.json` comparison when available;
+otherwise they are `null`.
+
+The results-side `current_best_state.json` is a final metadata copy of the
+workspace current-best state. The workspace state file is kept.
+
+`experiment_status.json` includes a `closed_loop` block when closed-loop mode is
+enabled. The block contains final best iteration, accepted improvement count,
+final artifact paths, final speedup/runtime reduction, and status counts.
+
+`closed_loop_selection_report.json` is reporting-only. It records a
+`control_decision` section describing the promotion policy and final best run,
+and a separate `final_analysis` section describing final source/diff paths,
+speedup, runtime reduction, and status counts. Its safety flags state that the
+report does not promote candidates, update `current_best_source`, update
+`final_optimized_source`, or modify the main `cpp/` tree.
+
+`summary.txt` includes a concise closed-loop section listing the experiment id,
+target file, total/completed iterations, final best iteration, accepted
+improvements, final speedup/runtime reduction, status counts, and paths to the
+final optimized source, final diff, summary JSON, iteration JSONL, and final
+current-best metadata.
+
+Closed-loop history is deliberately separate from the non-closed-loop
+`history_policy` variant-local sliding-window history. It includes all
+meaningful previous records compactly; it does not use
+`max_previous_iterations`. History can include `accepted_improvement`,
+`valid_not_improved`, `rejected`, `materialization_failed`, and
+`verification_failed` records. Materialization and verification failures are
+included only when they have usable candidate information such as
+`candidate_run_dir` or `candidate_summary`. No-op iterations and generation
+failures without usable candidates are excluded. The current deterministic
+policy also excludes generation failures even if a candidate summary exists,
+because they are not reliable optimization patterns.
+
+The exact context used for each closed-loop generation step is written under the
+experiment logs directory:
+
+```text
+results/experiments/<experiment_id>/logs/iteration_003_closed_loop_history_context.txt
+```
+
+If no meaningful history exists yet, the file contains:
+
+```text
+No meaningful closed-loop history yet.
+```
+
+The history context contains summaries, benchmark-aware result text, compact
+failure/rejection reasons, and deterministic guidance. It does not contain full
+source code, diffs, full `candidate.json`, full `verification.json`, benchmark
+logs, audit objects, stack traces, or no-op entries.
+
+Each `closed_loop_iterations.jsonl` record contains:
+
+- `history_included`: whether this iteration will be included in future
+  closed-loop history
+- `history_guidance`: deterministic future guidance for included records, or
+  `null` for excluded records
+
+The main `cpp/` source tree is never modified automatically.
+
+The final selector/reporting step never promotes candidates. The only automatic
+current-best promotion path is an iteration whose
+`decision_vs_current_best.json` has `status: "accepted_improvement"`.
+
+Deterministic tests validate these storage and safety contracts with fixtures and
+monkeypatched closed-loop runners. They include a controlled mock scenario where
+one accepted candidate is promoted, a later slower candidate is not promoted, and
+a no-op is recorded but excluded from future compact history.
+
 ## Candidate Materialization Artifacts
 
 `materialization.json` records scope traceability for successful, skipped, and failed materializations. Common fields include:
@@ -159,12 +391,27 @@ For `line_range_edits`:
 - `overall_status`
 - `candidate_type`
 - `workspace_path`
+- `source_root`
+- `base_source_root`
+- `source_root_mode`
 - `target_files`
 - `patched_files`
 - `changed_files`
 - `scope_enforcement`
 - `allowed_files`
 - `patch_apply_strategy`
+
+`source_root` remains for backward compatibility. `base_source_root` is the
+explicit field for the source tree copied from. `source_root_mode` describes how
+that source tree was selected:
+
+- `repo_default`: no explicit source-root flags; legacy default `cpp` copy behavior
+- `legacy_source_root`: explicit legacy `--source-root`
+- `explicit_base_source_root`: explicit repo-like `--base-source-root`
+
+The selected source tree is only copied from. Materialization applies changes
+inside `workspace_path` and does not modify either `base_source_root` or the main
+`cpp/` source tree directly.
 
 Scope fields example:
 
@@ -210,6 +457,7 @@ Additional line-range fields include:
 - `line_range_fallback_used`
 - `line_range_edit_results`
 - `generated_diff_path`
+- `generated_diff_base`
 - `candidate.generated.diff`
 
 Example:
@@ -222,19 +470,60 @@ Example:
   "line_range_exact_matches": 2,
   "line_range_fallback_matches": 0,
   "line_range_fallback_used": false,
-  "generated_diff_path": "results/runs/<candidate_run_id>/candidate.generated.diff"
+  "generated_diff_path": "results/runs/<candidate_run_id>/candidate.generated.diff",
+  "generated_diff_base": "base_source_root"
 }
 ```
+
+For `line_range_edits`, `candidate.generated.diff` is generated by comparing the
+copied base-source text before edits with the candidate workspace text after
+edits. In closed-loop runs this is an iteration-local diff from
+`current_best_source` to that candidate. It is distinct from
+`final_optimized_source.diff`, which reports the final accepted source against
+the original clean baseline.
 
 ## Benchmark Artifact Audit
 
 `py -m orchestrator.benchmarking.audit_benchmark_pair --baseline-run <baseline_run_dir> --candidate-run <candidate_run_dir>` writes `<candidate_run_dir>/benchmark_artifact_audit.json`.
 
-The audit loads baseline benchmark metrics from `metrics.json` and candidate benchmark metrics from `verification.json`. It checks artifact presence, parse success, required structured fields, matching family/solver/case count, runtime availability, correctness availability, and nanosecond runtime units. If benchmark options are not recorded yet, the audit emits `benchmark_options_not_recorded` as a warning instead of failing.
+The baseline audit path loads baseline benchmark metrics from `metrics.json` and
+candidate benchmark metrics from `verification.json`. The generic comparison
+path can also load a reference verified candidate from `verification.json` by
+using `reference_kind="verified_candidate"`. Candidate benchmark metrics are
+always loaded from `verification.json`.
+
+The audit checks artifact presence, parse success, required structured fields,
+matching family/solver/case count, runtime availability, correctness
+availability, and nanosecond runtime units. If benchmark options are not recorded
+yet, the audit emits `benchmark_options_not_recorded` as a warning instead of
+failing.
 
 If build type is recorded in both baseline and candidate artifacts, the audit checks they match (`same_build_type`). A mismatch produces `build_type_mismatch`. If one or both artifacts do not include build type, the audit warns with `build_type_not_recorded` for backward compatibility with older artifacts.
 
-The audit checks comparability. `candidate_decision` consumes audit output to make pairwise baseline-vs-candidate decisions. `best_candidate_selector` consumes pairwise decisions to select the best candidate among verified candidates.
+The audit checks comparability. `candidate_decision` consumes audit output to
+make pairwise reference-vs-candidate decisions. The old baseline-vs-candidate
+API remains supported for compatibility. `best_candidate_selector` continues to
+consume baseline-vs-candidate decisions to select the best candidate among
+verified candidates.
+
+Decision artifacts are human-readable JSON. The default writer still produces:
+
+```text
+results/runs/<candidate_run_id>/candidate_decision.json
+```
+
+For closed-loop runs, the same writer emits additional decision artifact names
+inside the candidate run directory:
+
+```text
+results/runs/<candidate_run_id>/decision_vs_current_best.json
+results/runs/<candidate_run_id>/decision_vs_original_baseline.json
+```
+
+Only `decision_vs_current_best.json` decides whether a verified candidate becomes
+the new current best. `decision_vs_original_baseline.json` is for
+reporting/control. Closed-loop promotion updates only the experiment-local
+`current_best_source/`; it does not modify the main `cpp/` source tree.
 
 ## Build Type Recording
 
@@ -261,11 +550,28 @@ The build type defaults to `Release` and is controlled by the `CMAKE_BUILD_TYPE`
 
 ## `summary.txt`
 
-`summary.txt` is a human-readable overview. It lists step statuses, adapter validation status, family benchmark execution status, benchmark parse status, the family benchmark raw output log, the optional parse log, and parsed family benchmark values. If parsing fails, `summary.txt` lists the failed parse step, missing fields, and parse errors. If correctness checking fails, it lists `failed_step: benchmark_correctness_check` and still shows the parsed benchmark values.
+Baseline and candidate run directories use `summary.txt` as a human-readable
+overview of step statuses and benchmark results. These summaries list items such
+as adapter validation status, family benchmark execution status, benchmark parse
+status, benchmark log paths, parse errors when applicable, and parsed benchmark
+values. If correctness checking fails, the run summary lists
+`failed_step: benchmark_correctness_check` and still shows the parsed benchmark
+values.
+
+Experiment result directories use their own `summary.txt` for experiment-level
+status. The experiment summary describes configured iterations/variants,
+selection status when selection is enabled, and closed-loop final artifacts when
+closed-loop mode is enabled. In closed-loop experiments, this includes final best
+iteration, accepted improvements, status counts, final speedup/runtime reduction
+when available, and paths to `final_optimized_source/`,
+`final_optimized_source.diff`, `closed_loop_summary.json`,
+`closed_loop_iterations.jsonl`, and results-side `current_best_state.json`.
 
 ## Not Implemented Yet
 
 - Candidate promotion into the main source tree
-- Advanced reporting/plots
+- Advanced plots, broader statistical dashboards, and additional aggregate analyses
 - JSON metrics output directly from C++ benchmarks
 - Additional solver families/adapters
+- Configurable minimum runtime-improvement thresholds or repeated-benchmark confidence policies
+- Memory measurement; the current minimal P3P pipeline records runtime and correctness/reprojection metrics only

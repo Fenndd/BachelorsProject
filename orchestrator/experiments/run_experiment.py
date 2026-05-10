@@ -4,8 +4,10 @@ This runner supports one or more variants. Each variant can run the staged
 candidate pipeline: generate_candidate, optionally materialize_candidate, and
 optionally verify_candidate. When selection is explicitly enabled in the
 experiment config, the runner compares verified candidate artifacts against an
-explicit baseline run and writes a best-candidate selection artifact. It does
-not promote, merge, or copy candidate code into the main source tree.
+explicit baseline run and writes a best-candidate selection artifact. It never
+promotes candidates into the main ``cpp/`` source tree. In closed-loop mode it
+can promote accepted candidates only into the experiment-local
+``current_best_source`` workspace.
 
 Build type for candidate verification:
   The candidate verification stage defaults to Release builds (optimized) so
@@ -24,12 +26,15 @@ from __future__ import annotations
 
 import argparse
 import copy
+import difflib
+import fnmatch
 import json
 import re
+import shutil
 import subprocess
 import sys
 import time
-from dataclasses import asdict
+from dataclasses import asdict, fields, is_dataclass
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Sequence
@@ -42,11 +47,32 @@ from .experiment_config import (
     load_experiment_config,
 )
 from .best_candidate_selector import select_best_candidate
+from .closed_loop_state import (
+    ClosedLoopIterationRecord,
+    ClosedLoopPaths,
+    ClosedLoopSummary,
+    CurrentBestState,
+    IterationStatus,
+    count_iteration_statuses,
+    to_plain_dict,
+    write_closed_loop_summary,
+    write_current_best_state,
+)
+from .closed_loop_history import (
+    build_closed_loop_history_context,
+    build_history_guidance,
+    should_include_in_closed_loop_history,
+)
+from orchestrator.benchmarking.candidate_decision import (
+    evaluate_candidate_against_reference,
+    write_candidate_decision,
+)
 
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 RESULTS_ROOT = REPO_ROOT / "results"
 EXPERIMENTS_ROOT = RESULTS_ROOT / "experiments"
+WORKSPACE_ROOT = REPO_ROOT / "workspace"
 
 
 def _parse_args(argv: list[str]) -> argparse.Namespace:
@@ -74,8 +100,14 @@ def _resolve_path(path_text: str) -> Path:
 
 
 def _display_path(path: Path) -> str:
+    if not path.is_absolute():
+        return path.as_posix()
     try:
         return path.resolve().relative_to(REPO_ROOT).as_posix()
+    except ValueError:
+        pass
+    try:
+        return (Path("workspace") / path.resolve().relative_to(WORKSPACE_ROOT)).as_posix()
     except ValueError:
         return str(path)
 
@@ -85,6 +117,7 @@ def _format_command(command: Sequence[str]) -> str:
 
 
 def _write_json(path: Path, payload: dict[str, Any]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(
         json.dumps(payload, indent=2, ensure_ascii=False) + "\n",
         encoding="utf-8",
@@ -311,6 +344,7 @@ def _build_generation_command(
     config: ExperimentConfig,
     llm_config_path: str,
     context_text: str | None,
+    source_root: str | None = None,
 ) -> list[str]:
     command = [
         sys.executable,
@@ -327,6 +361,8 @@ def _build_generation_command(
         "--source-presentation",
         config.candidate_format.source_presentation,
     ]
+    if source_root is not None:
+        command.extend(["--source-root", source_root])
     if context_text is not None:
         command.extend(["--context", context_text])
     # Pass each allowed file as a separate --allowed-file argument
@@ -338,6 +374,7 @@ def _build_generation_command(
 def _build_materialization_command(
     candidate_run_dir: str,
     config: ExperimentConfig,
+    base_source_root: str | None = None,
 ) -> list[str]:
     command = [
         sys.executable,
@@ -347,6 +384,12 @@ def _build_materialization_command(
         candidate_run_dir,
         "--overwrite",
     ]
+    if base_source_root is not None:
+        command.extend(["--base-source-root", base_source_root])
+    if config.candidate_format.allow_exact_search_fallback:
+        command.append("--allow-exact-search-fallback")
+    else:
+        command.append("--no-allow-exact-search-fallback")
     # Pass each allowed file as a separate --allowed-file argument
     for allowed_file in config.optimization_scope.allowed_files:
         command.extend(["--allowed-file", allowed_file])
@@ -453,7 +496,35 @@ def _parse_candidate_run_dir(stdout: str) -> str | None:
         if line.startswith("CANDIDATE_RUN_DIR="):
             value = line.split("=", 1)[1].strip()
             return value or None
+    for prefix in ("Run directory:", "Artifacts saved to:"):
+        for line in stdout.splitlines():
+            if not line.startswith(prefix):
+                continue
+            value = line.split(":", 1)[1].strip()
+            if _looks_like_candidate_run_dir(value):
+                return value
     return None
+
+
+def _looks_like_candidate_run_dir(value: str) -> bool:
+    if not value:
+        return False
+    path = _resolve_path(value)
+    if not path.exists() or not path.is_dir():
+        return False
+    if not any((path / name).exists() for name in ("candidate.json", "llm_request.json")):
+        return False
+    status_path = path / "status.json"
+    if not status_path.exists():
+        return True
+    try:
+        status = _read_json_object(status_path)
+    except (OSError, ValueError, json.JSONDecodeError):
+        return False
+    scenario = status.get("scenario")
+    if scenario is not None and scenario != "llm_candidate":
+        return False
+    return True
 
 
 def _skipped_stage(reason: str) -> dict[str, Any]:
@@ -605,6 +676,20 @@ def _combine_context(
     return "\n\n".join(parts)
 
 
+def _combine_closed_loop_context(
+    additional_context: str | None,
+    history_context: str | None,
+) -> str | None:
+    parts: list[str] = []
+    if additional_context is not None:
+        parts.append(additional_context)
+    if history_context is not None:
+        parts.append(history_context)
+    if not parts:
+        return None
+    return "\n\n".join(parts)
+
+
 def _history_context_log_path(
     experiment_dir: Path,
     global_iteration: int,
@@ -615,6 +700,13 @@ def _history_context_log_path(
         / "logs"
         / f"iteration_{global_iteration:03d}_{_sanitize_name(variant_id)}_history_context.txt"
     )
+
+
+def _closed_loop_history_context_log_path(
+    experiment_dir: Path,
+    iteration: int,
+) -> Path:
+    return experiment_dir / "logs" / f"iteration_{iteration:03d}_closed_loop_history_context.txt"
 
 
 def _write_history_context_file(
@@ -635,14 +727,35 @@ def _write_history_context_file(
     return updated_metadata
 
 
+def _write_closed_loop_history_context_file(
+    experiment_dir: Path,
+    iteration: int,
+    history_context: str | None,
+) -> Path:
+    log_path = _closed_loop_history_context_log_path(experiment_dir, iteration)
+    content = history_context if history_context is not None else "No meaningful closed-loop history yet."
+    log_path.write_text(content + "\n", encoding="utf-8")
+    return log_path
+
+
 def _candidate_field_summary(candidate_path: Path) -> dict[str, Any]:
     candidate = _read_json_object(candidate_path)
+    candidate_type = candidate.get("candidate_type", "unified_diff")
+    edits = candidate.get("edits")
+    structured_edit_count = (
+        len(edits)
+        if candidate_type == "line_range_edits" and isinstance(edits, list)
+        else None
+    )
     return {
         "candidate_summary": candidate.get("summary"),
         "risk_level": candidate.get("risk_level"),
         "expected_effect": candidate.get("expected_effect"),
         "target_files": candidate.get("target_files"),
         "requires_manual_review": candidate.get("requires_manual_review"),
+        "candidate_type": candidate_type,
+        "structured_edit_count": structured_edit_count,
+        "candidate_edits_present": bool(structured_edit_count),
         "unified_diff_present": bool(candidate.get("unified_diff")),
     }
 
@@ -654,6 +767,9 @@ def _empty_generation_fields() -> dict[str, Any]:
         "expected_effect": None,
         "target_files": None,
         "requires_manual_review": None,
+        "candidate_type": None,
+        "structured_edit_count": None,
+        "candidate_edits_present": None,
         "unified_diff_present": None,
     }
 
@@ -757,7 +873,28 @@ def _materialization_stage_record(
     record["target_files"] = materialization.get("target_files")
     record["patched_files"] = materialization.get("patched_files")
     record["changed_files"] = materialization.get("changed_files")
+    record["materialization_match_summary"] = _materialization_match_summary(materialization)
     return record
+
+
+def _materialization_match_summary(materialization: dict[str, Any]) -> dict[str, Any] | None:
+    if materialization.get("candidate_type") != "line_range_edits" and materialization.get("line_range_edit_count") is None:
+        return None
+    edit_results = materialization.get("line_range_edit_results")
+    edit_results = edit_results if isinstance(edit_results, list) else []
+    return {
+        "line_range_exact_matches": materialization.get("line_range_exact_matches", 0),
+        "line_range_trailing_whitespace_tolerant_matches": materialization.get("line_range_trailing_whitespace_tolerant_matches", 0),
+        "line_range_surrounding_whitespace_tolerant_matches": materialization.get("line_range_surrounding_whitespace_tolerant_matches", 0),
+        "line_range_fallback_matches": materialization.get("line_range_fallback_matches", 0),
+        "line_range_fallback_used": bool(materialization.get("line_range_fallback_used")),
+        "invalid_line_range_fallback_used": any(
+            isinstance(result, dict)
+            and result.get("match_mode") == "invalid_line_range_exact_search_fallback"
+            for result in edit_results
+        ),
+        "line_range_edit_count": materialization.get("line_range_edit_count", 0),
+    }
 
 
 def _verification_stage_record(
@@ -1071,6 +1208,9 @@ def _variant_record_history(record: dict[str, Any]) -> dict[str, Any]:
         "risk_level": generation.get("risk_level"),
         "expected_effect": generation.get("expected_effect"),
         "requires_manual_review": generation.get("requires_manual_review"),
+        "candidate_type": generation.get("candidate_type"),
+        "structured_edit_count": generation.get("structured_edit_count"),
+        "candidate_edits_present": generation.get("candidate_edits_present"),
         "unified_diff_present": generation.get("unified_diff_present"),
         "materialization_status": materialization.get("status"),
         "verification_status": verification.get("status"),
@@ -1514,6 +1654,886 @@ def _write_early_failure_artifacts(
     (experiment_dir / "summary.txt").write_text("\n".join(lines), encoding="utf-8")
 
 
+def _now_iso() -> str:
+    return datetime.now().astimezone().isoformat(timespec="seconds")
+
+
+SOURCE_TREE_IGNORE_NAMES = {"build", "CMakeFiles", "Testing", "CMakeCache.txt", "build.ninja"}
+SOURCE_TREE_IGNORE_PATTERNS = {
+    "build-*",
+    "cmake-build-*",
+    ".ninja_*",
+    "*.exe",
+    "*.obj",
+    "*.o",
+    "*.pdb",
+    "*.ilk",
+    "*.dll",
+    "*.lib",
+    "*.a",
+}
+
+
+def _source_tree_ignore(directory: str, names: list[str]) -> set[str]:
+    ignored = set()
+    for name in names:
+        if name in SOURCE_TREE_IGNORE_NAMES:
+            ignored.add(name)
+        elif any(fnmatch.fnmatch(name, pattern) for pattern in SOURCE_TREE_IGNORE_PATTERNS):
+            ignored.add(name)
+    return ignored
+
+
+def _copy_source_tree(source: Path, destination: Path) -> None:
+    shutil.copytree(source, destination, ignore=_source_tree_ignore)
+
+
+def _portable_plain_dict(value: Any) -> Any:
+    if is_dataclass(value) and not isinstance(value, type):
+        return {field.name: _portable_plain_dict(getattr(value, field.name)) for field in fields(value)}
+    if isinstance(value, Path):
+        return _display_path(value)
+    if isinstance(value, str):
+        return _portable_path_string(value)
+    if isinstance(value, list):
+        return [_portable_plain_dict(item) for item in value]
+    if isinstance(value, tuple):
+        return [_portable_plain_dict(item) for item in value]
+    if isinstance(value, dict):
+        return {str(key): _portable_plain_dict(item) for key, item in value.items()}
+    return to_plain_dict(value)
+
+
+def _portable_path_string(value: str) -> str:
+    if not value:
+        return value
+    try:
+        path = Path(value)
+    except (TypeError, ValueError):
+        return value
+    if not path.is_absolute():
+        return value.replace("\\", "/")
+    return _display_path(path)
+
+
+def _ensure_path_inside(path: Path, root: Path, label: str) -> None:
+    resolved_path = path.resolve()
+    resolved_root = root.resolve()
+    if resolved_path == resolved_root or resolved_root not in resolved_path.parents:
+        raise ValueError(f"Refusing unsafe {label} path outside {resolved_root}: {resolved_path}")
+
+
+def initialize_current_best_source(paths: ClosedLoopPaths, config: ExperimentConfig) -> None:
+    """Create current_best_source from the clean repository cpp tree."""
+
+    current_best_source_dir = paths.current_best_source_dir
+    _ensure_path_inside(current_best_source_dir, WORKSPACE_ROOT / "experiments", "current best source")
+    if current_best_source_dir.exists():
+        shutil.rmtree(current_best_source_dir)
+    current_best_source_dir.mkdir(parents=True, exist_ok=True)
+    shutil.copytree(
+        REPO_ROOT / "cpp",
+        current_best_source_dir / "cpp",
+        ignore=_source_tree_ignore,
+    )
+    target_path = current_best_source_dir / config.target_file
+    if not target_path.exists() or not target_path.is_file():
+        raise FileNotFoundError(f"Current best source missing target file: {target_path}")
+
+
+def _initialize_current_best_state(
+    paths: ClosedLoopPaths,
+    experiment_id: str,
+    config: ExperimentConfig,
+    baseline_run_dir: Path,
+) -> CurrentBestState:
+    baseline_metrics_path = baseline_run_dir / "metrics.json"
+    return CurrentBestState(
+        experiment_id=experiment_id,
+        target_file=config.target_file,
+        original_baseline_run_dir=baseline_run_dir,
+        original_baseline_metrics_path=baseline_metrics_path,
+        current_best_iteration=0,
+        current_best_is_baseline=True,
+        current_best_source_dir=paths.current_best_source_dir,
+        current_best_run_dir=baseline_run_dir,
+        current_best_metrics_path=baseline_metrics_path,
+        accepted_improvements=0,
+        updated_at=_now_iso(),
+    )
+
+
+def _write_current_best_state(paths: ClosedLoopPaths, state: CurrentBestState) -> None:
+    state.updated_at = _now_iso()
+    write_current_best_state(paths.current_best_state_path, state)
+
+
+def _read_candidate_json(candidate_run_dir: Path) -> dict[str, Any]:
+    return _read_json_object(candidate_run_dir / "candidate.json")
+
+
+def _candidate_summary_for_record(candidate: dict[str, Any] | None) -> str | None:
+    if candidate is None:
+        return None
+    summary = candidate.get("summary")
+    return summary if isinstance(summary, str) else None
+
+
+def is_noop_candidate(candidate: dict[str, Any]) -> bool:
+    if candidate.get("expected_effect") != "none":
+        return False
+    candidate_type = candidate.get("candidate_type", "unified_diff")
+    if candidate_type == "line_range_edits":
+        edits = candidate.get("edits")
+        return not isinstance(edits, list) or len(edits) == 0
+    if candidate_type == "unified_diff":
+        unified_diff = candidate.get("unified_diff")
+        return not isinstance(unified_diff, str) or not unified_diff.strip()
+    return False
+
+
+def _resolve_materialized_workspace(candidate_run_dir: Path) -> Path:
+    materialization = _read_json_object(candidate_run_dir / "materialization.json")
+    workspace_path = materialization.get("workspace_path")
+    if not isinstance(workspace_path, str) or not workspace_path.strip():
+        raise ValueError("materialization.json is missing non-empty workspace_path")
+    return _resolve_path(workspace_path)
+
+
+def update_current_best_source_from_workspace(
+    paths: ClosedLoopPaths,
+    workspace_path: Path,
+    config: ExperimentConfig,
+) -> None:
+    workspace = workspace_path.resolve()
+    if not workspace.exists() or not workspace.is_dir():
+        raise FileNotFoundError(f"Materialized workspace not found: {workspace}")
+    current_best_source_dir = paths.current_best_source_dir
+    _ensure_path_inside(current_best_source_dir, WORKSPACE_ROOT / "experiments", "current best source")
+    if current_best_source_dir.exists():
+        shutil.rmtree(current_best_source_dir)
+    _copy_source_tree(workspace, current_best_source_dir)
+    target_path = current_best_source_dir / config.target_file
+    if not target_path.exists() or not target_path.is_file():
+        raise FileNotFoundError(f"Promoted current best source missing target file: {target_path}")
+
+
+def _compact_decision_summary(decision: dict[str, Any] | None) -> dict[str, Any] | None:
+    if decision is None:
+        return None
+    comparison = decision.get("comparison")
+    comparison = comparison if isinstance(comparison, dict) else {}
+    return {
+        "status": decision.get("status"),
+        "reference_kind": decision.get("reference_kind"),
+        "speedup": comparison.get("speedup"),
+        "runtime_reduction_percent": comparison.get("runtime_reduction_percent"),
+        "comparison": comparison,
+        "thresholds": decision.get("thresholds"),
+        "rejection_reasons": decision.get("rejection_reasons"),
+        "non_acceptance_reasons": decision.get("non_acceptance_reasons"),
+        "audit_issues": decision.get("audit_issues"),
+    }
+
+
+def _decision_speedup(decision: dict[str, Any] | None) -> float | None:
+    if decision is None:
+        return None
+    comparison = decision.get("comparison")
+    if not isinstance(comparison, dict):
+        return None
+    speedup = comparison.get("speedup")
+    return float(speedup) if isinstance(speedup, (int, float)) and not isinstance(speedup, bool) else None
+
+
+def _build_closed_loop_iteration_record(
+    *,
+    experiment_id: str,
+    iteration: int,
+    status: IterationStatus,
+    base_source_kind: str,
+    reference_best_iteration_before: int,
+    reference_best_run_dir: Path | None,
+    candidate_run_dir: Path | None,
+    candidate: dict[str, Any] | None,
+    decision_vs_current_best: dict[str, Any] | None,
+    decision_vs_original_baseline: dict[str, Any] | None,
+    current_best_updated: bool,
+    current_best_iteration_after: int,
+    failure_stage: str | None = None,
+    failure_reason: str | None = None,
+    materialization_match_summary: dict[str, Any] | None = None,
+) -> ClosedLoopIterationRecord:
+    record = ClosedLoopIterationRecord(
+        experiment_id=experiment_id,
+        iteration=iteration,
+        status=status,
+        base_source_kind=base_source_kind,
+        reference_best_iteration_before=reference_best_iteration_before,
+        reference_best_run_dir=reference_best_run_dir,
+        candidate_run_dir=candidate_run_dir,
+        candidate_summary=_candidate_summary_for_record(candidate),
+        candidate_rationale=(candidate or {}).get("rationale") if isinstance((candidate or {}).get("rationale"), str) else None,
+        candidate_expected_effect=(candidate or {}).get("expected_effect") if isinstance((candidate or {}).get("expected_effect"), str) else None,
+        candidate_risk_level=(candidate or {}).get("risk_level") if isinstance((candidate or {}).get("risk_level"), str) else None,
+        decision_vs_current_best=_compact_decision_summary(decision_vs_current_best),
+        decision_vs_original_baseline=_compact_decision_summary(decision_vs_original_baseline),
+        speedup_vs_current_best=_decision_speedup(decision_vs_current_best),
+        speedup_vs_original_baseline=_decision_speedup(decision_vs_original_baseline),
+        current_best_updated=current_best_updated,
+        current_best_iteration_after=current_best_iteration_after,
+        failure_stage=failure_stage,
+        failure_reason=failure_reason,
+        materialization_match_summary=materialization_match_summary,
+        history_included=False,
+        history_guidance=None,
+        created_at=_now_iso(),
+    )
+    plain_record = to_plain_dict(record)
+    if should_include_in_closed_loop_history(plain_record):
+        record.history_included = True
+        record.history_guidance = build_history_guidance(plain_record)
+    return record
+
+
+def _append_closed_loop_record_and_state(
+    paths: ClosedLoopPaths,
+    state: CurrentBestState,
+    record: ClosedLoopIterationRecord,
+) -> None:
+    paths.closed_loop_iterations_path.parent.mkdir(parents=True, exist_ok=True)
+    with paths.closed_loop_iterations_path.open("a", encoding="utf-8") as output_file:
+        output_file.write(
+            json.dumps(_portable_plain_dict(record), ensure_ascii=False, separators=(",", ":"))
+            + "\n"
+        )
+    _write_current_best_state(paths, state)
+
+
+def _results_current_best_state_path(paths: ClosedLoopPaths) -> Path:
+    return paths.results_root / "experiments" / paths.experiment_id / "current_best_state.json"
+
+
+def copy_final_optimized_source(paths: ClosedLoopPaths, config: ExperimentConfig) -> Path:
+    """Copy final current_best_source into the experiment results directory."""
+
+    source_dir = paths.current_best_source_dir
+    if not source_dir.exists() or not source_dir.is_dir():
+        raise FileNotFoundError(f"Current best source directory not found: {source_dir}")
+    target_file = source_dir / config.target_file
+    if not target_file.exists() or not target_file.is_file():
+        raise FileNotFoundError(f"Current best source missing target file: {target_file}")
+
+    final_dir = paths.final_optimized_source_dir
+    _ensure_path_inside(final_dir, paths.results_root / "experiments", "final optimized source")
+    if final_dir.exists():
+        shutil.rmtree(final_dir)
+    _copy_source_tree(source_dir, final_dir)
+    final_target = final_dir / config.target_file
+    if not final_target.exists() or not final_target.is_file():
+        raise FileNotFoundError(f"Final optimized source missing target file: {final_target}")
+    return final_dir
+
+
+def write_final_optimized_source_diff(paths: ClosedLoopPaths, config: ExperimentConfig) -> Path:
+    """Write unified diff from clean baseline source to final optimized source."""
+
+    baseline_file = REPO_ROOT / config.target_file
+    final_file = paths.final_optimized_source_dir / config.target_file
+    if not baseline_file.exists() or not baseline_file.is_file():
+        raise FileNotFoundError(f"Baseline source missing target file: {baseline_file}")
+    if not final_file.exists() or not final_file.is_file():
+        raise FileNotFoundError(f"Final optimized source missing target file: {final_file}")
+
+    baseline_lines = baseline_file.read_text(encoding="utf-8").splitlines(keepends=True)
+    final_lines = final_file.read_text(encoding="utf-8").splitlines(keepends=True)
+    diff_lines = list(
+        difflib.unified_diff(
+            baseline_lines,
+            final_lines,
+            fromfile=f"a/{config.target_file}",
+            tofile=f"b/{config.target_file}",
+        )
+    )
+    paths.final_optimized_source_diff_path.parent.mkdir(parents=True, exist_ok=True)
+    paths.final_optimized_source_diff_path.write_text("".join(diff_lines), encoding="utf-8")
+    return paths.final_optimized_source_diff_path
+
+
+def copy_results_current_best_state(paths: ClosedLoopPaths) -> Path:
+    """Copy workspace current-best metadata into the experiment results directory."""
+
+    if not paths.current_best_state_path.exists():
+        raise FileNotFoundError(f"Current best state not found: {paths.current_best_state_path}")
+    results_state_path = _results_current_best_state_path(paths)
+    results_state_path.parent.mkdir(parents=True, exist_ok=True)
+    state = _read_json_object(paths.current_best_state_path)
+    _write_json(results_state_path, _portable_plain_dict(state))
+    return results_state_path
+
+
+def _final_speedup_vs_original_baseline(
+    state: CurrentBestState,
+) -> tuple[float | None, float | None]:
+    if state.current_best_is_baseline:
+        return 1.0, 0.0
+
+    decision_path = state.current_best_run_dir / "decision_vs_original_baseline.json"
+    try:
+        decision = _read_json_object(decision_path)
+    except (OSError, ValueError, json.JSONDecodeError):
+        return None, None
+    comparison = decision.get("comparison")
+    if not isinstance(comparison, dict):
+        return None, None
+
+    speedup = comparison.get("speedup")
+    runtime_reduction = comparison.get("runtime_reduction_percent")
+    return (
+        float(speedup) if isinstance(speedup, (int, float)) and not isinstance(speedup, bool) else None,
+        float(runtime_reduction)
+        if isinstance(runtime_reduction, (int, float)) and not isinstance(runtime_reduction, bool)
+        else None,
+    )
+
+
+def finalize_closed_loop_artifacts(
+    *,
+    paths: ClosedLoopPaths,
+    experiment_id: str,
+    config: ExperimentConfig,
+    state: CurrentBestState,
+    records: list[ClosedLoopIterationRecord],
+    started_at: datetime,
+    finished_at: str,
+) -> tuple[ClosedLoopSummary, Path]:
+    """Write final closed-loop artifacts after all iterations finish."""
+
+    copy_final_optimized_source(paths, config)
+    write_final_optimized_source_diff(paths, config)
+    results_state_path = copy_results_current_best_state(paths)
+    final_speedup, final_runtime_reduction = _final_speedup_vs_original_baseline(state)
+    status_counts = count_iteration_statuses(records)
+    summary = ClosedLoopSummary(
+        experiment_id=experiment_id,
+        target_file=config.target_file,
+        total_iterations=_total_iterations(config),
+        completed_iterations=len(records),
+        original_baseline_run_dir=state.original_baseline_run_dir,
+        original_baseline_metrics_path=state.original_baseline_metrics_path,
+        final_best_iteration=state.current_best_iteration,
+        final_best_candidate_run_dir=None if state.current_best_is_baseline else state.current_best_run_dir,
+        final_optimized_source_dir=paths.final_optimized_source_dir,
+        final_optimized_source_diff_path=paths.final_optimized_source_diff_path,
+        final_speedup_vs_original_baseline=final_speedup,
+        final_runtime_reduction_percent=final_runtime_reduction,
+        iterations_after_final_best=len(records) - state.current_best_iteration,
+        status_counts=status_counts,
+        created_at=started_at.isoformat(timespec="seconds"),
+        finished_at=finished_at,
+    )
+    _write_json(paths.closed_loop_summary_path, _portable_plain_dict(summary))
+    return summary, results_state_path
+
+
+def write_closed_loop_selection_report(
+    experiment_dir: Path,
+    state: CurrentBestState,
+    summary: ClosedLoopSummary,
+    records: list[ClosedLoopIterationRecord] | None = None,
+) -> Path:
+    """Write reporting-only final closed-loop selection analysis.
+
+    This artifact documents the already-completed control decision. It never
+    promotes candidates or copies source trees; promotion is performed only
+    during iterations with decision_vs_current_best=accepted_improvement.
+    """
+
+    report_path = experiment_dir / "closed_loop_selection_report.json"
+    candidate_attempts = [_compact_candidate_attempt(record) for record in (records or [])]
+    final_current_best_run_dir = _display_path(state.current_best_run_dir)
+    payload = {
+        "report_type": "closed_loop_final_selection_report",
+        "experiment_id": summary.experiment_id,
+        "target_file": summary.target_file,
+        "mode": "closed_loop",
+        "promotion_policy": "decision_vs_current_best.accepted_improvement_only",
+        "final_current_best": {
+            "iteration": state.current_best_iteration,
+            "is_baseline": state.current_best_is_baseline,
+            "run_dir": final_current_best_run_dir,
+            "source_dir": _display_path(state.current_best_source_dir),
+            "metrics_path": _display_path(state.current_best_metrics_path),
+            "accepted_improvements": state.accepted_improvements,
+        },
+        "best_verified_candidate_vs_original_baseline": _best_verified_candidate_vs_original_baseline(candidate_attempts, final_current_best_run_dir),
+        "candidate_attempts": candidate_attempts,
+        "status_counts": summary.status_counts,
+        "control_decision": {
+            "promotion_policy": "decision_vs_current_best.accepted_improvement_only",
+            "final_best_iteration": state.current_best_iteration,
+            "final_best_is_baseline": state.current_best_is_baseline,
+            "final_best_run_dir": final_current_best_run_dir,
+            "accepted_improvements": state.accepted_improvements,
+        },
+        "final_analysis": {
+            "target_file": summary.target_file,
+            "final_optimized_source_dir": _display_path(summary.final_optimized_source_dir),
+            "final_optimized_source_diff_path": _display_path(summary.final_optimized_source_diff_path),
+            "performance_reference": "original_baseline",
+            "final_speedup_vs_original_baseline": summary.final_speedup_vs_original_baseline,
+            "final_runtime_reduction_percent": summary.final_runtime_reduction_percent,
+            "status_counts": summary.status_counts,
+        },
+        "safety": {
+            "report_promotes_candidates": False,
+            "report_updates_current_best_source": False,
+            "report_updates_final_optimized_source": False,
+            "report_modifies_main_cpp_tree": False,
+        },
+    }
+    _write_json(report_path, payload)
+    return report_path
+
+
+def _compact_candidate_attempt(record: ClosedLoopIterationRecord) -> dict[str, Any]:
+    return {
+        "iteration": record.iteration,
+        "status": record.status.value if isinstance(record.status, IterationStatus) else record.status,
+        "candidate_run_dir": _display_path(record.candidate_run_dir) if record.candidate_run_dir is not None else None,
+        "decision_vs_current_best": _compact_report_decision(record.decision_vs_current_best),
+        "decision_vs_original_baseline": _compact_report_decision(record.decision_vs_original_baseline),
+        "speedup_vs_current_best": record.speedup_vs_current_best,
+        "speedup_vs_original_baseline": record.speedup_vs_original_baseline,
+        "current_best_updated": record.current_best_updated,
+        "failure_stage": record.failure_stage,
+        "failure_reason": record.failure_reason,
+    }
+
+
+def _compact_report_decision(decision: dict[str, Any] | str | None) -> dict[str, Any] | str | None:
+    if not isinstance(decision, dict):
+        return decision
+    comparison = decision.get("comparison")
+    comparison = comparison if isinstance(comparison, dict) else {}
+    return {
+        "status": decision.get("status"),
+        "reference_kind": decision.get("reference_kind"),
+        "speedup": _numeric_or_none(comparison.get("speedup"), decision.get("speedup")),
+        "runtime_reduction_percent": _numeric_or_none(
+            comparison.get("runtime_reduction_percent"),
+            decision.get("runtime_reduction_percent"),
+        ),
+        "comparison": comparison,
+        "rejection_reasons": decision.get("rejection_reasons"),
+        "non_acceptance_reasons": decision.get("non_acceptance_reasons"),
+    }
+
+
+def _numeric_or_none(*values: Any) -> float | None:
+    for value in values:
+        if isinstance(value, (int, float)) and not isinstance(value, bool):
+            return float(value)
+    return None
+
+
+def _best_verified_candidate_vs_original_baseline(
+    candidate_attempts: list[dict[str, Any]],
+    final_current_best_run_dir: str,
+) -> dict[str, Any] | None:
+    best_attempt: dict[str, Any] | None = None
+    best_speedup: float | None = None
+    for attempt in candidate_attempts:
+        decision = attempt.get("decision_vs_original_baseline")
+        if not isinstance(decision, dict):
+            continue
+        status = decision.get("status")
+        if status not in {"accepted_improvement", "valid_not_improved"}:
+            continue
+        speedup = _numeric_or_none(decision.get("speedup"), attempt.get("speedup_vs_original_baseline"))
+        if not isinstance(speedup, (int, float)) or isinstance(speedup, bool):
+            continue
+        if best_speedup is None or float(speedup) > best_speedup:
+            best_speedup = float(speedup)
+            runtime_reduction = _numeric_or_none(decision.get("runtime_reduction_percent"))
+            best_attempt = {
+                "iteration": attempt.get("iteration"),
+                "candidate_run_dir": attempt.get("candidate_run_dir"),
+                "speedup": best_speedup,
+                "runtime_reduction_percent": runtime_reduction,
+                "matches_final_current_best": attempt.get("candidate_run_dir") == final_current_best_run_dir,
+                "status": status,
+            }
+    return best_attempt
+
+
+def _closed_loop_status_block(
+    paths: ClosedLoopPaths,
+    summary: ClosedLoopSummary,
+    results_state_path: Path,
+    accepted_improvements: int,
+) -> dict[str, Any]:
+    return {
+        "enabled": True,
+        "final_best_iteration": summary.final_best_iteration,
+        "accepted_improvements": accepted_improvements,
+        "final_optimized_source_dir": _display_path(summary.final_optimized_source_dir),
+        "final_optimized_source_diff_path": _display_path(summary.final_optimized_source_diff_path),
+        "closed_loop_summary_path": _display_path(paths.closed_loop_summary_path),
+        "closed_loop_iterations_path": _display_path(paths.closed_loop_iterations_path),
+        "current_best_state_path": _display_path(results_state_path),
+        "workspace_current_best_source_dir": _display_path(paths.current_best_source_dir),
+        "workspace_current_best_state_path": _display_path(paths.current_best_state_path),
+        "final_speedup_vs_original_baseline": summary.final_speedup_vs_original_baseline,
+        "final_runtime_reduction_percent": summary.final_runtime_reduction_percent,
+        "status_counts": summary.status_counts,
+    }
+
+
+def _format_optional_float(value: float | None) -> str:
+    return "none" if value is None else str(value)
+
+
+def _build_closed_loop_summary_text(
+    *,
+    experiment_id: str,
+    config: ExperimentConfig,
+    summary: ClosedLoopSummary,
+    results_state_path: Path,
+    accepted_improvements: int,
+) -> str:
+    lines = [
+        f"Experiment id: {experiment_id}",
+        f"Experiment name: {config.experiment_name}",
+        "Closed-loop mode: enabled",
+        f"Target file: {config.target_file}",
+        f"Total planned iterations: {summary.total_iterations}",
+        f"Completed iterations: {summary.completed_iterations}",
+        f"Accepted improvements: {accepted_improvements}",
+        f"Final best iteration: {summary.final_best_iteration}",
+        (
+            "Final speedup ratio vs original baseline: "
+            f"{_format_optional_float(summary.final_speedup_vs_original_baseline)}"
+        ),
+        (
+            "Final runtime reduction percent vs original baseline: "
+            f"{_format_optional_float(summary.final_runtime_reduction_percent)}"
+        ),
+        "Status counts:",
+    ]
+    for status, count in summary.status_counts.items():
+        lines.append(f"- {status}: {count}")
+    lines.extend(
+        [
+            "Final artifacts:",
+            f"- final optimized source: {_display_path(summary.final_optimized_source_dir)}",
+            f"- final diff: {_display_path(summary.final_optimized_source_diff_path)}",
+            f"- closed-loop summary: {_display_path(summary.final_optimized_source_diff_path.parent / 'closed_loop_summary.json')}",
+            f"- closed-loop iterations: {_display_path(summary.final_optimized_source_diff_path.parent / 'closed_loop_iterations.jsonl')}",
+            f"- current best state: {_display_path(results_state_path)}",
+            "All planned iterations were attempted; no early stopping is used.",
+            "Main cpp/ source tree was not modified automatically.",
+            "",
+        ]
+    )
+    return "\n".join(lines)
+
+
+def _run_closed_loop_experiment(
+    config: ExperimentConfig,
+    experiment_id: str,
+    experiment_dir: Path,
+    llm_metadata_by_variant: dict[str, dict[str, Any]],
+    started_at: datetime,
+) -> dict[str, Any]:
+    if config.selection.baseline_run_dir is None:
+        raise ExperimentConfigError(
+            "Field 'selection.baseline_run_dir' is required when closed_loop.enabled is true."
+        )
+    if len(config.variants) != 1:
+        raise ExperimentConfigError("Closed-loop mode currently supports exactly one variant.")
+
+    variant = config.variants[0]
+    llm_metadata = llm_metadata_by_variant[variant.variant_id]
+    baseline_run_dir = _resolve_path(config.selection.baseline_run_dir)
+    baseline_metrics_path = baseline_run_dir / "metrics.json"
+    if not baseline_metrics_path.exists():
+        raise ExperimentConfigError(f"Closed-loop baseline metrics not found: {baseline_metrics_path}")
+
+    closed_loop_paths = ClosedLoopPaths.from_roots(WORKSPACE_ROOT, RESULTS_ROOT, experiment_id)
+    initialize_current_best_source(closed_loop_paths, config)
+    state = _initialize_current_best_state(closed_loop_paths, experiment_id, config, baseline_run_dir)
+    _write_current_best_state(closed_loop_paths, state)
+
+    records: list[ClosedLoopIterationRecord] = []
+    print("Closed-loop mode: enabled")
+    print(f"Current best source: {_display_path(closed_loop_paths.current_best_source_dir)}")
+
+    for iteration in range(1, variant.iterations + 1):
+        print(f"\nClosed-loop iteration {iteration}/{variant.iterations}")
+        reference_best_iteration_before = state.current_best_iteration
+        reference_run_dir_before = state.current_best_run_dir
+        reference_kind = "baseline" if state.current_best_is_baseline else "verified_candidate"
+        base_source_kind = "baseline" if state.current_best_is_baseline else "current_best"
+        candidate: dict[str, Any] | None = None
+        candidate_run_dir: Path | None = None
+
+        closed_loop_history_context = build_closed_loop_history_context(
+            [to_plain_dict(record) for record in records]
+        )
+        _write_closed_loop_history_context_file(
+            experiment_dir,
+            iteration,
+            closed_loop_history_context,
+        )
+        generation_context = _combine_closed_loop_context(
+            variant.additional_context,
+            closed_loop_history_context,
+        )
+
+        generation_result = _run_stage(
+            experiment_dir,
+            iteration,
+            variant.variant_id,
+            iteration,
+            "generate_candidate",
+            _build_generation_command(
+                config,
+                llm_metadata["resolved_config"],
+                generation_context,
+                source_root=str(closed_loop_paths.current_best_source_dir),
+            ),
+        )
+        generation_record, candidate_run_dir_text = _generation_stage_record(generation_result)
+        if candidate_run_dir_text is not None:
+            candidate_run_dir = _resolve_path(candidate_run_dir_text)
+        if generation_record["status"] != "success" or candidate_run_dir is None:
+            record = _build_closed_loop_iteration_record(
+                experiment_id=experiment_id,
+                iteration=iteration,
+                status=IterationStatus.GENERATION_FAILED,
+                base_source_kind=base_source_kind,
+                reference_best_iteration_before=reference_best_iteration_before,
+                reference_best_run_dir=reference_run_dir_before,
+                candidate_run_dir=candidate_run_dir,
+                candidate=None,
+                decision_vs_current_best=None,
+                decision_vs_original_baseline=None,
+                current_best_updated=False,
+                current_best_iteration_after=state.current_best_iteration,
+                failure_stage="generation",
+                failure_reason=generation_record.get("error_message") or generation_record.get("failed_step"),
+            )
+            records.append(record)
+            _append_closed_loop_record_and_state(closed_loop_paths, state, record)
+            print("- iteration: generation_failed")
+            continue
+
+        try:
+            candidate = _read_candidate_json(candidate_run_dir)
+        except (OSError, ValueError, json.JSONDecodeError) as exc:
+            record = _build_closed_loop_iteration_record(
+                experiment_id=experiment_id,
+                iteration=iteration,
+                status=IterationStatus.GENERATION_FAILED,
+                base_source_kind=base_source_kind,
+                reference_best_iteration_before=reference_best_iteration_before,
+                reference_best_run_dir=reference_run_dir_before,
+                candidate_run_dir=candidate_run_dir,
+                candidate=None,
+                decision_vs_current_best=None,
+                decision_vs_original_baseline=None,
+                current_best_updated=False,
+                current_best_iteration_after=state.current_best_iteration,
+                failure_stage="generation",
+                failure_reason=f"Could not read usable candidate.json: {exc}",
+            )
+            records.append(record)
+            _append_closed_loop_record_and_state(closed_loop_paths, state, record)
+            print("- iteration: generation_failed")
+            continue
+
+        if is_noop_candidate(candidate):
+            record = _build_closed_loop_iteration_record(
+                experiment_id=experiment_id,
+                iteration=iteration,
+                status=IterationStatus.NO_OP,
+                base_source_kind=base_source_kind,
+                reference_best_iteration_before=reference_best_iteration_before,
+                reference_best_run_dir=reference_run_dir_before,
+                candidate_run_dir=candidate_run_dir,
+                candidate=candidate,
+                decision_vs_current_best=None,
+                decision_vs_original_baseline=None,
+                current_best_updated=False,
+                current_best_iteration_after=state.current_best_iteration,
+            )
+            records.append(record)
+            _append_closed_loop_record_and_state(closed_loop_paths, state, record)
+            print("- iteration: no_op")
+            continue
+
+        materialization_result = _run_stage(
+            experiment_dir,
+            iteration,
+            variant.variant_id,
+            iteration,
+            "materialize_candidate",
+            _build_materialization_command(
+                str(candidate_run_dir),
+                config,
+                base_source_root=str(closed_loop_paths.current_best_source_dir),
+            ),
+        )
+        materialization_record = _materialization_stage_record(materialization_result, str(candidate_run_dir))
+        if materialization_record["status"] != "success":
+            record = _build_closed_loop_iteration_record(
+                experiment_id=experiment_id,
+                iteration=iteration,
+                status=IterationStatus.MATERIALIZATION_FAILED,
+                base_source_kind=base_source_kind,
+                reference_best_iteration_before=reference_best_iteration_before,
+                reference_best_run_dir=reference_run_dir_before,
+                candidate_run_dir=candidate_run_dir,
+                candidate=candidate,
+                decision_vs_current_best=None,
+                decision_vs_original_baseline=None,
+                current_best_updated=False,
+                current_best_iteration_after=state.current_best_iteration,
+                failure_stage="materialization",
+                failure_reason=materialization_record.get("error_message") or materialization_record.get("failed_step"),
+                materialization_match_summary=materialization_record.get("materialization_match_summary"),
+            )
+            records.append(record)
+            _append_closed_loop_record_and_state(closed_loop_paths, state, record)
+            print("- iteration: materialization_failed")
+            continue
+
+        verification_result = _run_stage(
+            experiment_dir,
+            iteration,
+            variant.variant_id,
+            iteration,
+            "verify_candidate",
+            _build_verification_command(str(candidate_run_dir)),
+        )
+        verification_record = _verification_stage_record(verification_result, str(candidate_run_dir))
+        if verification_record["status"] != "success":
+            record = _build_closed_loop_iteration_record(
+                experiment_id=experiment_id,
+                iteration=iteration,
+                status=IterationStatus.VERIFICATION_FAILED,
+                base_source_kind=base_source_kind,
+                reference_best_iteration_before=reference_best_iteration_before,
+                reference_best_run_dir=reference_run_dir_before,
+                candidate_run_dir=candidate_run_dir,
+                candidate=candidate,
+                decision_vs_current_best=None,
+                decision_vs_original_baseline=None,
+                current_best_updated=False,
+                current_best_iteration_after=state.current_best_iteration,
+                failure_stage="verification",
+                failure_reason=verification_record.get("error_message") or verification_record.get("failed_step"),
+                materialization_match_summary=materialization_record.get("materialization_match_summary"),
+            )
+            records.append(record)
+            _append_closed_loop_record_and_state(closed_loop_paths, state, record)
+            print("- iteration: verification_failed")
+            continue
+
+        decision_vs_current_best = evaluate_candidate_against_reference(
+            reference_run_dir=state.current_best_run_dir,
+            reference_kind=reference_kind,
+            candidate_run_dir=candidate_run_dir,
+        )
+        decision_vs_original_baseline = evaluate_candidate_against_reference(
+            reference_run_dir=baseline_run_dir,
+            reference_kind="baseline",
+            candidate_run_dir=candidate_run_dir,
+        )
+        write_candidate_decision(candidate_run_dir, decision_vs_current_best, "decision_vs_current_best.json")
+        write_candidate_decision(candidate_run_dir, decision_vs_original_baseline, "decision_vs_original_baseline.json")
+
+        decision_status = decision_vs_current_best.get("status")
+        current_best_updated = False
+        if decision_status == "accepted_improvement":
+            workspace_path = _resolve_materialized_workspace(candidate_run_dir)
+            update_current_best_source_from_workspace(closed_loop_paths, workspace_path, config)
+            state.current_best_iteration = iteration
+            state.current_best_is_baseline = False
+            state.current_best_run_dir = candidate_run_dir
+            state.current_best_metrics_path = candidate_run_dir / "verification.json"
+            state.accepted_improvements += 1
+            iteration_status = IterationStatus.ACCEPTED_IMPROVEMENT
+            current_best_updated = True
+        elif decision_status == "valid_not_improved":
+            iteration_status = IterationStatus.VALID_NOT_IMPROVED
+        else:
+            iteration_status = IterationStatus.REJECTED
+
+        record = _build_closed_loop_iteration_record(
+            experiment_id=experiment_id,
+            iteration=iteration,
+            status=iteration_status,
+            base_source_kind=base_source_kind,
+            reference_best_iteration_before=reference_best_iteration_before,
+            reference_best_run_dir=reference_run_dir_before,
+            candidate_run_dir=candidate_run_dir,
+            candidate=candidate,
+            decision_vs_current_best=decision_vs_current_best,
+            decision_vs_original_baseline=decision_vs_original_baseline,
+            current_best_updated=current_best_updated,
+            current_best_iteration_after=state.current_best_iteration,
+            materialization_match_summary=materialization_record.get("materialization_match_summary"),
+        )
+        records.append(record)
+        _append_closed_loop_record_and_state(closed_loop_paths, state, record)
+        print(f"- iteration: {iteration_status.value}")
+
+    finished_at = _now_iso()
+    summary, results_state_path = finalize_closed_loop_artifacts(
+        paths=closed_loop_paths,
+        experiment_id=experiment_id,
+        config=config,
+        state=state,
+        records=records,
+        started_at=started_at,
+        finished_at=finished_at,
+    )
+    selection_report_path = write_closed_loop_selection_report(experiment_dir, state, summary, records)
+    final_status = {
+        "experiment_id": experiment_id,
+        "experiment_name": config.experiment_name,
+        "overall_status": "completed",
+        "closed_loop": _closed_loop_status_block(
+            closed_loop_paths,
+            summary,
+            results_state_path,
+            state.accepted_improvements,
+        ),
+        "started_at": started_at.isoformat(timespec="seconds"),
+        "finished_at": finished_at,
+        "planned_iterations": variant.iterations,
+        "completed_iterations": len(records),
+        "target_file": config.target_file,
+        "pipeline": asdict(config.pipeline),
+        "candidate_format": asdict(config.candidate_format),
+        "closed_loop_selection_report_path": _display_path(selection_report_path),
+    }
+    _write_json(experiment_dir / "experiment_status.json", final_status)
+    (experiment_dir / "summary.txt").write_text(
+        _build_closed_loop_summary_text(
+            experiment_id=experiment_id,
+            config=config,
+            summary=summary,
+            results_state_path=results_state_path,
+            accepted_improvements=state.accepted_improvements,
+        ),
+        encoding="utf-8",
+    )
+    return final_status
+
+
 def _run_experiment(
     config: ExperimentConfig,
     config_snapshot: dict[str, Any],
@@ -1564,6 +2584,34 @@ def _run_experiment(
         f"materialize={config.pipeline.materialize_candidate}, "
         f"verify={config.pipeline.verify_candidate}"
     )
+
+    if config.closed_loop.enabled:
+        try:
+            status = _run_closed_loop_experiment(
+                config,
+                experiment_id,
+                experiment_dir,
+                llm_metadata_by_variant,
+                started_at,
+            )
+        except (ExperimentConfigError, OSError, ValueError) as exc:
+            _write_early_failure_artifacts(
+                experiment_dir,
+                experiment_id,
+                config,
+                started_at,
+                "closed_loop_initialization_or_execution",
+                str(exc),
+            )
+            print(f"ERROR: {exc}", file=sys.stderr)
+            print(f"Artifacts saved to: {_display_path(experiment_dir)}")
+            return 1
+
+        print("")
+        print(f"Final experiment status: {status['overall_status']}")
+        print(f"Completed iterations: {status['completed_iterations']}")
+        print(f"Artifacts saved to: {_display_path(experiment_dir)}")
+        return 0
 
     records: list[dict[str, Any]] = []
     global_iteration = 0

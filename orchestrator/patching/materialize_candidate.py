@@ -31,6 +31,9 @@ from orchestrator.patching.scope_validation import (
 REPO_ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_WORKSPACE_ROOT = "workspace/candidates"
 DEFAULT_SOURCE_ROOT = "cpp"
+SOURCE_ROOT_MODE_REPO_DEFAULT = "repo_default"
+SOURCE_ROOT_MODE_LEGACY_SOURCE_ROOT = "legacy_source_root"
+SOURCE_ROOT_MODE_EXPLICIT_BASE_SOURCE_ROOT = "explicit_base_source_root"
 EXTERNAL_SCOPE_ENFORCEMENT = "external_allowed_files"
 LEGACY_SCOPE_ENFORCEMENT = "legacy_candidate_declared_target_files"
 CANDIDATE_TYPE_UNIFIED_DIFF = "unified_diff"
@@ -39,6 +42,14 @@ SUPPORTED_CANDIDATE_TYPES = {
     CANDIDATE_TYPE_UNIFIED_DIFF,
     CANDIDATE_TYPE_LINE_RANGE_EDITS,
 }
+
+
+class LineRangeEditApplyError(ValueError):
+    """Line-range edit failure carrying compact partial diagnostics."""
+
+    def __init__(self, message: str, results: list[dict[str, Any]]) -> None:
+        super().__init__(message)
+        self.results = results
 
 
 def _parse_args(argv: list[str]) -> argparse.Namespace:
@@ -57,8 +68,17 @@ def _parse_args(argv: list[str]) -> argparse.Namespace:
     )
     parser.add_argument(
         "--source-root",
-        default=DEFAULT_SOURCE_ROOT,
+        default=None,
         help="Project source root to copy into the candidate workspace.",
+    )
+    parser.add_argument(
+        "--base-source-root",
+        default=None,
+        help=(
+            "Explicit repo-like base source root to copy from. The directory must "
+            "contain repo-relative paths such as cpp/external/lambdatwist/p3p.cc. "
+            "When omitted, legacy --source-root behavior is preserved."
+        ),
     )
     parser.add_argument("--git-exe", default="git", help="git executable to use.")
     parser.add_argument(
@@ -82,6 +102,19 @@ def _parse_args(argv: list[str]) -> argparse.Namespace:
             "must be a subset of these allowed files."
         ),
     )
+    parser.set_defaults(allow_exact_search_fallback=True)
+    parser.add_argument(
+        "--allow-exact-search-fallback",
+        dest="allow_exact_search_fallback",
+        action="store_true",
+        help="Allow line_range_edits to fall back to unique exact-text search when line numbers do not match (default).",
+    )
+    parser.add_argument(
+        "--no-allow-exact-search-fallback",
+        dest="allow_exact_search_fallback",
+        action="store_false",
+        help="Disable exact-text fallback for line_range_edits; line ranges must match exactly.",
+    )
     return parser.parse_args(argv)
 
 
@@ -90,6 +123,41 @@ def _resolve_path(path_text: str) -> Path:
     if not path.is_absolute():
         path = REPO_ROOT / path
     return path.resolve()
+
+
+def _resolve_base_source_root(args: argparse.Namespace) -> tuple[Path, str, str, str]:
+    """Resolve materialization source-root semantics.
+
+    Returns ``(base_source_root_path, source_root_text, base_source_root_display,
+    source_root_mode)``. ``source_root_text`` is retained for backward-compatible
+    artifact fields, while ``base_source_root`` is the clearer Stage 4 name.
+    """
+
+    if args.base_source_root is not None and args.source_root is not None:
+        raise ValueError(
+            "--base-source-root cannot be combined with explicit --source-root; "
+            "use one source-root mode to avoid ambiguous workspace copy semantics."
+        )
+
+    if args.base_source_root is not None:
+        base_source_root_path = _resolve_path(args.base_source_root)
+        source_root_text = args.base_source_root
+        source_root_mode = SOURCE_ROOT_MODE_EXPLICIT_BASE_SOURCE_ROOT
+    elif args.source_root is not None:
+        base_source_root_path = _resolve_path(args.source_root)
+        source_root_text = args.source_root
+        source_root_mode = SOURCE_ROOT_MODE_LEGACY_SOURCE_ROOT
+    else:
+        base_source_root_path = _resolve_path(DEFAULT_SOURCE_ROOT)
+        source_root_text = DEFAULT_SOURCE_ROOT
+        source_root_mode = SOURCE_ROOT_MODE_REPO_DEFAULT
+
+    return (
+        base_source_root_path,
+        source_root_text,
+        _display_path(base_source_root_path),
+        source_root_mode,
+    )
 
 
 def _display_path(path: Path) -> str:
@@ -318,6 +386,103 @@ def _content_without_trailing_line_endings(text: str) -> str:
     return "\n".join(line.rstrip("\r\n") for line in text.splitlines(keepends=True))
 
 
+def _strip_trailing_spaces_tabs_per_line(text: str) -> list[str]:
+    return [line.rstrip("\r\n").rstrip(" \t") for line in text.splitlines(keepends=True)]
+
+
+def _line_range_matches_trailing_whitespace_tolerant(selected_text: str, original: str) -> bool:
+    selected_lines = _strip_trailing_spaces_tabs_per_line(selected_text)
+    original_lines = _strip_trailing_spaces_tabs_per_line(original)
+    return selected_lines == original_lines
+
+
+def _strip_surrounding_spaces_tabs_per_line(text: str) -> list[str]:
+    return [line.rstrip("\r\n").strip(" \t") for line in text.splitlines(keepends=True)]
+
+
+def _line_range_matches_surrounding_whitespace_tolerant(
+    selected_text: str,
+    original: str,
+) -> bool:
+    selected_lines = _strip_surrounding_spaces_tabs_per_line(selected_text)
+    original_lines = _strip_surrounding_spaces_tabs_per_line(original)
+    return len(selected_lines) == len(original_lines) and selected_lines == original_lines
+
+
+def _split_line_body_and_ending(line: str) -> tuple[str, str]:
+    if line.endswith("\r\n"):
+        return line[:-2], "\r\n"
+    if line.endswith("\n"):
+        return line[:-1], "\n"
+    return line, ""
+
+
+def _leading_spaces_tabs(text: str) -> str:
+    return text[: len(text) - len(text.lstrip(" \t"))]
+
+
+def _common_indentation(lines: list[str]) -> str:
+    indents: list[str] = []
+    for line in lines:
+        body, _ending = _split_line_body_and_ending(line)
+        if not body.strip(" \t"):
+            continue
+        indents.append(_leading_spaces_tabs(body))
+    if not indents:
+        return ""
+    common = indents[0]
+    for indent in indents[1:]:
+        while common and not indent.startswith(common):
+            common = common[:-1]
+        if not common:
+            break
+    return common
+
+
+def _adapt_replacement_indentation_to_actual_source(
+    replace: str,
+    selected_text: str,
+    original: str,
+) -> str:
+    selected_lines = _split_preserving_line_endings(selected_text)
+    original_lines = _split_preserving_line_endings(original)
+    replacement = replace
+    line_ending = _line_ending_suffix(selected_text)
+    if line_ending and replacement and not replacement.endswith(("\n", "\r\n")):
+        replacement += line_ending
+    replacement_lines = _split_preserving_line_endings(replacement)
+    if not replacement_lines:
+        return replacement
+
+    selected_nonblank = [
+        line for line in selected_lines if _split_line_body_and_ending(line)[0].strip(" \t")
+    ]
+    original_nonblank = [
+        line for line in original_lines if _split_line_body_and_ending(line)[0].strip(" \t")
+    ]
+    if not selected_nonblank or not original_nonblank:
+        raise ValueError("Cannot safely adapt indentation for an all-blank line range.")
+
+    if len(selected_lines) == 1 and len(replacement_lines) == 1:
+        actual_indent = _leading_spaces_tabs(_split_line_body_and_ending(selected_lines[0])[0])
+        replace_body, replace_ending = _split_line_body_and_ending(replacement_lines[0])
+        return actual_indent + replace_body.lstrip(" \t") + replace_ending
+
+    actual_base_indent = _common_indentation(selected_lines)
+    replacement_base_indent = _common_indentation(replacement_lines)
+    adapted_lines: list[str] = []
+    for line in replacement_lines:
+        body, ending = _split_line_body_and_ending(line)
+        if not body.strip(" \t"):
+            adapted_lines.append(ending)
+            continue
+        if replacement_base_indent and not body.startswith(replacement_base_indent):
+            raise ValueError("Replacement indentation is inconsistent with its base indentation.")
+        relative_body = body[len(replacement_base_indent) :] if replacement_base_indent else body.lstrip(" \t")
+        adapted_lines.append(actual_base_indent + relative_body + ending)
+    return "".join(adapted_lines)
+
+
 def _line_ending_suffix(text: str) -> str:
     if text.endswith("\r\n"):
         return "\r\n"
@@ -346,6 +511,41 @@ def _replace_exactly_once(text: str, original: str, replace: str) -> tuple[str, 
     return text[:first] + replace + text[first + len(original) :], 1
 
 
+def _line_range_result(edit: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "index": edit["index"],
+        "file": edit["file"],
+        "start_line": edit["start_line"],
+        "end_line": edit["end_line"],
+        "line_range_valid": None,
+        "status": "failed",
+        "match_mode": "none",
+        "method": None,
+        "failure_reason": None,
+        "fallback_match_count": None,
+        "detail": None,
+    }
+
+
+def _fail_line_range_result(
+    result: dict[str, Any],
+    *,
+    failure_reason: str,
+    detail: str,
+    fallback_match_count: int | None = None,
+) -> None:
+    result.update(
+        {
+            "status": "failed",
+            "match_mode": "none",
+            "method": None,
+            "failure_reason": failure_reason,
+            "fallback_match_count": fallback_match_count,
+            "detail": detail,
+        }
+    )
+
+
 def _apply_single_line_range_edit(
     text: str,
     edit: dict[str, Any],
@@ -355,48 +555,149 @@ def _apply_single_line_range_edit(
     lines = _split_preserving_line_endings(text)
     start_line = edit["start_line"]
     end_line = edit["end_line"]
-    result = {
-        "index": edit["index"],
-        "file": edit["file"],
-        "start_line": start_line,
-        "end_line": end_line,
-        "method": None,
-        "status": "failed",
-        "detail": None,
-    }
+    result = _line_range_result(edit)
 
-    if end_line <= len(lines):
+    if start_line > len(lines) or end_line > len(lines):
+        selected_text = None
+        result["line_range_valid"] = False
+    else:
+        result["line_range_valid"] = True
         selected_text = _range_text_from_lines(lines, start_line, end_line)
         selected_content = _content_without_trailing_line_endings(selected_text)
         if selected_text == edit["original"] or selected_content == edit["original"]:
             lines[start_line - 1 : end_line] = _replacement_lines_for_line_range(
                 edit["replace"], selected_text
             )
-            result.update({"method": "line_range", "status": "success"})
+            result.update(
+                {
+                    "method": "line_range",
+                    "match_mode": "line_range_exact",
+                    "status": "success",
+                    "detail": "line range matched original text exactly.",
+                }
+            )
+            return "".join(lines), result
+
+        if _line_range_matches_trailing_whitespace_tolerant(selected_text, edit["original"]):
+            lines[start_line - 1 : end_line] = _replacement_lines_for_line_range(
+                edit["replace"], selected_text
+            )
+            result.update(
+                {
+                    "method": "line_range",
+                    "match_mode": "line_range_trailing_whitespace_tolerant",
+                    "status": "success",
+                    "detail": "line range matched original text after ignoring trailing spaces/tabs.",
+                }
+            )
+            return "".join(lines), result
+
+        if _line_range_matches_surrounding_whitespace_tolerant(selected_text, edit["original"]):
+            try:
+                adapted_replace = _adapt_replacement_indentation_to_actual_source(
+                    edit["replace"], selected_text, edit["original"]
+                )
+            except ValueError as exc:
+                detail = (
+                    "line range matched after ignoring leading/trailing spaces/tabs, "
+                    f"but replacement indentation could not be adapted safely: {exc}"
+                )
+                _fail_line_range_result(
+                    result,
+                    failure_reason="line_range_surrounding_whitespace_mismatch",
+                    detail=detail,
+                )
+                raise LineRangeEditApplyError(detail, [result]) from exc
+            lines[start_line - 1 : end_line] = _replacement_lines_for_line_range(
+                adapted_replace, selected_text
+            )
+            result.update(
+                {
+                    "method": "line_range",
+                    "match_mode": "line_range_surrounding_whitespace_tolerant",
+                    "status": "success",
+                    "detail": "line range matched original text after ignoring leading/trailing spaces/tabs; replacement indentation adapted to actual source.",
+                }
+            )
             return "".join(lines), result
 
     if not allow_exact_search_fallback:
-        result["detail"] = "line range did not match and exact-search fallback is disabled."
-        raise ValueError(result["detail"])
+        reason = "invalid_line_range" if selected_text is None else "fallback_not_allowed"
+        detail = "line range is outside the target file." if selected_text is None else "line range did not match and exact-search fallback is disabled."
+        _fail_line_range_result(result, failure_reason=reason, detail=detail)
+        raise LineRangeEditApplyError(detail, [result])
 
     replaced_text, occurrence_count = _replace_exactly_once(
         text, edit["original"], edit["replace"]
     )
     if occurrence_count == 1:
-        result.update({"method": "exact_search_fallback", "status": "success"})
+        match_mode = (
+            "invalid_line_range_exact_search_fallback"
+            if result["line_range_valid"] is False
+            else "exact_search_fallback"
+        )
+        result.update(
+            {
+                "method": "exact_search_fallback",
+                "match_mode": match_mode,
+                "status": "success",
+                "fallback_match_count": 1,
+                "detail": "line range did not match; unique exact-search fallback applied.",
+            }
+        )
         return replaced_text, result
     if occurrence_count == 0:
-        result["detail"] = (
+        detail = (
             f"edit {edit['index']} for {edit['file']} did not match line range and "
             "original text was not found by exact-search fallback."
         )
-        raise ValueError(result["detail"])
+        _fail_line_range_result(
+            result,
+            failure_reason="fallback_no_match",
+            detail=detail,
+            fallback_match_count=0,
+        )
+        raise LineRangeEditApplyError(detail, [result])
 
-    result["detail"] = (
+    detail = (
         f"edit {edit['index']} for {edit['file']} did not match line range and "
         "exact-search fallback is ambiguous because original text occurs multiple times."
     )
-    raise ValueError(result["detail"])
+    _fail_line_range_result(
+        result,
+        failure_reason="fallback_ambiguous",
+        detail=detail,
+        fallback_match_count=occurrence_count,
+    )
+    raise LineRangeEditApplyError(detail, [result])
+
+
+def _not_attempted_line_range_result(edit: dict[str, Any]) -> dict[str, Any]:
+    result = _line_range_result(edit)
+    result.update(
+        {
+            "line_range_valid": None,
+            "status": "not_attempted",
+            "match_mode": "none",
+            "method": None,
+            "failure_reason": "previous_edit_failed",
+            "fallback_match_count": None,
+            "detail": "Not attempted because a previous edit failed.",
+        }
+    )
+    return result
+
+
+def _complete_line_range_results_after_failure(
+    edits: list[dict[str, Any]],
+    partial_results: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    completed = list(partial_results)
+    present_indexes = {result.get("index") for result in completed}
+    for edit in edits:
+        if edit["index"] not in present_indexes:
+            completed.append(_not_attempted_line_range_result(edit))
+    return sorted(completed, key=lambda result: result["index"])
 
 
 def _apply_line_range_edits(
@@ -416,32 +717,64 @@ def _apply_line_range_edits(
     for edit_file, file_edits in grouped.items():
         file_path = workspace_path / edit_file
         if not file_path.exists() or not file_path.is_file():
-            raise FileNotFoundError(f"line_range_edits target file not found: {file_path}")
+            failed = _line_range_result(sorted(file_edits, key=lambda item: item["index"])[0])
+            detail = f"line_range_edits target file not found: {file_path}"
+            _fail_line_range_result(
+                failed,
+                failure_reason="target_file_missing",
+                detail=detail,
+            )
+            complete_results = _complete_line_range_results_after_failure(
+                edits,
+                [*results, failed],
+            )
+            raise LineRangeEditApplyError(detail, complete_results)
 
         original_text = file_path.read_text(encoding="utf-8")
         current_text = original_text
         before_text_by_file[edit_file] = original_text
 
         for edit in sorted(file_edits, key=lambda item: item["start_line"], reverse=True):
-            current_text, edit_result = _apply_single_line_range_edit(
-                current_text,
-                edit,
-                allow_exact_search_fallback=allow_exact_search_fallback,
-            )
+            try:
+                current_text, edit_result = _apply_single_line_range_edit(
+                    current_text,
+                    edit,
+                    allow_exact_search_fallback=allow_exact_search_fallback,
+                )
+            except LineRangeEditApplyError as exc:
+                complete_results = _complete_line_range_results_after_failure(
+                    edits,
+                    [*results, *exc.results],
+                )
+                raise LineRangeEditApplyError(str(exc), complete_results) from exc
             results.append(edit_result)
 
         after_text_by_file[edit_file] = current_text
         file_path.write_text(current_text, encoding="utf-8")
 
-    exact_matches = sum(1 for result in results if result["method"] == "line_range")
+    exact_matches = sum(
+        1 for result in results if result["match_mode"] == "line_range_exact"
+    )
+    trailing_whitespace_tolerant_matches = sum(
+        1
+        for result in results
+        if result["match_mode"] == "line_range_trailing_whitespace_tolerant"
+    )
     fallback_matches = sum(
         1 for result in results if result["method"] == "exact_search_fallback"
+    )
+    surrounding_whitespace_tolerant_matches = sum(
+        1
+        for result in results
+        if result["match_mode"] == "line_range_surrounding_whitespace_tolerant"
     )
     return {
         "before_text_by_file": before_text_by_file,
         "after_text_by_file": after_text_by_file,
         "results": sorted(results, key=lambda result: result["index"]),
         "exact_matches": exact_matches,
+        "trailing_whitespace_tolerant_matches": trailing_whitespace_tolerant_matches,
+        "surrounding_whitespace_tolerant_matches": surrounding_whitespace_tolerant_matches,
         "fallback_matches": fallback_matches,
         "fallback_used": fallback_matches > 0,
         "allow_exact_search_fallback": allow_exact_search_fallback,
@@ -532,11 +865,44 @@ def _skipped_step(name: str) -> dict[str, Any]:
 def _copy_ignore(directory: str, names: list[str]) -> set[str]:
     ignored = set()
     for name in names:
-        if name in {"build", "CMakeFiles", "Testing"}:
+        if name in {"build", "CMakeFiles", "Testing", "CMakeCache.txt", "build.ninja"}:
             ignored.add(name)
-        elif fnmatch.fnmatch(name, "cmake-build-*"):
+        elif any(
+            fnmatch.fnmatch(name, pattern)
+            for pattern in [
+                "build-*",
+                "cmake-build-*",
+                ".ninja_*",
+                "*.exe",
+                "*.obj",
+                "*.o",
+                "*.pdb",
+                "*.ilk",
+                "*.dll",
+                "*.lib",
+                "*.a",
+            ]
+        ):
             ignored.add(name)
     return ignored
+
+
+def _copy_base_source_tree(
+    base_source_root_path: Path,
+    workspace_path: Path,
+    source_root_mode: str,
+) -> None:
+    if source_root_mode == SOURCE_ROOT_MODE_EXPLICIT_BASE_SOURCE_ROOT:
+        shutil.copytree(
+            base_source_root_path,
+            workspace_path,
+            ignore=_copy_ignore,
+            dirs_exist_ok=True,
+        )
+        return
+
+    workspace_source_path = workspace_path / base_source_root_path.name
+    shutil.copytree(base_source_root_path, workspace_source_path, ignore=_copy_ignore)
 
 
 def _ensure_deletable_workspace(workspace_path: Path, workspace_root: Path) -> None:
@@ -663,6 +1029,11 @@ def _build_materialization(
         "git_apply_initial_check_error": git_apply_initial_check_error,
         "git_apply_recount_check_error": git_apply_recount_check_error,
         "workspace_removed_on_failure": workspace_removed_on_failure,
+        "workspace_retained": workspace_path.exists(),
+        "workspace_exists_after_run": workspace_path.exists(),
+        "workspace_removal_reason": (
+            "materialization_failed" if workspace_removed_on_failure else None
+        ),
         "keep_failed_workspace": keep_failed_workspace,
         "started_at": started_at.isoformat(timespec="seconds"),
         "finished_at": datetime.now().astimezone().isoformat(timespec="seconds"),
@@ -697,6 +1068,8 @@ def _write_log(
         f"Candidate run directory: {candidate_run_dir}",
         f"Workspace path: {workspace_path}",
         f"Source root: {source_root}",
+        f"Base source root: {materialization.get('base_source_root') or source_root}",
+        f"Source root mode: {materialization.get('source_root_mode') or 'unknown'}",
         f"Candidate type: {materialization.get('candidate_type', CANDIDATE_TYPE_UNIFIED_DIFF)}",
         f"Patch file path: {patch_path}",
         "",
@@ -720,12 +1093,18 @@ def _write_log(
         f"Line-range edit count: {materialization.get('line_range_edit_count', 'n/a')}",
         "Line-range exact matches: "
         f"{materialization.get('line_range_exact_matches', 'n/a')}",
+        "Line-range trailing-whitespace tolerant matches: "
+        f"{materialization.get('line_range_trailing_whitespace_tolerant_matches', 'n/a')}",
+        "Line-range surrounding-whitespace tolerant matches: "
+        f"{materialization.get('line_range_surrounding_whitespace_tolerant_matches', 'n/a')}",
         "Line-range fallback matches: "
         f"{materialization.get('line_range_fallback_matches', 'n/a')}",
         "Line-range fallback used: "
         f"{materialization.get('line_range_fallback_used', 'n/a')}",
         "Generated diff path: "
         f"{materialization.get('generated_diff_path') or 'none'}",
+        "Generated diff base: "
+        f"{materialization.get('generated_diff_base') or 'none'}",
         f"Git apply recount used: {materialization['git_apply_recount_used']}",
         "Initial git apply check failed: "
         f"{materialization['git_apply_initial_check_failed']}",
@@ -925,13 +1304,27 @@ def main(argv: list[str] | None = None) -> int:
     candidate_run_id = candidate_run_dir.name
     workspace_root = _resolve_path(args.workspace_root)
     workspace_path = workspace_root / candidate_run_id
-    source_root_path = _resolve_path(args.source_root)
-    workspace_source_path = workspace_path / source_root_path.name
+    try:
+        (
+            base_source_root_path,
+            source_root_text,
+            base_source_root_display,
+            source_root_mode,
+        ) = _resolve_base_source_root(args)
+        source_root_text = base_source_root_display
+    except ValueError as exc:
+        print("Final status: failed")
+        print("Failed step: parse_args")
+        print(f"ERROR: {exc}", file=sys.stderr)
+        print("Workspace removed on failure: False")
+        return 1
     candidate_json_path = candidate_run_dir / "candidate.json"
     patch_path = (candidate_run_dir / "candidate.diff").resolve()
 
     print(f"Candidate run id: {candidate_run_id}")
     print(f"Workspace path: {workspace_path}")
+    print(f"Base source root: {base_source_root_display}")
+    print(f"Source root mode: {source_root_mode}")
 
     steps: list[dict[str, Any]] = []
     commands: list[dict[str, Any]] = []
@@ -941,6 +1334,7 @@ def main(argv: list[str] | None = None) -> int:
     candidate_type = CANDIDATE_TYPE_UNIFIED_DIFF
     line_range_edits: list[dict[str, Any]] = []
     generated_diff_path: Path | None = None
+    generated_diff_created = False
     line_range_apply_result: dict[str, Any] | None = None
     patch_text = ""
     scope_enforcement = (
@@ -949,6 +1343,12 @@ def main(argv: list[str] | None = None) -> int:
     external_allowed_files_used = bool(args.allowed_files)
     allowed_files: list[str] = []
     patch_apply_metadata = _default_patch_apply_metadata()
+    source_root_metadata = {
+        "base_source_root": base_source_root_display,
+        "source_root_mode": source_root_mode,
+        "generated_diff_base": None,
+    }
+    patch_apply_metadata.update(source_root_metadata)
 
     if not candidate_run_dir.exists() or not candidate_run_dir.is_dir():
         print("Final status: failed")
@@ -1005,7 +1405,7 @@ def main(argv: list[str] | None = None) -> int:
                         candidate_run_dir,
                         candidate_run_id,
                         workspace_path,
-                        args.source_root,
+                        source_root_text,
                         patch_path,
                         target_files,
                         patched_files,
@@ -1028,10 +1428,13 @@ def main(argv: list[str] | None = None) -> int:
                 {
                     "line_range_edit_count": len(line_range_edits),
                     "line_range_exact_matches": 0,
+                    "line_range_trailing_whitespace_tolerant_matches": 0,
+                    "line_range_surrounding_whitespace_tolerant_matches": 0,
                     "line_range_fallback_matches": 0,
                     "line_range_fallback_used": False,
-                    "line_range_allow_exact_search_fallback": True,
-                    "generated_diff_path": _display_path(generated_diff_path),
+                    "line_range_allow_exact_search_fallback": args.allow_exact_search_fallback,
+                    "generated_diff_path": None,
+                    "generated_diff_created": False,
                     "line_range_edit_results": [],
                 }
             )
@@ -1046,7 +1449,7 @@ def main(argv: list[str] | None = None) -> int:
                     candidate_run_dir,
                     candidate_run_id,
                     workspace_path,
-                    args.source_root,
+                    source_root_text,
                     patch_path,
                     target_files,
                     patched_files,
@@ -1084,7 +1487,7 @@ def main(argv: list[str] | None = None) -> int:
             candidate_run_id,
             workspace_root,
             workspace_path,
-            args.source_root,
+            source_root_text,
             patch_path,
             target_files,
             patched_files,
@@ -1106,8 +1509,8 @@ def main(argv: list[str] | None = None) -> int:
     copy_started = time.perf_counter()
     workspace_touched = False
     try:
-        if not source_root_path.exists() or not source_root_path.is_dir():
-            raise FileNotFoundError(f"Source root not found: {source_root_path}")
+        if not base_source_root_path.exists() or not base_source_root_path.is_dir():
+            raise FileNotFoundError(f"Base source root not found: {base_source_root_path}")
 
         if workspace_path.exists():
             if not args.overwrite:
@@ -1120,7 +1523,7 @@ def main(argv: list[str] | None = None) -> int:
 
         workspace_path.mkdir(parents=True, exist_ok=True)
         workspace_touched = True
-        shutil.copytree(source_root_path, workspace_source_path, ignore=_copy_ignore)
+        _copy_base_source_tree(base_source_root_path, workspace_path, source_root_mode)
         copy_duration = round(time.perf_counter() - copy_started, 3)
         steps.append(_step_status("copy_source_tree", "success", None, copy_duration))
     except (OSError, ValueError) as exc:
@@ -1139,7 +1542,7 @@ def main(argv: list[str] | None = None) -> int:
             candidate_run_id,
             workspace_root,
             workspace_path,
-            args.source_root,
+            source_root_text,
             patch_path,
             target_files,
             patched_files,
@@ -1184,7 +1587,7 @@ def main(argv: list[str] | None = None) -> int:
             candidate_run_id,
             workspace_root,
             workspace_path,
-            args.source_root,
+            source_root_text,
             patch_path,
             target_files,
             patched_files,
@@ -1209,7 +1612,7 @@ def main(argv: list[str] | None = None) -> int:
             line_range_apply_result = _apply_line_range_edits(
                 workspace_path,
                 line_range_edits,
-                allow_exact_search_fallback=True,
+                allow_exact_search_fallback=args.allow_exact_search_fallback,
             )
             assert generated_diff_path is not None
             _generate_unified_diff(
@@ -1217,6 +1620,7 @@ def main(argv: list[str] | None = None) -> int:
                 line_range_apply_result["after_text_by_file"],
                 generated_diff_path,
             )
+            generated_diff_created = generated_diff_path.exists()
             apply_duration = round(time.perf_counter() - apply_started, 3)
             steps.extend(
                 [
@@ -1228,6 +1632,12 @@ def main(argv: list[str] | None = None) -> int:
                 {
                     "patch_apply_strategy": "line_range_edits",
                     "line_range_exact_matches": line_range_apply_result["exact_matches"],
+                    "line_range_trailing_whitespace_tolerant_matches": line_range_apply_result[
+                        "trailing_whitespace_tolerant_matches"
+                    ],
+                    "line_range_surrounding_whitespace_tolerant_matches": line_range_apply_result[
+                        "surrounding_whitespace_tolerant_matches"
+                    ],
                     "line_range_fallback_matches": line_range_apply_result[
                         "fallback_matches"
                     ],
@@ -1238,16 +1648,24 @@ def main(argv: list[str] | None = None) -> int:
                         "allow_exact_search_fallback"
                     ],
                     "generated_diff_path": _display_path(generated_diff_path),
+                    "generated_diff_created": generated_diff_created,
+                    "generated_diff_base": "base_source_root",
                     "line_range_edit_results": line_range_apply_result["results"],
                 }
             )
         except (OSError, ValueError) as exc:
             apply_duration = round(time.perf_counter() - apply_started, 3)
+            if isinstance(exc, LineRangeEditApplyError):
+                patch_apply_metadata["line_range_edit_results"] = sorted(
+                    exc.results,
+                    key=lambda result: result["index"],
+                )
             patch_apply_metadata.update(
                 {
                     "patch_apply_strategy": "line_range_edits_failed",
                     "line_range_edit_count": len(line_range_edits),
-                    "generated_diff_path": _display_path(generated_diff_path),
+                    "generated_diff_path": _display_path(generated_diff_path) if generated_diff_created and generated_diff_path is not None else None,
+                    "generated_diff_created": generated_diff_created,
                 }
             )
             steps.extend(
@@ -1262,7 +1680,7 @@ def main(argv: list[str] | None = None) -> int:
                 candidate_run_id,
                 workspace_root,
                 workspace_path,
-                args.source_root,
+                source_root_text,
                 patch_path,
                 target_files,
                 patched_files,
@@ -1308,7 +1726,7 @@ def main(argv: list[str] | None = None) -> int:
                 candidate_run_id,
                 workspace_root,
                 workspace_path,
-                args.source_root,
+                source_root_text,
                 patch_path,
                 target_files,
                 patched_files,
@@ -1333,7 +1751,7 @@ def main(argv: list[str] | None = None) -> int:
             None,
             candidate_run_id,
             workspace_path,
-            args.source_root,
+            source_root_text,
             patch_path,
             target_files,
             patched_files,
@@ -1354,7 +1772,7 @@ def main(argv: list[str] | None = None) -> int:
             candidate_run_id,
             candidate_run_dir,
             workspace_path,
-            args.source_root,
+            source_root_text,
             patch_path,
             commands,
             materialization,
@@ -1367,7 +1785,7 @@ def main(argv: list[str] | None = None) -> int:
         for changed_file in changed_files:
             print(f"- {changed_file}")
         print(f"Generated diff: {generated_diff_path}")
-        print(f"Main source tree was not modified: {args.source_root}")
+        print(f"Base source root was not modified: {base_source_root_display}")
         print(f"Artifact log: {candidate_run_dir / 'apply_candidate.log'}")
         return 0
 
@@ -1401,6 +1819,7 @@ def main(argv: list[str] | None = None) -> int:
                 "git_apply_initial_check_error": initial_check_detail,
                 "git_apply_recount_check_error": recount_check_detail,
             }
+            patch_apply_metadata.update(source_root_metadata)
             steps.extend(
                 [
                     _step_status("git_apply_check", "failed", recount_exit_code, duration + recount_duration),
@@ -1419,7 +1838,7 @@ def main(argv: list[str] | None = None) -> int:
                 candidate_run_id,
                 workspace_root,
                 workspace_path,
-                args.source_root,
+                source_root_text,
                 patch_path,
                 target_files,
                 patched_files,
@@ -1445,6 +1864,7 @@ def main(argv: list[str] | None = None) -> int:
             "git_apply_initial_check_error": initial_check_detail,
             "git_apply_recount_check_error": None,
         }
+        patch_apply_metadata.update(source_root_metadata)
         steps.append(
             _step_status(
                 "git_apply_check",
@@ -1462,6 +1882,7 @@ def main(argv: list[str] | None = None) -> int:
             "git_apply_initial_check_error": None,
             "git_apply_recount_check_error": None,
         }
+        patch_apply_metadata.update(source_root_metadata)
         steps.append(_step_status("git_apply_check", "success", exit_code, duration))
         apply_recount = False
 
@@ -1484,7 +1905,7 @@ def main(argv: list[str] | None = None) -> int:
             candidate_run_id,
             workspace_root,
             workspace_path,
-            args.source_root,
+            source_root_text,
             patch_path,
             target_files,
             patched_files,
@@ -1530,7 +1951,7 @@ def main(argv: list[str] | None = None) -> int:
             candidate_run_id,
             workspace_root,
             workspace_path,
-            args.source_root,
+            source_root_text,
             patch_path,
             target_files,
             patched_files,
@@ -1555,7 +1976,7 @@ def main(argv: list[str] | None = None) -> int:
         None,
         candidate_run_id,
         workspace_path,
-        args.source_root,
+        source_root_text,
         patch_path,
         target_files,
         patched_files,
@@ -1576,7 +1997,7 @@ def main(argv: list[str] | None = None) -> int:
         candidate_run_id,
         candidate_run_dir,
         workspace_path,
-        args.source_root,
+        source_root_text,
         patch_path,
         commands,
         materialization,
@@ -1588,7 +2009,7 @@ def main(argv: list[str] | None = None) -> int:
     print("Changed files:")
     for changed_file in changed_files:
         print(f"- {changed_file}")
-    print(f"Main source tree was not modified: {args.source_root}")
+    print(f"Base source root was not modified: {base_source_root_display}")
     print(f"Artifact log: {candidate_run_dir / 'apply_candidate.log'}")
     return 0
 
