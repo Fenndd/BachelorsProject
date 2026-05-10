@@ -86,6 +86,10 @@ class CurrentBestState:
     updated_at: str
 
     def __post_init__(self) -> None:
+        if self.current_best_iteration < 0:
+            raise ValueError("current_best_iteration must be non-negative")
+        if self.accepted_improvements < 0:
+            raise ValueError("accepted_improvements must be non-negative")
         if self.current_best_iteration == 0 and not self.current_best_is_baseline:
             raise ValueError(
                 "current_best_is_baseline must be true when current_best_iteration is 0"

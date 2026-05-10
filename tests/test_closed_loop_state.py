@@ -109,6 +109,16 @@ def test_current_best_state_can_represent_accepted_candidate(tmp_path: Path) -> 
     assert state.accepted_improvements == 1
 
 
+def test_current_best_state_rejects_negative_iteration(tmp_path: Path) -> None:
+    with pytest.raises(ValueError, match="current_best_iteration must be non-negative"):
+        CurrentBestState(**{**_baseline_state(tmp_path).__dict__, "current_best_iteration": -1})
+
+
+def test_current_best_state_rejects_negative_accepted_improvements(tmp_path: Path) -> None:
+    with pytest.raises(ValueError, match="accepted_improvements must be non-negative"):
+        CurrentBestState(**{**_baseline_state(tmp_path).__dict__, "accepted_improvements": -1})
+
+
 def test_current_best_state_rejects_iteration_zero_non_baseline(tmp_path: Path) -> None:
     with pytest.raises(ValueError, match="iteration is 0"):
         CurrentBestState(**{**_baseline_state(tmp_path).__dict__, "current_best_is_baseline": False})

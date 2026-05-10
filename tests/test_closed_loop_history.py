@@ -123,12 +123,36 @@ def test_history_text_contains_compact_benchmark_aware_entries() -> None:
     assert "already included in the current source" in context
     assert "Iteration 2: valid but not improved." in context
     assert "0.94x speedup vs current best" in context
-    assert "6.0% slower" in context
+    assert "6.4% slower" in context
     assert "Do not repeat this optimization pattern" in context
     assert "Iteration 3: materialization failed." in context
     assert "original text did not match requested line range" in context
     assert "copy original text exactly" in context
     assert "Iteration 4" not in context
+
+
+def test_valid_not_improved_uses_runtime_slowdown_percent_from_speedup() -> None:
+    context = build_closed_loop_history_context(
+        [
+            _record("valid_not_improved", iteration=1, speedup_vs_current_best=0.5),
+            _record("valid_not_improved", iteration=2, speedup_vs_current_best=0.8),
+            _record("valid_not_improved", iteration=3, speedup_vs_current_best=0.95),
+        ]
+    )
+
+    assert context is not None
+    assert "100.0% slower" in context
+    assert "25.0% slower" in context
+    assert "5.3% slower" in context
+
+
+def test_accepted_result_text_uses_runtime_slowdown_percent_from_speedup() -> None:
+    context = build_closed_loop_history_context(
+        [_record("accepted_improvement", speedup_vs_current_best=0.5)]
+    )
+
+    assert context is not None
+    assert "0.50x speedup vs previous best; 100.0% slower" in context
 
 
 def test_history_text_uses_rejection_reasons_and_verification_guidance() -> None:

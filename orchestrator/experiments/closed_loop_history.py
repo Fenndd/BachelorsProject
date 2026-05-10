@@ -176,7 +176,7 @@ def _result_text(record: dict[str, Any]) -> str | None:
     if status == "valid_not_improved":
         if speedup is not None:
             if speedup < 1.0:
-                return f"{speedup:.2f}x speedup vs current best; {_percent(1.0 - speedup)} slower"
+                return f"{speedup:.2f}x speedup vs current best; {_slower_percent_from_speedup(speedup)} slower"
             return f"{speedup:.2f}x speedup vs current best; correct but not faster than current best"
         return "correct but not faster than current best"
 
@@ -191,7 +191,7 @@ def _result_text(record: dict[str, Any]) -> str | None:
 def _speedup_sentence(speedup: float, reference: str) -> str:
     if speedup >= 1.0:
         return f"{speedup:.2f}x speedup vs {reference}; {_percent(1.0 - (1.0 / speedup))} runtime reduction"
-    return f"{speedup:.2f}x speedup vs {reference}; {_percent(1.0 - speedup)} slower"
+    return f"{speedup:.2f}x speedup vs {reference}; {_slower_percent_from_speedup(speedup)} slower"
 
 
 def _reason_text(record: dict[str, Any]) -> str | None:
@@ -232,6 +232,10 @@ def _float_or_none(value: Any) -> float | None:
 
 def _percent(value: float) -> str:
     return f"{abs(value) * 100:.1f}%"
+
+
+def _slower_percent_from_speedup(speedup: float) -> str:
+    return _percent((1.0 / speedup) - 1.0)
 
 
 def _compact_text(value: Any, max_chars: int = 220) -> str | None:
