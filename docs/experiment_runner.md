@@ -295,7 +295,6 @@ results/runs/<candidate_run_id>/
 |- verification.json
 |- verification_summary.txt
 |- candidate_decision.json              # compatibility/default pairwise decision
-|- best_candidate_selection.json        # when written by selection/reporting paths
 |- decision_vs_current_best.json        # closed-loop promotion decision
 |- decision_vs_original_baseline.json   # closed-loop reporting/control decision
 ```
@@ -311,6 +310,10 @@ After configured non-closed-loop iterations finish, selection collects candidate
 ```text
 results/experiments/<experiment_id>/best_candidate_selection.json
 ```
+
+`best_candidate_selection.json` is an experiment-level artifact. It belongs under
+`results/experiments/<experiment_id>/` when written, not under individual
+`results/runs/<candidate_run_id>/` candidate run directories.
 
 Selection can report:
 

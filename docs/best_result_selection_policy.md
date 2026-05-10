@@ -16,8 +16,12 @@ Implementation status update:
   wrapper for current best-result selection.
 - Multi-candidate best selection is now implemented in
   `orchestrator/experiments/best_candidate_selector.py`.
-- Candidate promotion is still not implemented and remains out of scope.
-- The full closed-loop runner is still not implemented and remains out of scope.
+- Closed-loop experiments use reference-vs-candidate decisions inside each
+  iteration.
+- Experiment-local current-best promotion is implemented through
+  `decision_vs_current_best.json`.
+- Promotion into the main `cpp/` source tree is still not implemented and remains
+  out of scope for selection/reporting.
 
 ## 2. Scope
 
@@ -223,13 +227,13 @@ Each entry in `decisions`:
 
 ## 13. Non-goals
 
-This step does **not** implement:
+Selection and reporting do **not** implement:
 
-- candidate promotion
+- promotion into the main `cpp/` source tree
 - benchmark modification
 - benchmark threshold modification
 - candidate generation prompt format or materialization format
-- automatic closed-loop optimization
+- source-tree mutation from final selector/reporting artifacts
 
 ## 14. Experiment runner integration
 
@@ -240,21 +244,28 @@ a compact selection summary to experiment status/summary artifacts.
 
 Selection does not promote, merge, copy, or commit candidate source code.
 
-## 15. Closed-loop comparison preparation
+## 15. Closed-loop comparison in the runner
 
-The comparator can now compare a new verified candidate against either:
+The comparator can compare a new verified candidate against either:
 
 1. the original baseline run (`reference_kind="baseline"`), or
 2. a previously accepted verified candidate run used as the current best
    (`reference_kind="verified_candidate"`).
 
-A future closed-loop runner is expected to write two decision artifacts for each
-verified candidate:
+The closed-loop runner writes two decision artifacts for each verified candidate:
 
 - `decision_vs_current_best.json`
 - `decision_vs_original_baseline.json`
 
-Only `decision_vs_current_best.json` should decide whether the candidate becomes
-the new current best. `decision_vs_original_baseline.json` is for reporting,
-control, and traceability. This stage does not update current-best state and does
-not modify the main `cpp/` source tree automatically.
+Only `decision_vs_current_best.json` decides whether the candidate becomes the
+new experiment-local current best. If it reports `accepted_improvement`, the
+closed-loop runner promotes the materialized candidate workspace into
+`workspace/experiments/<experiment_id>/current_best_source/` and updates
+`current_best_state.json`.
+
+`decision_vs_original_baseline.json` is for reporting/control and traceability.
+It does not control promotion.
+
+Final selector/reporting artifacts, including `closed_loop_selection_report.json`,
+are analysis-only. They never promote candidates, update `current_best_source`,
+rewrite `final_optimized_source`, or modify the main `cpp/` source tree.

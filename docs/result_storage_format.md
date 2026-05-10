@@ -550,7 +550,22 @@ The build type defaults to `Release` and is controlled by the `CMAKE_BUILD_TYPE`
 
 ## `summary.txt`
 
-`summary.txt` is a human-readable overview. It lists step statuses, adapter validation status, family benchmark execution status, benchmark parse status, the family benchmark raw output log, the optional parse log, and parsed family benchmark values. If parsing fails, `summary.txt` lists the failed parse step, missing fields, and parse errors. If correctness checking fails, it lists `failed_step: benchmark_correctness_check` and still shows the parsed benchmark values.
+Baseline and candidate run directories use `summary.txt` as a human-readable
+overview of step statuses and benchmark results. These summaries list items such
+as adapter validation status, family benchmark execution status, benchmark parse
+status, benchmark log paths, parse errors when applicable, and parsed benchmark
+values. If correctness checking fails, the run summary lists
+`failed_step: benchmark_correctness_check` and still shows the parsed benchmark
+values.
+
+Experiment result directories use their own `summary.txt` for experiment-level
+status. The experiment summary describes configured iterations/variants,
+selection status when selection is enabled, and closed-loop final artifacts when
+closed-loop mode is enabled. In closed-loop experiments, this includes final best
+iteration, accepted improvements, status counts, final speedup/runtime reduction
+when available, and paths to `final_optimized_source/`,
+`final_optimized_source.diff`, `closed_loop_summary.json`,
+`closed_loop_iterations.jsonl`, and results-side `current_best_state.json`.
 
 ## Not Implemented Yet
 

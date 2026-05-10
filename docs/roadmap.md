@@ -35,7 +35,7 @@
 
 - Separate semantic optimization from mechanical patch application.
 - Status: implemented.
-- Current state: `candidate_format` config support, `plain`/`unified_diff` path, `line_numbered`/`line_range_edits` path, `candidate.edits.json` artifact, `candidate.generated.diff` artifact, and real DeepSeek Pro Max `line_range_edits` full-cycle completion.
+- Current state: `candidate_format` config support, `plain`/`unified_diff` path, `line_numbered`/`line_range_edits` path, `candidate.edits.json` artifact, `candidate.generated.diff` artifact, and the `line_range_edits` full-cycle path for mock and configured LLM runs.
 
 ## 5. Iterative Optimization Pipeline
 
