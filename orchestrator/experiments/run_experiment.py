@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import argparse
 import copy
+import difflib
 import fnmatch
 import json
 import re
@@ -47,10 +48,13 @@ from .best_candidate_selector import select_best_candidate
 from .closed_loop_state import (
     ClosedLoopIterationRecord,
     ClosedLoopPaths,
+    ClosedLoopSummary,
     CurrentBestState,
     IterationStatus,
     append_closed_loop_iteration_record,
+    count_iteration_statuses,
     to_plain_dict,
+    write_closed_loop_summary,
     write_current_best_state,
 )
 from .closed_loop_history import (
@@ -1771,6 +1775,203 @@ def _append_closed_loop_record_and_state(
     _write_current_best_state(paths, state)
 
 
+def _results_current_best_state_path(paths: ClosedLoopPaths) -> Path:
+    return paths.results_root / "experiments" / paths.experiment_id / "current_best_state.json"
+
+
+def copy_final_optimized_source(paths: ClosedLoopPaths, config: ExperimentConfig) -> Path:
+    """Copy final current_best_source into the experiment results directory."""
+
+    source_dir = paths.current_best_source_dir
+    if not source_dir.exists() or not source_dir.is_dir():
+        raise FileNotFoundError(f"Current best source directory not found: {source_dir}")
+    target_file = source_dir / config.target_file
+    if not target_file.exists() or not target_file.is_file():
+        raise FileNotFoundError(f"Current best source missing target file: {target_file}")
+
+    final_dir = paths.final_optimized_source_dir
+    _ensure_path_inside(final_dir, paths.results_root / "experiments", "final optimized source")
+    if final_dir.exists():
+        shutil.rmtree(final_dir)
+    shutil.copytree(source_dir, final_dir, ignore=_copy_source_ignore)
+    final_target = final_dir / config.target_file
+    if not final_target.exists() or not final_target.is_file():
+        raise FileNotFoundError(f"Final optimized source missing target file: {final_target}")
+    return final_dir
+
+
+def write_final_optimized_source_diff(paths: ClosedLoopPaths, config: ExperimentConfig) -> Path:
+    """Write unified diff from clean baseline source to final optimized source."""
+
+    baseline_file = REPO_ROOT / config.target_file
+    final_file = paths.final_optimized_source_dir / config.target_file
+    if not baseline_file.exists() or not baseline_file.is_file():
+        raise FileNotFoundError(f"Baseline source missing target file: {baseline_file}")
+    if not final_file.exists() or not final_file.is_file():
+        raise FileNotFoundError(f"Final optimized source missing target file: {final_file}")
+
+    baseline_lines = baseline_file.read_text(encoding="utf-8").splitlines(keepends=True)
+    final_lines = final_file.read_text(encoding="utf-8").splitlines(keepends=True)
+    diff_lines = list(
+        difflib.unified_diff(
+            baseline_lines,
+            final_lines,
+            fromfile=f"a/{config.target_file}",
+            tofile=f"b/{config.target_file}",
+        )
+    )
+    paths.final_optimized_source_diff_path.parent.mkdir(parents=True, exist_ok=True)
+    paths.final_optimized_source_diff_path.write_text("".join(diff_lines), encoding="utf-8")
+    return paths.final_optimized_source_diff_path
+
+
+def copy_results_current_best_state(paths: ClosedLoopPaths) -> Path:
+    """Copy workspace current-best metadata into the experiment results directory."""
+
+    if not paths.current_best_state_path.exists():
+        raise FileNotFoundError(f"Current best state not found: {paths.current_best_state_path}")
+    results_state_path = _results_current_best_state_path(paths)
+    results_state_path.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(paths.current_best_state_path, results_state_path)
+    return results_state_path
+
+
+def _final_speedup_vs_original_baseline(
+    state: CurrentBestState,
+) -> tuple[float | None, float | None]:
+    if state.current_best_is_baseline:
+        return 1.0, 0.0
+
+    decision_path = state.current_best_run_dir / "decision_vs_original_baseline.json"
+    try:
+        decision = _read_json_object(decision_path)
+    except (OSError, ValueError, json.JSONDecodeError):
+        return None, None
+    comparison = decision.get("comparison")
+    if not isinstance(comparison, dict):
+        return None, None
+
+    speedup = comparison.get("speedup")
+    runtime_reduction = comparison.get("runtime_reduction_percent")
+    return (
+        float(speedup) if isinstance(speedup, (int, float)) and not isinstance(speedup, bool) else None,
+        float(runtime_reduction)
+        if isinstance(runtime_reduction, (int, float)) and not isinstance(runtime_reduction, bool)
+        else None,
+    )
+
+
+def finalize_closed_loop_artifacts(
+    *,
+    paths: ClosedLoopPaths,
+    experiment_id: str,
+    config: ExperimentConfig,
+    state: CurrentBestState,
+    records: list[ClosedLoopIterationRecord],
+    started_at: datetime,
+    finished_at: str,
+) -> tuple[ClosedLoopSummary, Path]:
+    """Write Stage 7 final closed-loop artifacts after all iterations finish."""
+
+    copy_final_optimized_source(paths, config)
+    write_final_optimized_source_diff(paths, config)
+    results_state_path = copy_results_current_best_state(paths)
+    final_speedup, final_runtime_reduction = _final_speedup_vs_original_baseline(state)
+    status_counts = count_iteration_statuses(records)
+    summary = ClosedLoopSummary(
+        experiment_id=experiment_id,
+        target_file=config.target_file,
+        total_iterations=_total_iterations(config),
+        completed_iterations=len(records),
+        original_baseline_run_dir=state.original_baseline_run_dir,
+        original_baseline_metrics_path=state.original_baseline_metrics_path,
+        final_best_iteration=state.current_best_iteration,
+        final_best_candidate_run_dir=None if state.current_best_is_baseline else state.current_best_run_dir,
+        final_optimized_source_dir=paths.final_optimized_source_dir,
+        final_optimized_source_diff_path=paths.final_optimized_source_diff_path,
+        final_speedup_vs_original_baseline=final_speedup,
+        final_runtime_reduction_percent=final_runtime_reduction,
+        iterations_after_final_best=len(records) - state.current_best_iteration,
+        status_counts=status_counts,
+        created_at=started_at.isoformat(timespec="seconds"),
+        finished_at=finished_at,
+    )
+    write_closed_loop_summary(paths.closed_loop_summary_path, summary)
+    return summary, results_state_path
+
+
+def _closed_loop_status_block(
+    paths: ClosedLoopPaths,
+    summary: ClosedLoopSummary,
+    results_state_path: Path,
+    accepted_improvements: int,
+) -> dict[str, Any]:
+    return {
+        "enabled": True,
+        "final_best_iteration": summary.final_best_iteration,
+        "accepted_improvements": accepted_improvements,
+        "final_optimized_source_dir": _display_path(summary.final_optimized_source_dir),
+        "final_optimized_source_diff_path": _display_path(summary.final_optimized_source_diff_path),
+        "closed_loop_summary_path": _display_path(paths.closed_loop_summary_path),
+        "closed_loop_iterations_path": _display_path(paths.closed_loop_iterations_path),
+        "current_best_state_path": _display_path(results_state_path),
+        "workspace_current_best_source_dir": _display_path(paths.current_best_source_dir),
+        "workspace_current_best_state_path": _display_path(paths.current_best_state_path),
+        "final_speedup_vs_original_baseline": summary.final_speedup_vs_original_baseline,
+        "final_runtime_reduction_percent": summary.final_runtime_reduction_percent,
+        "status_counts": summary.status_counts,
+    }
+
+
+def _format_optional_float(value: float | None) -> str:
+    return "none" if value is None else str(value)
+
+
+def _build_closed_loop_summary_text(
+    *,
+    experiment_id: str,
+    config: ExperimentConfig,
+    summary: ClosedLoopSummary,
+    results_state_path: Path,
+    accepted_improvements: int,
+) -> str:
+    lines = [
+        f"Experiment id: {experiment_id}",
+        f"Experiment name: {config.experiment_name}",
+        "Closed-loop mode: enabled",
+        f"Target file: {config.target_file}",
+        f"Total planned iterations: {summary.total_iterations}",
+        f"Completed iterations: {summary.completed_iterations}",
+        f"Accepted improvements: {accepted_improvements}",
+        f"Final best iteration: {summary.final_best_iteration}",
+        (
+            "Final speedup vs original baseline: "
+            f"{_format_optional_float(summary.final_speedup_vs_original_baseline)}"
+        ),
+        (
+            "Final runtime reduction percent: "
+            f"{_format_optional_float(summary.final_runtime_reduction_percent)}"
+        ),
+        "Status counts:",
+    ]
+    for status, count in summary.status_counts.items():
+        lines.append(f"- {status}: {count}")
+    lines.extend(
+        [
+            "Final artifacts:",
+            f"- final optimized source: {_display_path(summary.final_optimized_source_dir)}",
+            f"- final diff: {_display_path(summary.final_optimized_source_diff_path)}",
+            f"- closed-loop summary: {_display_path(summary.final_optimized_source_diff_path.parent / 'closed_loop_summary.json')}",
+            f"- closed-loop iterations: {_display_path(summary.final_optimized_source_diff_path.parent / 'closed_loop_iterations.jsonl')}",
+            f"- current best state: {_display_path(results_state_path)}",
+            "All planned iterations were attempted; no early stopping is used.",
+            "Main cpp/ source tree was not modified automatically.",
+            "",
+        ]
+    )
+    return "\n".join(lines)
+
+
 def _run_closed_loop_experiment(
     config: ExperimentConfig,
     experiment_id: str,
@@ -2019,24 +2220,28 @@ def _run_closed_loop_experiment(
         _append_closed_loop_record_and_state(closed_loop_paths, state, record)
         print(f"- iteration: {iteration_status.value}")
 
-    status_counts = {status.value: 0 for status in IterationStatus}
-    for record in records:
-        status_counts[record.status.value] += 1
+    finished_at = _now_iso()
+    summary, results_state_path = finalize_closed_loop_artifacts(
+        paths=closed_loop_paths,
+        experiment_id=experiment_id,
+        config=config,
+        state=state,
+        records=records,
+        started_at=started_at,
+        finished_at=finished_at,
+    )
     final_status = {
         "experiment_id": experiment_id,
         "experiment_name": config.experiment_name,
-        "overall_status": "success",
-        "closed_loop": {
-            "enabled": True,
-            "current_best_source_dir": _display_path(closed_loop_paths.current_best_source_dir),
-            "current_best_state_path": _display_path(closed_loop_paths.current_best_state_path),
-            "closed_loop_iterations_path": _display_path(closed_loop_paths.closed_loop_iterations_path),
-            "final_best_iteration": state.current_best_iteration,
-            "accepted_improvements": state.accepted_improvements,
-            "status_counts": status_counts,
-        },
+        "overall_status": "completed",
+        "closed_loop": _closed_loop_status_block(
+            closed_loop_paths,
+            summary,
+            results_state_path,
+            state.accepted_improvements,
+        ),
         "started_at": started_at.isoformat(timespec="seconds"),
-        "finished_at": _now_iso(),
+        "finished_at": finished_at,
         "planned_iterations": variant.iterations,
         "completed_iterations": len(records),
         "target_file": config.target_file,
@@ -2045,23 +2250,12 @@ def _run_closed_loop_experiment(
     }
     _write_json(experiment_dir / "experiment_status.json", final_status)
     (experiment_dir / "summary.txt").write_text(
-        "\n".join(
-            [
-                f"Experiment id: {experiment_id}",
-                f"Experiment name: {config.experiment_name}",
-                "Closed-loop mode: enabled",
-                f"Target file: {config.target_file}",
-                f"Planned iterations: {variant.iterations}",
-                f"Completed iterations: {len(records)}",
-                f"Accepted improvements: {state.accepted_improvements}",
-                f"Final best iteration: {state.current_best_iteration}",
-                f"Current best source: {_display_path(closed_loop_paths.current_best_source_dir)}",
-                f"Current best state: {_display_path(closed_loop_paths.current_best_state_path)}",
-                f"Closed-loop iterations: {_display_path(closed_loop_paths.closed_loop_iterations_path)}",
-                "All planned iterations were attempted; no early stopping is used.",
-                "Main cpp/ source tree was not modified automatically.",
-                "",
-            ]
+        _build_closed_loop_summary_text(
+            experiment_id=experiment_id,
+            config=config,
+            summary=summary,
+            results_state_path=results_state_path,
+            accepted_improvements=state.accepted_improvements,
         ),
         encoding="utf-8",
     )

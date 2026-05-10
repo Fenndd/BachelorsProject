@@ -196,10 +196,11 @@ When an experiment config sets:
 }
 ```
 
-Stage 6 runs an iterative current-best optimization flow with compact
-benchmark-aware LLM history. Closed-loop mode currently supports exactly one
-variant and requires `selection.baseline_run_dir` as the original baseline
-reference. The baseline run directory must contain `metrics.json`.
+Stage 7 runs an iterative current-best optimization flow with compact
+benchmark-aware LLM history and final result artifacts. Closed-loop mode
+currently supports exactly one variant and requires `selection.baseline_run_dir`
+as the original baseline reference. The baseline run directory must contain
+`metrics.json`.
 
 The current best source and mutable state are stored under `workspace/`, not in
 the main `cpp/` tree:
@@ -221,6 +222,9 @@ Per-iteration records are appended compactly to:
 ```text
 results/experiments/<experiment_id>/closed_loop_iterations.jsonl
 ```
+
+The JSONL file is not rewritten at finalization; each line remains one compact
+iteration record.
 
 Each closed-loop iteration generates from `current_best_source` using
 `--source-root`, materializes against the same source version using
@@ -252,6 +256,78 @@ No-op candidates are recorded with status `no_op` when `expected_effect` is
 `"none"` and the edit payload is empty (`edits` for `line_range_edits`, or
 `unified_diff` for `unified_diff`). They do not run materialization or
 verification.
+
+After all planned iterations have been attempted, the runner writes final
+closed-loop artifacts under the experiment result directory:
+
+```text
+results/experiments/<experiment_id>/final_optimized_source/
+results/experiments/<experiment_id>/final_optimized_source.diff
+results/experiments/<experiment_id>/closed_loop_summary.json
+results/experiments/<experiment_id>/current_best_state.json
+```
+
+`final_optimized_source/` is a copy of the final workspace
+`current_best_source/` tree and preserves repo-relative structure, for example:
+
+```text
+results/experiments/<experiment_id>/final_optimized_source/cpp/external/lambdatwist/p3p.cc
+```
+
+It is written even when no improvement was accepted, in which case it is
+baseline-equivalent. The copy does not modify the workspace current-best source
+and never modifies `REPO_ROOT/cpp`.
+
+`final_optimized_source.diff` is a unified diff from the original clean baseline
+source to the final optimized source. For Stage 7 it is generated for at least
+the experiment `target_file`, with headers such as:
+
+```text
+--- a/cpp/external/lambdatwist/p3p.cc
++++ b/cpp/external/lambdatwist/p3p.cc
+```
+
+If the final source matches the original baseline, the diff file exists and may
+be empty. This final diff is distinct from per-iteration
+`candidate.generated.diff`, which compares that iteration's current best source
+to the candidate workspace.
+
+`closed_loop_summary.json` is human-readable JSON with:
+
+- `experiment_id`
+- `target_file`
+- `total_iterations`
+- `completed_iterations`
+- `original_baseline_run_dir`
+- `original_baseline_metrics_path`
+- `final_best_iteration`
+- `final_best_candidate_run_dir`
+- `final_optimized_source_dir`
+- `final_optimized_source_diff_path`
+- `final_speedup_vs_original_baseline`
+- `final_runtime_reduction_percent`
+- `iterations_after_final_best`
+- `status_counts` for every closed-loop iteration status, including zero counts
+- `created_at`
+- `finished_at`
+
+If the final best remains the baseline, speedup is `1.0` and runtime reduction is
+`0.0`. If the final best is an accepted candidate, these values are read from the
+candidate's `decision_vs_original_baseline.json` comparison when available;
+otherwise they are `null`.
+
+The results-side `current_best_state.json` is a final metadata copy of the
+workspace current-best state. The workspace state file is kept.
+
+`experiment_status.json` includes a `closed_loop` block when closed-loop mode is
+enabled. The block contains final best iteration, accepted improvement count,
+final artifact paths, final speedup/runtime reduction, and status counts.
+
+`summary.txt` includes a concise closed-loop section listing the experiment id,
+target file, total/completed iterations, final best iteration, accepted
+improvements, final speedup/runtime reduction, status counts, and paths to the
+final optimized source, final diff, summary JSON, iteration JSONL, and final
+current-best metadata.
 
 Closed-loop history is deliberately separate from the non-closed-loop
 `history_policy` variant-local sliding-window history. It includes all
@@ -290,10 +366,7 @@ Each `closed_loop_iterations.jsonl` record contains:
 - `history_guidance`: deterministic future guidance for included records, or
   `null` for excluded records
 
-Stage 5 intentionally does not write `final_optimized_source/`,
-`final_optimized_source.diff`, or a full `closed_loop_summary.json`; those are
-reserved for later stages. The main `cpp/` source tree is never modified
-automatically.
+The main `cpp/` source tree is never modified automatically.
 
 ## Candidate Materialization Artifacts
 
@@ -390,8 +463,8 @@ For `line_range_edits`, `candidate.generated.diff` is generated by comparing the
 copied base-source text before edits with the candidate workspace text after
 edits. In closed-loop runs this is an iteration-local diff from
 `current_best_source` to that candidate. It is distinct from the future
-`final_optimized_source.diff`, which will report the final accepted source
-against the original clean baseline.
+`final_optimized_source.diff`, which reports the final accepted source against
+the original clean baseline.
 
 ## Benchmark Artifact Audit
 
@@ -466,7 +539,6 @@ The build type defaults to `Release` and is controlled by the `CMAKE_BUILD_TYPE`
 ## Not Implemented Yet
 
 - Candidate promotion into the main source tree
-- Final closed-loop optimized-source artifact export
 - Advanced reporting/plots
 - JSON metrics output directly from C++ benchmarks
 - Additional solver families/adapters

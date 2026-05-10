@@ -316,12 +316,13 @@ results/experiments/<experiment_id>/
 
 Generated experiment outputs are ignored by git.
 
-## Closed-loop Optimization Mode (Stage 6)
+## Closed-loop Optimization Mode (Stage 7)
 
 Closed-loop optimization is being introduced in stages. Stage 1 defines the
 state and artifact schema. Stage 5 added the first real closed-loop
 orchestration flow while still keeping the main `cpp/` source tree clean. Stage
-6 adds compact benchmark-aware LLM history for closed-loop generation.
+6 adds compact benchmark-aware LLM history for closed-loop generation. Stage 7
+adds final result artifacts after all planned iterations finish.
 
 Enable it with:
 
@@ -343,9 +344,8 @@ Closed-loop constraints:
 - `selection.baseline_run_dir` is required as the original baseline reference,
   even when `selection.enabled=false`
 - all planned iterations are attempted; there is no early stopping
-- final optimized source artifacts, final diffs, final closed-loop
-  summary/reporting, and multi-variant strategies are intentionally left for
-  later stages
+- final artifacts summarize the single current-best chain; multi-variant
+  closed-loop strategies are intentionally left for later stages
 
 The mutable experiment-local current best source is stored outside `cpp/` under:
 
@@ -361,13 +361,35 @@ results/experiments/<experiment_id>/final_optimized_source/
 results/experiments/<experiment_id>/final_optimized_source.diff
 results/experiments/<experiment_id>/closed_loop_iterations.jsonl
 results/experiments/<experiment_id>/closed_loop_summary.json
+results/experiments/<experiment_id>/current_best_state.json
 ```
 
-In Stage 5, `closed_loop_iterations.jsonl` stores one compact JSON object per
-closed-loop iteration and `current_best_state.json` is updated after every
-iteration. `final_optimized_source/`, `final_optimized_source.diff`, and a full
-`closed_loop_summary.json` are reserved for later stages and are not written by
-the Stage 5 runner.
+`closed_loop_iterations.jsonl` stores one compact JSON object per closed-loop
+iteration and is append-only during the run. The workspace
+`current_best_state.json` is updated after every iteration. At finalization, the
+runner also copies the final current-best metadata to the results directory as
+`current_best_state.json`.
+
+`final_optimized_source/` is a copy of the final
+`workspace/experiments/<experiment_id>/current_best_source/` tree. If no
+candidate was accepted, it is still written and is baseline-equivalent.
+
+`final_optimized_source.diff` is a unified diff from the original clean baseline
+source in `REPO_ROOT/<target_file>` to the final optimized source. It currently
+covers at least `target_file`. If the final source is unchanged, the diff file is
+written but empty.
+
+`closed_loop_summary.json` records the experiment id, target file, total and
+completed iterations, original baseline paths, final best iteration, final best
+candidate run directory when applicable, final optimized source paths, final
+speedup/runtime reduction versus the original baseline when available, iterations
+after the final best, all closed-loop status counts including zero values, and
+timestamps.
+
+`experiment_status.json` includes a `closed_loop` block with final artifact paths,
+accepted improvement count, final best iteration, final speedup/runtime
+reduction, and status counts. The human-readable `summary.txt` includes a concise
+closed-loop section with the same final artifact locations.
 
 At experiment start, the runner initializes
 `workspace/experiments/<experiment_id>/current_best_source/` by copying the clean
@@ -490,14 +512,15 @@ from `current_best_source` and materialization will receive the same directory a
 `--base-source-root`, so `line_range_edits` line numbers and original text refer
 to the same source version the LLM saw. The per-candidate
 `candidate.generated.diff` is therefore an iteration-local diff from
-`base_source_root` to the materialized candidate workspace. The future
-`final_optimized_source.diff` is a separate final reporting artifact that will be
-generated against the original clean baseline.
+`base_source_root` to the materialized candidate workspace. The final
+`final_optimized_source.diff` is a separate final reporting artifact generated
+against the original clean baseline.
+
 Stage 5 implements candidate promotion into the experiment-local
 `current_best_source` and current-best state updates. Stage 6 implements compact
-benchmark-aware closed-loop LLM history. The runner still does not implement
-final optimized source storage, final diffs, or full selector/reporting
-adaptation.
+benchmark-aware closed-loop LLM history. Stage 7 implements final optimized
+source storage, final diff export, results-side current-best metadata, and final
+closed-loop summary/status reporting.
 
 ## Optimization Scope (Strict File Access Control)
 
@@ -624,5 +647,4 @@ comparison.
 The experiment runner still does not implement:
 
 - promotion of candidates into the main source tree
-- final optimized source artifacts and final optimized source diffs
-- final closed-loop summary/reporting and multi-variant closed-loop strategies
+- multi-variant closed-loop strategies
