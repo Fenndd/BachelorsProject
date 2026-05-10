@@ -514,7 +514,17 @@ def test_selection_report_best_verified_match_false_and_none(tmp_path: Path, mon
         created_at="2026-05-10T05:00:00+02:00",
         finished_at="2026-05-10T05:10:00+02:00",
     )
-    better_non_final = _record(2, IterationStatus.ACCEPTED_IMPROVEMENT)
+    better_non_final = _record(2, IterationStatus.VALID_NOT_IMPROVED)
+    better_non_final.decision_vs_current_best = {
+        "status": "valid_not_improved",
+        "comparison": {
+            "speedup": 0.98,
+            "runtime_reduction_percent": -2.0,
+            "candidate_runtime_lower": False,
+        },
+        "rejection_reasons": [],
+        "non_acceptance_reasons": [],
+    }
     better_non_final.decision_vs_original_baseline = {
         "status": "accepted_improvement",
         "comparison": {
@@ -524,7 +534,8 @@ def test_selection_report_best_verified_match_false_and_none(tmp_path: Path, mon
         "rejection_reasons": [],
         "non_acceptance_reasons": [],
     }
-    better_non_final.speedup_vs_original_baseline = 1.5
+    better_non_final.speedup_vs_current_best = None
+    better_non_final.speedup_vs_original_baseline = None
     report_path = run_experiment.write_closed_loop_selection_report(
         repo_root / "results" / "experiments" / "exp_001",
         state,

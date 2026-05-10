@@ -97,7 +97,7 @@ class BestCandidateSelectorTests(unittest.TestCase):
             candidate_a = _create_candidate(
                 root,
                 "candidate_a",
-                parsed_runtime_ns_per_case_median=1000.0,
+                parsed_runtime_ns_per_case_median=999.0,
             )
             candidate_b = _create_candidate(
                 root,
@@ -112,6 +112,13 @@ class BestCandidateSelectorTests(unittest.TestCase):
             self.assertEqual(result["counts"]["valid_not_improved"], 2)
             self.assertEqual(result["counts"]["accepted_improvement"], 0)
             self.assertIsNone(result["best_candidate_run_dir"])
+            below_threshold = result["decisions"][0]
+            self.assertEqual(below_threshold["status"], "valid_not_improved")
+            self.assertEqual(below_threshold["rejection_reasons"], [])
+            self.assertIn(
+                "runtime_improvement_below_minimum_threshold",
+                below_threshold["non_acceptance_reasons"],
+            )
 
     def test_one_accepted_improvement(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:

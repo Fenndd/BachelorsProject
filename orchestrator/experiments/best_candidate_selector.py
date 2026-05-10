@@ -138,6 +138,10 @@ def _decision_summary(
     if not isinstance(rejection_reasons, list):
         rejection_reasons = []
 
+    non_acceptance_reasons = decision.get("non_acceptance_reasons")
+    if not isinstance(non_acceptance_reasons, list):
+        non_acceptance_reasons = []
+
     existing_decision_path = candidate_run_dir / "candidate_decision.json"
     if decision_path is not None:
         decision_path_text = str(decision_path)
@@ -159,6 +163,7 @@ def _decision_summary(
         ),
         "max_best_reprojection_error": candidate_metrics.get("max_best_reprojection_error"),
         "rejection_reasons": rejection_reasons,
+        "non_acceptance_reasons": non_acceptance_reasons,
     }
 
 

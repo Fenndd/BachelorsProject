@@ -1,4 +1,4 @@
-"""Tests for Stage 5 closed-loop experiment orchestration."""
+"""Tests for closed-loop experiment orchestration."""
 
 from __future__ import annotations
 
