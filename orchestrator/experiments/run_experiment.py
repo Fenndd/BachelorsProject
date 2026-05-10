@@ -50,7 +50,13 @@ from .closed_loop_state import (
     CurrentBestState,
     IterationStatus,
     append_closed_loop_iteration_record,
+    to_plain_dict,
     write_current_best_state,
+)
+from .closed_loop_history import (
+    build_closed_loop_history_context,
+    build_history_guidance,
+    should_include_in_closed_loop_history,
 )
 from orchestrator.benchmarking.candidate_decision import (
     evaluate_candidate_against_reference,
@@ -626,6 +632,20 @@ def _combine_context(
     return "\n\n".join(parts)
 
 
+def _combine_closed_loop_context(
+    additional_context: str | None,
+    history_context: str | None,
+) -> str | None:
+    parts: list[str] = []
+    if additional_context is not None:
+        parts.append(additional_context)
+    if history_context is not None:
+        parts.append(history_context)
+    if not parts:
+        return None
+    return "\n\n".join(parts)
+
+
 def _history_context_log_path(
     experiment_dir: Path,
     global_iteration: int,
@@ -636,6 +656,13 @@ def _history_context_log_path(
         / "logs"
         / f"iteration_{global_iteration:03d}_{_sanitize_name(variant_id)}_history_context.txt"
     )
+
+
+def _closed_loop_history_context_log_path(
+    experiment_dir: Path,
+    iteration: int,
+) -> Path:
+    return experiment_dir / "logs" / f"iteration_{iteration:03d}_closed_loop_history_context.txt"
 
 
 def _write_history_context_file(
@@ -654,6 +681,17 @@ def _write_history_context_file(
     updated_metadata = dict(metadata)
     updated_metadata["history_context_file"] = _display_path(log_path)
     return updated_metadata
+
+
+def _write_closed_loop_history_context_file(
+    experiment_dir: Path,
+    iteration: int,
+    history_context: str | None,
+) -> Path:
+    log_path = _closed_loop_history_context_log_path(experiment_dir, iteration)
+    content = history_context if history_context is not None else "No meaningful closed-loop history yet."
+    log_path.write_text(content + "\n", encoding="utf-8")
+    return log_path
 
 
 def _candidate_field_summary(candidate_path: Path) -> dict[str, Any]:
@@ -1693,7 +1731,7 @@ def _build_closed_loop_iteration_record(
     failure_stage: str | None = None,
     failure_reason: str | None = None,
 ) -> ClosedLoopIterationRecord:
-    return ClosedLoopIterationRecord(
+    record = ClosedLoopIterationRecord(
         experiment_id=experiment_id,
         iteration=iteration,
         status=status,
@@ -1717,6 +1755,11 @@ def _build_closed_loop_iteration_record(
         history_guidance=None,
         created_at=_now_iso(),
     )
+    plain_record = to_plain_dict(record)
+    if should_include_in_closed_loop_history(plain_record):
+        record.history_included = True
+        record.history_guidance = build_history_guidance(plain_record)
+    return record
 
 
 def _append_closed_loop_record_and_state(
@@ -1767,6 +1810,19 @@ def _run_closed_loop_experiment(
         candidate: dict[str, Any] | None = None
         candidate_run_dir: Path | None = None
 
+        closed_loop_history_context = build_closed_loop_history_context(
+            [to_plain_dict(record) for record in records]
+        )
+        _write_closed_loop_history_context_file(
+            experiment_dir,
+            iteration,
+            closed_loop_history_context,
+        )
+        generation_context = _combine_closed_loop_context(
+            variant.additional_context,
+            closed_loop_history_context,
+        )
+
         generation_result = _run_stage(
             experiment_dir,
             iteration,
@@ -1776,7 +1832,7 @@ def _run_closed_loop_experiment(
             _build_generation_command(
                 config,
                 llm_metadata["resolved_config"],
-                variant.additional_context,
+                generation_context,
                 source_root=str(closed_loop_paths.current_best_source_dir),
             ),
         )

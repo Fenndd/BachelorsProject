@@ -196,10 +196,10 @@ When an experiment config sets:
 }
 ```
 
-Stage 5 runs an iterative current-best optimization flow. Closed-loop mode
-currently supports exactly one variant and requires `selection.baseline_run_dir`
-as the original baseline reference. The baseline run directory must contain
-`metrics.json`.
+Stage 6 runs an iterative current-best optimization flow with compact
+benchmark-aware LLM history. Closed-loop mode currently supports exactly one
+variant and requires `selection.baseline_run_dir` as the original baseline
+reference. The baseline run directory must contain `metrics.json`.
 
 The current best source and mutable state are stored under `workspace/`, not in
 the main `cpp/` tree:
@@ -225,8 +225,11 @@ results/experiments/<experiment_id>/closed_loop_iterations.jsonl
 Each closed-loop iteration generates from `current_best_source` using
 `--source-root`, materializes against the same source version using
 `--base-source-root`, verifies the materialized candidate, compares it against
-the current best, and also compares it against the original baseline. The runner
-does not early-stop; all planned iterations are attempted.
+the current best, and also compares it against the original baseline. Before
+generation, the runner builds compact plain-text history from all previous
+meaningful closed-loop iterations and passes it to `generate_candidate` through
+`--context` together with any configured additional context. The runner does not
+early-stop; all planned iterations are attempted.
 
 Candidate promotion is controlled only by:
 
@@ -249,6 +252,43 @@ No-op candidates are recorded with status `no_op` when `expected_effect` is
 `"none"` and the edit payload is empty (`edits` for `line_range_edits`, or
 `unified_diff` for `unified_diff`). They do not run materialization or
 verification.
+
+Closed-loop history is deliberately separate from the non-closed-loop
+`history_policy` variant-local sliding-window history. It includes all
+meaningful previous records compactly; it does not use
+`max_previous_iterations`. History can include `accepted_improvement`,
+`valid_not_improved`, `rejected`, `materialization_failed`, and
+`verification_failed` records. Materialization and verification failures are
+included only when they have usable candidate information such as
+`candidate_run_dir` or `candidate_summary`. No-op iterations and generation
+failures without usable candidates are excluded. The current deterministic
+policy also excludes generation failures even if a candidate summary exists,
+because they are not reliable optimization patterns.
+
+The exact context used for each closed-loop generation step is written under the
+experiment logs directory:
+
+```text
+results/experiments/<experiment_id>/logs/iteration_003_closed_loop_history_context.txt
+```
+
+If no meaningful history exists yet, the file contains:
+
+```text
+No meaningful closed-loop history yet.
+```
+
+The history context contains summaries, benchmark-aware result text, compact
+failure/rejection reasons, and deterministic guidance. It does not contain full
+source code, diffs, full `candidate.json`, full `verification.json`, benchmark
+logs, audit objects, stack traces, or no-op entries.
+
+Each `closed_loop_iterations.jsonl` record contains:
+
+- `history_included`: whether this iteration will be included in future
+  closed-loop history
+- `history_guidance`: deterministic future guidance for included records, or
+  `null` for excluded records
 
 Stage 5 intentionally does not write `final_optimized_source/`,
 `final_optimized_source.diff`, or a full `closed_loop_summary.json`; those are
@@ -427,7 +467,6 @@ The build type defaults to `Release` and is controlled by the `CMAKE_BUILD_TYPE`
 
 - Candidate promotion into the main source tree
 - Final closed-loop optimized-source artifact export
-- Compact benchmark-aware closed-loop LLM history
 - Advanced reporting/plots
 - JSON metrics output directly from C++ benchmarks
 - Additional solver families/adapters

@@ -47,6 +47,7 @@ def _config_payload(root: Path, *, iterations: int = 1) -> dict[str, Any]:
     return {
         "experiment_name": "closed loop test",
         "target_file": TARGET_FILE,
+        "additional_context": "static additional context",
         "pipeline": {
             "generate_candidate": True,
             "materialize_candidate": True,
@@ -126,6 +127,7 @@ class _ClosedLoopHarness:
                 return {"exit_code": 1, "stdout": f"CANDIDATE_RUN_DIR={candidate_dir}\n", "stderr": "", "duration_seconds": 0.1}
             _write_json(candidate_dir / "status.json", {"overall_status": "success"})
             candidate = _candidate_payload(expected_effect="none" if status == "no_op" else "runtime")
+            candidate["summary"] = f"candidate summary {variant_iteration}"
             if status != "no_op":
                 candidate["edits"] = [
                     {"file": TARGET_FILE, "start_line": 1, "end_line": 1, "original": "baseline", "replace": f"candidate {variant_iteration}"}
@@ -219,6 +221,8 @@ class RunExperimentClosedLoopTests(unittest.TestCase):
         record = json.loads(paths.closed_loop_iterations_path.read_text(encoding="utf-8").splitlines()[0])
         self.assertEqual(record["status"], "accepted_improvement")
         self.assertTrue(record["current_best_updated"])
+        self.assertTrue(record["history_included"])
+        self.assertIn("already included in the current source", record["history_guidance"])
         self.assertEqual((root / TARGET_FILE).read_text(encoding="utf-8"), "baseline\n")
 
     def test_valid_not_improved_and_rejected_do_not_update_source(self) -> None:
@@ -232,6 +236,8 @@ class RunExperimentClosedLoopTests(unittest.TestCase):
             self.assertEqual((paths.current_best_source_dir / TARGET_FILE).read_text(encoding="utf-8"), "baseline\n")
             record = json.loads(paths.closed_loop_iterations_path.read_text(encoding="utf-8").splitlines()[0])
             self.assertEqual(record["status"], status)
+            self.assertTrue(record["history_included"])
+            self.assertIsNotNone(record["history_guidance"])
 
     def test_failure_stages_and_no_op_write_records_and_continue(self) -> None:
         root, harness = self._run_with_statuses([
@@ -255,6 +261,16 @@ class RunExperimentClosedLoopTests(unittest.TestCase):
         self.assertEqual(harness.stage_calls.count("generate_candidate"), 5)
         self.assertIn("--source-root", harness.generated_commands[0])
         self.assertIn("--base-source-root", harness.materialization_commands[0])
+        records = [json.loads(line) for line in paths.closed_loop_iterations_path.read_text(encoding="utf-8").splitlines()]
+        self.assertFalse(records[0]["history_included"])
+        self.assertIsNone(records[0]["history_guidance"])
+        self.assertTrue(records[1]["history_included"])
+        self.assertIn("line_range_edits", records[1]["history_guidance"])
+        self.assertTrue(records[2]["history_included"])
+        self.assertIn("break build", records[2]["history_guidance"])
+        self.assertFalse(records[3]["history_included"])
+        self.assertIsNone(records[3]["history_guidance"])
+        self.assertTrue(records[4]["history_included"])
 
     def test_initialization_creates_current_best_source_and_state(self) -> None:
         root, _harness = self._run_with_statuses(["no_op"])
@@ -265,6 +281,45 @@ class RunExperimentClosedLoopTests(unittest.TestCase):
         self.assertTrue((paths.current_best_source_dir / TARGET_FILE).exists())
         self.assertEqual(state.current_best_iteration, 0)
         self.assertTrue(state.current_best_is_baseline)
+
+    def test_closed_loop_history_context_is_passed_and_logged(self) -> None:
+        root, harness = self._run_with_statuses([
+            "accepted_improvement",
+            "no_op",
+            "valid_not_improved",
+        ])
+        experiment_dir = next((root / "results" / "experiments").iterdir())
+
+        first_log = experiment_dir / "logs" / "iteration_001_closed_loop_history_context.txt"
+        second_log = experiment_dir / "logs" / "iteration_002_closed_loop_history_context.txt"
+        third_log = experiment_dir / "logs" / "iteration_003_closed_loop_history_context.txt"
+
+        self.assertEqual(first_log.read_text(encoding="utf-8").strip(), "No meaningful closed-loop history yet.")
+        second_history = second_log.read_text(encoding="utf-8")
+        third_history = third_log.read_text(encoding="utf-8")
+        self.assertIn("Iteration 1: accepted improvement.", second_history)
+        self.assertIn("candidate summary 1", second_history)
+        self.assertIn("already included in the current source", second_history)
+        self.assertIn("Iteration 1: accepted improvement.", third_history)
+        self.assertNotIn("Iteration 2: no_op", third_history)
+        self.assertNotIn("candidate summary 2", third_history)
+
+        first_command = harness.generated_commands[0]
+        second_command = harness.generated_commands[1]
+        third_command = harness.generated_commands[2]
+        self.assertIn("--context", first_command)
+        first_context = first_command[first_command.index("--context") + 1]
+        self.assertEqual(first_context, "static additional context")
+        self.assertNotIn("Closed-loop optimization history", first_context)
+        self.assertIn("--context", second_command)
+        second_context = second_command[second_command.index("--context") + 1]
+        self.assertIn("static additional context", second_context)
+        self.assertIn("Closed-loop optimization history", second_context)
+        self.assertIn("already included in the current source", second_context)
+        self.assertIn("--context", third_command)
+        third_context = third_command[third_command.index("--context") + 1]
+        self.assertIn("candidate summary 1", third_context)
+        self.assertNotIn("candidate summary 2", third_context)
 
 
 if __name__ == "__main__":

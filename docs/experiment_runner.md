@@ -316,11 +316,12 @@ results/experiments/<experiment_id>/
 
 Generated experiment outputs are ignored by git.
 
-## Closed-loop Optimization Mode (Stage 5)
+## Closed-loop Optimization Mode (Stage 6)
 
 Closed-loop optimization is being introduced in stages. Stage 1 defines the
-state and artifact schema. Stage 5 adds the first real closed-loop orchestration
-flow while still keeping the main `cpp/` source tree clean.
+state and artifact schema. Stage 5 added the first real closed-loop
+orchestration flow while still keeping the main `cpp/` source tree clean. Stage
+6 adds compact benchmark-aware LLM history for closed-loop generation.
 
 Enable it with:
 
@@ -336,15 +337,15 @@ Enable it with:
 }
 ```
 
-Stage 5 constraints:
+Closed-loop constraints:
 
 - exactly one variant is supported; multiple variants fail with a clear error
 - `selection.baseline_run_dir` is required as the original baseline reference,
   even when `selection.enabled=false`
 - all planned iterations are attempted; there is no early stopping
-- compact LLM history, final optimized source artifacts, final diffs, final
-  closed-loop summary/reporting, and multi-variant strategies are intentionally
-  left for later stages
+- final optimized source artifacts, final diffs, final closed-loop
+  summary/reporting, and multi-variant strategies are intentionally left for
+  later stages
 
 The mutable experiment-local current best source is stored outside `cpp/` under:
 
@@ -378,11 +379,13 @@ workspace/experiments/<experiment_id>/current_best_source/cpp/external/lambdatwi
 
 Each iteration then runs:
 
-1. `generate_candidate` with `--source-root workspace/experiments/<experiment_id>/current_best_source`
-2. `materialize_candidate` with `--base-source-root workspace/experiments/<experiment_id>/current_best_source`
-3. `verify_candidate`
-4. pairwise comparison against the current best
-5. pairwise comparison against the original baseline
+1. build compact closed-loop history from all previous meaningful iterations
+2. `generate_candidate` with `--source-root workspace/experiments/<experiment_id>/current_best_source`
+   and, when context exists, `--context <additional context plus closed-loop history>`
+3. `materialize_candidate` with `--base-source-root workspace/experiments/<experiment_id>/current_best_source`
+4. `verify_candidate`
+5. pairwise comparison against the current best
+6. pairwise comparison against the original baseline
 
 Only `decision_vs_current_best.json` controls promotion. If its status is
 `accepted_improvement`, the materialized workspace from `materialization.json`
@@ -393,6 +396,58 @@ is written for reporting/control but does not control promotion.
 No-op candidates (`expected_effect="none"` with empty `edits` for
 `line_range_edits`, or empty `unified_diff` for `unified_diff`) are recorded as
 `no_op` and do not run materialization or verification.
+
+### Compact Closed-loop LLM History
+
+In closed-loop mode, the runner uses a dedicated compact history builder instead
+of the non-closed-loop variant-local `history_policy` sliding window. Before each
+generation stage, it summarizes **all meaningful previous closed-loop
+iterations** and combines that summary with the variant's `additional_context`.
+The combined text is passed to `generate_candidate` through `--context`.
+
+The history tells the LLM that it is improving the current best source, not the
+original baseline. It can include:
+
+- `accepted_improvement`: accepted changes already included in
+  `current_best_source`
+- `valid_not_improved`: correct candidates that were not faster than the current
+  best
+- `rejected`: candidates that failed correctness or selection gates
+- `materialization_failed`: candidates with usable candidate information whose
+  edits could not be applied
+- `verification_failed`: candidates with usable candidate information that broke
+  build, tests, benchmark execution, API compatibility, or metric generation
+
+The history excludes no-op iterations and generation failures without usable
+candidate information. Generation failures with candidate summaries are also not
+included by the current deterministic policy because they are not reliable
+optimization patterns.
+
+History entries are plain compact text. They include candidate summaries,
+speedups/runtime information when available, short failure or rejection reasons,
+and deterministic guidance such as "this improvement is already included" or
+"do not repeat this optimization pattern." They intentionally do **not** include
+full source code, full diffs, full `candidate.json`, full `verification.json`,
+benchmark logs, audit objects, stack traces, or no-op entries.
+
+The exact closed-loop history context used for each iteration is logged under:
+
+```text
+results/experiments/<experiment_id>/logs/iteration_003_closed_loop_history_context.txt
+```
+
+If no meaningful history exists yet, the log contains:
+
+```text
+No meaningful closed-loop history yet.
+```
+
+Each `closed_loop_iterations.jsonl` record also includes:
+
+- `history_included`: whether this iteration will be included in future
+  closed-loop history
+- `history_guidance`: the deterministic guidance string for included records, or
+  `null` for excluded records
 
 The main `cpp/` source tree remains the clean baseline and is never modified
 automatically by closed-loop experiments.
@@ -439,9 +494,10 @@ to the same source version the LLM saw. The per-candidate
 `final_optimized_source.diff` is a separate final reporting artifact that will be
 generated against the original clean baseline.
 Stage 5 implements candidate promotion into the experiment-local
-`current_best_source` and current-best state updates. It still does not implement
-final optimized source storage, final diffs, compact benchmark-aware history, or
-full selector/reporting adaptation.
+`current_best_source` and current-best state updates. Stage 6 implements compact
+benchmark-aware closed-loop LLM history. The runner still does not implement
+final optimized source storage, final diffs, or full selector/reporting
+adaptation.
 
 ## Optimization Scope (Strict File Access Control)
 
@@ -568,6 +624,5 @@ comparison.
 The experiment runner still does not implement:
 
 - promotion of candidates into the main source tree
-- compact benchmark-aware closed-loop LLM history
 - final optimized source artifacts and final optimized source diffs
 - final closed-loop summary/reporting and multi-variant closed-loop strategies
