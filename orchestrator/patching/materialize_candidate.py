@@ -44,6 +44,14 @@ SUPPORTED_CANDIDATE_TYPES = {
 }
 
 
+class LineRangeEditApplyError(ValueError):
+    """Line-range edit failure carrying compact partial diagnostics."""
+
+    def __init__(self, message: str, results: list[dict[str, Any]]) -> None:
+        super().__init__(message)
+        self.results = results
+
+
 def _parse_args(argv: list[str]) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Apply a candidate diff inside an isolated workspace copy."
@@ -406,6 +414,40 @@ def _replace_exactly_once(text: str, original: str, replace: str) -> tuple[str, 
     return text[:first] + replace + text[first + len(original) :], 1
 
 
+def _line_range_result(edit: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "index": edit["index"],
+        "file": edit["file"],
+        "start_line": edit["start_line"],
+        "end_line": edit["end_line"],
+        "status": "failed",
+        "match_mode": "none",
+        "method": None,
+        "failure_reason": None,
+        "fallback_match_count": None,
+        "detail": None,
+    }
+
+
+def _fail_line_range_result(
+    result: dict[str, Any],
+    *,
+    failure_reason: str,
+    detail: str,
+    fallback_match_count: int | None = None,
+) -> None:
+    result.update(
+        {
+            "status": "failed",
+            "match_mode": "none",
+            "method": None,
+            "failure_reason": failure_reason,
+            "fallback_match_count": fallback_match_count,
+            "detail": detail,
+        }
+    )
+
+
 def _apply_single_line_range_edit(
     text: str,
     edit: dict[str, Any],
@@ -415,48 +457,71 @@ def _apply_single_line_range_edit(
     lines = _split_preserving_line_endings(text)
     start_line = edit["start_line"]
     end_line = edit["end_line"]
-    result = {
-        "index": edit["index"],
-        "file": edit["file"],
-        "start_line": start_line,
-        "end_line": end_line,
-        "method": None,
-        "status": "failed",
-        "detail": None,
-    }
+    result = _line_range_result(edit)
 
-    if end_line <= len(lines):
+    if start_line > len(lines) or end_line > len(lines):
+        selected_text = None
+    else:
         selected_text = _range_text_from_lines(lines, start_line, end_line)
         selected_content = _content_without_trailing_line_endings(selected_text)
         if selected_text == edit["original"] or selected_content == edit["original"]:
             lines[start_line - 1 : end_line] = _replacement_lines_for_line_range(
                 edit["replace"], selected_text
             )
-            result.update({"method": "line_range", "status": "success"})
+            result.update(
+                {
+                    "method": "line_range",
+                    "match_mode": "line_range_exact",
+                    "status": "success",
+                    "detail": "line range matched original text exactly.",
+                }
+            )
             return "".join(lines), result
 
     if not allow_exact_search_fallback:
-        result["detail"] = "line range did not match and exact-search fallback is disabled."
-        raise ValueError(result["detail"])
+        reason = "invalid_line_range" if selected_text is None else "fallback_not_allowed"
+        detail = "line range is outside the target file." if selected_text is None else "line range did not match and exact-search fallback is disabled."
+        _fail_line_range_result(result, failure_reason=reason, detail=detail)
+        raise LineRangeEditApplyError(detail, [result])
 
     replaced_text, occurrence_count = _replace_exactly_once(
         text, edit["original"], edit["replace"]
     )
     if occurrence_count == 1:
-        result.update({"method": "exact_search_fallback", "status": "success"})
+        result.update(
+            {
+                "method": "exact_search_fallback",
+                "match_mode": "exact_search_fallback",
+                "status": "success",
+                "fallback_match_count": 1,
+                "detail": "line range did not match; unique exact-search fallback applied.",
+            }
+        )
         return replaced_text, result
     if occurrence_count == 0:
-        result["detail"] = (
+        detail = (
             f"edit {edit['index']} for {edit['file']} did not match line range and "
             "original text was not found by exact-search fallback."
         )
-        raise ValueError(result["detail"])
+        _fail_line_range_result(
+            result,
+            failure_reason="fallback_no_match",
+            detail=detail,
+            fallback_match_count=0,
+        )
+        raise LineRangeEditApplyError(detail, [result])
 
-    result["detail"] = (
+    detail = (
         f"edit {edit['index']} for {edit['file']} did not match line range and "
         "exact-search fallback is ambiguous because original text occurs multiple times."
     )
-    raise ValueError(result["detail"])
+    _fail_line_range_result(
+        result,
+        failure_reason="fallback_ambiguous",
+        detail=detail,
+        fallback_match_count=occurrence_count,
+    )
+    raise LineRangeEditApplyError(detail, [result])
 
 
 def _apply_line_range_edits(
@@ -476,18 +541,28 @@ def _apply_line_range_edits(
     for edit_file, file_edits in grouped.items():
         file_path = workspace_path / edit_file
         if not file_path.exists() or not file_path.is_file():
-            raise FileNotFoundError(f"line_range_edits target file not found: {file_path}")
+            failed = _line_range_result(sorted(file_edits, key=lambda item: item["index"])[0])
+            detail = f"line_range_edits target file not found: {file_path}"
+            _fail_line_range_result(
+                failed,
+                failure_reason="target_file_missing",
+                detail=detail,
+            )
+            raise LineRangeEditApplyError(detail, [*results, failed])
 
         original_text = file_path.read_text(encoding="utf-8")
         current_text = original_text
         before_text_by_file[edit_file] = original_text
 
         for edit in sorted(file_edits, key=lambda item: item["start_line"], reverse=True):
-            current_text, edit_result = _apply_single_line_range_edit(
-                current_text,
-                edit,
-                allow_exact_search_fallback=allow_exact_search_fallback,
-            )
+            try:
+                current_text, edit_result = _apply_single_line_range_edit(
+                    current_text,
+                    edit,
+                    allow_exact_search_fallback=allow_exact_search_fallback,
+                )
+            except LineRangeEditApplyError as exc:
+                raise LineRangeEditApplyError(str(exc), [*results, *exc.results]) from exc
             results.append(edit_result)
 
         after_text_by_file[edit_file] = current_text
@@ -741,6 +816,11 @@ def _build_materialization(
         "git_apply_initial_check_error": git_apply_initial_check_error,
         "git_apply_recount_check_error": git_apply_recount_check_error,
         "workspace_removed_on_failure": workspace_removed_on_failure,
+        "workspace_retained": workspace_path.exists(),
+        "workspace_exists_after_run": workspace_path.exists(),
+        "workspace_removal_reason": (
+            "materialization_failed" if workspace_removed_on_failure else None
+        ),
         "keep_failed_workspace": keep_failed_workspace,
         "started_at": started_at.isoformat(timespec="seconds"),
         "finished_at": datetime.now().astimezone().isoformat(timespec="seconds"),
@@ -1345,6 +1425,11 @@ def main(argv: list[str] | None = None) -> int:
             )
         except (OSError, ValueError) as exc:
             apply_duration = round(time.perf_counter() - apply_started, 3)
+            if isinstance(exc, LineRangeEditApplyError):
+                patch_apply_metadata["line_range_edit_results"] = sorted(
+                    exc.results,
+                    key=lambda result: result["index"],
+                )
             patch_apply_metadata.update(
                 {
                     "patch_apply_strategy": "line_range_edits_failed",

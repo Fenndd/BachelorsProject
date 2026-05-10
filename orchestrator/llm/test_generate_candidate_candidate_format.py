@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import sys
 import tempfile
 import unittest
 from datetime import datetime
@@ -13,6 +14,7 @@ from orchestrator.llm.generate_candidate import (
     _build_status,
     _build_summary,
     _parse_args,
+    _print_final_summary,
     _save_candidate_artifacts,
 )
 from orchestrator.llm.response_parser import LineRangeEdit, OptimizationCandidate
@@ -129,6 +131,49 @@ class GenerateCandidateCandidateFormatTests(unittest.TestCase):
         self.assertEqual(status["candidate_format"], LINE_RANGE_FORMAT)
         self.assertIn("Candidate format: line_range_edits", summary)
         self.assertIn("Source presentation: line_numbered", summary)
+
+    def test_final_summary_prints_run_dir_before_unicode_candidate_summary(self) -> None:
+        class StrictAsciiStdout:
+            encoding = "ascii"
+
+            def __init__(self) -> None:
+                self.lines: list[str] = []
+
+            def write(self, text: str) -> int:
+                text.encode("ascii")
+                self.lines.append(text)
+                return len(text)
+
+            def flush(self) -> None:
+                pass
+
+        stdout = StrictAsciiStdout()
+        original_stdout = sys.stdout
+        try:
+            sys.stdout = stdout  # type: ignore[assignment]
+            _print_final_summary(
+                _build_status("success", None, None, LINE_RANGE_FORMAT),
+                Path("results/runs/llm_candidate_unicode"),
+                OptimizationCandidate(
+                    schema_version="1.1",
+                    candidate_type="line_range_edits",
+                    summary="well‑optimized no-op candidate",
+                    rationale="rationale",
+                    risk_level="low",
+                    expected_effect="none",
+                    target_files=[TARGET_FILE],
+                    correctness_notes="correctness",
+                    unified_diff="",
+                    edits=[],
+                    requires_manual_review=False,
+                ),
+            )
+        finally:
+            sys.stdout = original_stdout
+
+        output = "".join(stdout.lines)
+        self.assertTrue(output.startswith("CANDIDATE_RUN_DIR="))
+        self.assertIn("well?optimized", output)
 
 
 if __name__ == "__main__":

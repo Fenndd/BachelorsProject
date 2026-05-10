@@ -312,6 +312,21 @@ class RunExperimentClosedLoopTests(unittest.TestCase):
         self.assertIn("--no-allow-exact-search-fallback", command)
         self.assertNotIn("--allow-exact-search-fallback", command)
 
+    def test_parse_candidate_run_dir_supports_canonical_and_narrow_fallbacks(self) -> None:
+        self.assertEqual(
+            runner._parse_candidate_run_dir("CANDIDATE_RUN_DIR=results/runs/candidate_1\n"),
+            "results/runs/candidate_1",
+        )
+        self.assertEqual(
+            runner._parse_candidate_run_dir("Final status: success\nRun directory: results/runs/candidate_2\n"),
+            "results/runs/candidate_2",
+        )
+        self.assertEqual(
+            runner._parse_candidate_run_dir("Artifacts saved to: results/runs/candidate_3\n"),
+            "results/runs/candidate_3",
+        )
+        self.assertIsNone(runner._parse_candidate_run_dir("Run directory: workspace/not_a_candidate\n"))
+
     def test_initialization_creates_current_best_source_and_state(self) -> None:
         root, _harness = self._run_with_statuses(["no_op"])
         experiment_dir = next((root / "results" / "experiments").iterdir())

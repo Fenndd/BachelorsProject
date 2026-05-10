@@ -34,6 +34,32 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_MAX_SOURCE_CHARS = 120000
 
 
+def _configure_text_streams() -> None:
+    """Make console output tolerant of Unicode on Windows consoles."""
+
+    for stream in (sys.stdout, sys.stderr):
+        reconfigure = getattr(stream, "reconfigure", None)
+        if reconfigure is None:
+            continue
+        try:
+            reconfigure(encoding="utf-8", errors="replace")
+        except (OSError, ValueError, TypeError):
+            continue
+
+
+def _safe_print(*values: Any, file: Any | None = None, **kwargs: Any) -> None:
+    """Print without allowing UnicodeEncodeError to fail candidate generation."""
+
+    output = sys.stdout if file is None else file
+    try:
+        print(*values, file=output, **kwargs)
+    except UnicodeEncodeError:
+        text = " ".join(str(value) for value in values)
+        encoding = getattr(output, "encoding", None) or "utf-8"
+        safe_text = text.encode(encoding, errors="replace").decode(encoding, errors="replace")
+        print(safe_text, file=output, **kwargs)
+
+
 class CandidateGenerationFailure(RuntimeError):
     """Controlled failure with a stable step name for saved status artifacts."""
 
@@ -344,19 +370,21 @@ def _print_final_summary(
     run_dir: Path | None,
     candidate: OptimizationCandidate | None,
 ) -> None:
-    print(f"Final status: {status['overall_status']}")
+    if run_dir is not None:
+        _safe_print(f"CANDIDATE_RUN_DIR={_display_path(run_dir)}")
+
+    _safe_print(f"Final status: {status['overall_status']}")
     if status["overall_status"] == "success" and candidate is not None:
-        print(f"Candidate summary: {candidate.summary}")
-        print(f"Risk level: {candidate.risk_level}")
-        print(f"Expected effect: {candidate.expected_effect}")
-        print(f"Unified diff present: {bool(candidate.unified_diff)}")
+        _safe_print(f"Candidate summary: {candidate.summary}")
+        _safe_print(f"Risk level: {candidate.risk_level}")
+        _safe_print(f"Expected effect: {candidate.expected_effect}")
+        _safe_print(f"Unified diff present: {bool(candidate.unified_diff)}")
     else:
-        print(f"Failed step: {status['failed_step']}")
-        print(f"Error message: {status['error_message']}")
+        _safe_print(f"Failed step: {status['failed_step']}")
+        _safe_print(f"Error message: {status['error_message']}")
 
     if run_dir is not None:
-        print(f"Artifacts saved to: {_display_path(run_dir)}")
-        print(f"CANDIDATE_RUN_DIR={_display_path(run_dir)}")
+        _safe_print(f"Artifacts saved to: {_display_path(run_dir)}")
 
 
 def _classify_client_response_error(error_message: str) -> str:
@@ -452,6 +480,7 @@ def _resolve_allowed_files(
 
 
 def main(argv: list[str] | None = None) -> int:
+    _configure_text_streams()
     args = _parse_args(sys.argv[1:] if argv is None else argv)
     config_path = _resolve_path(args.config)
     source_root = _resolve_source_root(args.source_root)

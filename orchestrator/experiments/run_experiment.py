@@ -34,7 +34,7 @@ import shutil
 import subprocess
 import sys
 import time
-from dataclasses import asdict
+from dataclasses import asdict, fields, is_dataclass
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Sequence
@@ -101,8 +101,14 @@ def _resolve_path(path_text: str) -> Path:
 
 
 def _display_path(path: Path) -> str:
+    if not path.is_absolute():
+        return path.as_posix()
     try:
         return path.resolve().relative_to(REPO_ROOT).as_posix()
+    except ValueError:
+        pass
+    try:
+        return (Path("workspace") / path.resolve().relative_to(WORKSPACE_ROOT)).as_posix()
     except ValueError:
         return str(path)
 
@@ -112,6 +118,7 @@ def _format_command(command: Sequence[str]) -> str:
 
 
 def _write_json(path: Path, payload: dict[str, Any]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(
         json.dumps(payload, indent=2, ensure_ascii=False) + "\n",
         encoding="utf-8",
@@ -490,7 +497,26 @@ def _parse_candidate_run_dir(stdout: str) -> str | None:
         if line.startswith("CANDIDATE_RUN_DIR="):
             value = line.split("=", 1)[1].strip()
             return value or None
+    for prefix in ("Run directory:", "Artifacts saved to:"):
+        for line in stdout.splitlines():
+            if not line.startswith(prefix):
+                continue
+            value = line.split(":", 1)[1].strip()
+            if _looks_like_candidate_run_dir(value):
+                return value
     return None
+
+
+def _looks_like_candidate_run_dir(value: str) -> bool:
+    if not value:
+        return False
+    normalized = value.replace("\\", "/")
+    if "/results/runs/" in normalized or normalized.startswith("results/runs/"):
+        return True
+    path = _resolve_path(value)
+    if path.exists() and path.is_dir():
+        return any((path / name).exists() for name in ("candidate.json", "status.json", "llm_request.json"))
+    return False
 
 
 def _skipped_stage(reason: str) -> dict[str, Any]:
@@ -1587,14 +1613,62 @@ def _now_iso() -> str:
     return datetime.now().astimezone().isoformat(timespec="seconds")
 
 
-def _copy_source_ignore(directory: str, names: list[str]) -> set[str]:
+SOURCE_TREE_IGNORE_NAMES = {"build", "CMakeFiles", "Testing", "CMakeCache.txt", "build.ninja"}
+SOURCE_TREE_IGNORE_PATTERNS = {
+    "build-*",
+    "cmake-build-*",
+    ".ninja_*",
+    "*.exe",
+    "*.obj",
+    "*.o",
+    "*.pdb",
+    "*.ilk",
+    "*.dll",
+    "*.lib",
+    "*.a",
+}
+
+
+def _source_tree_ignore(directory: str, names: list[str]) -> set[str]:
     ignored = set()
     for name in names:
-        if name in {"build", "CMakeFiles", "Testing"}:
+        if name in SOURCE_TREE_IGNORE_NAMES:
             ignored.add(name)
-        elif fnmatch.fnmatch(name, "cmake-build-*"):
+        elif any(fnmatch.fnmatch(name, pattern) for pattern in SOURCE_TREE_IGNORE_PATTERNS):
             ignored.add(name)
     return ignored
+
+
+def _copy_source_tree(source: Path, destination: Path) -> None:
+    shutil.copytree(source, destination, ignore=_source_tree_ignore)
+
+
+def _portable_plain_dict(value: Any) -> Any:
+    if is_dataclass(value) and not isinstance(value, type):
+        return {field.name: _portable_plain_dict(getattr(value, field.name)) for field in fields(value)}
+    if isinstance(value, Path):
+        return _display_path(value)
+    if isinstance(value, str):
+        return _portable_path_string(value)
+    if isinstance(value, list):
+        return [_portable_plain_dict(item) for item in value]
+    if isinstance(value, tuple):
+        return [_portable_plain_dict(item) for item in value]
+    if isinstance(value, dict):
+        return {str(key): _portable_plain_dict(item) for key, item in value.items()}
+    return to_plain_dict(value)
+
+
+def _portable_path_string(value: str) -> str:
+    if not value:
+        return value
+    try:
+        path = Path(value)
+    except (TypeError, ValueError):
+        return value
+    if not path.is_absolute():
+        return value.replace("\\", "/")
+    return _display_path(path)
 
 
 def _ensure_path_inside(path: Path, root: Path, label: str) -> None:
@@ -1615,7 +1689,7 @@ def initialize_current_best_source(paths: ClosedLoopPaths, config: ExperimentCon
     shutil.copytree(
         REPO_ROOT / "cpp",
         current_best_source_dir / "cpp",
-        ignore=_copy_source_ignore,
+        ignore=_source_tree_ignore,
     )
     target_path = current_best_source_dir / config.target_file
     if not target_path.exists() or not target_path.is_file():
@@ -1693,7 +1767,7 @@ def update_current_best_source_from_workspace(
     _ensure_path_inside(current_best_source_dir, WORKSPACE_ROOT / "experiments", "current best source")
     if current_best_source_dir.exists():
         shutil.rmtree(current_best_source_dir)
-    shutil.copytree(workspace, current_best_source_dir, ignore=_copy_source_ignore)
+    _copy_source_tree(workspace, current_best_source_dir)
     target_path = current_best_source_dir / config.target_file
     if not target_path.exists() or not target_path.is_file():
         raise FileNotFoundError(f"Promoted current best source missing target file: {target_path}")
@@ -1799,7 +1873,7 @@ def copy_final_optimized_source(paths: ClosedLoopPaths, config: ExperimentConfig
     _ensure_path_inside(final_dir, paths.results_root / "experiments", "final optimized source")
     if final_dir.exists():
         shutil.rmtree(final_dir)
-    shutil.copytree(source_dir, final_dir, ignore=_copy_source_ignore)
+    _copy_source_tree(source_dir, final_dir)
     final_target = final_dir / config.target_file
     if not final_target.exists() or not final_target.is_file():
         raise FileNotFoundError(f"Final optimized source missing target file: {final_target}")
@@ -1838,7 +1912,8 @@ def copy_results_current_best_state(paths: ClosedLoopPaths) -> Path:
         raise FileNotFoundError(f"Current best state not found: {paths.current_best_state_path}")
     results_state_path = _results_current_best_state_path(paths)
     results_state_path.parent.mkdir(parents=True, exist_ok=True)
-    shutil.copy2(paths.current_best_state_path, results_state_path)
+    state = _read_json_object(paths.current_best_state_path)
+    _write_json(results_state_path, _portable_plain_dict(state))
     return results_state_path
 
 
@@ -1902,7 +1977,7 @@ def finalize_closed_loop_artifacts(
         created_at=started_at.isoformat(timespec="seconds"),
         finished_at=finished_at,
     )
-    write_closed_loop_summary(paths.closed_loop_summary_path, summary)
+    _write_json(paths.closed_loop_summary_path, _portable_plain_dict(summary))
     return summary, results_state_path
 
 
@@ -1921,6 +1996,7 @@ def write_closed_loop_selection_report(
 
     report_path = experiment_dir / "closed_loop_selection_report.json"
     candidate_attempts = [_compact_candidate_attempt(record) for record in (records or [])]
+    final_current_best_run_dir = _display_path(state.current_best_run_dir)
     payload = {
         "report_type": "closed_loop_final_selection_report",
         "experiment_id": summary.experiment_id,
@@ -1930,25 +2006,25 @@ def write_closed_loop_selection_report(
         "final_current_best": {
             "iteration": state.current_best_iteration,
             "is_baseline": state.current_best_is_baseline,
-            "run_dir": str(state.current_best_run_dir),
-            "source_dir": str(state.current_best_source_dir),
-            "metrics_path": str(state.current_best_metrics_path),
+            "run_dir": final_current_best_run_dir,
+            "source_dir": _display_path(state.current_best_source_dir),
+            "metrics_path": _display_path(state.current_best_metrics_path),
             "accepted_improvements": state.accepted_improvements,
         },
-        "best_verified_candidate_vs_original_baseline": _best_verified_candidate_vs_original_baseline(candidate_attempts),
+        "best_verified_candidate_vs_original_baseline": _best_verified_candidate_vs_original_baseline(candidate_attempts, final_current_best_run_dir),
         "candidate_attempts": candidate_attempts,
         "status_counts": summary.status_counts,
         "control_decision": {
             "promotion_policy": "decision_vs_current_best.accepted_improvement_only",
             "final_best_iteration": state.current_best_iteration,
             "final_best_is_baseline": state.current_best_is_baseline,
-            "final_best_run_dir": str(state.current_best_run_dir),
+            "final_best_run_dir": final_current_best_run_dir,
             "accepted_improvements": state.accepted_improvements,
         },
         "final_analysis": {
             "target_file": summary.target_file,
-            "final_optimized_source_dir": str(summary.final_optimized_source_dir),
-            "final_optimized_source_diff_path": str(summary.final_optimized_source_diff_path),
+            "final_optimized_source_dir": _display_path(summary.final_optimized_source_dir),
+            "final_optimized_source_diff_path": _display_path(summary.final_optimized_source_diff_path),
             "final_speedup_vs_original_baseline": summary.final_speedup_vs_original_baseline,
             "final_runtime_reduction_percent": summary.final_runtime_reduction_percent,
             "status_counts": summary.status_counts,
@@ -1968,7 +2044,7 @@ def _compact_candidate_attempt(record: ClosedLoopIterationRecord) -> dict[str, A
     return {
         "iteration": record.iteration,
         "status": record.status.value if isinstance(record.status, IterationStatus) else record.status,
-        "candidate_run_dir": str(record.candidate_run_dir) if record.candidate_run_dir is not None else None,
+        "candidate_run_dir": _display_path(record.candidate_run_dir) if record.candidate_run_dir is not None else None,
         "decision_vs_current_best": _compact_report_decision(record.decision_vs_current_best),
         "decision_vs_original_baseline": _compact_report_decision(record.decision_vs_original_baseline),
         "speedup_vs_current_best": record.speedup_vs_current_best,
@@ -1993,6 +2069,7 @@ def _compact_report_decision(decision: dict[str, Any] | str | None) -> dict[str,
 
 def _best_verified_candidate_vs_original_baseline(
     candidate_attempts: list[dict[str, Any]],
+    final_current_best_run_dir: str,
 ) -> dict[str, Any] | None:
     best_attempt: dict[str, Any] | None = None
     best_speedup: float | None = None
@@ -2008,12 +2085,14 @@ def _best_verified_candidate_vs_original_baseline(
             continue
         if best_speedup is None or float(speedup) > best_speedup:
             best_speedup = float(speedup)
+            runtime_reduction = decision.get("runtime_reduction_percent")
             best_attempt = {
                 "iteration": attempt.get("iteration"),
                 "candidate_run_dir": attempt.get("candidate_run_dir"),
-                "status_vs_original_baseline": status,
-                "speedup_vs_original_baseline": best_speedup,
-                "current_best_updated": attempt.get("current_best_updated"),
+                "speedup": best_speedup,
+                "runtime_reduction_percent": runtime_reduction if isinstance(runtime_reduction, (int, float)) and not isinstance(runtime_reduction, bool) else None,
+                "matches_final_current_best": attempt.get("candidate_run_dir") == final_current_best_run_dir,
+                "status": status,
             }
     return best_attempt
 

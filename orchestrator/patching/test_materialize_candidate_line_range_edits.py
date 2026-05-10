@@ -132,6 +132,8 @@ class MaterializeCandidateLineRangeEditsTests(unittest.TestCase):
             self.assertEqual(materialization["base_source_root"], str(source_root.resolve()))
             self.assertEqual(materialization["source_root_mode"], "legacy_source_root")
             self.assertEqual(materialization["line_range_exact_matches"], 1)
+            self.assertTrue(materialization["workspace_retained"])
+            self.assertTrue(materialization["workspace_exists_after_run"])
             self.assertEqual(materialization["generated_diff_base"], "base_source_root")
             self.assertEqual(_workspace_file(materialization).read_text(encoding="utf-8"), "int value = 2;\n")
             self.assertEqual((source_root / "example.cpp").read_text(encoding="utf-8"), "int value = 1;\n")
@@ -242,6 +244,14 @@ class MaterializeCandidateLineRangeEditsTests(unittest.TestCase):
             self.assertEqual(materialization["failed_step"], "line_range_apply")
             self.assertIn("target file not found", materialization["error_message"])
             self.assertEqual(materialization["base_source_root"], str(base_source_root.resolve()))
+            self.assertFalse(materialization["workspace_retained"])
+            self.assertFalse(materialization["workspace_exists_after_run"])
+            self.assertTrue(materialization["workspace_removed_on_failure"])
+            self.assertEqual(materialization["workspace_removal_reason"], "materialization_failed")
+            failed = materialization["line_range_edit_results"][0]
+            self.assertEqual(failed["file"], P3P_TARGET_FILE)
+            self.assertEqual(failed["status"], "failed")
+            self.assertEqual(failed["failure_reason"], "target_file_missing")
 
     def test_explicit_source_root_and_base_source_root_combination_is_rejected(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -397,6 +407,9 @@ class MaterializeCandidateLineRangeEditsTests(unittest.TestCase):
             self.assertEqual(materialization["failed_step"], "line_range_apply")
             self.assertFalse(materialization["line_range_allow_exact_search_fallback"])
             self.assertIn("fallback is disabled", materialization["error_message"])
+            failed = materialization["line_range_edit_results"][0]
+            self.assertEqual(failed["status"], "failed")
+            self.assertEqual(failed["failure_reason"], "fallback_not_allowed")
 
     def test_fallback_ambiguous_failure(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -423,6 +436,13 @@ class MaterializeCandidateLineRangeEditsTests(unittest.TestCase):
             materialization = _read_materialization(run_dir)
             self.assertEqual(materialization["failed_step"], "line_range_apply")
             self.assertEqual(materialization["patch_apply_strategy"], "line_range_edits_failed")
+            failed = materialization["line_range_edit_results"][0]
+            self.assertEqual(failed["file"], TARGET_FILE)
+            self.assertEqual(failed["start_line"], 2)
+            self.assertEqual(failed["end_line"], 2)
+            self.assertEqual(failed["status"], "failed")
+            self.assertEqual(failed["failure_reason"], "fallback_ambiguous")
+            self.assertEqual(failed["fallback_match_count"], 2)
 
     def test_original_not_found_failure(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -449,6 +469,9 @@ class MaterializeCandidateLineRangeEditsTests(unittest.TestCase):
             materialization = _read_materialization(run_dir)
             self.assertEqual(materialization["failed_step"], "line_range_apply")
             self.assertIn("not found", materialization["error_message"])
+            failed = materialization["line_range_edit_results"][0]
+            self.assertEqual(failed["failure_reason"], "fallback_no_match")
+            self.assertEqual(failed["fallback_match_count"], 0)
 
     def test_edit_file_outside_target_files_rejected(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
