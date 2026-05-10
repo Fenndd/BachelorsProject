@@ -1,0 +1,58 @@
+{
+  "experiment_name": "closed_loop_deepseek_pro_p3p_10iter",
+  "description": "Closed-loop P3P optimization experiment using DeepSeek Pro for 10 iterations with line-range edits and experiment-local best-source promotion.",
+  "target_file": "cpp/external/lambdatwist/p3p.cc",
+
+  "pipeline": {
+    "generate_candidate": true,
+    "materialize_candidate": true,
+    "verify_candidate": true
+  },
+
+  "candidate_generation": {
+    "max_source_chars": 120000
+  },
+
+  "candidate_format": {
+    "type": "line_range_edits",
+    "source_presentation": "line_numbered",
+    "require_original_verification": true,
+    "allow_exact_search_fallback": true
+  },
+
+  "history_policy": {
+    "enabled": false,
+    "scope": "variant",
+    "max_previous_iterations": 0,
+    "include_failed_iterations": false,
+    "include_materialization_results": true,
+    "include_verification_results": true
+  },
+
+  "selection": {
+    "enabled": false,
+    "baseline_run_dir": "results/runs/REPLACE_WITH_BASELINE_RUN_DIR",
+    "write_candidate_decisions": true
+  },
+
+  "closed_loop": {
+    "enabled": true
+  },
+
+  "optimization_scope": {
+    "allowed_files": [
+      "cpp/external/lambdatwist/p3p.cc"
+    ]
+  },
+
+  "variants": [
+    {
+      "variant_id": "deepseek_pro",
+      "description": "DeepSeek Pro closed-loop P3P optimization, 10 iterations.",
+      "llm_config": "configs/llm_deepseek_pro.json",
+      "llm_overrides": null,
+      "iterations": 10,
+      "additional_context": "Optimize only the Lambda Twist P3P target file. Prefer small, safe, local C++ performance improvements. Preserve numerical behavior, solver API, output semantics, includes, and benchmark compatibility. Use line_range_edits only for cpp/external/lambdatwist/p3p.cc. If no safe improvement is available, return a no-op candidate with expected_effect=\"none\" and edits=[]."
+    }
+  ]
+}
