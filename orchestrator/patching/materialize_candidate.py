@@ -724,7 +724,11 @@ def _apply_line_range_edits(
                 failure_reason="target_file_missing",
                 detail=detail,
             )
-            raise LineRangeEditApplyError(detail, [*results, failed])
+            complete_results = _complete_line_range_results_after_failure(
+                edits,
+                [*results, failed],
+            )
+            raise LineRangeEditApplyError(detail, complete_results)
 
         original_text = file_path.read_text(encoding="utf-8")
         current_text = original_text

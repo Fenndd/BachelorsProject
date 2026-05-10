@@ -10,7 +10,10 @@ from typing import Any
 
 from orchestrator.experiments import run_experiment as runner
 from orchestrator.experiments.closed_loop_state import (
+    ClosedLoopIterationRecord,
     ClosedLoopPaths,
+    CurrentBestState,
+    IterationStatus,
     read_current_best_state,
 )
 from orchestrator.experiments.experiment_config import load_experiment_config
@@ -342,6 +345,66 @@ class RunExperimentClosedLoopTests(unittest.TestCase):
         self.assertIn("--base-source-root", command)
         self.assertIn("--no-allow-exact-search-fallback", command)
         self.assertNotIn("--allow-exact-search-fallback", command)
+
+    def test_closed_loop_iteration_jsonl_uses_portable_paths_recursively(self) -> None:
+        temp = tempfile.TemporaryDirectory()
+        self.addCleanup(temp.cleanup)
+        root = Path(temp.name)
+        _create_repo_layout(root)
+        original_repo_root = runner.REPO_ROOT
+        original_results_root = runner.RESULTS_ROOT
+        original_workspace_root = runner.WORKSPACE_ROOT
+        self.addCleanup(setattr, runner, "REPO_ROOT", original_repo_root)
+        self.addCleanup(setattr, runner, "RESULTS_ROOT", original_results_root)
+        self.addCleanup(setattr, runner, "WORKSPACE_ROOT", original_workspace_root)
+        runner.REPO_ROOT = root
+        runner.RESULTS_ROOT = root / "results"
+        runner.WORKSPACE_ROOT = root / "workspace"
+        paths = ClosedLoopPaths.from_roots(root / "workspace", root / "results", "exp_001")
+        baseline_run_dir = root / "results" / "runs" / "baseline"
+        candidate_run_dir = root / "results" / "runs" / "candidate_1"
+        candidate_run_dir.mkdir(parents=True, exist_ok=True)
+        state = CurrentBestState(
+            experiment_id="exp_001",
+            target_file=TARGET_FILE,
+            original_baseline_run_dir=baseline_run_dir,
+            original_baseline_metrics_path=baseline_run_dir / "metrics.json",
+            current_best_iteration=0,
+            current_best_is_baseline=True,
+            current_best_source_dir=paths.current_best_source_dir,
+            current_best_run_dir=baseline_run_dir,
+            current_best_metrics_path=baseline_run_dir / "metrics.json",
+            accepted_improvements=0,
+            updated_at="2026-05-10T05:00:00+02:00",
+        )
+        record = ClosedLoopIterationRecord(
+            experiment_id="exp_001",
+            iteration=1,
+            status=IterationStatus.VALID_NOT_IMPROVED,
+            base_source_kind="current_best",
+            reference_best_iteration_before=0,
+            reference_best_run_dir=baseline_run_dir,
+            candidate_run_dir=candidate_run_dir,
+            decision_vs_current_best={
+                "status": "valid_not_improved",
+                "candidate_run_dir": candidate_run_dir,
+                "nested": {"metrics_path": candidate_run_dir / "metrics.json"},
+            },
+            current_best_iteration_after=0,
+        )
+
+        runner._append_closed_loop_record_and_state(paths, state, record)
+
+        text = paths.closed_loop_iterations_path.read_text(encoding="utf-8")
+        payload = json.loads(text)
+        self.assertNotIn(str(root), text)
+        self.assertNotIn(str(root / "workspace"), text)
+        self.assertEqual(payload["candidate_run_dir"], "results/runs/candidate_1")
+        self.assertEqual(payload["reference_best_run_dir"], "results/runs/baseline")
+        self.assertEqual(
+            payload["decision_vs_current_best"]["nested"]["metrics_path"],
+            "results/runs/candidate_1/metrics.json",
+        )
 
     def test_parse_candidate_run_dir_supports_canonical_and_narrow_fallbacks(self) -> None:
         temp = tempfile.TemporaryDirectory()

@@ -113,8 +113,11 @@ def build_history_guidance(record: dict[str, Any]) -> str | None:
     if status == "materialization_failed":
         return _materialization_failure_guidance(record)
     if status == "valid_not_improved" and _is_runtime_improvement_below_threshold(record):
-        return BELOW_THRESHOLD_GUIDANCE
-    return GUIDANCE_BY_STATUS.get(status)
+        return _append_invalid_line_range_fallback_guidance(record, BELOW_THRESHOLD_GUIDANCE)
+    guidance = GUIDANCE_BY_STATUS.get(status)
+    if status in {"accepted_improvement", "valid_not_improved"}:
+        return _append_invalid_line_range_fallback_guidance(record, guidance)
+    return guidance
 
 
 def summarize_closed_loop_record_for_history(record: dict[str, Any]) -> dict[str, Any]:
@@ -324,6 +327,22 @@ def _materialization_failure_guidance(record: dict[str, Any]) -> str:
     ):
         return LINE_RANGE_MISMATCH_GUIDANCE
     return GENERIC_MATERIALIZATION_GUIDANCE
+
+
+def _used_invalid_line_range_fallback(record: dict[str, Any]) -> bool:
+    match_summary = record.get("materialization_match_summary")
+    return isinstance(match_summary, dict) and match_summary.get("invalid_line_range_fallback_used") is True
+
+
+def _append_invalid_line_range_fallback_guidance(
+    record: dict[str, Any],
+    guidance: str | None,
+) -> str | None:
+    if not _used_invalid_line_range_fallback(record):
+        return guidance
+    if not guidance:
+        return INVALID_LINE_RANGE_FALLBACK_GUIDANCE
+    return f"{guidance} {INVALID_LINE_RANGE_FALLBACK_GUIDANCE}"
 
 
 def _is_runtime_improvement_below_threshold(record: dict[str, Any]) -> bool:

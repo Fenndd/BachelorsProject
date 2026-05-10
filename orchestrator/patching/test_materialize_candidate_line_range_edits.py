@@ -498,6 +498,84 @@ class MaterializeCandidateLineRangeEditsTests(unittest.TestCase):
             self.assertEqual(failed["file"], P3P_TARGET_FILE)
             self.assertEqual(failed["status"], "failed")
             self.assertEqual(failed["failure_reason"], "target_file_missing")
+            self.assertIsNone(materialization["generated_diff_path"])
+            self.assertFalse(materialization["generated_diff_created"])
+            self.assertFalse((run_dir / "candidate.generated.diff").exists())
+
+    def test_target_file_missing_completes_remaining_line_range_results(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmp_path = Path(tmpdir)
+            base_source_root = tmp_path / "current_best_source"
+            existing_file = base_source_root / TARGET_FILE
+            existing_file.parent.mkdir(parents=True)
+            existing_file.write_text("int value = 1;\n", encoding="utf-8")
+            missing_file = "cpp/missing.cpp"
+            other_file = "cpp/other.cpp"
+            other_existing_file = base_source_root / other_file
+            other_existing_file.parent.mkdir(parents=True, exist_ok=True)
+            other_existing_file.write_text("int other = 1;\n", encoding="utf-8")
+            run_dir = tmp_path / "candidate_missing_multi"
+            _line_candidate(
+                run_dir,
+                target_files=[TARGET_FILE, missing_file, other_file],
+                edits=[
+                    {
+                        "file": TARGET_FILE,
+                        "start_line": 1,
+                        "end_line": 1,
+                        "original": "int value = 1;",
+                        "replace": "int value = 2;",
+                    },
+                    {
+                        "file": missing_file,
+                        "start_line": 1,
+                        "end_line": 1,
+                        "original": "int missing = 1;",
+                        "replace": "int missing = 2;",
+                    },
+                    {
+                        "file": other_file,
+                        "start_line": 1,
+                        "end_line": 1,
+                        "original": "int other = 1;",
+                        "replace": "int other = 2;",
+                    },
+                ],
+            )
+
+            exit_code = materialize_main(
+                [
+                    "--candidate-run",
+                    str(run_dir),
+                    "--workspace-root",
+                    str(tmp_path / "workspaces"),
+                    "--base-source-root",
+                    str(base_source_root),
+                    "--overwrite",
+                    "--allowed-file",
+                    TARGET_FILE,
+                    "--allowed-file",
+                    missing_file,
+                    "--allowed-file",
+                    other_file,
+                ]
+            )
+
+            self.assertEqual(exit_code, 1)
+            materialization = _read_materialization(run_dir)
+            results = materialization["line_range_edit_results"]
+            self.assertEqual(materialization["line_range_edit_count"], 3)
+            self.assertEqual(len(results), 3)
+            self.assertEqual([result["index"] for result in results], [0, 1, 2])
+            self.assertEqual(results[0]["status"], "success")
+            self.assertEqual(results[0]["match_mode"], "line_range_exact")
+            self.assertEqual(results[1]["status"], "failed")
+            self.assertEqual(results[1]["failure_reason"], "target_file_missing")
+            self.assertEqual(results[2]["status"], "not_attempted")
+            self.assertEqual(results[2]["failure_reason"], "previous_edit_failed")
+            self.assertIsNone(materialization["generated_diff_path"])
+            self.assertFalse(materialization["generated_diff_created"])
+            self.assertFalse((run_dir / "candidate.generated.diff").exists())
 
     def test_explicit_source_root_and_base_source_root_combination_is_rejected(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -881,6 +959,50 @@ class MaterializeCandidateLineRangeEditsTests(unittest.TestCase):
             materialization = _read_materialization(run_dir)
             self.assertEqual(materialization["source_root"], materialization["base_source_root"])
             self.assertTrue(materialization["source_root"].startswith("workspace/"))
+            self.assertNotIn(str(base_source_root.resolve()), json.dumps(materialization))
+
+    def test_repo_relative_base_source_root_paths_are_portable_in_materialization(self) -> None:
+        workspace_parent = REPO_ROOT / "workspace"
+        workspace_parent.mkdir(exist_ok=True)
+        with tempfile.TemporaryDirectory(dir=workspace_parent) as tmpdir:
+            tmp_path = Path(tmpdir)
+            base_source_root = tmp_path / "current_best_source"
+            _write_source(base_source_root / "cpp", "int value = 1;\n")
+            run_dir = tmp_path / "candidate_relative_portable_paths"
+            _line_candidate(
+                run_dir,
+                edits=[
+                    {
+                        "file": TARGET_FILE,
+                        "start_line": 1,
+                        "end_line": 1,
+                        "original": "int value = 1;",
+                        "replace": "int value = 2;",
+                    }
+                ],
+            )
+            relative_base_source_root = base_source_root.resolve().relative_to(REPO_ROOT).as_posix()
+
+            exit_code = materialize_main(
+                [
+                    "--candidate-run",
+                    str(run_dir),
+                    "--workspace-root",
+                    str(tmp_path / "workspaces"),
+                    "--base-source-root",
+                    relative_base_source_root,
+                    "--overwrite",
+                    "--allowed-file",
+                    TARGET_FILE,
+                ]
+            )
+
+            self.assertEqual(exit_code, 0)
+            materialization = _read_materialization(run_dir)
+            self.assertEqual(materialization["source_root"], relative_base_source_root)
+            self.assertEqual(materialization["base_source_root"], relative_base_source_root)
+            self.assertFalse(Path(materialization["source_root"]).is_absolute())
+            self.assertFalse(Path(materialization["base_source_root"]).is_absolute())
             self.assertNotIn(str(base_source_root.resolve()), json.dumps(materialization))
 
     def test_legacy_unified_diff_still_works(self) -> None:

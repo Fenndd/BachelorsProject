@@ -341,6 +341,38 @@ def test_materialization_failed_invalid_line_range_fallback_summary_gets_specifi
     assert "exact line labels" in guidance
 
 
+def test_valid_not_improved_invalid_line_range_fallback_adds_specific_guidance() -> None:
+    context = build_closed_loop_history_context(
+        [
+            _record(
+                "valid_not_improved",
+                materialization_match_summary={"invalid_line_range_fallback_used": True},
+            ),
+            _record("no_op", iteration=2, candidate_summary="No useful change"),
+        ]
+    )
+
+    assert context is not None
+    assert "Do not repeat this optimization pattern" in context
+    assert "relied on exact-search fallback" in context
+    assert "exact line labels" in context
+    assert "Iteration 2" not in context
+
+
+def test_accepted_improvement_invalid_line_range_fallback_adds_specific_guidance() -> None:
+    guidance = build_history_guidance(
+        _record(
+            "accepted_improvement",
+            materialization_match_summary={"invalid_line_range_fallback_used": True},
+        )
+    )
+
+    assert guidance is not None
+    assert "already included in the current source" in guidance
+    assert "relied on exact-search fallback" in guidance
+    assert "exact line labels" in guidance
+
+
 def test_generic_materialization_failed_keeps_generic_guidance() -> None:
     guidance = build_history_guidance(
         _record("materialization_failed", failure_reason="target file missing")
