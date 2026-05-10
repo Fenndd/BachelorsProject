@@ -1,6 +1,6 @@
 # Architecture
 
-This project uses C++ for the algorithmic layer and Python for automation around baseline preparation, LLM candidate generation, candidate materialization, verification, and selection.
+This project uses C++ for the algorithmic layer and Python for automation around baseline preparation, LLM candidate generation, candidate materialization, verification, decisions, selection, and closed-loop experiment orchestration.
 
 The current minimal case study is Lambda Twist P3P in the absolute-pose solver benchmark family.
 
@@ -23,22 +23,25 @@ The C++ baseline boundary is:
 
 The baseline Python entry point is `orchestrator/cli/main.py`. It remains separate from LLM optimization experiments.
 
-## LLM Experiment Commands
+## Python Orchestration Components
 
-The main implemented orchestration commands are:
+The main orchestration components are:
 
-- `orchestrator.llm.generate_candidate`: reads one source file, builds a controlled prompt, calls the configured LLM or mock client, parses the response, and stores candidate artifacts.
-- `orchestrator.patching.materialize_candidate`: materializes a candidate inside `workspace/candidates/<candidate_run_id>/` only.
+- `orchestrator.llm.generate_candidate`: reads one source file from a configurable source root, builds a controlled prompt, calls the configured LLM or mock client, parses the response, and stores candidate artifacts.
+- `orchestrator.patching.materialize_candidate`: materializes a candidate inside `workspace/candidates/<candidate_run_id>/` only, optionally using an explicit `--base-source-root`.
 - `orchestrator.execution.verify_candidate`: runs deterministic smoke, adapter validation, family benchmark, and benchmark parsing inside a materialized candidate workspace.
-- `orchestrator.experiments.run_experiment`: runs configured multi-variant/multi-iteration candidate generation, optional materialization, optional verification, history, and selection.
-- `orchestrator.benchmarking.candidate_decision`: evaluates one verified candidate against one baseline artifact.
-- `orchestrator.experiments.best_candidate_selector`: selects the best candidate among verified candidates using pairwise decisions.
+- `orchestrator.benchmarking.candidate_decision`: evaluates one verified candidate against either a baseline run or a verified-candidate reference. In closed-loop mode, this writes reference-vs-candidate decisions such as `decision_vs_current_best.json`.
+- `orchestrator.experiments.best_candidate_selector`: selects the best candidate among verified candidates using pairwise decisions for non-closed-loop experiment analysis.
+- `orchestrator.experiments.closed_loop_state`: manages experiment-local `current_best_source` and `current_best_state` metadata.
+- `orchestrator.experiments.closed_loop_history`: builds compact benchmark-aware history for later closed-loop generations.
+- `orchestrator.experiments.run_experiment`: runs configured experiments, including non-closed-loop multi-variant/multi-iteration runs and single-variant closed-loop iterative optimization.
+- Final closed-loop artifact/reporting helpers write `final_optimized_source/`, `final_optimized_source.diff`, `closed_loop_summary.json`, `closed_loop_iterations.jsonl`, `closed_loop_selection_report.json`, and the results-side `current_best_state.json`.
 
-Experiment runs use `workspace/` for isolated candidate copies and `results/` for persistent outputs. The main `cpp/` source tree is not modified by candidate materialization.
+Experiment runs use `workspace/` for isolated source copies and `results/` for persistent outputs. The main `cpp/` source tree is not modified by candidate materialization or closed-loop current-best promotion.
 
 ## Candidate Edit Format Layer
 
-The system no longer assumes every LLM candidate is a raw unified diff. Candidate format is selected through experiment config using `candidate_format`.
+The system does not assume every LLM candidate is a raw unified diff. Candidate format is selected through experiment config using `candidate_format`.
 
 ### `unified_diff`
 
@@ -52,7 +55,7 @@ The system no longer assumes every LLM candidate is a raw unified diff. Candidat
 ### `line_range_edits`
 
 - `schema_version`: `1.1`
-- Preferred robust format for real LLM experiments.
+- Preferred robust format for full-cycle LLM experiments.
 - The LLM receives `line_numbered` source.
 - The LLM returns `edits[]` with `file`, `start_line`, `end_line`, `original`, and `replace`.
 - `original` is source text only and must not include line-number prefixes.
@@ -63,18 +66,88 @@ The system no longer assumes every LLM candidate is a raw unified diff. Candidat
 
 See `docs/candidate_edit_formats.md` for the dedicated format reference.
 
-## Scope and Selection
+## Scope and Verification
 
 Configured experiments pass `optimization_scope.allowed_files` to candidate generation and materialization. The materializer enforces candidate `target_files` plus format-specific changed-file paths against that allowlist:
 
 - `unified_diff`: diff header paths are checked.
 - `line_range_edits`: `edits[].file` paths are checked.
 
-Verification produces `verification.json` using the same absolute-pose benchmark family as the baseline. Pairwise candidate decision and multi-candidate best-result selection are implemented in Python and consume verified artifacts. Selection does not promote code.
+Verification produces `verification.json` using the same absolute-pose benchmark family as the baseline. Verification does not compare against a reference; decisions and selection are separate stages that consume verified artifacts.
 
-## Not Implemented Yet
+## Closed-loop Iterative Optimization
 
-- Automatic promotion of candidates into the main source tree.
-- Closed-loop optimization that automatically promotes or reuses selected candidates.
-- Advanced reporting, plots, and final aggregated analysis.
-- Additional solver families/adapters beyond the current minimal Lambda Twist P3P path.
+Closed-loop optimization is implemented in the experiment runner. It improves an experiment-local current best source tree rather than repeatedly optimizing the original baseline.
+
+The core flow is:
+
+```text
+original clean baseline
+  -> workspace/experiments/<experiment_id>/current_best_source/
+  -> generate candidate from current_best_source
+  -> materialize candidate against current_best_source
+  -> verify candidate
+  -> decision_vs_current_best
+  -> optional current_best_source update
+  -> next iteration
+```
+
+### Experiment-local current best
+
+At experiment start, closed-loop mode initializes:
+
+```text
+workspace/experiments/<experiment_id>/current_best_source/
+workspace/experiments/<experiment_id>/current_best_state.json
+```
+
+`current_best_source/` is a repo-like tree populated from the clean baseline source, for example:
+
+```text
+workspace/experiments/<experiment_id>/current_best_source/cpp/external/lambdatwist/p3p.cc
+```
+
+When a candidate is accepted as an improvement, the materialized candidate workspace replaces this experiment-local current-best tree and `current_best_state.json` is updated. The main `cpp/` tree remains the clean baseline and is never modified automatically.
+
+### Source-root separation
+
+Closed-loop mode separates logical candidate paths from physical source roots:
+
+- `target_file` remains the stable repo-relative path, such as `cpp/external/lambdatwist/p3p.cc`.
+- `generate_candidate` uses `--source-root workspace/experiments/<experiment_id>/current_best_source` to read the current source while preserving logical candidate paths.
+- `materialize_candidate` uses `--base-source-root workspace/experiments/<experiment_id>/current_best_source` so the candidate is applied against the same source version the LLM saw.
+
+This keeps candidate metadata, `target_files`, and `allowed_files` repo-relative while allowing the physical source to advance between iterations.
+
+### Decision semantics
+
+Closed-loop mode writes two reference comparisons for verified candidates:
+
+- `decision_vs_current_best.json`: the control decision. Only `status: "accepted_improvement"` promotes the candidate into experiment-local `current_best_source`.
+- `decision_vs_original_baseline.json`: reporting/control against the original baseline. It does not control promotion.
+
+After all iterations, `closed_loop_selection_report.json` provides final analysis only. It never promotes candidates, rewrites `current_best_source`, rewrites `final_optimized_source`, or modifies the main `cpp/` tree.
+
+Closed-loop mode currently supports exactly one variant. Multi-variant closed-loop strategy and automatic promotion into the main `cpp/` source tree remain limitations.
+
+## Result Boundaries
+
+Persistent artifacts are written under `results/`. Temporary and mutable source copies are written under `workspace/`. Generated experiment outputs are ignored by git.
+
+Final closed-loop artifacts are stored under:
+
+```text
+results/experiments/<experiment_id>/final_optimized_source/
+results/experiments/<experiment_id>/final_optimized_source.diff
+results/experiments/<experiment_id>/closed_loop_summary.json
+results/experiments/<experiment_id>/closed_loop_iterations.jsonl
+results/experiments/<experiment_id>/closed_loop_selection_report.json
+results/experiments/<experiment_id>/current_best_state.json
+```
+
+## Current Limitations
+
+- Automatic promotion of candidates into the main `cpp/` source tree is not implemented.
+- Closed-loop mode currently supports exactly one variant; multi-variant closed-loop strategy is not implemented.
+- Additional solver families/adapters beyond the current minimal Lambda Twist P3P path are future work.
+- Advanced plots and broader statistical dashboards or aggregate analyses are future work.
