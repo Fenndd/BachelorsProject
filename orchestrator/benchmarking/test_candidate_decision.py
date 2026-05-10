@@ -155,17 +155,34 @@ class CandidateDecisionTests(unittest.TestCase):
             ((1000.0 - 1200.0) / 1000.0) * 100.0,
         )
 
-    def test_faster_correct_candidate_is_accepted_improvement(self) -> None:
+    def test_one_percent_faster_correct_candidate_is_accepted_improvement(self) -> None:
         decision = _evaluate(
             baseline_overrides={"parsed_runtime_ns_per_case_median": 1000.0},
-            candidate_overrides={"parsed_runtime_ns_per_case_median": 800.0},
+            candidate_overrides={"parsed_runtime_ns_per_case_median": 990.0},
         )
 
         self.assertEqual(decision["status"], "accepted_improvement")
         self.assertEqual(decision["rejection_reasons"], [])
         self.assertTrue(decision["comparison"]["candidate_runtime_lower"])
-        self.assertAlmostEqual(decision["comparison"]["speedup"], 1.25)
-        self.assertAlmostEqual(decision["comparison"]["runtime_reduction_percent"], 20.0)
+        self.assertAlmostEqual(decision["comparison"]["speedup"], 1000.0 / 990.0)
+        self.assertAlmostEqual(decision["comparison"]["runtime_reduction_percent"], 1.0)
+        self.assertEqual(decision["thresholds"]["min_runtime_reduction_percent"], 0.5)
+
+    def test_tiny_faster_candidate_below_threshold_is_valid_not_improved(self) -> None:
+        decision = _evaluate(
+            baseline_overrides={"parsed_runtime_ns_per_case_median": 1000.0},
+            candidate_overrides={"parsed_runtime_ns_per_case_median": 999.0},
+        )
+
+        self.assertEqual(decision["status"], "valid_not_improved")
+        self.assertTrue(decision["comparison"]["candidate_runtime_lower"])
+        self.assertAlmostEqual(decision["comparison"]["runtime_reduction_percent"], 0.1)
+        self.assertIn(
+            "runtime_improvement_below_minimum_threshold",
+            decision["rejection_reasons"],
+        )
+        self.assertEqual(decision["thresholds"]["min_runtime_reduction_percent"], 0.5)
+        self.assertEqual(decision["thresholds"]["absolute_reprojection_error_tolerance"], 1.0e-10)
 
     def test_baseline_wrapper_preserves_legacy_keys(self) -> None:
         decision = _evaluate(
@@ -379,11 +396,36 @@ class CandidateDecisionTests(unittest.TestCase):
         self.assertIsNone(decision["comparison"]["speedup"])
         self.assertIsNone(decision["comparison"]["runtime_reduction_percent"])
 
-    def test_reprojection_error_tolerance_violation_leads_to_rejected(self) -> None:
+    def test_near_zero_max_reprojection_error_uses_absolute_tolerance(self) -> None:
+        decision = _evaluate(
+            baseline_overrides={"parsed_max_best_reprojection_error": 1.0e-12},
+            candidate_overrides={
+                "parsed_runtime_ns_per_case_median": 990.0,
+                "parsed_max_best_reprojection_error": 1.4e-12,
+            },
+        )
+
+        self.assertEqual(decision["status"], "accepted_improvement")
+        self.assertEqual(decision["rejection_reasons"], [])
+        self.assertEqual(decision["thresholds"]["absolute_reprojection_error_tolerance"], 1.0e-10)
+
+    def test_near_zero_mean_reprojection_error_uses_absolute_tolerance(self) -> None:
+        decision = _evaluate(
+            baseline_overrides={"parsed_mean_best_reprojection_error": 1.0e-12},
+            candidate_overrides={
+                "parsed_runtime_ns_per_case_median": 990.0,
+                "parsed_mean_best_reprojection_error": 1.4e-12,
+            },
+        )
+
+        self.assertEqual(decision["status"], "accepted_improvement")
+        self.assertEqual(decision["rejection_reasons"], [])
+
+    def test_meaningful_reprojection_error_regression_still_rejected(self) -> None:
         decision = _evaluate(
             candidate_overrides={
-                "parsed_mean_best_reprojection_error": 2.0e-12,
-                "parsed_max_best_reprojection_error": 3.0e-12,
+                "parsed_mean_best_reprojection_error": 1.0e-8,
+                "parsed_max_best_reprojection_error": 1.0e-8,
             }
         )
 

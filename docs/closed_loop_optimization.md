@@ -68,7 +68,10 @@ Closed-loop iteration records can use these statuses:
 - `no_op`
 - `generation_failed`
 
-Only `accepted_improvement` updates `current_best_source`.
+Only `accepted_improvement` updates `current_best_source`. A verified candidate
+must pass correctness/comparability gates and reduce runtime by at least the
+default `min_runtime_reduction_percent = 0.5` to be accepted. Faster candidates
+below that threshold are `valid_not_improved` and are not promoted.
 
 ## Decision Artifacts
 
@@ -102,6 +105,11 @@ Excluded statuses:
 - generation failures without a usable candidate
 
 The compact history contains summaries, benchmark-aware result text, short failure or rejection reasons, and deterministic guidance. It does not include full code, full diffs, full `candidate.json`, full `verification.json`, benchmark logs, audit objects, stack traces, or no-op entries.
+
+For materialization failures, compact history uses generic deterministic
+guidance when it can identify ambiguous repeated original text, line-range
+original mismatches, or disabled fallback. It does not implement repeated failure
+grouping/detection, LLM-based failure summaries, or special-case repair logic.
 
 The exact history context passed to generation is logged under:
 
@@ -146,5 +154,7 @@ Key artifacts are:
 - Automatic promotion into the main `cpp/` source tree is not implemented.
 - Multi-variant closed-loop strategy is not implemented.
 - Additional solver families beyond the current minimal Lambda Twist P3P path are not implemented.
-- Candidate acceptance currently uses strict lower median runtime after correctness and comparability gates. There is no configurable minimum runtime-reduction or confidence threshold yet; future work may add `min_runtime_reduction_percent`, minimum speedup, or repeated-benchmark confidence policies.
+- Candidate acceptance uses lower median runtime plus a default 0.5% minimum runtime-reduction threshold after correctness and comparability gates. Repeated-benchmark confidence policies are not implemented.
+- Pairwise reprojection comparison uses the existing relative ratios plus an absolute near-zero tolerance of `1e-10` for mean and max reprojection errors.
+- Line-number mismatch diagnosis is not implemented as a special repair mechanism.
 - The current minimal P3P prototype focuses on runtime and correctness/reprojection metrics. Memory measurement is not implemented yet and remains future optional work.

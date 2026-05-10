@@ -1783,6 +1783,8 @@ def _compact_decision_summary(decision: dict[str, Any] | None) -> dict[str, Any]
         "reference_kind": decision.get("reference_kind"),
         "speedup": comparison.get("speedup"),
         "runtime_reduction_percent": comparison.get("runtime_reduction_percent"),
+        "comparison": comparison,
+        "thresholds": decision.get("thresholds"),
         "rejection_reasons": decision.get("rejection_reasons"),
         "audit_issues": decision.get("audit_issues"),
     }

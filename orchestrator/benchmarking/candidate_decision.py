@@ -43,6 +43,8 @@ class CandidateDecisionThresholds:
     allowed_success_rate_drop: float = 0.0
     max_mean_reprojection_error_ratio: float = 1.05
     max_max_reprojection_error_ratio: float = 1.05
+    min_runtime_reduction_percent: float = 0.5
+    absolute_reprojection_error_tolerance: float = 1.0e-10
 
 
 def evaluate_candidate_against_baseline(
@@ -136,8 +138,9 @@ def evaluate_candidate_against_reference(
         candidate.get("parsed_mean_best_reprojection_error")
     )
     if reference_mean_error is not None and candidate_mean_error is not None:
-        max_allowed_mean_error = (
-            reference_mean_error * effective_thresholds.max_mean_reprojection_error_ratio
+        max_allowed_mean_error = max(
+            reference_mean_error * effective_thresholds.max_mean_reprojection_error_ratio,
+            effective_thresholds.absolute_reprojection_error_tolerance,
         )
         if candidate_mean_error > max_allowed_mean_error:
             rejection_reasons.append(
@@ -150,8 +153,9 @@ def evaluate_candidate_against_reference(
     )
     candidate_max_error = _to_finite_number(candidate.get("parsed_max_best_reprojection_error"))
     if reference_max_error is not None and candidate_max_error is not None:
-        max_allowed_max_error = (
-            reference_max_error * effective_thresholds.max_max_reprojection_error_ratio
+        max_allowed_max_error = max(
+            reference_max_error * effective_thresholds.max_max_reprojection_error_ratio,
+            effective_thresholds.absolute_reprojection_error_tolerance,
         )
         if candidate_max_error > max_allowed_max_error:
             rejection_reasons.append(
@@ -183,11 +187,18 @@ def evaluate_candidate_against_reference(
                 "runtime_reduction_percent": runtime_reduction_percent,
                 "candidate_runtime_lower": candidate_runtime_lower,
             }
-            status = (
-                "accepted_improvement"
-                if candidate_runtime_lower
-                else "valid_not_improved"
-            )
+            if (
+                candidate_runtime_lower
+                and runtime_reduction_percent
+                >= effective_thresholds.min_runtime_reduction_percent
+            ):
+                status = "accepted_improvement"
+            else:
+                status = "valid_not_improved"
+                if candidate_runtime_lower:
+                    rejection_reasons.append(
+                        "runtime_improvement_below_minimum_threshold"
+                    )
 
     return {
         "status": status,

@@ -141,6 +141,79 @@ class MaterializeCandidateLineRangeEditsTests(unittest.TestCase):
             self.assertTrue((run_dir / "candidate.generated.diff").exists())
             self.assertFalse((run_dir / "candidate.diff").exists())
 
+    def test_line_range_trailing_whitespace_tolerant_success(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmp_path = Path(tmpdir)
+            source_root = tmp_path / "cpp"
+            _write_source(source_root, "int value = 1;   \n")
+            run_dir = tmp_path / "candidate_trailing_whitespace"
+            _line_candidate(
+                run_dir,
+                edits=[
+                    {
+                        "file": TARGET_FILE,
+                        "start_line": 1,
+                        "end_line": 1,
+                        "original": "int value = 1;",
+                        "replace": "int value = 2;",
+                    }
+                ],
+            )
+
+            exit_code = _materialize(
+                tmp_path,
+                run_dir,
+                source_root,
+                allow_exact_search_fallback=False,
+            )
+
+            self.assertEqual(exit_code, 0)
+            materialization = _read_materialization(run_dir)
+            self.assertEqual(_workspace_file(materialization).read_text(encoding="utf-8"), "int value = 2;\n")
+            self.assertEqual(materialization["line_range_exact_matches"], 0)
+            self.assertEqual(materialization["line_range_trailing_whitespace_tolerant_matches"], 1)
+            result = materialization["line_range_edit_results"][0]
+            self.assertEqual(result["status"], "success")
+            self.assertEqual(result["match_mode"], "line_range_trailing_whitespace_tolerant")
+
+    def test_line_range_leading_whitespace_mismatch_still_fails(self) -> None:
+        edit = {
+            "index": 0,
+            "file": TARGET_FILE,
+            "start_line": 1,
+            "end_line": 1,
+            "original": "int value = 1;",
+            "replace": "int value = 2;",
+        }
+
+        with self.assertRaises(ValueError) as ctx:
+            _apply_single_line_range_edit(
+                "  int value = 1;\n",
+                edit,
+                allow_exact_search_fallback=False,
+            )
+
+        self.assertIn("fallback is disabled", str(ctx.exception))
+
+    def test_line_range_internal_whitespace_mismatch_still_fails(self) -> None:
+        edit = {
+            "index": 0,
+            "file": TARGET_FILE,
+            "start_line": 1,
+            "end_line": 1,
+            "original": "int value = 1;",
+            "replace": "int value = 2;",
+        }
+
+        with self.assertRaises(ValueError) as ctx:
+            _apply_single_line_range_edit(
+                "int  value = 1;\n",
+                edit,
+                allow_exact_search_fallback=False,
+            )
+
+        self.assertIn("fallback is disabled", str(ctx.exception))
+
     def test_explicit_base_source_root_line_range_uses_current_best_content(self) -> None:
         current_best_text = "int current_best_value = 42;\n"
         candidate_text = "int current_best_value = 43;\n"

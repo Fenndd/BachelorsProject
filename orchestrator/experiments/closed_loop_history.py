@@ -44,6 +44,26 @@ GUIDANCE_BY_STATUS = {
     ),
 }
 
+GENERIC_MATERIALIZATION_GUIDANCE = GUIDANCE_BY_STATUS["materialization_failed"]
+AMBIGUOUS_MATERIALIZATION_GUIDANCE = (
+    "Previous candidate failed because the same original text occurred in multiple locations. "
+    "For repeated code blocks, use the exact intended line range and include enough "
+    "surrounding original lines to make the edit unambiguous."
+)
+LINE_RANGE_MISMATCH_GUIDANCE = (
+    "Previous candidate failed because original did not match the source at start_line..end_line. "
+    "Use the line numbers shown before the '|' separator and copy original text exactly "
+    "from those selected lines."
+)
+FALLBACK_DISABLED_GUIDANCE = (
+    "Previous candidate failed because exact line-range matching failed and fallback was disabled. "
+    "Use a precise line range and exact original text."
+)
+BELOW_THRESHOLD_GUIDANCE = (
+    "This improvement was too small to accept as reliable; avoid repeating the same "
+    "pattern unless combined with a clearer optimization."
+)
+
 STATUS_LABELS = {
     "accepted_improvement": "accepted improvement",
     "valid_not_improved": "valid but not improved",
@@ -73,7 +93,12 @@ def build_history_guidance(record: dict[str, Any]) -> str | None:
 
     if not should_include_in_closed_loop_history(record):
         return None
-    return GUIDANCE_BY_STATUS.get(_status_value(record.get("status")))
+    status = _status_value(record.get("status"))
+    if status == "materialization_failed":
+        return _materialization_failure_guidance(record)
+    if status == "valid_not_improved" and _is_runtime_improvement_below_threshold(record):
+        return BELOW_THRESHOLD_GUIDANCE
+    return GUIDANCE_BY_STATUS.get(status)
 
 
 def summarize_closed_loop_record_for_history(record: dict[str, Any]) -> dict[str, Any]:
@@ -174,6 +199,9 @@ def _result_text(record: dict[str, Any]) -> str | None:
         return "accepted and already included in the current source"
 
     if status == "valid_not_improved":
+        below_threshold_result = _below_threshold_result_text(record)
+        if below_threshold_result is not None:
+            return below_threshold_result
         if speedup is not None:
             if speedup < 1.0:
                 return f"{speedup:.2f}x speedup vs current best; {_slower_percent_from_speedup(speedup)} slower"
@@ -222,6 +250,63 @@ def _decision_rejection_reasons(decision: Any) -> list[str]:
         if len(reasons) >= 3:
             break
     return reasons
+
+
+def _materialization_failure_guidance(record: dict[str, Any]) -> str:
+    text = " ".join(
+        value
+        for value in [
+            _compact_text(record.get("failure_reason"), max_chars=500),
+            _compact_text(record.get("materialization_diagnostics"), max_chars=500),
+            _compact_text(record.get("materialization"), max_chars=500),
+        ]
+        if value
+    ).lower()
+    if any(token in text for token in ["ambiguous", "multiple matches", "occurs multiple", "repeated text"]):
+        return AMBIGUOUS_MATERIALIZATION_GUIDANCE
+    if "fallback" in text and "disabled" in text:
+        return FALLBACK_DISABLED_GUIDANCE
+    if any(
+        token in text
+        for token in [
+            "line range mismatch",
+            "line_range_mismatch",
+            "original text did not match",
+            "original did not match",
+            "line range did not match",
+            "did not match line range",
+        ]
+    ):
+        return LINE_RANGE_MISMATCH_GUIDANCE
+    return GENERIC_MATERIALIZATION_GUIDANCE
+
+
+def _is_runtime_improvement_below_threshold(record: dict[str, Any]) -> bool:
+    return "runtime_improvement_below_minimum_threshold" in _decision_rejection_reasons(
+        record.get("decision_vs_current_best")
+    )
+
+
+def _below_threshold_result_text(record: dict[str, Any]) -> str | None:
+    decision = record.get("decision_vs_current_best")
+    if not isinstance(decision, dict):
+        return None
+    comparison = decision.get("comparison")
+    if not isinstance(comparison, dict):
+        return None
+    runtime_reduction = _float_or_none(comparison.get("runtime_reduction_percent"))
+    if runtime_reduction is None:
+        return None
+    threshold = None
+    thresholds = decision.get("thresholds")
+    if isinstance(thresholds, dict):
+        threshold = _float_or_none(thresholds.get("min_runtime_reduction_percent"))
+    if threshold is None:
+        threshold = 0.5
+    return (
+        f"{runtime_reduction:.1f}% faster than current best, below the "
+        f"{threshold:.1f}% acceptance threshold"
+    )
 
 
 def _float_or_none(value: Any) -> float | None:

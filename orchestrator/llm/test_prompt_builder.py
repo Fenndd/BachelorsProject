@@ -41,6 +41,10 @@ class PromptBuilderTests(unittest.TestCase):
         self.assertIn('"edits": [', user_prompt)
         self.assertIn("0001 | int first = 1;", user_prompt)
         self.assertIn("0002 | int second = 2;", user_prompt)
+        self.assertIn("Line numbers are the integer labels shown before the", user_prompt)
+        self.assertIn("Use those exact shown line labels as start_line and end_line", user_prompt)
+        self.assertIn("Do not offset, expand, infer, or transform line numbers", user_prompt)
+        self.assertIn("include enough original lines to make the edit unambiguous", user_prompt)
 
     def test_format_source_line_numbered_preserves_empty_lines(self) -> None:
         formatted = format_source_line_numbered("first\n\nthird\n")

@@ -118,17 +118,19 @@ Conservative default thresholds for first implementation:
 - `allowed_success_rate_drop = 0.0`
 - `max_mean_reprojection_error_ratio = 1.05`
 - `max_max_reprojection_error_ratio = 1.05`
+- `absolute_reprojection_error_tolerance = 1e-10`
 
 Interpretation:
 
 - Candidate success rate must be at least
   `reference_success_rate - allowed_success_rate_drop`.
-- Candidate mean reprojection error ratio
-  (`candidate_mean / reference_mean`) must be
-  `<= max_mean_reprojection_error_ratio`.
-- Candidate max reprojection error ratio
-  (`candidate_max / reference_max`) must be
-  `<= max_max_reprojection_error_ratio`.
+- Candidate mean reprojection error must be at most
+  `max(reference_mean * max_mean_reprojection_error_ratio, absolute_reprojection_error_tolerance)`.
+- Candidate max reprojection error must be at most
+  `max(reference_max * max_max_reprojection_error_ratio, absolute_reprojection_error_tolerance)`.
+- The absolute tolerance avoids rejecting tiny numerical noise near zero, for
+  example around `1e-12`. It is still much stricter than the benchmark
+  reprojection threshold such as `1e-6`.
 
 These defaults may become configurable later, but the first selector
 implementation should use these conservative defaults.
@@ -141,9 +143,12 @@ Pairwise candidate statuses:
   - Candidate failed at least one hard rejection gate.
 - `valid_not_improved`
   - Candidate passed all hard gates but does not improve runtime versus
-    the reference.
+    the reference by the minimum required amount.
+  - This includes candidates that are faster but below the minimum runtime
+    reduction threshold.
 - `accepted_improvement`
-  - Candidate passed all hard gates and improves runtime versus the reference.
+  - Candidate passed all hard gates and improves runtime versus the reference by
+    at least the minimum runtime reduction threshold.
 
 Experiment-level selection status is reported separately by the multi-candidate
 selector and does not introduce an additional pairwise status in
@@ -155,6 +160,16 @@ Runtime improvement formulas:
 
 - `speedup = reference_runtime_ns_per_case_median / candidate_runtime_ns_per_case_median`
 - `runtime_reduction_percent = ((reference_runtime - candidate_runtime) / reference_runtime) * 100`
+
+Default acceptance threshold:
+
+- `min_runtime_reduction_percent = 0.5`
+
+For `accepted_improvement`, the candidate must pass correctness/comparability
+gates, have lower runtime than the reference, and have
+`runtime_reduction_percent >= min_runtime_reduction_percent`. A faster candidate
+below this threshold is recorded as `valid_not_improved` with comparison metrics
+still present and reason `runtime_improvement_below_minimum_threshold`.
 
 Where:
 

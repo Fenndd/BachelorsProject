@@ -386,6 +386,16 @@ def _content_without_trailing_line_endings(text: str) -> str:
     return "\n".join(line.rstrip("\r\n") for line in text.splitlines(keepends=True))
 
 
+def _strip_trailing_spaces_tabs_per_line(text: str) -> list[str]:
+    return [line.rstrip("\r\n").rstrip(" \t") for line in text.splitlines(keepends=True)]
+
+
+def _line_range_matches_trailing_whitespace_tolerant(selected_text: str, original: str) -> bool:
+    selected_lines = _strip_trailing_spaces_tabs_per_line(selected_text)
+    original_lines = _strip_trailing_spaces_tabs_per_line(original)
+    return selected_lines == original_lines
+
+
 def _line_ending_suffix(text: str) -> str:
     if text.endswith("\r\n"):
         return "\r\n"
@@ -474,6 +484,20 @@ def _apply_single_line_range_edit(
                     "match_mode": "line_range_exact",
                     "status": "success",
                     "detail": "line range matched original text exactly.",
+                }
+            )
+            return "".join(lines), result
+
+        if _line_range_matches_trailing_whitespace_tolerant(selected_text, edit["original"]):
+            lines[start_line - 1 : end_line] = _replacement_lines_for_line_range(
+                edit["replace"], selected_text
+            )
+            result.update(
+                {
+                    "method": "line_range",
+                    "match_mode": "line_range_trailing_whitespace_tolerant",
+                    "status": "success",
+                    "detail": "line range matched original text after ignoring trailing spaces/tabs.",
                 }
             )
             return "".join(lines), result
@@ -568,7 +592,14 @@ def _apply_line_range_edits(
         after_text_by_file[edit_file] = current_text
         file_path.write_text(current_text, encoding="utf-8")
 
-    exact_matches = sum(1 for result in results if result["method"] == "line_range")
+    exact_matches = sum(
+        1 for result in results if result["match_mode"] == "line_range_exact"
+    )
+    trailing_whitespace_tolerant_matches = sum(
+        1
+        for result in results
+        if result["match_mode"] == "line_range_trailing_whitespace_tolerant"
+    )
     fallback_matches = sum(
         1 for result in results if result["method"] == "exact_search_fallback"
     )
@@ -577,6 +608,7 @@ def _apply_line_range_edits(
         "after_text_by_file": after_text_by_file,
         "results": sorted(results, key=lambda result: result["index"]),
         "exact_matches": exact_matches,
+        "trailing_whitespace_tolerant_matches": trailing_whitespace_tolerant_matches,
         "fallback_matches": fallback_matches,
         "fallback_used": fallback_matches > 0,
         "allow_exact_search_fallback": allow_exact_search_fallback,
@@ -880,6 +912,8 @@ def _write_log(
         f"Line-range edit count: {materialization.get('line_range_edit_count', 'n/a')}",
         "Line-range exact matches: "
         f"{materialization.get('line_range_exact_matches', 'n/a')}",
+        "Line-range trailing-whitespace tolerant matches: "
+        f"{materialization.get('line_range_trailing_whitespace_tolerant_matches', 'n/a')}",
         "Line-range fallback matches: "
         f"{materialization.get('line_range_fallback_matches', 'n/a')}",
         "Line-range fallback used: "
@@ -1209,6 +1243,7 @@ def main(argv: list[str] | None = None) -> int:
                 {
                     "line_range_edit_count": len(line_range_edits),
                     "line_range_exact_matches": 0,
+                    "line_range_trailing_whitespace_tolerant_matches": 0,
                     "line_range_fallback_matches": 0,
                     "line_range_fallback_used": False,
                     "line_range_allow_exact_search_fallback": args.allow_exact_search_fallback,
@@ -1409,6 +1444,9 @@ def main(argv: list[str] | None = None) -> int:
                 {
                     "patch_apply_strategy": "line_range_edits",
                     "line_range_exact_matches": line_range_apply_result["exact_matches"],
+                    "line_range_trailing_whitespace_tolerant_matches": line_range_apply_result[
+                        "trailing_whitespace_tolerant_matches"
+                    ],
                     "line_range_fallback_matches": line_range_apply_result[
                         "fallback_matches"
                     ],

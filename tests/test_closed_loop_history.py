@@ -146,6 +146,31 @@ def test_valid_not_improved_uses_runtime_slowdown_percent_from_speedup() -> None
     assert "5.3% slower" in context
 
 
+def test_valid_not_improved_below_runtime_threshold_has_specific_history() -> None:
+    context = build_closed_loop_history_context(
+        [
+            _record(
+                "valid_not_improved",
+                speedup_vs_current_best=1.001,
+                decision_vs_current_best={
+                    "status": "valid_not_improved",
+                    "rejection_reasons": ["runtime_improvement_below_minimum_threshold"],
+                    "thresholds": {"min_runtime_reduction_percent": 0.5},
+                    "comparison": {
+                        "speedup": 1.001,
+                        "runtime_reduction_percent": 0.1,
+                        "candidate_runtime_lower": True,
+                    },
+                },
+            )
+        ]
+    )
+
+    assert context is not None
+    assert "0.1% faster than current best, below the 0.5% acceptance threshold" in context
+    assert "too small to accept as reliable" in context
+
+
 def test_accepted_result_text_uses_runtime_slowdown_percent_from_speedup() -> None:
     context = build_closed_loop_history_context(
         [_record("accepted_improvement", speedup_vs_current_best=0.5)]
@@ -177,6 +202,54 @@ def test_history_text_uses_rejection_reasons_and_verification_guidance() -> None
     assert "Avoid this change pattern because it failed correctness or selection gates" in context
     assert "benchmark metrics missing" in context
     assert "Avoid changes that break build, solver API, benchmark execution, or metrics generation" in context
+
+
+def test_materialization_failed_ambiguous_gets_repeated_code_guidance() -> None:
+    guidance = build_history_guidance(
+        _record(
+            "materialization_failed",
+            failure_reason="exact-search fallback is ambiguous because original text occurs multiple times",
+        )
+    )
+
+    assert guidance is not None
+    assert "same original text occurred in multiple locations" in guidance
+    assert "include enough surrounding original lines" in guidance
+
+
+def test_materialization_failed_line_range_mismatch_gets_exact_line_guidance() -> None:
+    guidance = build_history_guidance(
+        _record(
+            "materialization_failed",
+            failure_reason="original text did not match requested line range",
+        )
+    )
+
+    assert guidance is not None
+    assert "original did not match the source at start_line..end_line" in guidance
+    assert "line numbers shown before the '|' separator" in guidance
+
+
+def test_materialization_failed_fallback_disabled_gets_precise_range_guidance() -> None:
+    guidance = build_history_guidance(
+        _record(
+            "materialization_failed",
+            failure_reason="line range did not match and exact-search fallback is disabled",
+        )
+    )
+
+    assert guidance is not None
+    assert "fallback was disabled" in guidance
+    assert "precise line range and exact original text" in guidance
+
+
+def test_generic_materialization_failed_keeps_generic_guidance() -> None:
+    guidance = build_history_guidance(
+        _record("materialization_failed", failure_reason="target file missing")
+    )
+
+    assert guidance is not None
+    assert "copy original text exactly" in guidance
 
 
 def test_history_text_does_not_include_full_diff_or_json_dump() -> None:
