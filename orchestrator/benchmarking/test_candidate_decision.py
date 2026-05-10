@@ -247,6 +247,26 @@ class CandidateDecisionTests(unittest.TestCase):
             self.assertEqual(decision["status"], "valid_not_improved")
             self.assertFalse(decision["comparison"]["candidate_runtime_lower"])
 
+    def test_generic_reference_equal_runtime_is_valid_not_improved(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            reference_run, candidate_run = _make_run_pair(
+                Path(tmpdir),
+                reference_kind="verified_candidate",
+                reference_overrides={"parsed_runtime_ns_per_case_median": 800.0},
+                candidate_overrides={"parsed_runtime_ns_per_case_median": 800.0},
+            )
+
+            decision = evaluate_candidate_against_reference(
+                reference_run,
+                candidate_run,
+                reference_kind="verified_candidate",
+            )
+
+            self.assertEqual(decision["status"], "valid_not_improved")
+            self.assertEqual(decision["comparison"]["speedup"], 1.0)
+            self.assertEqual(decision["comparison"]["runtime_reduction_percent"], 0.0)
+            self.assertFalse(decision["comparison"]["candidate_runtime_lower"])
+
     def test_generic_reference_correctness_false_rejected(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             reference_run, candidate_run = _make_run_pair(
@@ -316,6 +336,26 @@ class CandidateDecisionTests(unittest.TestCase):
 
             self.assertEqual(output, candidate_run / "decision_vs_current_best.json")
             self.assertTrue(output.exists())
+
+    def test_decision_writer_all_closed_loop_safe_filenames(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            candidate_run = Path(tmpdir) / "candidate"
+            candidate_run.mkdir()
+
+            for filename in [
+                "candidate_decision.json",
+                "decision_vs_current_best.json",
+                "decision_vs_original_baseline.json",
+            ]:
+                output = write_candidate_decision(
+                    candidate_run,
+                    {"status": "ok", "filename": filename},
+                    filename=filename,
+                )
+
+                self.assertEqual(output, candidate_run / filename)
+                self.assertTrue(output.exists())
+                self.assertEqual(json.loads(output.read_text(encoding="utf-8"))["filename"], filename)
 
     def test_decision_writer_rejects_unsafe_filename(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:

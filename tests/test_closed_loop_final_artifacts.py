@@ -7,6 +7,7 @@ from pathlib import Path
 from orchestrator.experiments.closed_loop_state import (
     ClosedLoopIterationRecord,
     ClosedLoopPaths,
+    ClosedLoopSummary,
     CurrentBestState,
     IterationStatus,
     write_current_best_state,
@@ -284,3 +285,62 @@ def test_final_diff_and_summary_use_accepted_candidate_decision(
     assert "closed-loop summary:" in text
     assert "closed-loop iterations:" in text
     assert "current best state:" in text
+
+
+def test_closed_loop_selection_report_is_reporting_only(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    repo_root = tmp_path / "repo"
+    workspace_root = tmp_path / "workspace"
+    _patch_roots(monkeypatch, repo_root, workspace_root)
+    paths = ClosedLoopPaths.from_roots(workspace_root, repo_root / "results", "exp_001")
+    repo_target = _write_source(repo_root, "int value = 1;\n")
+    current_best_target = _write_source(paths.current_best_source_dir, "int value = 2;\n")
+    final_target = _write_source(paths.final_optimized_source_dir, "int value = 2;\n")
+    state = _state(
+        root=repo_root,
+        paths=paths,
+        current_best_iteration=1,
+        current_best_is_baseline=False,
+        current_best_run_dir=repo_root / "results" / "runs" / "candidate_001",
+        accepted_improvements=1,
+    )
+    summary = ClosedLoopSummary(
+        experiment_id="exp_001",
+        target_file=TARGET_FILE,
+        total_iterations=2,
+        completed_iterations=2,
+        original_baseline_run_dir=state.original_baseline_run_dir,
+        original_baseline_metrics_path=state.original_baseline_metrics_path,
+        final_best_iteration=1,
+        final_best_candidate_run_dir=state.current_best_run_dir,
+        final_optimized_source_dir=paths.final_optimized_source_dir,
+        final_optimized_source_diff_path=paths.final_optimized_source_diff_path,
+        final_speedup_vs_original_baseline=1.25,
+        final_runtime_reduction_percent=20.0,
+        iterations_after_final_best=1,
+        status_counts={status.value: 0 for status in IterationStatus},
+        created_at="2026-05-10T05:00:00+02:00",
+        finished_at="2026-05-10T05:10:00+02:00",
+    )
+
+    report_path = run_experiment.write_closed_loop_selection_report(
+        repo_root / "results" / "experiments" / "exp_001",
+        state,
+        summary,
+    )
+
+    report = json.loads(report_path.read_text(encoding="utf-8"))
+    assert report["control_decision"]["promotion_policy"] == "decision_vs_current_best.accepted_improvement_only"
+    assert report["control_decision"]["final_best_iteration"] == 1
+    assert report["final_analysis"]["final_speedup_vs_original_baseline"] == 1.25
+    assert report["safety"] == {
+        "report_promotes_candidates": False,
+        "report_updates_current_best_source": False,
+        "report_updates_final_optimized_source": False,
+        "report_modifies_main_cpp_tree": False,
+    }
+    assert repo_target.read_text(encoding="utf-8") == "int value = 1;\n"
+    assert current_best_target.read_text(encoding="utf-8") == "int value = 2;\n"
+    assert final_target.read_text(encoding="utf-8") == "int value = 2;\n"

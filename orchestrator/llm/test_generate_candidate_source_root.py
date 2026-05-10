@@ -101,10 +101,29 @@ class GenerateCandidateSourceRootTests(unittest.TestCase):
             self.assertEqual(metadata["target_file"], TARGET_FILE)
             self.assertEqual(metadata["source_root"], str(source_root.resolve()))
 
+    def test_mock_generation_without_source_root_keeps_legacy_logical_paths(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmp_root = Path(tmpdir)
+
+            run_dir = self._run_generate_candidate(tmp_root, source_root=None)
+
+            llm_request = json.loads((run_dir / "llm_request.json").read_text(encoding="utf-8"))
+            metadata = json.loads((run_dir / "metadata.json").read_text(encoding="utf-8"))
+
+            self.assertEqual(llm_request["target_file"], TARGET_FILE)
+            self.assertEqual(llm_request["allowed_files"], [TARGET_FILE])
+            self.assertEqual(metadata["target_file"], TARGET_FILE)
+            self.assertEqual(llm_request["source_root"], ".")
+            self.assertEqual(metadata["source_root"], ".")
+            self.assertEqual(llm_request["physical_source_path"], TARGET_FILE)
+            self.assertEqual(metadata["physical_source_path"], TARGET_FILE)
+            self.assertIn(f"Target file path:\n{TARGET_FILE}", llm_request["user_prompt"])
+            self.assertNotIn("workspace/current_best_source", llm_request["target_file"])
+
     def _run_generate_candidate(
         self,
         tmp_root: Path,
-        source_root: Path,
+        source_root: Path | None,
         expected_exit_code: int = 0,
     ) -> Path:
         results_root = tmp_root / "results"
@@ -117,13 +136,13 @@ class GenerateCandidateSourceRootTests(unittest.TestCase):
             str(MOCK_CONFIG),
             "--source",
             TARGET_FILE,
-            "--source-root",
-            str(source_root),
             "--candidate-type",
             "line_range_edits",
             "--source-presentation",
             "line_numbered",
         ]
+        if source_root is not None:
+            argv[4:4] = ["--source-root", str(source_root)]
         stdout = StringIO()
         with patch.object(generate_candidate, "RunStorage", storage_factory), redirect_stdout(stdout):
             exit_code = generate_candidate.main(argv)

@@ -1900,6 +1900,47 @@ def finalize_closed_loop_artifacts(
     return summary, results_state_path
 
 
+def write_closed_loop_selection_report(
+    experiment_dir: Path,
+    state: CurrentBestState,
+    summary: ClosedLoopSummary,
+) -> Path:
+    """Write reporting-only final closed-loop selection analysis.
+
+    This artifact documents the already-completed control decision. It never
+    promotes candidates or copies source trees; promotion is performed only
+    during iterations with decision_vs_current_best=accepted_improvement.
+    """
+
+    report_path = experiment_dir / "closed_loop_selection_report.json"
+    payload = {
+        "report_type": "closed_loop_final_selection_report",
+        "control_decision": {
+            "promotion_policy": "decision_vs_current_best.accepted_improvement_only",
+            "final_best_iteration": state.current_best_iteration,
+            "final_best_is_baseline": state.current_best_is_baseline,
+            "final_best_run_dir": str(state.current_best_run_dir),
+            "accepted_improvements": state.accepted_improvements,
+        },
+        "final_analysis": {
+            "target_file": summary.target_file,
+            "final_optimized_source_dir": str(summary.final_optimized_source_dir),
+            "final_optimized_source_diff_path": str(summary.final_optimized_source_diff_path),
+            "final_speedup_vs_original_baseline": summary.final_speedup_vs_original_baseline,
+            "final_runtime_reduction_percent": summary.final_runtime_reduction_percent,
+            "status_counts": summary.status_counts,
+        },
+        "safety": {
+            "report_promotes_candidates": False,
+            "report_updates_current_best_source": False,
+            "report_updates_final_optimized_source": False,
+            "report_modifies_main_cpp_tree": False,
+        },
+    }
+    _write_json(report_path, payload)
+    return report_path
+
+
 def _closed_loop_status_block(
     paths: ClosedLoopPaths,
     summary: ClosedLoopSummary,
@@ -2230,6 +2271,7 @@ def _run_closed_loop_experiment(
         started_at=started_at,
         finished_at=finished_at,
     )
+    selection_report_path = write_closed_loop_selection_report(experiment_dir, state, summary)
     final_status = {
         "experiment_id": experiment_id,
         "experiment_name": config.experiment_name,
@@ -2247,6 +2289,7 @@ def _run_closed_loop_experiment(
         "target_file": config.target_file,
         "pipeline": asdict(config.pipeline),
         "candidate_format": asdict(config.candidate_format),
+        "closed_loop_selection_report_path": _display_path(selection_report_path),
     }
     _write_json(experiment_dir / "experiment_status.json", final_status)
     (experiment_dir / "summary.txt").write_text(

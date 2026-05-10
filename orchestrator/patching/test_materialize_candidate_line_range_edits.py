@@ -92,6 +92,7 @@ def _workspace_target_file(materialization: dict[str, Any], target_file: str) ->
 
 class MaterializeCandidateLineRangeEditsTests(unittest.TestCase):
     def test_exact_line_replacement_success_without_candidate_diff(self) -> None:
+        repo_text_before = (REPO_ROOT / P3P_TARGET_FILE).read_text(encoding="utf-8")
         with tempfile.TemporaryDirectory() as tmpdir:
             tmp_path = Path(tmpdir)
             source_root = tmp_path / "cpp"
@@ -122,6 +123,9 @@ class MaterializeCandidateLineRangeEditsTests(unittest.TestCase):
             self.assertEqual(materialization["source_root_mode"], "legacy_source_root")
             self.assertEqual(materialization["line_range_exact_matches"], 1)
             self.assertEqual(materialization["generated_diff_base"], "base_source_root")
+            self.assertEqual(_workspace_file(materialization).read_text(encoding="utf-8"), "int value = 2;\n")
+            self.assertEqual((source_root / "example.cpp").read_text(encoding="utf-8"), "int value = 1;\n")
+            self.assertEqual((REPO_ROOT / P3P_TARGET_FILE).read_text(encoding="utf-8"), repo_text_before)
             self.assertTrue((run_dir / "candidate.generated.diff").exists())
             self.assertFalse((run_dir / "candidate.diff").exists())
 

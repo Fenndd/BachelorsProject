@@ -264,6 +264,7 @@ closed-loop artifacts under the experiment result directory:
 results/experiments/<experiment_id>/final_optimized_source/
 results/experiments/<experiment_id>/final_optimized_source.diff
 results/experiments/<experiment_id>/closed_loop_summary.json
+results/experiments/<experiment_id>/closed_loop_selection_report.json
 results/experiments/<experiment_id>/current_best_state.json
 ```
 
@@ -323,6 +324,13 @@ workspace current-best state. The workspace state file is kept.
 enabled. The block contains final best iteration, accepted improvement count,
 final artifact paths, final speedup/runtime reduction, and status counts.
 
+`closed_loop_selection_report.json` is reporting-only. It records a
+`control_decision` section describing the promotion policy and final best run,
+and a separate `final_analysis` section describing final source/diff paths,
+speedup, runtime reduction, and status counts. Its safety flags state that the
+report does not promote candidates, update `current_best_source`, update
+`final_optimized_source`, or modify the main `cpp/` tree.
+
 `summary.txt` includes a concise closed-loop section listing the experiment id,
 target file, total/completed iterations, final best iteration, accepted
 improvements, final speedup/runtime reduction, status counts, and paths to the
@@ -367,6 +375,15 @@ Each `closed_loop_iterations.jsonl` record contains:
   `null` for excluded records
 
 The main `cpp/` source tree is never modified automatically.
+
+The final selector/reporting step never promotes candidates. The only automatic
+current-best promotion path is an iteration whose
+`decision_vs_current_best.json` has `status: "accepted_improvement"`.
+
+Stage 9 tests validate these storage and safety contracts with deterministic
+fixtures and monkeypatched closed-loop runners. They include a controlled mock
+scenario where one accepted candidate is promoted, a later slower candidate is
+not promoted, and a no-op is recorded but excluded from future compact history.
 
 ## Candidate Materialization Artifacts
 

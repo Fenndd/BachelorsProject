@@ -239,6 +239,27 @@ class RunExperimentClosedLoopTests(unittest.TestCase):
             self.assertTrue(record["history_included"])
             self.assertIsNotNone(record["history_guidance"])
 
+    def test_each_non_promotion_status_does_not_update_current_best_source(self) -> None:
+        for status in [
+            "valid_not_improved",
+            "rejected",
+            "materialization_failed",
+            "verification_failed",
+            "no_op",
+            "generation_failed",
+        ]:
+            root, _harness = self._run_with_statuses([status])
+            experiment_dir = next((root / "results" / "experiments").iterdir())
+            paths = ClosedLoopPaths.from_roots(root / "workspace", root / "results", experiment_dir.name)
+            state = read_current_best_state(paths.current_best_state_path)
+            record = json.loads(paths.closed_loop_iterations_path.read_text(encoding="utf-8").splitlines()[0])
+
+            self.assertEqual(state.current_best_iteration, 0, status)
+            self.assertTrue(state.current_best_is_baseline, status)
+            self.assertEqual((paths.current_best_source_dir / TARGET_FILE).read_text(encoding="utf-8"), "baseline\n", status)
+            self.assertFalse(record["current_best_updated"], status)
+            self.assertEqual(record["current_best_iteration_after"], 0, status)
+
     def test_failure_stages_and_no_op_write_records_and_continue(self) -> None:
         root, harness = self._run_with_statuses([
             "generation_failed",
@@ -320,6 +341,132 @@ class RunExperimentClosedLoopTests(unittest.TestCase):
         third_context = third_command[third_command.index("--context") + 1]
         self.assertIn("candidate summary 1", third_context)
         self.assertNotIn("candidate summary 2", third_context)
+
+    def test_controlled_mock_closed_loop_promotes_only_accepted_iteration(self) -> None:
+        temp = tempfile.TemporaryDirectory()
+        self.addCleanup(temp.cleanup)
+        root = Path(temp.name)
+        _create_repo_layout(root, source_text="BASELINE_VALUE\n")
+        config_path = _write_config(root, iterations=3)
+        config = load_experiment_config(config_path)
+        main_source_before = (root / TARGET_FILE).read_text(encoding="utf-8")
+
+        stage_calls: list[tuple[str, int]] = []
+        generated_commands: list[list[str]] = []
+
+        def fake_run_stage(
+            experiment_dir: Path,
+            global_iteration: int,
+            variant_id: str,
+            variant_iteration: int,
+            stage_name: str,
+            command: list[str],
+        ) -> dict[str, Any]:
+            stage_calls.append((stage_name, variant_iteration))
+            candidate_dir = root / "results" / "runs" / f"candidate_{variant_iteration}"
+            if stage_name == "generate_candidate":
+                generated_commands.append(command)
+                candidate_dir.mkdir(parents=True, exist_ok=True)
+                _write_json(candidate_dir / "status.json", {"overall_status": "success"})
+                if variant_iteration == 3:
+                    candidate = _candidate_payload(expected_effect="none", edits=[])
+                    candidate["summary"] = "No useful change"
+                else:
+                    replacement = "ACCEPTED_VALUE" if variant_iteration == 1 else "SLOWER_VALUE"
+                    original = "BASELINE_VALUE" if variant_iteration == 1 else "ACCEPTED_VALUE"
+                    candidate = _candidate_payload(
+                        edits=[
+                            {
+                                "file": TARGET_FILE,
+                                "start_line": 1,
+                                "end_line": 1,
+                                "original": original,
+                                "replace": replacement,
+                            }
+                        ]
+                    )
+                    candidate["summary"] = f"Change marker to {replacement}"
+                _write_json(candidate_dir / "candidate.json", candidate)
+                return {"exit_code": 0, "stdout": f"CANDIDATE_RUN_DIR={candidate_dir}\n", "stderr": "", "duration_seconds": 0.1}
+
+            if stage_name == "materialize_candidate":
+                replacement = "ACCEPTED_VALUE" if variant_iteration == 1 else "SLOWER_VALUE"
+                workspace = root / "workspace" / "candidates" / f"candidate_{variant_iteration}"
+                (workspace / TARGET_FILE).parent.mkdir(parents=True, exist_ok=True)
+                (workspace / TARGET_FILE).write_text(f"{replacement}\n", encoding="utf-8")
+                _write_json(candidate_dir / "materialization.json", {"overall_status": "success", "workspace_path": str(workspace), "changed_files": [TARGET_FILE]})
+                return {"exit_code": 0, "stdout": "", "stderr": "", "duration_seconds": 0.1}
+
+            if stage_name == "verify_candidate":
+                runtime = 800.0 if variant_iteration == 1 else 900.0
+                _write_json(candidate_dir / "verification.json", {"overall_status": "success", **_benchmark_payload(runtime)})
+                return {"exit_code": 0, "stdout": "", "stderr": "", "duration_seconds": 0.1}
+
+            raise AssertionError(f"Unexpected stage {stage_name}")
+
+        def fake_decision(reference_run_dir: Path, reference_kind: str, candidate_run_dir: Path) -> dict[str, Any]:
+            iteration = int(candidate_run_dir.name.rsplit("_", 1)[1])
+            status = "accepted_improvement" if iteration == 1 else "valid_not_improved"
+            speedup = 1.25 if iteration == 1 else 0.95
+            return {
+                "status": status,
+                "reference_kind": reference_kind,
+                "reference_run_dir": str(reference_run_dir),
+                "candidate_run_dir": str(candidate_run_dir),
+                "comparison": {"speedup": speedup, "runtime_reduction_percent": 20.0 if iteration == 1 else -5.0},
+                "rejection_reasons": [],
+            }
+
+        originals = {
+            "REPO_ROOT": runner.REPO_ROOT,
+            "RESULTS_ROOT": runner.RESULTS_ROOT,
+            "EXPERIMENTS_ROOT": runner.EXPERIMENTS_ROOT,
+            "WORKSPACE_ROOT": runner.WORKSPACE_ROOT,
+            "_run_stage": runner._run_stage,
+            "evaluate_candidate_against_reference": runner.evaluate_candidate_against_reference,
+            "_resolve_variant_llm_config": runner._resolve_variant_llm_config,
+        }
+        for name, value in originals.items():
+            self.addCleanup(setattr, runner, name, value)
+        runner.REPO_ROOT = root
+        runner.RESULTS_ROOT = root / "results"
+        runner.EXPERIMENTS_ROOT = root / "results" / "experiments"
+        runner.WORKSPACE_ROOT = root / "workspace"
+        runner._run_stage = fake_run_stage  # type: ignore[assignment]
+        runner.evaluate_candidate_against_reference = fake_decision  # type: ignore[assignment]
+        runner._resolve_variant_llm_config = lambda variant: {"provider": "mock", "model": "mock"}  # type: ignore[assignment]
+
+        exit_code = runner._run_experiment(config, _config_payload(root, iterations=3))
+
+        self.assertEqual(exit_code, 0)
+        experiment_dir = next((root / "results" / "experiments").iterdir())
+        paths = ClosedLoopPaths.from_roots(root / "workspace", root / "results", experiment_dir.name)
+        records = [json.loads(line) for line in paths.closed_loop_iterations_path.read_text(encoding="utf-8").splitlines()]
+        summary = json.loads(paths.closed_loop_summary_path.read_text(encoding="utf-8"))
+
+        self.assertEqual([call for call in stage_calls if call[0] == "generate_candidate"], [("generate_candidate", 1), ("generate_candidate", 2), ("generate_candidate", 3)])
+        self.assertEqual([record["status"] for record in records], ["accepted_improvement", "valid_not_improved", "no_op"])
+        self.assertEqual((paths.current_best_source_dir / TARGET_FILE).read_text(encoding="utf-8"), "ACCEPTED_VALUE\n")
+        self.assertEqual((paths.final_optimized_source_dir / TARGET_FILE).read_text(encoding="utf-8"), "ACCEPTED_VALUE\n")
+        diff_text = paths.final_optimized_source_diff_path.read_text(encoding="utf-8")
+        self.assertIn("-BASELINE_VALUE", diff_text)
+        self.assertIn("+ACCEPTED_VALUE", diff_text)
+        self.assertEqual(summary["status_counts"]["accepted_improvement"], 1)
+        self.assertEqual(summary["status_counts"]["valid_not_improved"], 1)
+        self.assertEqual(summary["status_counts"]["no_op"], 1)
+        selection_report = json.loads((experiment_dir / "closed_loop_selection_report.json").read_text(encoding="utf-8"))
+        self.assertEqual(selection_report["control_decision"]["promotion_policy"], "decision_vs_current_best.accepted_improvement_only")
+        self.assertEqual(selection_report["control_decision"]["final_best_iteration"], 1)
+        self.assertEqual(selection_report["final_analysis"]["status_counts"]["valid_not_improved"], 1)
+        self.assertFalse(selection_report["safety"]["report_promotes_candidates"])
+        self.assertFalse(selection_report["safety"]["report_updates_current_best_source"])
+        self.assertFalse(selection_report["safety"]["report_updates_final_optimized_source"])
+        self.assertFalse(selection_report["safety"]["report_modifies_main_cpp_tree"])
+        self.assertEqual((root / TARGET_FILE).read_text(encoding="utf-8"), main_source_before)
+        third_context = generated_commands[2][generated_commands[2].index("--context") + 1]
+        self.assertIn("ACCEPTED_VALUE", third_context)
+        self.assertIn("SLOWER_VALUE", third_context)
+        self.assertNotIn("No useful change", third_context)
 
 
 if __name__ == "__main__":

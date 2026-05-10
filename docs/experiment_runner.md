@@ -361,6 +361,7 @@ results/experiments/<experiment_id>/final_optimized_source/
 results/experiments/<experiment_id>/final_optimized_source.diff
 results/experiments/<experiment_id>/closed_loop_iterations.jsonl
 results/experiments/<experiment_id>/closed_loop_summary.json
+results/experiments/<experiment_id>/closed_loop_selection_report.json
 results/experiments/<experiment_id>/current_best_state.json
 ```
 
@@ -391,6 +392,12 @@ accepted improvement count, final best iteration, final speedup/runtime
 reduction, and status counts. The human-readable `summary.txt` includes a concise
 closed-loop section with the same final artifact locations.
 
+`closed_loop_selection_report.json` is a reporting-only final analysis artifact.
+It separates the control decision already made during iteration execution from
+final analysis fields such as final speedup and status counts. It does not
+promote candidates, rewrite `current_best_source`, rewrite
+`final_optimized_source`, or modify the main `cpp/` tree.
+
 At experiment start, the runner initializes
 `workspace/experiments/<experiment_id>/current_best_source/` by copying the clean
 repository `cpp/` tree into a repo-like layout, for example:
@@ -414,6 +421,13 @@ Only `decision_vs_current_best.json` controls promotion. If its status is
 `workspace_path` replaces `current_best_source`, and `current_best_state.json` is
 updated to point at the accepted candidate. `decision_vs_original_baseline.json`
 is written for reporting/control but does not control promotion.
+
+Safety invariants for closed-loop mode are:
+
+- the main `cpp/` source tree is never modified automatically
+- `current_best_source` is updated only for `accepted_improvement`
+- final selector/reporting artifacts never promote candidates or rewrite source
+  trees
 
 No-op candidates (`expected_effect="none"` with empty `edits` for
 `line_range_edits`, or empty `unified_diff` for `unified_diff`) are recorded as
@@ -521,6 +535,14 @@ Stage 5 implements candidate promotion into the experiment-local
 benchmark-aware closed-loop LLM history. Stage 7 implements final optimized
 source storage, final diff export, results-side current-best metadata, and final
 closed-loop summary/status reporting.
+
+Stage 9 strengthens deterministic tests for the closed-loop architecture. The
+test groups cover reference-vs-candidate decisions, generation `--source-root`,
+materialization `--base-source-root`, current-best promotion rules, compact
+history inclusion/exclusion, final artifacts, reporting safety, and a controlled
+mock closed-loop experiment. The mock scenario uses fake stage runners and fake
+decisions to validate the accepted-improvement → slower-candidate → no-op flow
+without external services or expensive subprocesses.
 
 ## Optimization Scope (Strict File Access Control)
 
