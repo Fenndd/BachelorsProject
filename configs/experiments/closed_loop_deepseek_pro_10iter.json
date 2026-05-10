@@ -31,7 +31,7 @@
 
   "selection": {
     "enabled": false,
-    "baseline_run_dir": "results/runs/REPLACE_WITH_BASELINE_RUN_DIR",
+    "baseline_run_dir": "results/runs/2026-05-10_06-43-09_baseline",
     "write_candidate_decisions": true
   },
 
@@ -52,7 +52,7 @@
       "llm_config": "configs/llm_deepseek_pro.json",
       "llm_overrides": null,
       "iterations": 10,
-      "additional_context": "Optimize only the Lambda Twist P3P target file. Prefer small, safe, local C++ performance improvements. Preserve numerical behavior, solver API, output semantics, includes, and benchmark compatibility. Use line_range_edits only for cpp/external/lambdatwist/p3p.cc. If no safe improvement is available, return a no-op candidate with expected_effect=\"none\" and edits=[]."
+      "additional_context": "Optimize only cpp/external/lambdatwist/p3p.cc. The source shown to you is the current best accepted version for this closed-loop experiment, not necessarily the original baseline. Prefer one small, local, low-risk C++ performance improvement per iteration. Preserve numerical behavior, solver API, output semantics, includes, benchmark compatibility, root-selection logic, degeneracy handling, and Eigen aliasing safety. Do not change tests, benchmark code, adapters, CMake files, configs, docs, or orchestrator code. Use line_range_edits only for cpp/external/lambdatwist/p3p.cc. The original field in each edit must exactly match the numbered source lines without line-number prefixes. If no safe new improvement is available, return a no-op candidate with expected_effect=\"none\" and edits=[]."
     }
   ]
 }

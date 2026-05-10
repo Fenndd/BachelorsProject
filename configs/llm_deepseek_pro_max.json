@@ -5,7 +5,7 @@
   "api_key_env": "DEEPSEEK_API_KEY",
   "thinking": {
     "enabled": true,
-    "effort": "high"
+    "effort": "max"
   },
   "max_tokens": 256000
 }
