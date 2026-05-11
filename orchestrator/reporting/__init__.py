@@ -18,6 +18,10 @@ from orchestrator.reporting.report_data import (
     to_report_dict,
     write_report_data,
 )
+from orchestrator.reporting.report_data_collector import (
+    collect_and_write_report_data,
+    collect_report_data,
+)
 
 __all__ = [
     "KNOWN_ITERATION_STATUSES",
@@ -32,6 +36,8 @@ __all__ = [
     "ReportIterationSummary",
     "ReportMetadata",
     "ReportStatusCounts",
+    "collect_and_write_report_data",
+    "collect_report_data",
     "default_status_counts",
     "make_empty_report_data",
     "to_report_dict",
