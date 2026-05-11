@@ -1,2 +1,4 @@
 # Initial scaffold placeholder.
 # Add Python dependencies when orchestrator functionality is implemented.
+matplotlib
+jinja2
