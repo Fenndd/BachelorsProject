@@ -60,6 +60,14 @@ class ClosedLoopConfig:
 
 
 @dataclass(frozen=True)
+class ReportingConfig:
+    enabled: bool = False
+    formats: list[str] = field(default_factory=lambda: ["html", "pdf"])
+    renderer: str = "auto"
+    fail_on_error: bool = False
+
+
+@dataclass(frozen=True)
 class ExperimentVariantConfig:
     variant_id: str
     description: str | None
@@ -95,6 +103,7 @@ class ExperimentConfig:
     closed_loop: ClosedLoopConfig
     optimization_scope: OptimizationScopeConfig
     variants: list[ExperimentVariantConfig]
+    reporting: ReportingConfig = field(default_factory=ReportingConfig)
     llm_config: str | None = None
     iterations: int | None = None
     additional_context: str | None = None
@@ -128,6 +137,7 @@ def load_experiment_config(path: Path | str) -> ExperimentConfig:
     optimization_scope = _load_optimization_scope(payload, target_file)
     selection = _load_selection(payload)
     closed_loop = _load_closed_loop(payload)
+    reporting = _load_reporting(payload)
     variants = _load_variants(payload)
 
     _validate_closed_loop_requirements(closed_loop, selection, variants)
@@ -142,6 +152,7 @@ def load_experiment_config(path: Path | str) -> ExperimentConfig:
         history_policy=_load_history_policy(payload),
         selection=selection,
         closed_loop=closed_loop,
+        reporting=reporting,
         optimization_scope=optimization_scope,
         variants=variants,
         llm_config=(
@@ -441,6 +452,51 @@ def _load_closed_loop(payload: dict[str, Any]) -> ClosedLoopConfig:
         raise ExperimentConfigError("Field 'closed_loop' must be an object if present.")
 
     return ClosedLoopConfig(enabled=_required_bool(closed_loop, "enabled"))
+
+
+def _load_reporting(payload: dict[str, Any]) -> ReportingConfig:
+    reporting = payload.get("reporting")
+    if reporting is None:
+        return ReportingConfig()
+
+    if not isinstance(reporting, dict):
+        raise ExperimentConfigError("Field 'reporting' must be an object if present.")
+
+    enabled = _required_bool(reporting, "enabled")
+    fail_on_error = _required_bool(reporting, "fail_on_error")
+
+    formats_raw = reporting.get("formats")
+    if not isinstance(formats_raw, list) or not formats_raw:
+        raise ExperimentConfigError(
+            "Field 'reporting.formats' must be a non-empty list."
+        )
+
+    formats: list[str] = []
+    for index, value in enumerate(formats_raw):
+        if not isinstance(value, str):
+            raise ExperimentConfigError(
+                f"Field 'reporting.formats[{index}]' must be a string."
+            )
+        if value not in {"html", "pdf"}:
+            raise ExperimentConfigError(
+                "Field 'reporting.formats' may only contain: html, pdf."
+            )
+        if value not in formats:
+            formats.append(value)
+
+    renderer = _required_non_empty_string(reporting, "renderer")
+    if renderer not in {"auto", "weasyprint", "playwright"}:
+        raise ExperimentConfigError(
+            "Field 'reporting.renderer' must be one of: "
+            "auto, weasyprint, playwright."
+        )
+
+    return ReportingConfig(
+        enabled=enabled,
+        formats=formats,
+        renderer=renderer,
+        fail_on_error=fail_on_error,
+    )
 
 
 def _validate_closed_loop_requirements(

@@ -39,6 +39,13 @@
     "enabled": true
   },
 
+  "reporting": {
+    "enabled": true,
+    "formats": ["html"],
+    "renderer": "auto",
+    "fail_on_error": false
+  },
+
   "optimization_scope": {
     "allowed_files": [
       "cpp/external/lambdatwist/p3p.cc"

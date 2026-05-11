@@ -67,6 +67,7 @@ from orchestrator.benchmarking.candidate_decision import (
     evaluate_candidate_against_reference,
     write_candidate_decision,
 )
+from orchestrator.reporting.generate_report import generate_basic_report
 
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -2190,6 +2191,74 @@ def _closed_loop_status_block(
     }
 
 
+def _reporting_status_disabled(config: ExperimentConfig) -> dict[str, Any]:
+    return {
+        "enabled": False,
+        "status": "disabled",
+        "formats": list(config.reporting.formats),
+        "renderer": config.reporting.renderer,
+        "report_data_path": None,
+        "report_html_path": None,
+        "report_pdf_path": None,
+        "error": None,
+    }
+
+
+def _reporting_status_completed(
+    config: ExperimentConfig,
+    artifacts: dict[str, Path],
+) -> dict[str, Any]:
+    return {
+        "enabled": True,
+        "status": "completed",
+        "formats": list(config.reporting.formats),
+        "renderer": config.reporting.renderer,
+        "report_data_path": _display_path(artifacts["report_data"]),
+        "report_html_path": _display_path(artifacts["html"]),
+        "report_pdf_path": (
+            _display_path(artifacts["pdf"]) if "pdf" in artifacts else None
+        ),
+        "error": None,
+    }
+
+
+def _reporting_status_failed(
+    config: ExperimentConfig,
+    error: Exception,
+) -> dict[str, Any]:
+    return {
+        "enabled": True,
+        "status": "failed",
+        "formats": list(config.reporting.formats),
+        "renderer": config.reporting.renderer,
+        "report_data_path": None,
+        "report_html_path": None,
+        "report_pdf_path": None,
+        "error": str(error),
+    }
+
+
+def _run_final_reporting(
+    experiment_dir: Path,
+    config: ExperimentConfig,
+) -> dict[str, Any]:
+    if not config.reporting.enabled:
+        return _reporting_status_disabled(config)
+
+    try:
+        artifacts = generate_basic_report(
+            experiment_dir,
+            formats=tuple(config.reporting.formats),
+            renderer=config.reporting.renderer,
+        )
+    except Exception as exc:
+        if config.reporting.fail_on_error:
+            raise
+        return _reporting_status_failed(config, exc)
+
+    return _reporting_status_completed(config, artifacts)
+
+
 def _format_optional_float(value: float | None) -> str:
     return "none" if value is None else str(value)
 
@@ -2201,6 +2270,7 @@ def _build_closed_loop_summary_text(
     summary: ClosedLoopSummary,
     results_state_path: Path,
     accepted_improvements: int,
+    reporting_status: dict[str, Any] | None = None,
 ) -> str:
     lines = [
         f"Experiment id: {experiment_id}",
@@ -2236,6 +2306,24 @@ def _build_closed_loop_summary_text(
             "",
         ]
     )
+    if reporting_status is not None:
+        lines.append("Reporting:")
+        lines.append(f"  enabled: {str(reporting_status.get('enabled')).lower()}")
+        if reporting_status.get("enabled") is True:
+            lines.append(f"  status: {reporting_status.get('status')}")
+            if reporting_status.get("status") == "completed":
+                lines.append(
+                    f"  report data: {reporting_status.get('report_data_path') or 'none'}"
+                )
+                lines.append(
+                    f"  HTML report: {reporting_status.get('report_html_path') or 'none'}"
+                )
+                lines.append(
+                    f"  PDF report: {reporting_status.get('report_pdf_path') or 'none'}"
+                )
+            elif reporting_status.get("status") == "failed":
+                lines.append(f"  error: {reporting_status.get('error') or 'none'}")
+        lines.append("")
     return "\n".join(lines)
 
 
@@ -2501,6 +2589,7 @@ def _run_closed_loop_experiment(
         finished_at=finished_at,
     )
     selection_report_path = write_closed_loop_selection_report(experiment_dir, state, summary, records)
+    reporting_status = _run_final_reporting(experiment_dir, config)
     final_status = {
         "experiment_id": experiment_id,
         "experiment_name": config.experiment_name,
@@ -2519,6 +2608,7 @@ def _run_closed_loop_experiment(
         "pipeline": asdict(config.pipeline),
         "candidate_format": asdict(config.candidate_format),
         "closed_loop_selection_report_path": _display_path(selection_report_path),
+        "reporting": reporting_status,
     }
     _write_json(experiment_dir / "experiment_status.json", final_status)
     (experiment_dir / "summary.txt").write_text(
@@ -2528,6 +2618,7 @@ def _run_closed_loop_experiment(
             summary=summary,
             results_state_path=results_state_path,
             accepted_improvements=state.accepted_improvements,
+            reporting_status=reporting_status,
         ),
         encoding="utf-8",
     )
