@@ -2,3 +2,7 @@
 # Add Python dependencies when orchestrator functionality is implemented.
 matplotlib
 jinja2
+weasyprint
+playwright
+# Playwright PDF renderer also requires:
+# python -m playwright install chromium
