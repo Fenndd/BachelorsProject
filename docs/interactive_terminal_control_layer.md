@@ -69,6 +69,8 @@ python -m orchestrator.cli.app tui
 
 Available screens include Doctor, Environment, Run Baseline, Run Experiment, Browse Results, Workspace, and Help. Use `Esc` to go back from secondary screens and `Ctrl+Q` to quit.
 
+While a baseline or experiment run is active, the TUI keeps the current screen open and blocks Back, `Esc`, and `Ctrl+Q` until the run finishes. Cancellation is not implemented yet.
+
 ## Safety Guarantees
 
 - The control layer does not reimplement baseline or experiment logic.

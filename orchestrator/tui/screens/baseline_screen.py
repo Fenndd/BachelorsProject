@@ -46,7 +46,7 @@ def _format_baseline_environment() -> str:
 
 
 class BaselineScreen(Screen[None]):
-    BINDINGS = [("escape", "app.pop_screen", "Back")]
+    BINDINGS = [("escape", "request_back", "Back")]
 
     def __init__(self) -> None:
         super().__init__()
@@ -73,15 +73,26 @@ class BaselineScreen(Screen[None]):
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
         if event.button.id == "back":
-            self.app.pop_screen()
+            self.action_request_back()
             return
         if event.button.id == "start-baseline":
             self._start_baseline()
+
+    def action_request_back(self) -> None:
+        if self._running:
+            self._set_status_message(
+                "Baseline is still running. Wait until it finishes before leaving this screen."
+            )
+            return
+        self.app.pop_screen()
 
     def _start_baseline(self) -> None:
         if self._running:
             return
         self._running = True
+        register_process = getattr(self.app, "register_process", None)
+        if callable(register_process):
+            register_process()
         self.query_one("#start-baseline", Button).disabled = True
         self.query_one("#baseline-status", Static).update("Status: running")
         self.query_one("#baseline-log", RichLog).clear()
@@ -92,9 +103,15 @@ class BaselineScreen(Screen[None]):
         prefix = "[stderr] " if stream_name == "stderr" else ""
         self.query_one("#baseline-log", RichLog).write(f"{prefix}{line}")
 
+    def _set_status_message(self, status_text: str) -> None:
+        self.query_one("#baseline-status", Static).update(status_text)
+
     def _set_result(self, status_text: str) -> None:
         self._running = False
         self.query_one("#start-baseline", Button).disabled = False
+        unregister_process = getattr(self.app, "unregister_process", None)
+        if callable(unregister_process):
+            unregister_process()
         self.query_one("#baseline-status", Static).update(status_text)
 
     def _run_baseline_thread(self) -> None:
@@ -104,12 +121,20 @@ class BaselineScreen(Screen[None]):
         def on_stderr(line: str) -> None:
             self.app.call_from_thread(self._append_log, line, "stderr")
 
-        result = run_baseline(on_stdout=on_stdout, on_stderr=on_stderr)
-        latest_run = "-" if result.latest_run_dir is None else str(result.latest_run_dir)
-        status_text = (
-            f"Status: {result.status}\n"
-            f"Exit code: {result.exit_code if result.exit_code is not None else 'n/a'}\n"
-            f"Latest run directory: {latest_run}\n"
-            f"Message: {result.message}"
-        )
+        try:
+            result = run_baseline(on_stdout=on_stdout, on_stderr=on_stderr)
+            latest_run = "-" if result.latest_run_dir is None else str(result.latest_run_dir)
+            status_text = (
+                f"Status: {result.status}\n"
+                f"Exit code: {result.exit_code if result.exit_code is not None else 'n/a'}\n"
+                f"Latest run directory: {latest_run}\n"
+                f"Message: {result.message}"
+            )
+        except Exception as exc:
+            status_text = (
+                "Status: failed\n"
+                "Exit code: n/a\n"
+                "Latest run directory: -\n"
+                f"Message: Unexpected baseline launcher error: {exc}"
+            )
         self.app.call_from_thread(self._set_result, status_text)

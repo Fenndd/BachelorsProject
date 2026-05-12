@@ -56,5 +56,27 @@ class OptimizerTuiApp(App[None]):
     }
     """
 
+    def __init__(self) -> None:
+        super().__init__()
+        self.active_processes = 0
+
     def on_mount(self) -> None:
         self.push_screen(MainScreen())
+
+    def register_process(self) -> None:
+        self.active_processes += 1
+
+    def unregister_process(self) -> None:
+        self.active_processes = max(0, self.active_processes - 1)
+
+    def has_active_processes(self) -> bool:
+        return self.active_processes > 0
+
+    def action_quit(self) -> None:
+        if self.has_active_processes():
+            self.notify(
+                "A baseline or experiment run is still active. Wait for it to finish before quitting.",
+                severity="warning",
+            )
+            return
+        self.exit()

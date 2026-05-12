@@ -49,7 +49,7 @@ def _format_summary(summary: ExperimentConfigSummary | None) -> str:
 
 
 class ExperimentScreen(Screen[None]):
-    BINDINGS = [("escape", "app.pop_screen", "Back")]
+    BINDINGS = [("escape", "request_back", "Back")]
 
     def __init__(self) -> None:
         super().__init__()
@@ -105,7 +105,7 @@ class ExperimentScreen(Screen[None]):
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
         if event.button.id == "back":
-            self.app.pop_screen()
+            self.action_request_back()
             return
         if event.button.id == "dry-run":
             self._start_experiment(dry_run=True)
@@ -120,6 +120,14 @@ class ExperimentScreen(Screen[None]):
                 return
             self._start_experiment(dry_run=False)
 
+    def action_request_back(self) -> None:
+        if self._running:
+            self._set_status_message(
+                "Experiment is still running. Wait until it finishes before leaving this screen."
+            )
+            return
+        self.app.pop_screen()
+
     def _set_buttons_disabled(self, disabled: bool) -> None:
         self.query_one("#dry-run", Button).disabled = disabled
         self.query_one("#real-run", Button).disabled = disabled
@@ -133,6 +141,9 @@ class ExperimentScreen(Screen[None]):
             return
         self._running = True
         self._confirm_real_run = False
+        register_process = getattr(self.app, "register_process", None)
+        if callable(register_process):
+            register_process()
         self._set_buttons_disabled(True)
         self.query_one("#experiment-status", Static).update(
             f"Status: running {'dry-run' if dry_run else 'real run'}"
@@ -149,9 +160,15 @@ class ExperimentScreen(Screen[None]):
         prefix = "[stderr] " if stream_name == "stderr" else ""
         self.query_one("#experiment-log", RichLog).write(f"{prefix}{line}")
 
+    def _set_status_message(self, status_text: str) -> None:
+        self.query_one("#experiment-status", Static).update(status_text)
+
     def _set_result(self, status_text: str) -> None:
         self._running = False
         self._set_buttons_disabled(False)
+        unregister_process = getattr(self.app, "unregister_process", None)
+        if callable(unregister_process):
+            unregister_process()
         self.query_one("#experiment-status", Static).update(status_text)
 
     def _run_experiment_thread(
@@ -165,17 +182,25 @@ class ExperimentScreen(Screen[None]):
         def on_stderr(line: str) -> None:
             self.app.call_from_thread(self._append_log, line, "stderr")
 
-        result = run_experiment_control(
-            summary.path,
-            dry_run=dry_run,
-            on_stdout=on_stdout,
-            on_stderr=on_stderr,
-        )
-        latest_dir = "-" if result.latest_experiment_dir is None else str(result.latest_experiment_dir)
-        status_text = (
-            f"Status: {result.status}\n"
-            f"Exit code: {result.exit_code if result.exit_code is not None else 'n/a'}\n"
-            f"Latest experiment directory: {latest_dir}\n"
-            f"Message: {result.message}"
-        )
+        try:
+            result = run_experiment_control(
+                summary.path,
+                dry_run=dry_run,
+                on_stdout=on_stdout,
+                on_stderr=on_stderr,
+            )
+            latest_dir = "-" if result.latest_experiment_dir is None else str(result.latest_experiment_dir)
+            status_text = (
+                f"Status: {result.status}\n"
+                f"Exit code: {result.exit_code if result.exit_code is not None else 'n/a'}\n"
+                f"Latest experiment directory: {latest_dir}\n"
+                f"Message: {result.message}"
+            )
+        except Exception as exc:
+            status_text = (
+                "Status: failed\n"
+                "Exit code: n/a\n"
+                "Latest experiment directory: -\n"
+                f"Message: Unexpected experiment launcher error: {exc}"
+            )
         self.app.call_from_thread(self._set_result, status_text)

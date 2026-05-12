@@ -43,7 +43,8 @@ class HelpScreen(Screen[None]):
             yield Static(
                 "Hotkeys:\n"
                 "  Ctrl+Q: quit\n"
-                "  Esc: back from secondary screens",
+                "  Esc: back from secondary screens\n"
+                "  Active baseline/experiment runs must finish before Back, Esc, or Ctrl+Q will leave the screen.",
                 classes="panel",
             )
             yield Static(
@@ -51,6 +52,7 @@ class HelpScreen(Screen[None]):
                 "  Results browsing is read-only.\n"
                 "  Workspace cleanup only affects workspace/ and never results/.\n"
                 "  Real experiments may use API tokens from .env.local.\n"
+                "  Baseline and experiment cancellation is not implemented yet.\n"
                 "  The control layer does not automatically modify the main cpp/ source tree.",
                 classes="panel",
             )
