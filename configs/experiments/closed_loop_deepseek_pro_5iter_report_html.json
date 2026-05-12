@@ -1,6 +1,6 @@
 {
-  "experiment_name": "closed_loop_deepseek_pro_p3p_10iter",
-  "description": "Closed-loop P3P optimization experiment using DeepSeek Pro for 10 iterations with line-range edits and experiment-local best-source promotion.",
+  "experiment_name": "closed_loop_deepseek_pro_p3p_5iter_report_html",
+  "description": "5-iteration closed-loop P3P optimization experiment using DeepSeek Pro with line-range edits and HTML report generation.",
   "target_file": "cpp/external/lambdatwist/p3p.cc",
 
   "pipeline": {
@@ -31,7 +31,7 @@
 
   "selection": {
     "enabled": false,
-    "baseline_run_dir": "results/runs/2026-05-10_18-51-12_baseline",
+    "baseline_run_dir": "results/runs/2026-05-12_02-02-13_baseline",
     "write_candidate_decisions": true
   },
 
@@ -55,10 +55,10 @@
   "variants": [
     {
       "variant_id": "deepseek_pro",
-      "description": "DeepSeek Pro closed-loop P3P optimization, 10 iterations.",
-      "llm_config": "configs/llm_deepseek_pro_max.json",
+      "description": "DeepSeek Pro closed-loop P3P optimization, 5 iterations.",
+      "llm_config": "configs/llm_deepseek_pro.json",
       "llm_overrides": null,
-      "iterations": 10,
+      "iterations": 5,
       "additional_context": "Optimize only cpp/external/lambdatwist/p3p.cc. The source shown to you is the current best accepted version for this closed-loop experiment, not necessarily the original baseline. Prefer one small, local, low-risk C++ performance improvement per iteration. Preserve numerical behavior, solver API, output semantics, includes, benchmark compatibility, root-selection logic, degeneracy handling, and Eigen aliasing safety. Do not change tests, benchmark code, adapters, CMake files, configs, docs, or orchestrator code. Use line_range_edits only for cpp/external/lambdatwist/p3p.cc. The original field in each edit must exactly match the numbered source lines without line-number prefixes. If no safe new improvement is available, return a no-op candidate with expected_effect=\"none\" and edits=[]."
     }
   ]
