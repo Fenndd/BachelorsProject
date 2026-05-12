@@ -10,12 +10,13 @@ from orchestrator.tui.screens.main_screen import MainScreen
 class OptimizerTuiApp(App[None]):
     """Interactive terminal UI skeleton for the optimizer project."""
 
-    TITLE = "Bachelor Project Optimizer"
+    TITLE = "3D Vision Algorithms Optimizer"
     BINDINGS = [("ctrl+q", "quit", "Quit")]
     CSS = """
     Screen {
         background: #d8c3a5;
         color: #111827;
+        text-style: bold;
     }
 
     Header, Footer {
@@ -27,6 +28,10 @@ class OptimizerTuiApp(App[None]):
     #main {
         padding: 1 2;
         height: 1fr;
+    }
+
+    Static {
+        text-style: bold;
     }
 
     .title {
@@ -53,11 +58,13 @@ class OptimizerTuiApp(App[None]):
     ListView {
         background: #2f3136;
         color: #f8fafc;
+        text-style: bold;
     }
 
     RichLog {
         background: #2f3136;
         color: #f8fafc;
+        text-style: bold;
     }
 
     .actions {
