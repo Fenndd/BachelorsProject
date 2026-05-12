@@ -241,6 +241,15 @@ class ReportFinalBestCandidate:
     final_diff: str | None = None
 
 
+@dataclass
+class ReportReasonSummaryItem:
+    """A grouped reason entry for the reason summary table."""
+
+    reason: str
+    count: int
+    iterations: list[int] = field(default_factory=list)
+
+
 @dataclass(kw_only=True)
 class ReportData:
     """Top-level normalized report_data.json contract."""
@@ -265,6 +274,7 @@ class ReportData:
         default_factory=ReportFinalBestCandidate
     )
     reporting_status: ReportReportingStatus = field(default_factory=ReportReportingStatus)
+    reason_summary: list[ReportReasonSummaryItem] = field(default_factory=list)
 
 
 def default_status_counts() -> dict[str, int]:
@@ -332,6 +342,7 @@ __all__ = [
     "ReportIterationSummary",
     "ReportLlmInfo",
     "ReportMetadata",
+    "ReportReasonSummaryItem",
     "ReportReportingStatus",
     "ReportStatusCounts",
     "default_status_counts",

@@ -7,6 +7,7 @@ from orchestrator.experiments.closed_loop_state import IterationStatus
 from orchestrator.reporting import (
     ReportArtifactMap,
     ReportIterationSummary,
+    ReportReasonSummaryItem,
     default_status_counts,
     make_empty_report_data,
     to_report_dict,
@@ -60,6 +61,7 @@ def test_json_output_contains_required_top_level_sections(tmp_path: Path) -> Non
         "closed_loop_selection",
         "final_best_candidate",
         "reporting_status",
+        "reason_summary",
     ]
     assert payload["schema_version"] == "report.v1"
     assert payload["experiment"]["experiment_id"] == "exp_001"
@@ -110,6 +112,32 @@ def test_optional_runtime_and_correctness_fields_can_be_none() -> None:
     assert payload["final_result"]["correctness_preserved"] is None
     assert payload["iterations"][0]["runtime_ns_per_case_median"] is None
     assert payload["iterations"][0]["correctness_passed"] is None
+
+
+def test_reason_summary_defaults_to_empty_list() -> None:
+    report_data = make_empty_report_data("exp_001", TARGET_FILE)
+
+    payload = to_report_dict(report_data)
+
+    assert payload["reason_summary"] == []
+
+
+def test_reason_summary_item_round_trips_through_to_report_dict() -> None:
+    report_data = make_empty_report_data("exp_001", TARGET_FILE)
+    report_data.reason_summary = [
+        ReportReasonSummaryItem(reason="runtime_not_improved", count=2, iterations=[1, 3]),
+        ReportReasonSummaryItem(reason="no_op", count=1, iterations=[2]),
+    ]
+
+    payload = to_report_dict(report_data)
+
+    assert len(payload["reason_summary"]) == 2
+    assert payload["reason_summary"][0] == {
+        "reason": "runtime_not_improved",
+        "count": 2,
+        "iterations": [1, 3],
+    }
+    assert payload["reason_summary"][1]["reason"] == "no_op"
 
 
 def test_materialization_failed_iteration_with_no_runtime_serializes() -> None:

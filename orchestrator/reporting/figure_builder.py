@@ -15,6 +15,7 @@ from orchestrator.reporting.report_data import ReportData, to_report_dict
 
 PLOT_FILENAMES = {
     "runtime_progress": "runtime_progress.svg",
+    "candidate_runtime_by_iteration": "candidate_runtime_by_iteration.svg",
     "runtime_reduction_by_iteration": "runtime_reduction_by_iteration.svg",
     "correctness_metrics": "correctness_metrics.svg",
     "status_breakdown": "status_breakdown.svg",
@@ -33,6 +34,10 @@ def build_report_figures(
     output_dir.mkdir(parents=True, exist_ok=True)
 
     _plot_runtime_progress(data, output_dir / PLOT_FILENAMES["runtime_progress"])
+    _plot_candidate_runtime_by_iteration(
+        data,
+        output_dir / PLOT_FILENAMES["candidate_runtime_by_iteration"],
+    )
     _plot_runtime_reduction(
         data,
         output_dir / PLOT_FILENAMES["runtime_reduction_by_iteration"],
@@ -58,54 +63,126 @@ def _as_report_dict(report_data: ReportData | dict[str, Any]) -> dict[str, Any]:
 
 
 def _plot_runtime_progress(data: dict[str, Any], output_path: Path) -> None:
-    points = [
-        (iteration.get("iteration"), iteration.get("runtime_ns_per_case_median"))
-        for iteration in _iterations(data)
-        if _is_number(iteration.get("iteration"))
-        and _is_number(iteration.get("runtime_ns_per_case_median"))
-    ]
-    if not points:
-        _save_placeholder(output_path, "Runtime data unavailable")
+    """Step plot of current-best runtime over iterations (including baseline as iter 0)."""
+
+    baseline_rt = _number_or_none(
+        _dict_value(data.get("baseline_metrics")).get("runtime_ns_per_case_median")
+    )
+
+    # Build (iteration, runtime) step sequence using only promoted iterations
+    iterations = sorted(
+        (it for it in _iterations(data) if _is_number(it.get("iteration"))),
+        key=lambda it: it["iteration"],
+    )
+
+    current_best = baseline_rt
+    step_points: list[tuple[int, float]] = []
+    if baseline_rt is not None:
+        step_points.append((0, baseline_rt))
+
+    for it in iterations:
+        if it.get("promoted") is True:
+            rt = _number_or_none(it.get("runtime_ns_per_case_median"))
+            if rt is not None:
+                current_best = rt
+        if current_best is not None:
+            step_points.append((int(it["iteration"]), current_best))
+
+    if not step_points:
+        _save_placeholder(output_path, "Current best runtime data unavailable")
         return
 
-    x_values, y_values = zip(*points)
+    x_values, y_values = zip(*step_points)
     fig, ax = _new_figure()
-    ax.plot(x_values, y_values, marker="o", color="#246b8f", linewidth=2)
-    ax.set_title("Runtime Progress")
+    ax.step(x_values, y_values, where="post", color="#246b8f", linewidth=2)
+    ax.scatter(x_values, y_values, color="#246b8f", zorder=3)
+    ax.set_title("Current Best Runtime Progress")
     ax.set_xlabel("Iteration")
-    ax.set_ylabel("Median runtime (ns/case)")
+    ax.set_ylabel("Current best median runtime (ns/case)")
     ax.grid(True, alpha=0.3)
     _save(fig, output_path)
 
 
-def _plot_runtime_reduction(data: dict[str, Any], output_path: Path) -> None:
+def _plot_candidate_runtime_by_iteration(data: dict[str, Any], output_path: Path) -> None:
+    """Scatter plot of candidate runtime per iteration with baseline and final-best lines."""
+
     points = [
-        (iteration.get("iteration"), iteration.get("speedup_vs_baseline"))
-        for iteration in _iterations(data)
-        if _is_number(iteration.get("iteration"))
-        and _is_number(iteration.get("speedup_vs_baseline"))
+        (int(it["iteration"]), _number_or_none(it.get("runtime_ns_per_case_median")))
+        for it in _iterations(data)
+        if _is_number(it.get("iteration"))
+        and _number_or_none(it.get("runtime_ns_per_case_median")) is not None
     ]
+
     if not points:
-        _save_placeholder(output_path, "Runtime data unavailable")
+        _save_placeholder(output_path, "Candidate runtime data unavailable")
         return
 
     x_values, y_values = zip(*points)
     fig, ax = _new_figure()
-    ax.bar(x_values, y_values, color="#4f8f46")
-    ax.axhline(1.0, color="#555555", linewidth=1, linestyle="--")
+    ax.plot(x_values, y_values, color="#aaaaaa", linewidth=0.8, zorder=1)
+    ax.scatter(x_values, y_values, color="#246b8f", zorder=2, label="candidate")
+
+    baseline_rt = _number_or_none(
+        _dict_value(data.get("baseline_metrics")).get("runtime_ns_per_case_median")
+    )
+    if baseline_rt is not None:
+        ax.axhline(baseline_rt, color="#e07b39", linewidth=1.2, linestyle="--", label="baseline")
+
+    final_best_rt = _number_or_none(
+        _dict_value(data.get("final_best_candidate")).get("runtime_ns_per_case_median")
+    )
+    if final_best_rt is not None:
+        ax.axhline(
+            final_best_rt, color="#4f8f46", linewidth=1.2, linestyle=":", label="final best"
+        )
+
+    ax.set_title("Candidate Runtime by Iteration")
+    ax.set_xlabel("Iteration")
+    ax.set_ylabel("Median runtime (ns/case)")
+    ax.grid(True, alpha=0.3)
+    ax.legend(fontsize=9)
+    _save(fig, output_path)
+
+
+def _plot_runtime_reduction(data: dict[str, Any], output_path: Path) -> None:
+    """Bar chart of speedup vs baseline per iteration, coloured by promotion status."""
+
+    points = [
+        (
+            int(it["iteration"]),
+            _number_or_none(it.get("speedup_vs_baseline")),
+            it.get("promoted") is True,
+        )
+        for it in _iterations(data)
+        if _is_number(it.get("iteration"))
+        and _number_or_none(it.get("speedup_vs_baseline")) is not None
+    ]
+
+    if not points:
+        _save_placeholder(output_path, "Runtime data unavailable")
+        return
+
+    x_values = [p[0] for p in points]
+    y_values = [p[1] for p in points]
+    colors = ["#4f8f46" if p[2] else "#7a9fbf" for p in points]
+
+    fig, ax = _new_figure()
+    ax.bar(x_values, y_values, color=colors)
+    ax.axhline(1.0, color="#555555", linewidth=1, linestyle="--", label="baseline (1.0)")
     ax.set_title("Runtime Reduction by Iteration")
     ax.set_xlabel("Iteration")
     ax.set_ylabel("Speedup vs baseline")
     ax.grid(True, axis="y", alpha=0.3)
+    ax.legend(fontsize=9)
     _save(fig, output_path)
 
 
 def _plot_correctness_metrics(data: dict[str, Any], output_path: Path) -> None:
     points = [
-        (iteration.get("iteration"), 1 if iteration.get("correctness_passed") else 0)
-        for iteration in _iterations(data)
-        if _is_number(iteration.get("iteration"))
-        and isinstance(iteration.get("correctness_passed"), bool)
+        (it.get("iteration"), 1 if it.get("correctness_passed") else 0)
+        for it in _iterations(data)
+        if _is_number(it.get("iteration"))
+        and isinstance(it.get("correctness_passed"), bool)
     ]
     if not points:
         _save_placeholder(output_path, "Correctness data unavailable")
@@ -162,21 +239,29 @@ def _candidate_funnel_values(data: dict[str, Any]) -> dict[str, int]:
     counts = _status_counts(data)
     iterations = _iterations(data)
 
+    _SKIP_GENERATED = {"generation_failed"}
+    _SKIP_MATERIALIZED = {"generation_failed", "materialization_failed", "no_op"}
+
+    verified_count = sum(
+        1
+        for it in iterations
+        if _number_or_none(it.get("runtime_ns_per_case_median")) is not None
+        or isinstance(it.get("correctness_passed"), bool)
+    )
+    correct_count = sum(
+        1 for it in iterations if it.get("correctness_passed") is True
+    )
+
     return {
         "Planned iterations": _int_or_zero(experiment.get("total_iterations")),
         "Generated candidates": sum(
-            1 for item in iterations if item.get("status") != "generation_failed"
+            1 for it in iterations if it.get("status") not in _SKIP_GENERATED
         ),
         "Materialized candidates": sum(
-            1
-            for item in iterations
-            if item.get("status")
-            not in {"generation_failed", "materialization_failed"}
+            1 for it in iterations if it.get("status") not in _SKIP_MATERIALIZED
         ),
-        "Verified candidates": sum(
-            counts.get(status, 0)
-            for status in ("accepted_improvement", "valid_not_improved", "rejected")
-        ),
+        "Verified candidates": verified_count,
+        "Correct candidates": correct_count,
         "Accepted improvements": counts.get("accepted_improvement", 0),
         "Final best": 1
         if _int_or_zero(final_result.get("final_best_iteration")) > 0
@@ -220,6 +305,12 @@ def _status_counts(data: dict[str, Any]) -> dict[str, int]:
 
 def _dict_value(value: Any) -> dict[str, Any]:
     return value if isinstance(value, dict) else {}
+
+
+def _number_or_none(value: Any) -> float | None:
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return None
+    return float(value)
 
 
 def _is_number(value: Any) -> bool:

@@ -605,6 +605,36 @@ def test_d_pdf_display_when_html_only_formats(tmp_path: Path) -> None:
     assert '"html"' in (report_data.reporting_status.pdf_display or "")
 
 
+def test_reason_summary_groups_non_accepted_iterations(tmp_path: Path) -> None:
+    experiment_dir = _experiment_dir(tmp_path)
+    _write_json(
+        experiment_dir / "closed_loop_summary.json",
+        _summary(total_iterations=5, completed_iterations=5),
+    )
+    _write_jsonl(
+        experiment_dir / "closed_loop_iterations.jsonl",
+        [
+            {"iteration": 1, "status": "valid_not_improved"},
+            {"iteration": 2, "status": "valid_not_improved"},
+            {"iteration": 3, "status": "no_op"},
+            {"iteration": 4, "status": "generation_failed"},
+            {"iteration": 5, "status": "accepted_improvement", "current_best_updated": True},
+        ],
+    )
+
+    report_data = collect_report_data(experiment_dir)
+
+    reasons = {item.reason: item for item in report_data.reason_summary}
+    assert "runtime_not_improved" in reasons
+    assert reasons["runtime_not_improved"].count == 2
+    assert sorted(reasons["runtime_not_improved"].iterations) == [1, 2]
+    assert "no_op" in reasons
+    assert reasons["no_op"].count == 1
+    assert "generation_failed" in reasons
+    assert reasons["generation_failed"].count == 1
+    assert "accepted_improvement" not in reasons
+
+
 def test_e_artifact_paths_end_with_known_segments(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

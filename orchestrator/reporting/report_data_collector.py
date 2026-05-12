@@ -19,6 +19,7 @@ from orchestrator.reporting.report_data import (
     ReportFinalResult,
     ReportIterationSummary,
     ReportLlmInfo,
+    ReportReasonSummaryItem,
     ReportReportingStatus,
     default_status_counts,
     write_report_data,
@@ -146,6 +147,7 @@ def collect_report_data(
         reporting_status=_build_reporting_status(
             experiment_path, config_snapshot, status_payload
         ),
+        reason_summary=_build_reason_summary(iterations),
     )
 
     if output_path is not None:
@@ -1116,6 +1118,39 @@ def _summary_text(value: Any) -> str | None:
     if value is None:
         return None
     return json.dumps(value, ensure_ascii=False, sort_keys=True)
+
+
+def _build_reason_summary(
+    iterations: list[ReportIterationSummary],
+) -> list[ReportReasonSummaryItem]:
+    """Group non-accepted iterations by reason string."""
+
+    _STATUS_REASON_MAP = {
+        "no_op": "no_op",
+        "generation_failed": "generation_failed",
+        "materialization_failed": "materialization_failed",
+        "verification_failed": "verification_failed",
+        "valid_not_improved": "runtime_not_improved",
+    }
+
+    grouped: dict[str, list[int]] = {}
+    order: list[str] = []
+
+    for it in sorted(iterations, key=lambda x: x.iteration):
+        if it.status == "accepted_improvement":
+            continue
+        reason: str | None = it.reason if it.reason else _STATUS_REASON_MAP.get(it.status)
+        if reason is None:
+            continue
+        if reason not in grouped:
+            grouped[reason] = []
+            order.append(reason)
+        grouped[reason].append(it.iteration)
+
+    return [
+        ReportReasonSummaryItem(reason=r, count=len(grouped[r]), iterations=grouped[r])
+        for r in order
+    ]
 
 
 __all__ = [

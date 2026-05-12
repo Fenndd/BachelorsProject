@@ -12,6 +12,7 @@ from orchestrator.reporting import generate_report
 TARGET_FILE = "cpp/external/lambdatwist/p3p.cc"
 EXPECTED_PLOTS = (
     "runtime_progress.svg",
+    "candidate_runtime_by_iteration.svg",
     "runtime_reduction_by_iteration.svg",
     "correctness_metrics.svg",
     "status_breakdown.svg",

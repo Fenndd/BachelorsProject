@@ -13,10 +13,12 @@ from orchestrator.reporting import (
     ReportFinalResult,
     ReportIterationSummary,
     ReportLlmInfo,
+    ReportReasonSummaryItem,
     ReportReportingStatus,
     build_report_figures,
     default_status_counts,
     generate_basic_html_report,
+    generate_basic_report,
     make_empty_report_data,
     render_report_html,
 )
@@ -25,6 +27,7 @@ from orchestrator.reporting import (
 TARGET_FILE = "cpp/external/lambdatwist/p3p.cc"
 EXPECTED_PLOTS = {
     "runtime_progress": "runtime_progress.svg",
+    "candidate_runtime_by_iteration": "candidate_runtime_by_iteration.svg",
     "runtime_reduction_by_iteration": "runtime_reduction_by_iteration.svg",
     "correctness_metrics": "correctness_metrics.svg",
     "status_breakdown": "status_breakdown.svg",
@@ -148,7 +151,7 @@ def test_build_report_figures_creates_placeholder_svgs_when_data_missing(
 
     build_report_figures(report_data, plots_dir)
 
-    assert "Runtime data unavailable" in (
+    assert "Current best runtime data unavailable" in (
         plots_dir / "runtime_progress.svg"
     ).read_text(encoding="utf-8")
     assert "Correctness data unavailable" in (
@@ -334,3 +337,119 @@ def test_g_html_does_not_contain_manual_prose_paragraphs(tmp_path: Path) -> None
     assert "This report describes" not in html
     assert "The final promoted version" not in html
     assert "All benchmarked non-no-op candidates" not in html
+
+
+def test_runtime_progress_uses_current_best_step_plot(tmp_path: Path) -> None:
+    """runtime_progress.svg reflects current-best runtime, not raw candidate runtime."""
+
+    report_data = make_empty_report_data("exp_002", TARGET_FILE)
+    report_data.baseline_metrics = ReportBaselineMetrics(runtime_ns_per_case_median=100.0)
+    report_data.iterations = [
+        ReportIterationSummary(
+            iteration=1,
+            status="accepted_improvement",
+            runtime_ns_per_case_median=90.0,
+            promoted=True,
+        ),
+        ReportIterationSummary(
+            iteration=2,
+            status="valid_not_improved",
+            runtime_ns_per_case_median=95.0,
+            promoted=False,
+        ),
+        ReportIterationSummary(
+            iteration=3,
+            status="accepted_improvement",
+            runtime_ns_per_case_median=80.0,
+            promoted=True,
+        ),
+    ]
+    plots_dir = tmp_path / "plots"
+    build_report_figures(report_data, plots_dir)
+
+    svg_path = plots_dir / "runtime_progress.svg"
+    assert svg_path.is_file()
+    svg_text = svg_path.read_text(encoding="utf-8")
+    assert svg_text.strip() != ""
+    assert "Current Best Runtime Progress" in svg_text
+
+
+def test_runtime_progress_placeholder_when_no_runtime_data(tmp_path: Path) -> None:
+    """runtime_progress.svg shows placeholder when no baseline and no promoted runtime."""
+
+    report_data = make_empty_report_data("exp_003", TARGET_FILE)
+    report_data.iterations = [
+        ReportIterationSummary(
+            iteration=1,
+            status="valid_not_improved",
+            runtime_ns_per_case_median=None,
+            promoted=False,
+        ),
+    ]
+    plots_dir = tmp_path / "plots"
+    build_report_figures(report_data, plots_dir)
+
+    svg_text = (plots_dir / "runtime_progress.svg").read_text(encoding="utf-8")
+    assert "Current best runtime data unavailable" in svg_text
+
+
+def test_report_html_includes_reason_summary_and_new_plot(tmp_path: Path) -> None:
+    """Generated HTML contains reason summary, new plot, and key section headings."""
+
+    report_data = _report_data()
+    report_data.reason_summary = [
+        ReportReasonSummaryItem(reason="runtime_not_improved", count=1, iterations=[2]),
+    ]
+    report_data.reporting_status = ReportReportingStatus(
+        enabled=True,
+        status="completed",
+        formats=["html"],
+        pdf_generated=False,
+        pdf_display='Not generated. Current reporting formats: ["html"]',
+    )
+    plot_paths = build_report_figures(report_data, tmp_path / "plots")
+    html_path = render_report_html(report_data, plot_paths, tmp_path / "report.html")
+    html = html_path.read_text(encoding="utf-8")
+
+    assert "Reason Summary" in html
+    assert "candidate_runtime_by_iteration.svg" in html
+    assert "Speedup vs Current Best" in html
+    assert "Closed-Loop Selection" in html
+    assert "Final Best Candidate Summary" in html
+    assert "Not generated" in html
+    # Must not contain explanatory prose
+    assert "This report describes" not in html
+    assert "The final promoted version" not in html
+    assert "All benchmarked non-no-op candidates" not in html
+    # Must not leak absolute temp path into HTML body
+    assert str(tmp_path) not in html
+
+
+def test_report_template_packaging_renders_real_template(tmp_path: Path) -> None:
+    """report_v1.html.j2 exists on disk and generate_basic_report renders report.html."""
+
+    from pathlib import Path as _Path
+    template_path = _Path(__file__).resolve().parents[1] / "orchestrator" / "reporting" / "templates" / "report_v1.html.j2"
+    assert template_path.is_file(), f"Template missing: {template_path}"
+
+    experiment_dir = tmp_path / "results" / "experiments" / "exp_tpl"
+    _write_json(
+        experiment_dir / "closed_loop_summary.json",
+        {
+            "experiment_id": "exp_tpl",
+            "target_file": TARGET_FILE,
+            "total_iterations": 1,
+            "completed_iterations": 1,
+            "original_baseline_metrics_path": "missing.json",
+            "final_best_iteration": 0,
+            "status_counts": {"accepted_improvement": 0},
+        },
+    )
+    _write_jsonl(experiment_dir / "closed_loop_iterations.jsonl", [])
+
+    artifacts = generate_basic_report(experiment_dir, formats=("html",))
+
+    html_path = artifacts["html"]
+    assert html_path.is_file()
+    html = html_path.read_text(encoding="utf-8")
+    assert "exp_tpl" in html

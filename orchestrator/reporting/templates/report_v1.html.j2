@@ -195,7 +195,8 @@
 
   <section id="runtime-progress">
     <h2>Runtime Progress</h2>
-    <figure><img src="{{ plots.runtime_progress }}" alt="Runtime progress plot"></figure>
+    <figure><img src="{{ plots.runtime_progress }}" alt="Current best runtime progress plot"></figure>
+    <figure><img src="{{ plots.candidate_runtime_by_iteration }}" alt="Candidate runtime by iteration plot"></figure>
     <figure><img src="{{ plots.runtime_reduction_by_iteration }}" alt="Runtime reduction by iteration plot"></figure>
   </section>
 
@@ -220,6 +221,26 @@
   <section id="candidate-funnel">
     <h2>Candidate Funnel</h2>
     <figure><img src="{{ plots.candidate_funnel }}" alt="Candidate funnel plot"></figure>
+  </section>
+
+  <section id="reason-summary">
+    <h2>Reason Summary</h2>
+    {% if report.reason_summary %}
+    <table>
+      <thead><tr><th>Reason</th><th>Count</th><th>Iterations</th></tr></thead>
+      <tbody>
+      {% for item in report.reason_summary %}
+        <tr>
+          <td>{{ item.reason|display }}</td>
+          <td>{{ item.count|display }}</td>
+          <td>{{ item.iterations | join(', ') }}</td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+    {% else %}
+    <p class="muted">No non-accepted iterations recorded.</p>
+    {% endif %}
   </section>
 
   <section id="closed-loop-selection">
