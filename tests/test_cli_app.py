@@ -70,12 +70,25 @@ def test_cli_workspace_status_exits_successfully() -> None:
 
 def test_cli_placeholder_commands_do_not_crash() -> None:
     for args in (
-        ("baseline", "run"),
         ("results", "latest"),
     ):
         result = run_cli(*args)
 
         assert result.returncode == 0, result.stderr
+
+
+def test_cli_baseline_run_fails_cleanly_on_preflight_failure(tmp_path: Path) -> None:
+    (tmp_path / ".git").mkdir()
+    env = os.environ.copy()
+    env["PYTHONPATH"] = str(REPO_ROOT)
+    for spec in get_env_specs():
+        env.pop(spec.name, None)
+
+    result = run_cli("baseline", "run", cwd=tmp_path, env=env)
+
+    assert result.returncode == 1
+    assert "preflight_failed" in result.stdout
+    assert "EIGEN3_INCLUDE_DIR" in result.stdout
 
 
 def test_cli_experiment_run_validates_existing_config(tmp_path: Path) -> None:

@@ -11,10 +11,12 @@ from rich.panel import Panel
 from rich.table import Table
 
 from orchestrator.control import (
+    build_baseline_command,
     get_project_paths,
     load_environment,
     read_project_status,
     resolve_project_path,
+    run_baseline,
     summarize_environment,
 )
 from orchestrator.control import placeholders
@@ -62,6 +64,25 @@ def _directory_status_table() -> Table:
 def _environment_status_table() -> Table:
     statuses = load_environment()
     table = Table(title="Environment Status", show_header=True, header_style="bold cyan")
+    table.add_column("Variable")
+    table.add_column("Status")
+    table.add_column("Source")
+    table.add_column("Value")
+    table.add_column("Message")
+    for status in statuses:
+        table.add_row(
+            status.name,
+            status.status,
+            status.source,
+            status.display_value or "-",
+            status.message,
+        )
+    return table
+
+
+def _selected_environment_table(names: set[str]) -> Table:
+    statuses = [status for status in load_environment() if status.name in names]
+    table = Table(title="Baseline Environment", show_header=True, header_style="bold cyan")
     table.add_column("Variable")
     table.add_column("Status")
     table.add_column("Source")
@@ -129,9 +150,68 @@ def doctor() -> None:
 
 @baseline_app.command("run")
 def baseline_run() -> None:
-    """Placeholder for future baseline launch integration."""
+    """Run the existing baseline automation entry point."""
 
-    console.print(Panel(placeholders.BASELINE_RUN, title="Baseline Run", border_style="yellow"))
+    paths = get_project_paths()
+    command = build_baseline_command()
+    command_text = " ".join(command)
+    statuses = load_environment()
+    summary = summarize_environment(statuses)
+    console.print(
+        Panel(
+            "Launching the existing baseline automation entry point.\n"
+            f"Command: {command_text}\n"
+            f"Working directory: {paths.repo_root}\n"
+            f"Environment: {summary.label}",
+            title="Baseline Run",
+            border_style="cyan",
+        )
+    )
+    console.print(
+        _selected_environment_table(
+            {
+                "EIGEN3_INCLUDE_DIR",
+                "CMAKE_EXE",
+                "CMAKE_GENERATOR",
+                "CMAKE_CXX_COMPILER",
+                "CMAKE_MAKE_PROGRAM",
+                "BENCHMARK_CMAKE_BUILD_TYPE",
+            }
+        )
+    )
+
+    def print_stdout(line: str) -> None:
+        console.print(line)
+
+    def print_stderr(line: str) -> None:
+        console.print(line, style="red")
+
+    result = run_baseline(
+        paths.repo_root,
+        on_stdout=print_stdout,
+        on_stderr=print_stderr,
+    )
+
+    duration = (
+        "n/a"
+        if result.process_result is None
+        else f"{result.process_result.duration_seconds:.3f}s"
+    )
+    latest_run = "-" if result.latest_run_dir is None else _display_path(result.latest_run_dir)
+    console.print(
+        Panel(
+            f"Status: {result.status}\n"
+            f"Exit code: {result.exit_code if result.exit_code is not None else 'n/a'}\n"
+            f"Duration: {duration}\n"
+            f"Latest run directory: {latest_run}\n"
+            f"Message: {result.message}\n\n"
+            "Hint: use `python -m orchestrator.cli.app results latest` to inspect recent runs.",
+            title="Baseline Result",
+            border_style="green" if result.status == "success" else "red",
+        )
+    )
+    if result.status != "success":
+        raise typer.Exit(1)
 
 
 @experiment_app.command("list")

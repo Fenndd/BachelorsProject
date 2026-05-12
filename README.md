@@ -103,10 +103,12 @@ copy .env.example .env.local
 ```powershell
 python -m orchestrator.cli.app --help
 python -m orchestrator.cli.app doctor
+python -m orchestrator.cli.app baseline run
 python -m orchestrator.cli.app tui
 ```
 
 The `doctor` command currently checks project structure and environment variables, masks API keys, and reports missing or invalid local paths.
+The `baseline run` command launches the existing baseline automation entry point through the new control layer and streams logs to the terminal. It requires `EIGEN3_INCLUDE_DIR` to be configured in `.env.local` or the process environment. The TUI also exposes an experimental Run Baseline screen with live logs.
 
 The existing baseline entry point remains `orchestrator/cli/main.py`, and the new command layer does not change optimization, benchmark, validation, materialization, or closed-loop experiment behavior.
 

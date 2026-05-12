@@ -9,6 +9,7 @@ from textual.widgets import Button, Footer, Header, Static
 
 from orchestrator.control import load_environment, read_project_status, summarize_environment
 from orchestrator.control import placeholders
+from orchestrator.tui.screens.baseline_screen import BaselineScreen
 from orchestrator.tui.screens.doctor_screen import DoctorScreen
 from orchestrator.tui.screens.help_screen import HelpScreen
 from orchestrator.tui.screens.placeholder_screen import PlaceholderScreen
@@ -61,9 +62,11 @@ class MainScreen(Screen[None]):
         if button_id == "doctor":
             self.app.push_screen(DoctorScreen())
             return
+        if button_id == "run-baseline":
+            self.app.push_screen(BaselineScreen())
+            return
 
         placeholders_by_button = {
-            "run-baseline": ("Run Baseline", placeholders.BASELINE_RUN),
             "run-experiment": ("Run Experiment", placeholders.EXPERIMENT_RUN),
             "browse-results": ("Browse Results", placeholders.RESULTS_BROWSE),
             "environment": ("Environment", placeholders.ENVIRONMENT),
