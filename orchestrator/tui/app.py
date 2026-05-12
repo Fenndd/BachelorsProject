@@ -25,6 +25,7 @@ class OptimizerTuiApp(App[None]):
 
     #main {
         padding: 1 2;
+        height: 1fr;
     }
 
     .title {

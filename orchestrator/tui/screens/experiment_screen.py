@@ -6,7 +6,7 @@ import queue
 from typing import Literal
 
 from textual.app import ComposeResult
-from textual.containers import Container, Horizontal
+from textual.containers import Horizontal, VerticalScroll
 from textual.screen import Screen
 from textual.widgets import Button, Footer, Header, ListItem, ListView, RichLog, Static
 
@@ -113,7 +113,7 @@ class ExperimentScreen(Screen[None]):
 
     def compose(self) -> ComposeResult:
         yield Header()
-        with Container(id="main"):
+        with VerticalScroll(id="main"):
             yield Static("Run Experiment", classes="title")
             yield Static(
                 "Select a config, run a safe dry-run, or launch the existing experiment runner.",
@@ -128,13 +128,13 @@ class ExperimentScreen(Screen[None]):
                 classes="panel",
             )
             summary = Static(_format_summary(self._selected_summary()), id="experiment-summary", classes="panel")
-            summary.styles.height = 12
+            summary.styles.height = 10
             yield summary
             status = Static("Status: idle", id="experiment-status", classes="panel")
             status.styles.height = 5
             yield status
             log = RichLog(id="experiment-log", classes="panel", wrap=True, highlight=True)
-            log.styles.height = 10
+            log.styles.height = 8
             yield log
             with Horizontal(id="experiment-action-row"):
                 yield Button("Dry Run", id="dry-run", classes="experiment-button")
@@ -143,7 +143,7 @@ class ExperimentScreen(Screen[None]):
         yield Footer()
 
     def on_mount(self) -> None:
-        self.query_one("#experiment-list", ListView).styles.height = 7
+        self.query_one("#experiment-list", ListView).styles.height = 6
         self._set_state("idle")
         self._set_status_message("Status: idle")
         write_tui_debug("ExperimentScreen mounted")

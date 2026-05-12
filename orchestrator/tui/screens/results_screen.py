@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from textual.app import ComposeResult
-from textual.containers import Container, Horizontal
+from textual.containers import Horizontal, VerticalScroll
 from textual.screen import Screen
 from textual.widgets import Button, Footer, Header, ListItem, ListView, Static
 
@@ -49,7 +49,7 @@ class ResultsScreen(Screen[None]):
 
     def compose(self) -> ComposeResult:
         yield Header()
-        with Container(id="main"):
+        with VerticalScroll(id="main"):
             yield Static("Browse Results", classes="title")
             yield Static(
                 "Read-only navigation for saved run and experiment artifacts.",

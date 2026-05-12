@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from textual.app import ComposeResult
-from textual.containers import Container, Horizontal
+from textual.containers import Horizontal, VerticalScroll
 from textual.screen import Screen
 from textual.widgets import Button, Footer, Header, Static
 
@@ -66,7 +66,7 @@ class WorkspaceScreen(Screen[None]):
 
     def compose(self) -> ComposeResult:
         yield Header()
-        with Container(id="main"):
+        with VerticalScroll(id="main"):
             yield Static("Workspace", classes="title")
             yield Static("Inspect and clean temporary workspace data.", classes="subtitle")
             yield Static(_format_status(get_workspace_status()), id="workspace-status", classes="panel")

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from textual.app import ComposeResult
-from textual.containers import Container
+from textual.containers import VerticalScroll
 from textual.screen import Screen
 from textual.widgets import Button, Footer, Header, Static
 
@@ -56,7 +56,7 @@ class DoctorScreen(Screen[None]):
 
     def compose(self) -> ComposeResult:
         yield Header()
-        with Container(id="main"):
+        with VerticalScroll(id="main"):
             yield Static("Doctor", classes="title")
             yield Static(
                 "Project structure and local environment diagnostics.",

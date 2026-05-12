@@ -6,7 +6,7 @@ import queue
 from typing import Literal
 
 from textual.app import ComposeResult
-from textual.containers import Container, Horizontal
+from textual.containers import Horizontal, VerticalScroll
 from textual.screen import Screen
 from textual.widgets import Button, Footer, Header, RichLog, Static
 
@@ -68,7 +68,7 @@ class BaselineScreen(Screen[None]):
     def compose(self) -> ComposeResult:
         command = " ".join(build_baseline_command())
         yield Header()
-        with Container(id="main"):
+        with VerticalScroll(id="main"):
             yield Static("Run Baseline", classes="title")
             yield Static(
                 "Runs CMake configure/build, smoke tests, adapter validation, "

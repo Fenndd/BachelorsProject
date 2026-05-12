@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from textual.app import ComposeResult
-from textual.containers import Container
+from textual.containers import VerticalScroll
 from textual.screen import Screen
 from textual.widgets import Button, Footer, Header, Static
 
@@ -40,7 +40,7 @@ class EnvironmentScreen(Screen[None]):
 
     def compose(self) -> ComposeResult:
         yield Header()
-        with Container(id="main"):
+        with VerticalScroll(id="main"):
             yield Static("Environment", classes="title")
             yield Static("Local environment diagnostics for CLI/TUI launchers.", classes="subtitle")
             yield Static(_format_environment(), id="environment-status", classes="panel")
