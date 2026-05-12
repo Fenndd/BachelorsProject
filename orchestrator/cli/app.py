@@ -10,7 +10,13 @@ from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
 
-from orchestrator.control import get_project_paths, read_project_status, resolve_project_path
+from orchestrator.control import (
+    get_project_paths,
+    load_environment,
+    read_project_status,
+    resolve_project_path,
+    summarize_environment,
+)
 from orchestrator.control import placeholders
 
 
@@ -53,6 +59,25 @@ def _directory_status_table() -> Table:
     return table
 
 
+def _environment_status_table() -> Table:
+    statuses = load_environment()
+    table = Table(title="Environment Status", show_header=True, header_style="bold cyan")
+    table.add_column("Variable")
+    table.add_column("Status")
+    table.add_column("Source")
+    table.add_column("Value")
+    table.add_column("Message")
+    for status in statuses:
+        table.add_row(
+            status.name,
+            status.status,
+            status.source,
+            status.display_value or "-",
+            status.message,
+        )
+    return table
+
+
 def _iter_json_configs() -> Iterable[Path]:
     paths = get_project_paths()
     if not paths.experiments_config.is_dir():
@@ -82,8 +107,24 @@ def tui() -> None:
 def doctor() -> None:
     """Show basic project health information."""
 
-    console.print(Panel(placeholders.DOCTOR, title="Doctor", border_style="cyan"))
+    statuses = load_environment()
+    summary = summarize_environment(statuses)
+    note = (
+        f"{placeholders.DOCTOR}\n\n"
+        f"Environment: {summary.label}; API keys: {summary.api_keys_label}.\n"
+        "Full build/run checks will be added later."
+    )
+    console.print(Panel(note, title="Doctor", border_style="cyan"))
     console.print(_directory_status_table())
+    if not summary.env_local_exists:
+        console.print(
+            Panel(
+                ".env.local not found. Copy .env.example to .env.local and fill local paths/API keys.",
+                title="Local Environment",
+                border_style="yellow",
+            )
+        )
+    console.print(_environment_status_table())
 
 
 @baseline_app.command("run")

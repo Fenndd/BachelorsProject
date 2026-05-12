@@ -2,16 +2,24 @@ from __future__ import annotations
 
 import subprocess
 import sys
+import os
 from pathlib import Path
+
+from orchestrator.control.environment import get_env_specs
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 
 
-def run_cli(*args: str) -> subprocess.CompletedProcess[str]:
+def run_cli(
+    *args: str,
+    cwd: Path = REPO_ROOT,
+    env: dict[str, str] | None = None,
+) -> subprocess.CompletedProcess[str]:
     return subprocess.run(
         [sys.executable, "-m", "orchestrator.cli.app", *args],
-        cwd=REPO_ROOT,
+        cwd=cwd,
+        env=env,
         capture_output=True,
         text=True,
         check=False,
@@ -30,6 +38,20 @@ def test_cli_doctor_exits_successfully() -> None:
 
     assert result.returncode == 0
     assert "Doctor" in result.stdout
+    assert "Environment Status" in result.stdout
+
+
+def test_cli_doctor_exits_successfully_without_env_local(tmp_path: Path) -> None:
+    (tmp_path / ".git").mkdir()
+    env = os.environ.copy()
+    env["PYTHONPATH"] = str(REPO_ROOT)
+    for spec in get_env_specs():
+        env.pop(spec.name, None)
+
+    result = run_cli("doctor", cwd=tmp_path, env=env)
+
+    assert result.returncode == 0
+    assert ".env.local not found" in result.stdout
 
 
 def test_cli_experiment_list_exits_successfully() -> None:

@@ -92,13 +92,21 @@ The flow configures CMake, builds/runs `baseline_smoke_test`, `baseline_runner`,
 
 ## Experimental Terminal Control Layer
 
-The first skeleton of the Interactive Terminal Control Layer is available through a new Typer/Rich CLI and Textual TUI. It is currently a thin control surface for basic project status and placeholders only; real baseline and experiment launching from this layer will be connected in later steps.
+The first skeleton of the Interactive Terminal Control Layer is available through a new Typer/Rich CLI and Textual TUI. It is currently a thin control surface for basic project status, local environment diagnostics, and placeholders only; real baseline and experiment launching from this layer will be connected in later steps.
+
+The repository includes a safe `.env.example` template. Local machine paths and API keys belong in `.env.local`, which is ignored by Git along with `.env`.
+
+```powershell
+copy .env.example .env.local
+```
 
 ```powershell
 python -m orchestrator.cli.app --help
 python -m orchestrator.cli.app doctor
 python -m orchestrator.cli.app tui
 ```
+
+The `doctor` command currently checks project structure and environment variables, masks API keys, and reports missing or invalid local paths.
 
 The existing baseline entry point remains `orchestrator/cli/main.py`, and the new command layer does not change optimization, benchmark, validation, materialization, or closed-loop experiment behavior.
 

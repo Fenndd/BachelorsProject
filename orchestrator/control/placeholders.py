@@ -18,7 +18,7 @@ ENVIRONMENT = (
 )
 DOCTOR = (
     "Full doctor validation is not implemented yet. This command currently "
-    "reports only basic repository, git, and directory status."
+    "reports basic repository, git, directory, and environment status."
 )
 WORKSPACE = (
     "Workspace management actions are placeholders. This skeleton only reports "
