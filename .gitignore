@@ -17,6 +17,7 @@ env/
 ENV/
 
 # Local environment overrides
+.env
 .env.local
 .env.local.*
 
