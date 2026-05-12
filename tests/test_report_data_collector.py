@@ -376,7 +376,7 @@ def test_collect_and_write_report_data_writes_default_report_data_path(tmp_path:
     payload = json.loads(output_path.read_text(encoding="utf-8"))
     assert payload["artifacts"]["report_data"].endswith("report_data.json")
     assert payload["artifacts"]["report_html"].endswith("report.html")
-    assert payload["artifacts"]["report_pdf"].endswith("report.pdf")
+    assert payload["artifacts"]["report_pdf"] is None  # PDF not generated yet
     assert payload["artifacts"]["plots_dir"].endswith("plots")
 
 
@@ -439,3 +439,203 @@ def test_missing_closed_loop_iterations_raises_file_not_found(tmp_path: Path) ->
 
     with pytest.raises(FileNotFoundError, match="closed_loop_iterations.jsonl"):
         collect_report_data(experiment_dir)
+
+
+# ---------------------------------------------------------------------------
+# New tests A–E (v1 cleanup)
+# ---------------------------------------------------------------------------
+
+
+def test_a_collector_fills_config_and_llm_fields(tmp_path: Path) -> None:
+    """Collector reads experiment_config_snapshot.json and variant LLM config."""
+
+    experiment_dir = _experiment_dir(tmp_path)
+    _write_json(experiment_dir / "closed_loop_summary.json", _summary())
+    _write_jsonl(experiment_dir / "closed_loop_iterations.jsonl", [])
+
+    _write_json(
+        experiment_dir / "experiment_config_snapshot.json",
+        {
+            "experiment_name": "My Experiment",
+            "target_file": TARGET_FILE,
+            "candidate_format": {
+                "type": "line_range_edits",
+                "source_presentation": "line_numbered",
+                "require_original_verification": True,
+                "allow_exact_search_fallback": False,
+            },
+            "closed_loop": {"enabled": True},
+            "variants": [
+                {
+                    "variant_id": "deepseek_pro_max",
+                    "description": "DeepSeek Pro Max variant",
+                    "llm_config": "configs/llm_deepseek_pro_max.json",
+                    "iterations": 5,
+                }
+            ],
+            "history_policy": {"enabled": True, "scope": "all"},
+            "selection": {"enabled": True, "baseline_run_dir": "results/runs/baseline"},
+            "optimization_scope": {"allowed_files": [TARGET_FILE]},
+            "reporting": {"enabled": True, "formats": ["html"], "renderer": "auto"},
+            "candidate_generation": {"max_source_chars": 32000},
+        },
+    )
+
+    _write_json(
+        experiment_dir / "variant_configs" / "deepseek_pro_max_llm_config.json",
+        {
+            "provider": "deepseek",
+            "model": "deepseek-v4-pro",
+            "thinking": {"enabled": True, "effort": "high"},
+            "max_tokens": 8192,
+        },
+    )
+
+    report_data = collect_report_data(experiment_dir)
+
+    assert report_data.experiment.experiment_name == "My Experiment"
+    assert report_data.experiment.model == "deepseek-v4-pro"
+    assert report_data.experiment.candidate_format == "line_range_edits"
+    assert report_data.experiment.source_presentation == "line_numbered"
+    assert report_data.llm.provider == "deepseek"
+    assert report_data.llm.model == "deepseek-v4-pro"
+    assert report_data.llm.thinking_enabled is True
+    assert report_data.llm.thinking_effort == "high"
+    assert report_data.llm.max_tokens == 8192
+    assert report_data.llm.variant_id == "deepseek_pro_max"
+
+
+def test_b_collector_fills_benchmark_config(tmp_path: Path) -> None:
+    """Collector fills benchmark_config from baseline metrics.json."""
+
+    experiment_dir = _experiment_dir(tmp_path)
+    metrics_path = tmp_path / "results" / "runs" / "baseline" / "metrics.json"
+    _write_json(
+        metrics_path,
+        {
+            "benchmark": {
+                "family": "absolute_pose_solvers",
+                "solver": "lambdatwist_p3p",
+                "runtime_unit": "ns",
+                "build_type": "Release",
+                "benchmark_options": {
+                    "num_cases": 1024,
+                    "points_per_case": 3,
+                    "warmup_iterations": 10,
+                    "timed_iterations": 50,
+                    "random_seed": 42,
+                    "reprojection_error_threshold": 1e-6,
+                    "min_success_rate": 0.99,
+                    "require_all_cases_valid": True,
+                    "use_max_reprojection_error_as_hard_gate": False,
+                },
+                "parsed_runtime_ns_per_case_median": 1000.0,
+                "parsed_correctness_passed": True,
+            }
+        },
+    )
+    _write_json(
+        experiment_dir / "closed_loop_summary.json",
+        _summary(original_baseline_metrics_path=str(metrics_path)),
+    )
+    _write_jsonl(experiment_dir / "closed_loop_iterations.jsonl", [])
+
+    report_data = collect_report_data(experiment_dir)
+
+    assert report_data.benchmark_config.family == "absolute_pose_solvers"
+    assert report_data.benchmark_config.solver == "lambdatwist_p3p"
+    assert report_data.benchmark_config.num_cases == 1024
+    assert report_data.benchmark_config.timed_iterations == 50
+    assert report_data.benchmark_config.seed == 42
+    assert report_data.benchmark_config.build_type == "Release"
+
+
+def test_c_correctness_preserved_from_promoted_iteration(tmp_path: Path) -> None:
+    """correctness_preserved is inferred from the promoted iteration with final_best_iteration."""
+
+    experiment_dir = _experiment_dir(tmp_path)
+    _write_json(
+        experiment_dir / "closed_loop_summary.json",
+        _summary(final_best_iteration=2),
+    )
+    _write_jsonl(
+        experiment_dir / "closed_loop_iterations.jsonl",
+        [
+            {
+                "iteration": 1,
+                "status": "valid_not_improved",
+                "correctness_passed": False,
+                "current_best_updated": False,
+            },
+            {
+                "iteration": 2,
+                "status": "accepted_improvement",
+                "correctness_passed": True,
+                "current_best_updated": True,
+            },
+        ],
+    )
+
+    report_data = collect_report_data(experiment_dir)
+
+    assert report_data.final_result.correctness_preserved is True
+
+
+def test_d_pdf_display_when_html_only_formats(tmp_path: Path) -> None:
+    """pdf_display shows 'Not generated' message when formats=["html"] and no PDF file."""
+
+    experiment_dir = _experiment_dir(tmp_path)
+    _write_json(experiment_dir / "closed_loop_summary.json", _summary())
+    _write_jsonl(experiment_dir / "closed_loop_iterations.jsonl", [])
+    _write_json(
+        experiment_dir / "experiment_config_snapshot.json",
+        {
+            "experiment_name": "Html Only",
+            "target_file": TARGET_FILE,
+            "reporting": {"enabled": True, "formats": ["html"], "renderer": "auto"},
+            "closed_loop": {"enabled": True},
+        },
+    )
+
+    report_data = collect_report_data(experiment_dir)
+
+    assert report_data.reporting_status.pdf_generated is False
+    assert report_data.reporting_status.report_pdf_path is None
+    assert "Not generated" in (report_data.reporting_status.pdf_display or "")
+    assert '"html"' in (report_data.reporting_status.pdf_display or "")
+
+
+def test_e_artifact_paths_end_with_known_segments(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Artifact display paths end with expected filenames/dirs.
+
+    When the experiment_dir is under a fake repo root (monkeypatched), display
+    paths should be POSIX-relative to that root.
+    """
+
+    import orchestrator.reporting.report_data_collector as rdc
+
+    # Make tmp_path the fake repo root so display paths come out relative
+    monkeypatch.setattr(rdc, "_REPO_ROOT", tmp_path)
+
+    experiment_dir = _experiment_dir(tmp_path)
+    _write_json(experiment_dir / "closed_loop_summary.json", _summary())
+    _write_jsonl(experiment_dir / "closed_loop_iterations.jsonl", [])
+
+    report_data = collect_report_data(experiment_dir)
+
+    exp_dir_display = str(report_data.artifacts.experiment_dir or "")
+    report_data_display = str(report_data.artifacts.report_data or "")
+    report_html_display = str(report_data.artifacts.report_html or "")
+    closed_loop_display = str(report_data.artifacts.closed_loop_summary or "")
+
+    # All paths should use forward slashes (POSIX) and be repo-relative
+    assert "\\" not in exp_dir_display
+    assert exp_dir_display.startswith("results/experiments/exp_001")
+    assert report_data_display.endswith("report_data.json")
+    assert report_html_display.endswith("report.html")
+    assert closed_loop_display.endswith("closed_loop_summary.json")
+    # report_pdf is None since no PDF file was generated
+    assert report_data.artifacts.report_pdf is None

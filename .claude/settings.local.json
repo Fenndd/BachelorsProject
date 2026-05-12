@@ -12,7 +12,11 @@
       "Bash(pip install *)",
       "Bash(pytest --tb=short -q)",
       "Bash(python -m pytest)",
-      "Bash(python -m pytest tests/test_tui_text.py tests/test_tui_process_guard.py -v)"
+      "Bash(python -m pytest tests/test_tui_text.py tests/test_tui_process_guard.py -v)",
+      "Bash(python -m pytest tests/test_report_data_model.py tests/test_report_data_collector.py tests/test_report_html_generation.py tests/test_generate_report_cli.py tests/test_experiment_reporting_integration.py -x --tb=short)",
+      "Bash(python -m pip install matplotlib --quiet)",
+      "Bash(python -m pip install jinja2 --quiet)",
+      "Bash(python -m pip install -r requirements.txt --quiet)"
     ]
   }
 }

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 from pathlib import Path
 from typing import Any
 
@@ -10,12 +11,20 @@ from orchestrator.reporting.report_data import (
     ExperimentReportInfo,
     ReportArtifactMap,
     ReportBaselineMetrics,
+    ReportBenchmarkConfig,
+    ReportClosedLoopSelection,
     ReportData,
+    ReportExperimentConfigDetails,
+    ReportFinalBestCandidate,
     ReportFinalResult,
     ReportIterationSummary,
+    ReportLlmInfo,
+    ReportReportingStatus,
     default_status_counts,
     write_report_data,
 )
+
+_REPO_ROOT = Path(__file__).resolve().parents[2]
 
 
 def collect_report_data(
@@ -39,18 +48,73 @@ def collect_report_data(
         else experiment_path / "report" / "report_data.json"
     )
 
+    # Optional artifacts — never raise on missing/invalid
+    config_snapshot = _safe_read_json_object(
+        experiment_path / "experiment_config_snapshot.json"
+    ) or {}
+    status_payload = _safe_read_json_object(
+        experiment_path / "experiment_status.json"
+    ) or {}
+    current_best_state = _safe_read_json_object(
+        experiment_path / "current_best_state.json"
+    ) or {}
+    selection_report = _safe_read_json_object(
+        experiment_path / "closed_loop_selection_report.json"
+    ) or {}
+
+    # Resolve variant LLM config
+    variant_llm_config = _load_variant_llm_config(experiment_path, config_snapshot)
+
+    # Load baseline metrics (dict form for benchmark config extraction too)
+    baseline_metrics, baseline_raw = _load_baseline_metrics_with_raw(
+        summary.get("original_baseline_metrics_path"),
+        experiment_path,
+    )
+
     status_counts = _status_counts(summary, records)
+
+    # Build iteration summaries first (needed for correctness_preserved and final_best)
+    iterations = [_iteration_summary(record, experiment_path) for record in records]
+
+    # Derive correctness_preserved from iterations
+    final_best_iter = _int_or_default(summary.get("final_best_iteration"))
+    correctness_preserved = _derive_correctness_preserved(
+        final_best_iter, iterations, baseline_metrics
+    )
+
+    llm_info = _build_llm_info(config_snapshot, variant_llm_config)
 
     report_data = ReportData(
         experiment=ExperimentReportInfo(
             experiment_id=_string_or_default(summary.get("experiment_id")),
+            experiment_name=_first_string(
+                config_snapshot.get("experiment_name"),
+                summary.get("experiment_id"),
+            ),
             target_file=_string_or_default(summary.get("target_file")),
+            model=llm_info.model,
+            candidate_format=_string_or_none(
+                _nested_get(config_snapshot, "candidate_format", "type")
+            ),
+            source_presentation=_string_or_none(
+                _nested_get(config_snapshot, "candidate_format", "source_presentation")
+            ),
             total_iterations=_int_or_default(summary.get("total_iterations")),
             completed_iterations=_int_or_default(summary.get("completed_iterations")),
-            closed_loop_enabled=True,
+            closed_loop_enabled=_first_available_bool(
+                _nested_get(config_snapshot, "closed_loop", "enabled")
+                if config_snapshot
+                else None,
+                True,
+            ),
+            benchmark_family=_string_or_none(
+                _nested_get(baseline_raw, "benchmark", "family")
+            )
+            if baseline_raw
+            else None,
         ),
         final_result=ReportFinalResult(
-            final_best_iteration=_int_or_default(summary.get("final_best_iteration")),
+            final_best_iteration=final_best_iter,
             final_speedup_vs_baseline=_number_or_none(
                 summary.get("final_speedup_vs_original_baseline")
             ),
@@ -58,18 +122,29 @@ def collect_report_data(
                 summary.get("final_runtime_reduction_percent")
             ),
             accepted_improvements=status_counts["accepted_improvement"],
-            correctness_preserved=None,
+            correctness_preserved=correctness_preserved,
         ),
-        baseline_metrics=_load_baseline_metrics(
-            summary.get("original_baseline_metrics_path"),
-            experiment_path,
-        ),
-        iterations=[_iteration_summary(record, experiment_path) for record in records],
+        baseline_metrics=baseline_metrics,
+        iterations=iterations,
         status_counts=status_counts,
         artifacts=_artifact_map(
             experiment_path,
             summary,
             report_data_path=report_data_path,
+        ),
+        llm=llm_info,
+        experiment_config_details=_build_experiment_config_details(
+            config_snapshot, experiment_path
+        ),
+        benchmark_config=_build_benchmark_config(baseline_raw),
+        closed_loop_selection=_build_closed_loop_selection(
+            selection_report, current_best_state, experiment_path
+        ),
+        final_best_candidate=_build_final_best_candidate(
+            summary, iterations, baseline_metrics, records, experiment_path
+        ),
+        reporting_status=_build_reporting_status(
+            experiment_path, config_snapshot, status_payload
         ),
     )
 
@@ -93,6 +168,474 @@ def collect_and_write_report_data(
     collect_report_data(experiment_path, output_path=report_data_path)
     return report_data_path
 
+
+# ---------------------------------------------------------------------------
+# Display path helper (repo-relative for UI output)
+# ---------------------------------------------------------------------------
+
+def _display_path(path: Any, experiment_dir: Path | None = None) -> str | None:
+    """Convert an absolute path to a repo-relative POSIX string for display."""
+
+    if path is None:
+        return None
+    path_text = _path_text_or_none(path)
+    if not path_text:
+        return None
+
+    try:
+        resolved = Path(path_text).resolve()
+    except (OSError, ValueError):
+        return path_text
+
+    try:
+        return resolved.relative_to(_REPO_ROOT).as_posix()
+    except ValueError:
+        pass
+
+    workspace_root = _REPO_ROOT / "workspace"
+    try:
+        return (Path("workspace") / resolved.relative_to(workspace_root)).as_posix()
+    except ValueError:
+        pass
+
+    if experiment_dir is not None:
+        try:
+            return resolved.relative_to(experiment_dir.parent).as_posix()
+        except ValueError:
+            pass
+
+    return path_text
+
+
+# ---------------------------------------------------------------------------
+# Artifact loaders
+# ---------------------------------------------------------------------------
+
+def _load_variant_llm_config(
+    experiment_path: Path,
+    config_snapshot: dict[str, Any],
+) -> dict[str, Any]:
+    """Load the resolved variant LLM config JSON from variant_configs/."""
+
+    if not config_snapshot:
+        return {}
+
+    # Determine variant_id
+    variants = config_snapshot.get("variants")
+    if isinstance(variants, list) and variants:
+        variant = variants[0]
+    else:
+        variant = config_snapshot
+    variant_id = _string_or_none(variant.get("variant_id")) or "default"
+
+    # Sanitize variant_id the same way the runner does
+    sanitized = re.sub(r"[^A-Za-z0-9._-]+", "_", variant_id)
+    variant_configs_dir = experiment_path / "variant_configs"
+
+    # Try exact match first
+    exact_path = variant_configs_dir / f"{sanitized}_llm_config.json"
+    result = _safe_read_json_object(exact_path)
+    if result is not None:
+        return result
+
+    # Fall back to first JSON in the directory
+    if variant_configs_dir.is_dir():
+        for json_file in sorted(variant_configs_dir.glob("*.json")):
+            result = _safe_read_json_object(json_file)
+            if result is not None:
+                return result
+
+    return {}
+
+
+def _build_llm_info(
+    config_snapshot: dict[str, Any],
+    variant_llm_config: dict[str, Any],
+) -> ReportLlmInfo:
+    """Build ReportLlmInfo from config snapshot and variant LLM config."""
+
+    if not config_snapshot and not variant_llm_config:
+        return ReportLlmInfo()
+
+    variants = config_snapshot.get("variants")
+    if isinstance(variants, list) and variants:
+        variant = variants[0]
+    else:
+        variant = config_snapshot
+
+    thinking = variant_llm_config.get("thinking") or {}
+
+    return ReportLlmInfo(
+        provider=_string_or_none(variant_llm_config.get("provider")),
+        model=_string_or_none(variant_llm_config.get("model")),
+        llm_config=_string_or_none(variant.get("llm_config")),
+        variant_id=_string_or_none(variant.get("variant_id")),
+        variant_description=_string_or_none(variant.get("description")),
+        thinking_enabled=_bool_or_none(thinking.get("enabled")),
+        thinking_effort=_string_or_none(thinking.get("effort")),
+        max_tokens=_int_or_none(variant_llm_config.get("max_tokens")),
+    )
+
+
+def _build_experiment_config_details(
+    config_snapshot: dict[str, Any],
+    experiment_path: Path,
+) -> ReportExperimentConfigDetails:
+    """Build ReportExperimentConfigDetails from config snapshot."""
+
+    if not config_snapshot:
+        return ReportExperimentConfigDetails()
+
+    cf = config_snapshot.get("candidate_format") or {}
+    hp = config_snapshot.get("history_policy") or {}
+    sel = config_snapshot.get("selection") or {}
+    cl = config_snapshot.get("closed_loop") or {}
+    scope = config_snapshot.get("optimization_scope") or {}
+    rep = config_snapshot.get("reporting") or {}
+    cg = config_snapshot.get("candidate_generation") or {}
+
+    allowed_files = scope.get("allowed_files")
+    reporting_formats = rep.get("formats")
+
+    baseline_run_dir = _string_or_none(sel.get("baseline_run_dir"))
+
+    return ReportExperimentConfigDetails(
+        description=_string_or_none(config_snapshot.get("description")),
+        candidate_generation_max_source_chars=_int_or_none(cg.get("max_source_chars")),
+        candidate_format_type=_string_or_none(cf.get("type")),
+        source_presentation=_string_or_none(cf.get("source_presentation")),
+        require_original_verification=_bool_or_none(
+            cf.get("require_original_verification")
+        ),
+        allow_exact_search_fallback=_bool_or_none(
+            cf.get("allow_exact_search_fallback")
+        ),
+        history_policy_enabled=_bool_or_none(hp.get("enabled")),
+        history_policy_scope=_string_or_none(hp.get("scope")),
+        selection_enabled=_bool_or_none(sel.get("enabled")),
+        selection_baseline_run_dir=_display_path(baseline_run_dir, experiment_path)
+        if baseline_run_dir
+        else None,
+        closed_loop_enabled=_bool_or_none(cl.get("enabled")),
+        optimization_scope_allowed_files=list(allowed_files)
+        if isinstance(allowed_files, list)
+        else [],
+        reporting_enabled=_bool_or_none(rep.get("enabled")),
+        reporting_formats=list(reporting_formats)
+        if isinstance(reporting_formats, list)
+        else [],
+        reporting_renderer=_string_or_none(rep.get("renderer")),
+        reporting_fail_on_error=_bool_or_none(rep.get("fail_on_error")),
+    )
+
+
+def _build_benchmark_config(baseline_raw: dict[str, Any] | None) -> ReportBenchmarkConfig:
+    """Build ReportBenchmarkConfig from raw baseline metrics payload."""
+
+    if not baseline_raw:
+        return ReportBenchmarkConfig()
+
+    bm = baseline_raw.get("benchmark") or {}
+
+    # Try nested option dicts in priority order
+    opts: dict[str, Any] = {}
+    for key in ("benchmark_options", "options", "config"):
+        candidate = bm.get(key)
+        if isinstance(candidate, dict):
+            opts = candidate
+            break
+
+    def _b_str(key: str, *fallbacks: str) -> str | None:
+        for k in (key, *fallbacks):
+            v = _string_or_none(bm.get(k))
+            if v is not None:
+                return v
+        return None
+
+    def _o_int(key: str, *fallbacks: str) -> int | None:
+        for k in (key, *fallbacks):
+            v = _int_or_none(opts.get(k))
+            if v is not None:
+                return v
+            v = _int_or_none(bm.get(k))
+            if v is not None:
+                return v
+        return None
+
+    def _o_float(key: str, *fallbacks: str) -> float | None:
+        for k in (key, *fallbacks):
+            v = _number_or_none(opts.get(k))
+            if v is not None:
+                return v
+            v = _number_or_none(bm.get(k))
+            if v is not None:
+                return v
+        return None
+
+    def _o_bool(key: str) -> bool | None:
+        v = _bool_or_none(opts.get(key))
+        if v is not None:
+            return v
+        return _bool_or_none(bm.get(key))
+
+    def _o_str(key: str, *fallbacks: str) -> str | None:
+        for k in (key, *fallbacks):
+            v = _string_or_none(opts.get(k))
+            if v is not None:
+                return v
+            v = _string_or_none(bm.get(k))
+            if v is not None:
+                return v
+        return None
+
+    return ReportBenchmarkConfig(
+        family=_b_str("family"),
+        solver=_b_str("solver", "parsed_solver_name"),
+        num_cases=_o_int("num_cases", "parsed_num_cases"),
+        points_per_case=_o_int("points_per_case"),
+        warmup_iterations=_o_int("warmup_iterations"),
+        timed_iterations=_o_int("timed_iterations"),
+        seed=_o_int("random_seed", "seed"),
+        runtime_unit=_o_str("runtime_unit"),
+        reprojection_error_threshold=_o_float("reprojection_error_threshold"),
+        minimum_success_rate=_o_float("min_success_rate", "minimum_success_rate"),
+        require_all_cases_valid=_o_bool("require_all_cases_valid"),
+        use_max_reprojection_error_as_hard_gate=_o_bool(
+            "use_max_reprojection_error_as_hard_gate"
+        ),
+        build_type=_b_str("build_type"),
+    )
+
+
+def _build_closed_loop_selection(
+    selection_report: dict[str, Any],
+    current_best_state: dict[str, Any],
+    experiment_path: Path,
+) -> ReportClosedLoopSelection:
+    """Build ReportClosedLoopSelection from selection report and current_best_state."""
+
+    if not selection_report and not current_best_state:
+        return ReportClosedLoopSelection()
+
+    fcb = selection_report.get("final_current_best") or {}
+    bvc = selection_report.get("best_verified_candidate_vs_original_baseline") or {}
+
+    return ReportClosedLoopSelection(
+        promotion_policy=_string_or_none(selection_report.get("promotion_policy")),
+        final_current_best_iteration=_first_available_int(
+            fcb.get("iteration"),
+            current_best_state.get("current_best_iteration"),
+        ),
+        final_current_best_is_baseline=_first_available_bool(
+            fcb.get("is_baseline"),
+            current_best_state.get("current_best_is_baseline"),
+        ),
+        final_current_best_run_dir=_display_path(
+            _first_string(
+                fcb.get("run_dir"),
+                current_best_state.get("current_best_run_dir"),
+            ),
+            experiment_path,
+        ),
+        final_current_best_source_dir=_display_path(
+            _first_string(
+                fcb.get("source_dir"),
+                current_best_state.get("current_best_source_dir"),
+            ),
+            experiment_path,
+        ),
+        final_current_best_metrics_path=_display_path(
+            _first_string(
+                fcb.get("metrics_path"),
+                current_best_state.get("current_best_metrics_path"),
+            ),
+            experiment_path,
+        ),
+        best_verified_candidate_iteration=_int_or_none(bvc.get("iteration")),
+        best_verified_candidate_run_dir=_display_path(
+            bvc.get("candidate_run_dir"), experiment_path
+        ),
+        best_verified_candidate_speedup_vs_baseline=_number_or_none(bvc.get("speedup")),
+        best_verified_candidate_runtime_reduction_percent=_number_or_none(
+            bvc.get("runtime_reduction_percent")
+        ),
+        matches_final_current_best=_bool_or_none(bvc.get("matches_final_current_best")),
+    )
+
+
+def _build_final_best_candidate(
+    summary: dict[str, Any],
+    iterations: list[ReportIterationSummary],
+    baseline_metrics: ReportBaselineMetrics,
+    records: list[dict[str, Any]],
+    experiment_path: Path,
+) -> ReportFinalBestCandidate:
+    """Build ReportFinalBestCandidate from summary, iterations, and per-candidate artifacts."""
+
+    final_best_iter = _int_or_default(summary.get("final_best_iteration"))
+    baseline_rt = baseline_metrics.runtime_ns_per_case_median
+
+    # Find matching iteration summary
+    best_iter_summary: ReportIterationSummary | None = None
+    for it in iterations:
+        if it.iteration == final_best_iter:
+            if best_iter_summary is None or it.promoted:
+                best_iter_summary = it
+
+    if final_best_iter == 0:
+        # Baseline is best
+        final_rt = baseline_rt
+        correctness = baseline_metrics.correctness_passed
+        candidate_summary = None
+        expected_effect = None
+        risk_level = None
+        candidate_run_dir_display = None
+    else:
+        final_rt = best_iter_summary.runtime_ns_per_case_median if best_iter_summary else None
+        correctness = best_iter_summary.correctness_passed if best_iter_summary else None
+        candidate_summary = best_iter_summary.candidate_summary if best_iter_summary else None
+        expected_effect = best_iter_summary.expected_effect if best_iter_summary else None
+        risk_level = best_iter_summary.risk_level if best_iter_summary else None
+        candidate_run_dir_display = _display_path(
+            summary.get("final_best_candidate_run_dir"), experiment_path
+        )
+
+    # Absolute runtime difference
+    abs_diff: float | None = None
+    if final_rt is not None and baseline_rt is not None:
+        abs_diff = final_rt - baseline_rt
+
+    # Changed files from materialization.json of the best candidate record
+    changed_files: list[str] = []
+    if final_best_iter > 0 and best_iter_summary is not None:
+        best_candidate_run_dir_text = _path_text_or_none(
+            best_iter_summary.candidate_run_dir
+        )
+        if best_candidate_run_dir_text:
+            candidate_dir = _resolve_existing_dir_or_display_path(
+                best_candidate_run_dir_text, experiment_path
+            )
+            mat = _safe_read_json_object(candidate_dir / "materialization.json")
+            if isinstance(mat, dict):
+                raw_files = mat.get("changed_files")
+                if isinstance(raw_files, list):
+                    changed_files = [str(f) for f in raw_files if f]
+
+    return ReportFinalBestCandidate(
+        iteration=final_best_iter,
+        candidate_run_dir=candidate_run_dir_display if final_best_iter > 0 else None,
+        runtime_ns_per_case_median=final_rt,
+        baseline_runtime_ns_per_case_median=baseline_rt,
+        absolute_runtime_difference_ns_per_case=abs_diff,
+        speedup_vs_baseline=_number_or_none(
+            summary.get("final_speedup_vs_original_baseline")
+        ),
+        runtime_reduction_percent=_number_or_none(
+            summary.get("final_runtime_reduction_percent")
+        ),
+        correctness_passed=correctness,
+        candidate_summary=candidate_summary,
+        expected_effect=expected_effect,
+        risk_level=risk_level,
+        changed_files=changed_files,
+        final_optimized_source=_display_path(
+            summary.get("final_optimized_source_dir"), experiment_path
+        ),
+        final_diff=_display_path(
+            summary.get("final_optimized_source_diff_path"), experiment_path
+        ),
+    )
+
+
+def _build_reporting_status(
+    experiment_path: Path,
+    config_snapshot: dict[str, Any],
+    status_payload: dict[str, Any],
+) -> ReportReportingStatus:
+    """Build ReportReportingStatus from runner status block and config snapshot."""
+
+    runner_rep = status_payload.get("reporting") or {}
+    config_rep = config_snapshot.get("reporting") or {}
+
+    enabled = _first_available_bool(
+        runner_rep.get("enabled"),
+        config_rep.get("enabled"),
+    )
+    status = _string_or_none(runner_rep.get("status"))
+    formats_raw = runner_rep.get("formats") or config_rep.get("formats")
+    formats: list[str] = list(formats_raw) if isinstance(formats_raw, list) else []
+    renderer = _first_string(
+        runner_rep.get("renderer"),
+        config_rep.get("renderer"),
+    )
+    error = _string_or_none(runner_rep.get("error"))
+
+    report_dir = experiment_path / "report"
+    report_data_file = report_dir / "report_data.json"
+    report_html_file = report_dir / "report.html"
+    report_pdf_file = report_dir / "report.pdf"
+
+    report_data_path = (
+        _display_path(report_data_file, experiment_path)
+        if report_data_file.exists()
+        else None
+    )
+    report_html_path = (
+        _display_path(report_html_file, experiment_path)
+        if report_html_file.exists()
+        else None
+    )
+
+    if report_pdf_file.exists():
+        pdf_generated = True
+        report_pdf_path = _display_path(report_pdf_file, experiment_path)
+        pdf_display = report_pdf_path
+    else:
+        pdf_generated = False
+        report_pdf_path = None
+        if "pdf" not in formats:
+            formats_json = json.dumps(formats)
+            pdf_display = f"Not generated. Current reporting formats: {formats_json}"
+        else:
+            pdf_display = "Not generated or missing"
+
+    return ReportReportingStatus(
+        enabled=enabled,
+        status=status,
+        formats=formats,
+        renderer=renderer,
+        report_data_path=report_data_path,
+        report_html_path=report_html_path,
+        report_pdf_path=report_pdf_path,
+        pdf_generated=pdf_generated,
+        pdf_display=pdf_display,
+        error=error,
+    )
+
+
+def _derive_correctness_preserved(
+    final_best_iter: int,
+    iterations: list[ReportIterationSummary],
+    baseline_metrics: ReportBaselineMetrics,
+) -> bool | None:
+    """Infer correctness_preserved from baseline or the promoted final iteration."""
+
+    if final_best_iter == 0:
+        return baseline_metrics.correctness_passed
+
+    best: ReportIterationSummary | None = None
+    for it in iterations:
+        if it.iteration == final_best_iter:
+            if best is None or it.promoted:
+                best = it
+    if best is not None:
+        return best.correctness_passed
+    return None
+
+
+# ---------------------------------------------------------------------------
+# Internal helpers (unchanged from v1)
+# ---------------------------------------------------------------------------
 
 def _require_file(path: Path, label: str) -> None:
     if not path.is_file():
@@ -300,6 +843,14 @@ def _first_available_bool(*values: Any) -> bool | None:
     return None
 
 
+def _first_available_int(*values: Any) -> int | None:
+    for value in values:
+        v = _int_or_none(value)
+        if v is not None:
+            return v
+    return None
+
+
 def _first_string(*values: Any) -> str | None:
     for value in values:
         text = _string_or_none(value)
@@ -356,31 +907,33 @@ def _reason_text(value: Any) -> str | None:
     return None
 
 
-def _load_baseline_metrics(
+def _load_baseline_metrics_with_raw(
     raw_path: Any,
     experiment_dir: Path,
-) -> ReportBaselineMetrics:
+) -> tuple[ReportBaselineMetrics, dict[str, Any] | None]:
+    """Load baseline metrics and return both the dataclass and raw dict."""
+
     path_text = _path_text_or_none(raw_path)
     if path_text is None:
-        return ReportBaselineMetrics()
+        return ReportBaselineMetrics(), None
 
     metrics_path = _resolve_existing_or_display_path(path_text, experiment_dir)
     if not metrics_path.is_file():
-        return ReportBaselineMetrics()
+        return ReportBaselineMetrics(), None
 
     try:
         payload = json.loads(metrics_path.read_text(encoding="utf-8-sig"))
     except (OSError, json.JSONDecodeError):
-        return ReportBaselineMetrics()
+        return ReportBaselineMetrics(), None
     if not isinstance(payload, dict):
-        return ReportBaselineMetrics()
+        return ReportBaselineMetrics(), None
 
     candidates = [payload]
     benchmark = payload.get("benchmark")
     if isinstance(benchmark, dict):
         candidates.insert(0, benchmark)
 
-    return ReportBaselineMetrics(
+    metrics = ReportBaselineMetrics(
         runtime_ns_per_case_median=_first_number(
             candidates,
             (
@@ -415,6 +968,7 @@ def _load_baseline_metrics(
             ("correctness_passed", "parsed_correctness_passed"),
         ),
     )
+    return metrics, payload
 
 
 def _artifact_map(
@@ -424,21 +978,28 @@ def _artifact_map(
     report_data_path: Path,
 ) -> ReportArtifactMap:
     report_dir = experiment_dir / "report"
+    report_pdf = report_dir / "report.pdf"
     return ReportArtifactMap(
-        experiment_dir=experiment_dir,
-        report_dir=report_dir,
-        report_data=report_data_path,
-        report_html=report_dir / "report.html",
-        report_pdf=report_dir / "report.pdf",
-        plots_dir=report_dir / "plots",
-        final_optimized_source=_path_text_or_none(
-            summary.get("final_optimized_source_dir")
+        experiment_dir=_display_path(experiment_dir),
+        report_dir=_display_path(report_dir),
+        report_data=_display_path(report_data_path),
+        report_html=_display_path(report_dir / "report.html"),
+        report_pdf=_display_path(report_pdf) if report_pdf.exists() else None,
+        plots_dir=_display_path(report_dir / "plots"),
+        final_optimized_source=_display_path(
+            _path_text_or_none(summary.get("final_optimized_source_dir")),
+            experiment_dir,
         ),
-        final_diff=_path_text_or_none(
-            summary.get("final_optimized_source_diff_path")
+        final_diff=_display_path(
+            _path_text_or_none(summary.get("final_optimized_source_diff_path")),
+            experiment_dir,
         ),
-        closed_loop_summary=experiment_dir / "closed_loop_summary.json",
-        closed_loop_iterations=experiment_dir / "closed_loop_iterations.jsonl",
+        closed_loop_summary=_display_path(
+            experiment_dir / "closed_loop_summary.json"
+        ),
+        closed_loop_iterations=_display_path(
+            experiment_dir / "closed_loop_iterations.jsonl"
+        ),
     )
 
 
@@ -470,6 +1031,17 @@ def _resolve_existing_dir_or_display_path(path_text: str, experiment_dir: Path) 
         if candidate.is_dir():
             return candidate
     return candidates[-1]
+
+
+def _nested_get(d: dict[str, Any], *keys: str) -> Any:
+    """Safely traverse nested dicts."""
+
+    current: Any = d
+    for key in keys:
+        if not isinstance(current, dict):
+            return None
+        current = current.get(key)
+    return current
 
 
 def _first_number(
@@ -510,6 +1082,16 @@ def _int_or_default(value: Any, default: int = 0) -> int:
     if isinstance(value, bool) or not isinstance(value, int):
         return default
     return value
+
+
+def _int_or_none(value: Any) -> int | None:
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, int):
+        return value
+    if isinstance(value, float) and value == int(value):
+        return int(value)
+    return None
 
 
 def _string_or_default(value: Any, default: str = "") -> str:

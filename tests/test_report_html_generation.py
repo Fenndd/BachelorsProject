@@ -6,8 +6,14 @@ from pathlib import Path
 from orchestrator.reporting import (
     ReportArtifactMap,
     ReportBaselineMetrics,
+    ReportBenchmarkConfig,
+    ReportClosedLoopSelection,
+    ReportExperimentConfigDetails,
+    ReportFinalBestCandidate,
     ReportFinalResult,
     ReportIterationSummary,
+    ReportLlmInfo,
+    ReportReportingStatus,
     build_report_figures,
     default_status_counts,
     generate_basic_html_report,
@@ -227,3 +233,104 @@ def test_generate_basic_html_report_creates_report_outputs_read_only(
         assert (experiment_dir / "report" / "plots" / filename).is_file()
     assert summary_path.read_text(encoding="utf-8") == summary_before
     assert iterations_path.read_text(encoding="utf-8") == iterations_before
+
+
+def test_f_html_contains_enriched_fields(tmp_path: Path) -> None:
+    """Rendered HTML surfaces model, benchmark, selection, final-best, and PDF status."""
+
+    report_data = make_empty_report_data("exp_001", TARGET_FILE)
+    report_data.experiment.model = "deepseek-v4-pro"
+    report_data.experiment.candidate_format = "line_range_edits"
+    report_data.experiment.source_presentation = "line_numbered"
+    report_data.experiment.benchmark_family = "absolute_pose_solvers"
+    report_data.final_result = ReportFinalResult(
+        final_best_iteration=1,
+        final_speedup_vs_baseline=1.30,
+        final_runtime_reduction_percent=23.0,
+        accepted_improvements=1,
+        correctness_preserved=True,
+    )
+    report_data.baseline_metrics = ReportBaselineMetrics(
+        runtime_ns_per_case_median=1000.0,
+        correctness_passed=True,
+    )
+    report_data.llm = ReportLlmInfo(
+        provider="deepseek",
+        model="deepseek-v4-pro",
+        thinking_enabled=True,
+        thinking_effort="high",
+        max_tokens=8192,
+    )
+    report_data.experiment_config_details = ReportExperimentConfigDetails(
+        candidate_format_type="line_range_edits",
+        source_presentation="line_numbered",
+    )
+    report_data.benchmark_config = ReportBenchmarkConfig(
+        family="absolute_pose_solvers",
+        solver="lambdatwist_p3p",
+        num_cases=1024,
+        timed_iterations=50,
+        build_type="Release",
+    )
+    report_data.closed_loop_selection = ReportClosedLoopSelection(
+        promotion_policy="decision_vs_current_best.accepted_improvement_only",
+        final_current_best_iteration=1,
+        final_current_best_is_baseline=False,
+    )
+    report_data.final_best_candidate = ReportFinalBestCandidate(
+        iteration=1,
+        speedup_vs_baseline=1.30,
+        runtime_reduction_percent=23.0,
+        correctness_passed=True,
+        candidate_summary="Optimized hot loop.",
+        final_optimized_source="results/experiments/exp_001/final_optimized_source",
+    )
+    report_data.reporting_status = ReportReportingStatus(
+        enabled=True,
+        status="completed",
+        formats=["html"],
+        pdf_generated=False,
+        pdf_display='Not generated. Current reporting formats: ["html"]',
+    )
+    report_data.iterations = [
+        ReportIterationSummary(
+            iteration=1,
+            status="accepted_improvement",
+            candidate_summary="Optimized hot loop.",
+            speedup_vs_current_best=1.30,
+            speedup_vs_baseline=1.30,
+            expected_effect="decrease",
+            risk_level="low",
+            correctness_passed=True,
+            promoted=True,
+        )
+    ]
+
+    plot_paths = build_report_figures(report_data, tmp_path / "plots")
+    html_path = render_report_html(report_data, plot_paths, tmp_path / "report.html")
+    html = html_path.read_text(encoding="utf-8")
+
+    assert "deepseek-v4-pro" in html
+    assert "line_range_edits" in html
+    assert "line_numbered" in html
+    assert "absolute_pose_solvers" in html
+    assert "lambdatwist_p3p" in html
+    assert "Speedup vs Current Best" in html
+    assert "Closed-Loop Selection" in html
+    assert "Final Best Candidate" in html
+    assert "Not generated" in html
+    # correctness_preserved rendered as Yes/No
+    assert "Yes" in html
+
+
+def test_g_html_does_not_contain_manual_prose_paragraphs(tmp_path: Path) -> None:
+    """The HTML template must not contain hand-written explanatory paragraphs."""
+
+    report_data = _report_data()
+    plot_paths = build_report_figures(report_data, tmp_path / "plots")
+    html_path = render_report_html(report_data, plot_paths, tmp_path / "report.html")
+    html = html_path.read_text(encoding="utf-8")
+
+    assert "This report describes" not in html
+    assert "The final promoted version" not in html
+    assert "All benchmarked non-no-op candidates" not in html

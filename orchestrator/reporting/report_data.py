@@ -133,6 +133,114 @@ class ReportArtifactMap:
     closed_loop_iterations: Path | str | None = None
 
 
+@dataclass
+class ReportLlmInfo:
+    """LLM and variant configuration used in the experiment."""
+
+    provider: str | None = None
+    model: str | None = None
+    llm_config: str | None = None
+    variant_id: str | None = None
+    variant_description: str | None = None
+    thinking_enabled: bool | None = None
+    thinking_effort: str | None = None
+    max_tokens: int | None = None
+
+
+@dataclass
+class ReportExperimentConfigDetails:
+    """Raw experiment config snapshot fields surfaced in the report."""
+
+    description: str | None = None
+    candidate_generation_max_source_chars: int | None = None
+    candidate_format_type: str | None = None
+    source_presentation: str | None = None
+    require_original_verification: bool | None = None
+    allow_exact_search_fallback: bool | None = None
+    history_policy_enabled: bool | None = None
+    history_policy_scope: str | None = None
+    selection_enabled: bool | None = None
+    selection_baseline_run_dir: str | None = None
+    closed_loop_enabled: bool | None = None
+    optimization_scope_allowed_files: list[str] = field(default_factory=list)
+    reporting_enabled: bool | None = None
+    reporting_formats: list[str] = field(default_factory=list)
+    reporting_renderer: str | None = None
+    reporting_fail_on_error: bool | None = None
+
+
+@dataclass
+class ReportBenchmarkConfig:
+    """Benchmark configuration extracted from baseline metrics artifact."""
+
+    family: str | None = None
+    solver: str | None = None
+    num_cases: int | None = None
+    points_per_case: int | None = None
+    warmup_iterations: int | None = None
+    timed_iterations: int | None = None
+    seed: int | None = None
+    runtime_unit: str | None = None
+    reprojection_error_threshold: float | None = None
+    minimum_success_rate: float | None = None
+    require_all_cases_valid: bool | None = None
+    use_max_reprojection_error_as_hard_gate: bool | None = None
+    build_type: str | None = None
+
+
+@dataclass
+class ReportClosedLoopSelection:
+    """Summary of closed-loop selection from closed_loop_selection_report.json."""
+
+    promotion_policy: str | None = None
+    final_current_best_iteration: int | None = None
+    final_current_best_is_baseline: bool | None = None
+    final_current_best_run_dir: str | None = None
+    final_current_best_source_dir: str | None = None
+    final_current_best_metrics_path: str | None = None
+    best_verified_candidate_iteration: int | None = None
+    best_verified_candidate_run_dir: str | None = None
+    best_verified_candidate_speedup_vs_baseline: float | None = None
+    best_verified_candidate_runtime_reduction_percent: float | None = None
+    matches_final_current_best: bool | None = None
+
+
+@dataclass
+class ReportReportingStatus:
+    """Reporting pipeline status and PDF generation outcome."""
+
+    enabled: bool | None = None
+    status: str | None = None
+    formats: list[str] = field(default_factory=list)
+    renderer: str | None = None
+    report_data_path: str | None = None
+    report_html_path: str | None = None
+    report_pdf_path: str | None = None
+    pdf_generated: bool = False
+    pdf_display: str | None = None
+    error: str | None = None
+
+
+@dataclass
+class ReportFinalBestCandidate:
+    """Full summary of the final best candidate (or baseline if no improvement)."""
+
+    iteration: int | None = None
+    candidate_run_dir: str | None = None
+    runtime_ns_per_case_median: float | None = None
+    baseline_runtime_ns_per_case_median: float | None = None
+    absolute_runtime_difference_ns_per_case: float | None = None
+    speedup_vs_baseline: float | None = None
+    runtime_reduction_percent: float | None = None
+    correctness_passed: bool | None = None
+    candidate_summary: str | None = None
+    expected_effect: str | None = None
+    risk_level: str | None = None
+    changed_files: list[str] = field(default_factory=list)
+    final_optimized_source: str | None = None
+    final_diff: str | None = None
+
+
 @dataclass(kw_only=True)
 class ReportData:
     """Top-level normalized report_data.json contract."""
@@ -145,6 +253,18 @@ class ReportData:
     iterations: list[ReportIterationSummary] = field(default_factory=list)
     status_counts: ReportStatusCounts | dict[str, int] = field(default_factory=ReportStatusCounts)
     artifacts: ReportArtifactMap = field(default_factory=ReportArtifactMap)
+    llm: ReportLlmInfo = field(default_factory=ReportLlmInfo)
+    experiment_config_details: ReportExperimentConfigDetails = field(
+        default_factory=ReportExperimentConfigDetails
+    )
+    benchmark_config: ReportBenchmarkConfig = field(default_factory=ReportBenchmarkConfig)
+    closed_loop_selection: ReportClosedLoopSelection = field(
+        default_factory=ReportClosedLoopSelection
+    )
+    final_best_candidate: ReportFinalBestCandidate = field(
+        default_factory=ReportFinalBestCandidate
+    )
+    reporting_status: ReportReportingStatus = field(default_factory=ReportReportingStatus)
 
 
 def default_status_counts() -> dict[str, int]:
@@ -203,10 +323,16 @@ __all__ = [
     "ExperimentReportInfo",
     "ReportArtifactMap",
     "ReportBaselineMetrics",
+    "ReportBenchmarkConfig",
+    "ReportClosedLoopSelection",
     "ReportData",
+    "ReportExperimentConfigDetails",
+    "ReportFinalBestCandidate",
     "ReportFinalResult",
     "ReportIterationSummary",
+    "ReportLlmInfo",
     "ReportMetadata",
+    "ReportReportingStatus",
     "ReportStatusCounts",
     "default_status_counts",
     "make_empty_report_data",
