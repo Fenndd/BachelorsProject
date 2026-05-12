@@ -277,6 +277,25 @@ results/experiments/<experiment_id>/current_best_state.json
 
 `experiment_status.json` includes a `closed_loop` block with final artifact paths, accepted improvement count, final best iteration, final speedup/runtime reduction, and status counts. The human-readable `summary.txt` includes a concise closed-loop section with the same final artifact locations.
 
+Closed-loop reports can be enabled with a top-level `reporting` block:
+
+```json
+"reporting": {
+  "enabled": true,
+  "formats": ["html"],
+  "renderer": "auto",
+  "fail_on_error": false
+}
+```
+
+Automatic reporting runs only after closed-loop final artifacts are written. It creates files under `results/experiments/<experiment_id>/report/`, including `report_data.json`, `report.html`, `plots/*.svg`, and optionally `report.pdf` when `pdf` is requested. Reporting is read-only post-processing: it does not run LLM generation, verification, benchmarking, candidate promotion, source copying, or selection recomputation.
+
+Reports can also be generated manually for a completed experiment:
+
+```powershell
+python -m orchestrator.reporting.generate_report --experiment-dir results/experiments/<experiment_id>
+```
+
 Candidate run artifacts are written under `results/runs/<candidate_run_id>/`:
 
 ```text
