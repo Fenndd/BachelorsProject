@@ -1,0 +1,66 @@
+from __future__ import annotations
+
+import subprocess
+import sys
+from pathlib import Path
+
+
+REPO_ROOT = Path(__file__).resolve().parents[1]
+
+
+def run_cli(*args: str) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(
+        [sys.executable, "-m", "orchestrator.cli.app", *args],
+        cwd=REPO_ROOT,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+
+def test_cli_help_exits_successfully() -> None:
+    result = run_cli("--help")
+
+    assert result.returncode == 0
+    assert "Experimental control layer" in result.stdout
+
+
+def test_cli_doctor_exits_successfully() -> None:
+    result = run_cli("doctor")
+
+    assert result.returncode == 0
+    assert "Doctor" in result.stdout
+
+
+def test_cli_experiment_list_exits_successfully() -> None:
+    result = run_cli("experiment", "list")
+
+    assert result.returncode == 0
+    assert "Experiment Configs" in result.stdout
+
+
+def test_cli_workspace_status_exits_successfully() -> None:
+    result = run_cli("workspace", "status")
+
+    assert result.returncode == 0
+    assert "Workspace Status" in result.stdout
+
+
+def test_cli_placeholder_commands_do_not_crash() -> None:
+    for args in (
+        ("baseline", "run"),
+        ("results", "latest"),
+    ):
+        result = run_cli(*args)
+
+        assert result.returncode == 0, result.stderr
+
+
+def test_cli_experiment_run_validates_existing_config(tmp_path: Path) -> None:
+    config = tmp_path / "experiment.json"
+    config.write_text("{}\n", encoding="utf-8")
+
+    result = run_cli("experiment", "run", "--config", str(config))
+
+    assert result.returncode == 0
+    assert "Validated config" in result.stdout

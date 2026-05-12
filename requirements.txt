@@ -1,2 +1,6 @@
 # Initial scaffold placeholder.
 # Add Python dependencies when orchestrator functionality is implemented.
+typer
+rich
+textual
+python-dotenv

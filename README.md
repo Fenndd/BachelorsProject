@@ -90,6 +90,18 @@ py orchestrator/cli/main.py
 
 The flow configures CMake, builds/runs `baseline_smoke_test`, `baseline_runner`, `absolute_pose_lambdatwist_adapter_validator`, and `absolute_pose_lambdatwist_benchmark`, parses metrics, and checks `correctness_passed`. Benchmark and evaluation builds default to **Release**.
 
+## Experimental Terminal Control Layer
+
+The first skeleton of the Interactive Terminal Control Layer is available through a new Typer/Rich CLI and Textual TUI. It is currently a thin control surface for basic project status and placeholders only; real baseline and experiment launching from this layer will be connected in later steps.
+
+```powershell
+python -m orchestrator.cli.app --help
+python -m orchestrator.cli.app doctor
+python -m orchestrator.cli.app tui
+```
+
+The existing baseline entry point remains `orchestrator/cli/main.py`, and the new command layer does not change optimization, benchmark, validation, materialization, or closed-loop experiment behavior.
+
 ## LLM Candidate Generation and Candidate Edit Formats
 
 LLM candidate generation is implemented by `orchestrator.llm.generate_candidate`. It supports two candidate formats selected with `--candidate-type` and experiment `candidate_format.type`.
