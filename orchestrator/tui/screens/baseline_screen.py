@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-import threading
 import queue
+import threading
 
 from textual.app import ComposeResult
 from textual.containers import Container, Horizontal
@@ -54,6 +54,7 @@ class BaselineScreen(Screen[None]):
         self._running = False
         self._log_queue: queue.Queue[tuple[str, str]] = queue.Queue()
         self._result_queue: queue.Queue[str] = queue.Queue()
+        self._drain_timer = None
 
     def compose(self) -> ComposeResult:
         command = " ".join(build_baseline_command())
@@ -74,9 +75,6 @@ class BaselineScreen(Screen[None]):
                 yield Button("Back", id="back")
         yield Footer()
 
-    def on_mount(self) -> None:
-        self.set_interval(0.1, self._drain_queues)
-
     def on_button_pressed(self, event: Button.Pressed) -> None:
         if event.button.id == "back":
             self.action_request_back()
@@ -95,6 +93,7 @@ class BaselineScreen(Screen[None]):
     def _start_baseline(self) -> None:
         if self._running:
             return
+        self._clear_queues()
         self._running = True
         command = build_baseline_command()
         register_process = getattr(self.app, "register_process", None)
@@ -107,6 +106,7 @@ class BaselineScreen(Screen[None]):
         log.write("Starting baseline subprocess...")
         log.write(f"Command: {' '.join(command)}")
         log.write("Waiting for output...")
+        self._start_drain_timer()
         thread = threading.Thread(target=self._run_baseline_thread, daemon=True)
         thread.start()
         self.query_one("#baseline-status", Static).update("Status: running")
@@ -125,6 +125,36 @@ class BaselineScreen(Screen[None]):
         if callable(unregister_process):
             unregister_process()
         self.query_one("#baseline-status", Static).update(status_text)
+        self._stop_drain_timer()
+
+    def _clear_queues(self) -> None:
+        while True:
+            try:
+                self._log_queue.get_nowait()
+            except queue.Empty:
+                break
+        while True:
+            try:
+                self._result_queue.get_nowait()
+            except queue.Empty:
+                break
+
+    def _start_drain_timer(self) -> None:
+        self._stop_drain_timer()
+        self._drain_timer = self.set_interval(0.1, self._drain_queues)
+
+    def _stop_drain_timer(self) -> None:
+        timer = self._drain_timer
+        self._drain_timer = None
+        if timer is None:
+            return
+        stop = getattr(timer, "stop", None)
+        if callable(stop):
+            stop()
+            return
+        pause = getattr(timer, "pause", None)
+        if callable(pause):
+            pause()
 
     def _drain_queues(self) -> None:
         while True:

@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-import threading
 import queue
+import threading
 
 from textual.app import ComposeResult
 from textual.containers import Container, Horizontal
@@ -60,6 +60,7 @@ class ExperimentScreen(Screen[None]):
         self._confirm_real_run = False
         self._log_queue: queue.Queue[tuple[str, str]] = queue.Queue()
         self._result_queue: queue.Queue[str] = queue.Queue()
+        self._drain_timer = None
 
     def compose(self) -> ComposeResult:
         yield Header()
@@ -98,7 +99,6 @@ class ExperimentScreen(Screen[None]):
         return self.summaries[index]
 
     def on_mount(self) -> None:
-        self.set_interval(0.1, self._drain_queues)
         if self.summaries:
             self.query_one("#experiment-list", ListView).index = 0
 
@@ -144,6 +144,7 @@ class ExperimentScreen(Screen[None]):
         if summary is None:
             self.query_one("#experiment-status", Static).update("Status: no configs available")
             return
+        self._clear_queues()
         self._running = True
         self._confirm_real_run = False
         command = build_experiment_command(summary.path, dry_run=dry_run)
@@ -158,6 +159,7 @@ class ExperimentScreen(Screen[None]):
         log.write(f"Command: {' '.join(command)}")
         log.write(f"Mode: {'dry-run' if dry_run else 'real run'}")
         log.write("Waiting for output...")
+        self._start_drain_timer()
         thread = threading.Thread(
             target=self._run_experiment_thread,
             args=(summary, dry_run),
@@ -182,6 +184,36 @@ class ExperimentScreen(Screen[None]):
         if callable(unregister_process):
             unregister_process()
         self.query_one("#experiment-status", Static).update(status_text)
+        self._stop_drain_timer()
+
+    def _clear_queues(self) -> None:
+        while True:
+            try:
+                self._log_queue.get_nowait()
+            except queue.Empty:
+                break
+        while True:
+            try:
+                self._result_queue.get_nowait()
+            except queue.Empty:
+                break
+
+    def _start_drain_timer(self) -> None:
+        self._stop_drain_timer()
+        self._drain_timer = self.set_interval(0.1, self._drain_queues)
+
+    def _stop_drain_timer(self) -> None:
+        timer = self._drain_timer
+        self._drain_timer = None
+        if timer is None:
+            return
+        stop = getattr(timer, "stop", None)
+        if callable(stop):
+            stop()
+            return
+        pause = getattr(timer, "pause", None)
+        if callable(pause):
+            pause()
 
     def _drain_queues(self) -> None:
         while True:

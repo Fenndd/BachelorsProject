@@ -5,6 +5,14 @@ from orchestrator.tui.screens.baseline_screen import BaselineScreen
 from orchestrator.tui.screens.experiment_screen import ExperimentScreen
 
 
+class _FakeTimer:
+    def __init__(self) -> None:
+        self.stopped = False
+
+    def stop(self) -> None:
+        self.stopped = True
+
+
 def test_optimizer_tui_process_guard_clamps_at_zero() -> None:
     app = OptimizerTuiApp()
 
@@ -76,6 +84,14 @@ def test_baseline_back_is_blocked_while_running(monkeypatch) -> None:
     ]
 
 
+def test_baseline_screen_initializes_queues_and_timer() -> None:
+    screen = BaselineScreen()
+
+    assert screen._log_queue.empty()
+    assert screen._result_queue.empty()
+    assert screen._drain_timer is None
+
+
 def test_baseline_drain_queues_appends_logs(monkeypatch) -> None:
     screen = BaselineScreen()
     appended: list[tuple[str, str]] = []
@@ -108,6 +124,17 @@ def test_baseline_drain_queues_applies_result(monkeypatch) -> None:
     assert results == ["Status: success"]
 
 
+def test_baseline_stop_drain_timer_stops_and_clears_timer() -> None:
+    screen = BaselineScreen()
+    timer = _FakeTimer()
+    screen._drain_timer = timer
+
+    screen._stop_drain_timer()
+
+    assert timer.stopped
+    assert screen._drain_timer is None
+
+
 def test_experiment_back_is_blocked_while_running(monkeypatch) -> None:
     screen = ExperimentScreen()
     messages: list[str] = []
@@ -120,6 +147,14 @@ def test_experiment_back_is_blocked_while_running(monkeypatch) -> None:
     assert messages == [
         "Experiment is still running. Wait until it finishes before leaving this screen."
     ]
+
+
+def test_experiment_screen_initializes_queues_and_timer() -> None:
+    screen = ExperimentScreen()
+
+    assert screen._log_queue.empty()
+    assert screen._result_queue.empty()
+    assert screen._drain_timer is None
 
 
 def test_experiment_drain_queues_appends_logs(monkeypatch) -> None:
@@ -152,3 +187,14 @@ def test_experiment_drain_queues_applies_result(monkeypatch) -> None:
     screen._drain_queues()
 
     assert results == ["Status: failed"]
+
+
+def test_experiment_stop_drain_timer_stops_and_clears_timer() -> None:
+    screen = ExperimentScreen()
+    timer = _FakeTimer()
+    screen._drain_timer = timer
+
+    screen._stop_drain_timer()
+
+    assert timer.stopped
+    assert screen._drain_timer is None
