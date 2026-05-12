@@ -33,7 +33,7 @@ class MainScreen(Screen[None]):
         yield Header()
         with VerticalScroll(id="main"):
             yield Static("Bachelor Project Optimizer", classes="title")
-            yield Static("Interactive Terminal Control Layer skeleton", classes="subtitle")
+            yield Static("Interactive control layer for LLM optimization experiments", classes="subtitle")
             yield Static(
                 f"Repository: {status.repo_root}\n"
                 f"Branch: {git_branch}\n"

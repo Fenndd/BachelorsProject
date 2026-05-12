@@ -130,9 +130,8 @@ class ExperimentScreen(Screen[None]):
             summary = Static(_format_summary(self._selected_summary()), id="experiment-summary", classes="panel")
             summary.styles.height = 10
             yield summary
-            status = Static("Status: idle", id="experiment-status", classes="panel")
-            status.styles.height = 5
-            yield status
+            with VerticalScroll(id="experiment-status", classes="panel"):
+                yield Static("Status: idle", id="experiment-status-text")
             log = RichLog(id="experiment-log", classes="panel", wrap=True, highlight=True)
             log.styles.height = 8
             yield log
@@ -144,6 +143,7 @@ class ExperimentScreen(Screen[None]):
 
     def on_mount(self) -> None:
         self.query_one("#experiment-list", ListView).styles.height = 6
+        self.query_one("#experiment-status", VerticalScroll).styles.height = 5
         self._set_state("idle")
         self._set_status_message("Status: idle")
         write_tui_debug("ExperimentScreen mounted")
@@ -256,10 +256,10 @@ class ExperimentScreen(Screen[None]):
         log = self.query_one("#experiment-log", RichLog)
         log.clear()
         log.write("Start accepted.")
-        log.write("Starting experiment subprocess...")
+        log.write("Starting experiment launcher...")
         log.write(f"Command: {' '.join(command)}")
         log.write(f"Mode: {mode_text}")
-        log.write("Waiting for output...")
+        log.write("Running preflight checks before subprocess execution...")
         write_tui_debug("experiment visible start messages written")
         self._start_drain_timer()
         self._drain_queues()
@@ -280,13 +280,13 @@ class ExperimentScreen(Screen[None]):
         self.query_one("#experiment-log", RichLog).write(f"{prefix}{line}")
 
     def _set_status_message(self, status_text: str) -> None:
-        self.query_one("#experiment-status", Static).update(status_text)
+        self.query_one("#experiment-status-text", Static).update(status_text)
 
     def _set_result(self, status_text: str) -> None:
         self._set_state("finished" if status_text.startswith("Status: success") else "failed")
         self._set_buttons_disabled(False)
         self._unregister_process()
-        self.query_one("#experiment-status", Static).update(status_text)
+        self._set_status_message(status_text)
         write_tui_debug(f"experiment result applied: {status_text.splitlines()[0] if status_text else '-'}")
         self._stop_drain_timer()
         self._stop_watchdog_timer()
@@ -408,13 +408,25 @@ class ExperimentScreen(Screen[None]):
                 on_stderr=on_stderr,
             )
             write_tui_debug(f"experiment run_experiment_control returned status={result.status}")
-            latest_dir = "-" if result.latest_experiment_dir is None else str(result.latest_experiment_dir)
-            status_text = (
-                f"Status: {result.status}\n"
-                f"Exit code: {result.exit_code if result.exit_code is not None else 'n/a'}\n"
-                f"Latest experiment directory: {latest_dir}\n"
-                f"Message: {result.message}"
-            )
+            if result.status == "preflight_failed":
+                status_text = (
+                    "Status: preflight_failed\n"
+                    "Exit code: n/a\n"
+                    "Latest experiment directory: -\n"
+                    f"Message: {result.message}\n"
+                    "Note: No subprocess was started."
+                )
+                self._log_queue.put(("stdout", "Preflight failed."))
+                self._log_queue.put(("stdout", "Experiment subprocess was not started."))
+                self._log_queue.put(("stdout", f"Reason: {result.message}"))
+            else:
+                latest_dir = "-" if result.latest_experiment_dir is None else str(result.latest_experiment_dir)
+                status_text = (
+                    f"Status: {result.status}\n"
+                    f"Exit code: {result.exit_code if result.exit_code is not None else 'n/a'}\n"
+                    f"Latest experiment directory: {latest_dir}\n"
+                    f"Message: {result.message}"
+                )
         except Exception as exc:
             status_text = (
                 "Status: failed\n"

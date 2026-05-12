@@ -4,7 +4,13 @@
       "PowerShell(python -m pytest -q)",
       "PowerShell(python -m pytest -q 2>&1)",
       "Bash(python -m pytest -q)",
-      "Bash(py -3 -m pytest -q)"
+      "Bash(py -3 -m pytest -q)",
+      "Bash(py -m pytest --tb=short -q)",
+      "Bash(python -m pytest --tb=short -q)",
+      "Bash(.venv\\\\Scripts\\\\pip install *)",
+      "Bash(.venv\\\\Scripts\\\\pytest --tb=short -q)",
+      "Bash(pip install *)",
+      "Bash(pytest --tb=short -q)"
     ]
   }
 }

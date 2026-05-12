@@ -31,13 +31,20 @@ class HelpScreen(Screen[None]):
             )
             yield Static(
                 "CLI entry points:\n"
-                "  python -m orchestrator.cli.app --help\n"
-                "  python -m orchestrator.cli.app doctor\n"
-                "  python -m orchestrator.cli.app baseline run\n"
-                "  python -m orchestrator.cli.app experiment list\n"
-                "  python -m orchestrator.cli.app results list\n"
-                "  python -m orchestrator.cli.app workspace status\n"
-                "  python -m orchestrator.cli.app tui",
+                "  py -m orchestrator.cli.app --help\n"
+                "  py -m orchestrator.cli.app doctor\n"
+                "  py -m orchestrator.cli.app baseline run\n"
+                "  py -m orchestrator.cli.app experiment list\n"
+                "  py -m orchestrator.cli.app results list\n"
+                "  py -m orchestrator.cli.app workspace status\n"
+                "  py -m orchestrator.cli.app tui",
+                classes="panel",
+            )
+            yield Static(
+                "On Windows, examples use the Python launcher `py`.\n\n"
+                "Diagnostic log: TUI messages may be written to workspace/tui_debug.log.\n"
+                "It is a local debug-only file and can be removed manually or via the\n"
+                "workspace cleanup commands.",
                 classes="panel",
             )
             yield Static(

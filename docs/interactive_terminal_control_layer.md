@@ -23,40 +23,40 @@ Keep local paths and API keys in `.env.local`. Secrets are masked in CLI/TUI dia
 Diagnostics:
 
 ```powershell
-python -m orchestrator.cli.app doctor
-python -m orchestrator.cli.app tui
+py -m orchestrator.cli.app doctor
+py -m orchestrator.cli.app tui
 ```
 
 Baseline:
 
 ```powershell
-python -m orchestrator.cli.app baseline run
+py -m orchestrator.cli.app baseline run
 ```
 
 Experiments:
 
 ```powershell
-python -m orchestrator.cli.app experiment list
-python -m orchestrator.cli.app experiment run --config configs/experiments/mock_p3p_basic.json --dry-run
-python -m orchestrator.cli.app experiment run --config configs/experiments/<file>.json --yes
+py -m orchestrator.cli.app experiment list
+py -m orchestrator.cli.app experiment run --config configs/experiments/mock_p3p_basic.json --dry-run
+py -m orchestrator.cli.app experiment run --config configs/experiments/<file>.json --yes
 ```
 
 Results:
 
 ```powershell
-python -m orchestrator.cli.app results list
-python -m orchestrator.cli.app results latest
-python -m orchestrator.cli.app results show latest
-python -m orchestrator.cli.app results open latest
+py -m orchestrator.cli.app results list
+py -m orchestrator.cli.app results latest
+py -m orchestrator.cli.app results show latest
+py -m orchestrator.cli.app results open latest
 ```
 
 Workspace:
 
 ```powershell
-python -m orchestrator.cli.app workspace status
-python -m orchestrator.cli.app workspace clean-candidates --yes
-python -m orchestrator.cli.app workspace clean-experiments --yes
-python -m orchestrator.cli.app workspace clean-all --yes
+py -m orchestrator.cli.app workspace status
+py -m orchestrator.cli.app workspace clean-candidates --yes
+py -m orchestrator.cli.app workspace clean-experiments --yes
+py -m orchestrator.cli.app workspace clean-all --yes
 ```
 
 ## TUI
@@ -64,7 +64,7 @@ python -m orchestrator.cli.app workspace clean-all --yes
 Launch the TUI:
 
 ```powershell
-python -m orchestrator.cli.app tui
+py -m orchestrator.cli.app tui
 ```
 
 Available screens include Doctor, Environment, Run Baseline, Run Experiment, Browse Results, Workspace, and Help. Use `Esc` to go back from secondary screens and `Ctrl+Q` to quit.
@@ -79,3 +79,13 @@ While a baseline or experiment run is active, the TUI keeps the current screen o
 - Workspace cleanup only deletes entries inside `workspace/`; it does not delete `results/`.
 - API keys and other secrets are masked in displays.
 - The main `cpp/` source tree is not modified automatically by the control layer.
+
+## TUI debug log
+
+The TUI may write diagnostic messages to `workspace/tui_debug.log`. This file is local and debug-only. Remove it manually or via:
+
+```powershell
+py -m orchestrator.cli.app workspace clean-all --yes
+```
+
+It is not required for normal operation and is safe to delete.
