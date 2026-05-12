@@ -90,6 +90,39 @@ py orchestrator/cli/main.py
 
 The flow configures CMake, builds/runs `baseline_smoke_test`, `baseline_runner`, `absolute_pose_lambdatwist_adapter_validator`, and `absolute_pose_lambdatwist_benchmark`, parses metrics, and checks `correctness_passed`. Benchmark and evaluation builds default to **Release**.
 
+## Experimental Terminal Control Layer
+
+The first skeleton of the Interactive Terminal Control Layer is available through a new Typer/Rich CLI and Textual TUI. It is currently a thin control surface for basic project status, local environment diagnostics, and placeholders only; real baseline and experiment launching from this layer will be connected in later steps.
+
+The repository includes a safe `.env.example` template. Local machine paths and API keys belong in `.env.local`, which is ignored by Git along with `.env`.
+
+```powershell
+copy .env.example .env.local
+```
+
+```powershell
+python -m orchestrator.cli.app --help
+python -m orchestrator.cli.app doctor
+python -m orchestrator.cli.app baseline run
+python -m orchestrator.cli.app experiment list
+python -m orchestrator.cli.app experiment run --config configs/experiments/mock_p3p_basic.json --dry-run
+python -m orchestrator.cli.app experiment run --config configs/experiments/<file>.json --yes
+python -m orchestrator.cli.app results list
+python -m orchestrator.cli.app results latest
+python -m orchestrator.cli.app results show latest
+python -m orchestrator.cli.app results open latest
+python -m orchestrator.cli.app tui
+```
+
+The `doctor` command currently checks project structure and environment variables, masks API keys, and reports missing or invalid local paths.
+The `baseline run` command launches the existing baseline automation entry point through the new control layer and streams logs to the terminal. It requires `EIGEN3_INCLUDE_DIR` to be configured in `.env.local` or the process environment. The TUI also exposes an experimental Run Baseline screen with live logs.
+The `experiment run --dry-run` command is safe and does not call an LLM. Real experiment runs may use API tokens configured in `.env.local`; the CLI asks for confirmation unless `--yes` is supplied. The TUI provides experiment config selection with dry-run/real-run controls and live logs.
+The results browser is read-only. It lists saved artifacts and opens existing result directories/files, but it does not recalculate metrics, decisions, reports, or modify artifacts. The TUI Browse Results screen provides the same read-only navigation.
+
+See `docs/interactive_terminal_control_layer.md` for the full CLI/TUI command reference and safety notes.
+
+The existing baseline entry point remains `orchestrator/cli/main.py`, and the new command layer does not change optimization, benchmark, validation, materialization, or closed-loop experiment behavior.
+
 ## LLM Candidate Generation and Candidate Edit Formats
 
 LLM candidate generation is implemented by `orchestrator.llm.generate_candidate`. It supports two candidate formats selected with `--candidate-type` and experiment `candidate_format.type`.

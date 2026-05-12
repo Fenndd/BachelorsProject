@@ -1,0 +1,58 @@
+{
+  "experiment_name": "closed_loop_deepseek_pro_p3p_1iter",
+  "description": "Closed-loop P3P optimization experiment using DeepSeek Pro for 1 iteration with line-range edits and experiment-local best-source promotion.",
+  "target_file": "cpp/external/lambdatwist/p3p.cc",
+
+  "pipeline": {
+    "generate_candidate": true,
+    "materialize_candidate": true,
+    "verify_candidate": true
+  },
+
+  "candidate_generation": {
+    "max_source_chars": 120000
+  },
+
+  "candidate_format": {
+    "type": "line_range_edits",
+    "source_presentation": "line_numbered",
+    "require_original_verification": true,
+    "allow_exact_search_fallback": true
+  },
+
+  "history_policy": {
+    "enabled": false,
+    "scope": "variant",
+    "max_previous_iterations": 0,
+    "include_failed_iterations": false,
+    "include_materialization_results": true,
+    "include_verification_results": true
+  },
+
+  "selection": {
+    "enabled": false,
+    "baseline_run_dir": "results/runs/2026-05-12_07-20-10_baseline",
+    "write_candidate_decisions": true
+  },
+
+  "closed_loop": {
+    "enabled": true
+  },
+
+  "optimization_scope": {
+    "allowed_files": [
+      "cpp/external/lambdatwist/p3p.cc" 
+    ]
+  },
+
+  "variants": [
+    {
+      "variant_id": "deepseek_pro",
+      "description": "DeepSeek Pro closed-loop P3P optimization, 1 iteration.",
+      "llm_config": "configs/llm_deepseek_pro.json",
+      "llm_overrides": null,
+      "iterations": 1,
+      "additional_context": "Optimize only cpp/external/lambdatwist/p3p.cc. The source shown to you is the current best accepted version for this closed-loop experiment, not necessarily the original baseline. Prefer one small, local, low-risk C++ performance improvement per iteration. Preserve numerical behavior, solver API, output semantics, includes, benchmark compatibility, root-selection logic, degeneracy handling, and Eigen aliasing safety. Do not change tests, benchmark code, adapters, CMake files, configs, docs, or orchestrator code. Use line_range_edits only for cpp/external/lambdatwist/p3p.cc. The original field in each edit must exactly match the numbered source lines without line-number prefixes. If no safe new improvement is available, return a no-op candidate with expected_effect=\"none\" and edits=[]."
+    }
+  ]
+}
