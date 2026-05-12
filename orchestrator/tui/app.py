@@ -10,17 +10,19 @@ from orchestrator.tui.screens.main_screen import MainScreen
 class OptimizerTuiApp(App[None]):
     """Interactive terminal UI skeleton for the optimizer project."""
 
-    TITLE = "Bachelor Project Optimizer"
+    TITLE = "3D Vision Algorithms Optimizer"
     BINDINGS = [("ctrl+q", "quit", "Quit")]
     CSS = """
     Screen {
-        background: #0f172a;
-        color: #dbeafe;
+        background: #d8c3a5;
+        color: #111827;
+        text-style: bold;
     }
 
     Header, Footer {
-        background: #111827;
-        color: #e5e7eb;
+        background: #1f2937;
+        color: #f8fafc;
+        text-style: bold;
     }
 
     #main {
@@ -28,21 +30,41 @@ class OptimizerTuiApp(App[None]):
         height: 1fr;
     }
 
+    Static {
+        text-style: bold;
+    }
+
     .title {
         text-style: bold;
-        color: #67e8f9;
+        color: #111827;
         margin-bottom: 1;
     }
 
     .subtitle {
-        color: #93c5fd;
+        text-style: bold;
+        color: #1f2937;
         margin-bottom: 1;
     }
 
     .panel {
-        border: solid #334155;
+        background: #2f3136;
+        color: #f8fafc;
+        border: solid #6b7280;
         padding: 1 2;
         margin-bottom: 1;
+        text-style: bold;
+    }
+
+    ListView {
+        background: #2f3136;
+        color: #f8fafc;
+        text-style: bold;
+    }
+
+    RichLog {
+        background: #2f3136;
+        color: #f8fafc;
+        text-style: bold;
     }
 
     .actions {
@@ -54,6 +76,22 @@ class OptimizerTuiApp(App[None]):
 
     Button {
         width: 100%;
+        text-style: bold;
+    }
+
+    #results-list {
+        height: 7;
+        min-height: 7;
+    }
+
+    #result-summary-panel {
+        height: 14;
+        min-height: 14;
+    }
+
+    #results-status {
+        height: 4;
+        min-height: 4;
     }
     """
 
