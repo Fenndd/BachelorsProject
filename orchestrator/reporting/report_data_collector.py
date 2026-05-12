@@ -64,7 +64,7 @@ def collect_report_data(
             summary.get("original_baseline_metrics_path"),
             experiment_path,
         ),
-        iterations=[_iteration_summary(record) for record in records],
+        iterations=[_iteration_summary(record, experiment_path) for record in records],
         status_counts=status_counts,
         artifacts=_artifact_map(
             experiment_path,
@@ -145,40 +145,205 @@ def _status_counts(
     return counts
 
 
-def _iteration_summary(record: dict[str, Any]) -> ReportIterationSummary:
+def _iteration_summary(
+    record: dict[str, Any],
+    experiment_dir: Path,
+) -> ReportIterationSummary:
+    candidate_run_dir_text = _path_text_or_none(record.get("candidate_run_dir"))
+    candidate_run_dir = (
+        _resolve_existing_dir_or_display_path(candidate_run_dir_text, experiment_dir)
+        if candidate_run_dir_text is not None
+        else None
+    )
+    artifacts = _candidate_artifacts(candidate_run_dir)
+    candidate = artifacts.get("candidate") or {}
+    verification = artifacts.get("verification") or {}
+    decision_vs_current_best = _decision_object(
+        record.get("decision_vs_current_best"),
+        artifacts.get("decision_vs_current_best"),
+    )
+    decision_vs_original_baseline = _decision_object(
+        record.get("decision_vs_original_baseline"),
+        artifacts.get("decision_vs_original_baseline"),
+    )
+
     return ReportIterationSummary(
         iteration=_int_or_default(record.get("iteration")),
         status=_string_or_default(record.get("status")),
-        candidate_summary=_summary_text(record.get("candidate_summary")),
-        expected_effect=_string_or_none(record.get("candidate_expected_effect")),
-        risk_level=_string_or_none(record.get("candidate_risk_level")),
-        runtime_ns_per_case_median=_number_or_none(
-            record.get("runtime_ns_per_case_median")
+        candidate_summary=_first_summary_text(
+            record.get("candidate_summary"),
+            candidate.get("summary"),
         ),
-        speedup_vs_current_best=_number_or_none(record.get("speedup_vs_current_best")),
-        speedup_vs_baseline=_number_or_none(
-            record.get("speedup_vs_original_baseline")
+        expected_effect=_first_string(
+            record.get("candidate_expected_effect"),
+            candidate.get("expected_effect"),
         ),
-        correctness_passed=_bool_or_none(record.get("correctness_passed")),
+        risk_level=_first_string(
+            record.get("candidate_risk_level"),
+            candidate.get("risk_level"),
+        ),
+        runtime_ns_per_case_median=_first_available_number(
+            record.get("runtime_ns_per_case_median"),
+            _verification_runtime(verification),
+        ),
+        speedup_vs_current_best=_first_available_number(
+            record.get("speedup_vs_current_best"),
+            _decision_speedup(decision_vs_current_best),
+        ),
+        speedup_vs_baseline=_first_available_number(
+            record.get("speedup_vs_original_baseline"),
+            _decision_speedup(decision_vs_original_baseline),
+        ),
+        correctness_passed=_first_available_bool(
+            record.get("correctness_passed"),
+            _verification_correctness(verification),
+        ),
         promoted=record.get("current_best_updated") is True,
-        reason=_extract_reason(record),
-        candidate_run_dir=_path_text_or_none(record.get("candidate_run_dir")),
+        reason=_extract_reason(
+            record,
+            decision_vs_current_best=artifacts.get("decision_vs_current_best"),
+            decision_vs_original_baseline=artifacts.get("decision_vs_original_baseline"),
+        ),
+        candidate_run_dir=candidate_run_dir_text,
     )
 
 
-def _extract_reason(record: dict[str, Any]) -> str | None:
+def _candidate_artifacts(candidate_run_dir: Path | None) -> dict[str, dict[str, Any] | None]:
+    if candidate_run_dir is None:
+        return {}
+    return {
+        "verification": _safe_read_json_object(candidate_run_dir / "verification.json"),
+        "decision_vs_current_best": _safe_read_json_object(
+            candidate_run_dir / "decision_vs_current_best.json"
+        ),
+        "decision_vs_original_baseline": _safe_read_json_object(
+            candidate_run_dir / "decision_vs_original_baseline.json"
+        ),
+        "candidate": _safe_read_json_object(candidate_run_dir / "candidate.json"),
+        "materialization": _safe_read_json_object(
+            candidate_run_dir / "materialization.json"
+        ),
+    }
+
+
+def _safe_read_json_object(path: Path) -> dict[str, Any] | None:
+    if not path.is_file():
+        return None
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8-sig"))
+    except (OSError, json.JSONDecodeError):
+        return None
+    return payload if isinstance(payload, dict) else None
+
+
+def _decision_object(
+    record_decision: Any,
+    artifact_decision: dict[str, Any] | None,
+) -> dict[str, Any] | None:
+    if isinstance(record_decision, dict):
+        return record_decision
+    return artifact_decision
+
+
+def _verification_payloads(verification: dict[str, Any]) -> list[dict[str, Any]]:
+    payloads = [verification]
+    for key in ("benchmark", "metrics"):
+        value = verification.get(key)
+        if isinstance(value, dict):
+            payloads.insert(0, value)
+    return payloads
+
+
+def _verification_runtime(verification: dict[str, Any]) -> float | None:
+    return _first_number(
+        _verification_payloads(verification),
+        (
+            "runtime_ns_per_case_median",
+            "runtime_median_ns_per_case",
+            "median_runtime_ns_per_case",
+            "parsed_runtime_ns_per_case_median",
+        ),
+    )
+
+
+def _verification_correctness(verification: dict[str, Any]) -> bool | None:
+    return _first_bool(
+        _verification_payloads(verification),
+        ("correctness_passed", "parsed_correctness_passed"),
+    )
+
+
+def _decision_speedup(decision: dict[str, Any] | None) -> float | None:
+    if not isinstance(decision, dict):
+        return None
+    comparison = decision.get("comparison")
+    if isinstance(comparison, dict):
+        speedup = _number_or_none(comparison.get("speedup"))
+        if speedup is not None:
+            return speedup
+    return _number_or_none(decision.get("speedup"))
+
+
+def _first_available_number(*values: Any) -> float | None:
+    for value in values:
+        number = _number_or_none(value)
+        if number is not None:
+            return number
+    return None
+
+
+def _first_available_bool(*values: Any) -> bool | None:
+    for value in values:
+        boolean = _bool_or_none(value)
+        if boolean is not None:
+            return boolean
+    return None
+
+
+def _first_string(*values: Any) -> str | None:
+    for value in values:
+        text = _string_or_none(value)
+        if text is not None:
+            return text
+    return None
+
+
+def _first_summary_text(*values: Any) -> str | None:
+    for value in values:
+        text = _summary_text(value)
+        if text is not None:
+            return text
+    return None
+
+
+def _extract_reason(
+    record: dict[str, Any],
+    decision_vs_current_best: dict[str, Any] | None = None,
+    decision_vs_original_baseline: dict[str, Any] | None = None,
+) -> str | None:
     failure_reason = _reason_text(record.get("failure_reason"))
     if failure_reason is not None:
         return failure_reason
 
-    for decision_key in ("decision_vs_current_best", "decision_vs_original_baseline"):
-        decision = record.get(decision_key)
+    reason_sources = [
+        (record.get("decision_vs_current_best"), "rejection_reasons"),
+        (record.get("decision_vs_current_best"), "non_acceptance_reasons"),
+        (decision_vs_current_best, "rejection_reasons"),
+        (decision_vs_current_best, "non_acceptance_reasons"),
+        (record.get("decision_vs_original_baseline"), "rejection_reasons"),
+        (record.get("decision_vs_original_baseline"), "non_acceptance_reasons"),
+        (decision_vs_original_baseline, "rejection_reasons"),
+        (decision_vs_original_baseline, "non_acceptance_reasons"),
+    ]
+    for decision, reason_key in reason_sources:
         if not isinstance(decision, dict):
             continue
-        for reason_key in ("rejection_reasons", "non_acceptance_reasons"):
-            reason = _reason_text(decision.get(reason_key))
-            if reason is not None:
-                return reason
+        reason = _reason_text(decision.get(reason_key))
+        if reason is not None:
+            return reason
+
+    if record.get("status") == "valid_not_improved":
+        return "runtime_not_improved"
     return None
 
 
@@ -288,6 +453,21 @@ def _resolve_existing_or_display_path(path_text: str, experiment_dir: Path) -> P
     candidates.extend([Path.cwd() / path, path])
     for candidate in candidates:
         if candidate.is_file():
+            return candidate
+    return candidates[-1]
+
+
+def _resolve_existing_dir_or_display_path(path_text: str, experiment_dir: Path) -> Path:
+    path = Path(path_text)
+    if path.is_absolute():
+        return path
+
+    candidates = [experiment_dir / path]
+    if len(experiment_dir.parents) >= 3:
+        candidates.append(experiment_dir.parents[2] / path)
+    candidates.extend([Path.cwd() / path, path])
+    for candidate in candidates:
+        if candidate.is_dir():
             return candidate
     return candidates[-1]
 

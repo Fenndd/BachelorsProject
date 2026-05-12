@@ -114,6 +114,192 @@ def test_collect_report_data_maps_iteration_records(tmp_path: Path) -> None:
     assert failed.reason == "Patch could not be applied."
 
 
+def test_iteration_metrics_are_enriched_from_verification_json(tmp_path: Path) -> None:
+    experiment_dir = _experiment_dir(tmp_path)
+    candidate_dir = tmp_path / "results" / "runs" / "candidate_001"
+    _write_json(experiment_dir / "closed_loop_summary.json", _summary())
+    _write_jsonl(
+        experiment_dir / "closed_loop_iterations.jsonl",
+        [
+            {
+                "iteration": 1,
+                "status": "accepted_improvement",
+                "candidate_run_dir": str(candidate_dir),
+            },
+        ],
+    )
+    _write_json(
+        candidate_dir / "verification.json",
+        {
+            "benchmark": {
+                "parsed_runtime_ns_per_case_median": 777.0,
+                "parsed_correctness_passed": True,
+            },
+        },
+    )
+
+    report_data = collect_report_data(experiment_dir)
+
+    iteration = report_data.iterations[0]
+    assert iteration.runtime_ns_per_case_median == 777.0
+    assert iteration.correctness_passed is True
+
+
+def test_speedup_and_reason_are_enriched_from_decision_files(tmp_path: Path) -> None:
+    experiment_dir = _experiment_dir(tmp_path)
+    candidate_dir = tmp_path / "results" / "runs" / "candidate_001"
+    _write_json(experiment_dir / "closed_loop_summary.json", _summary())
+    _write_jsonl(
+        experiment_dir / "closed_loop_iterations.jsonl",
+        [
+            {
+                "iteration": 1,
+                "status": "valid_not_improved",
+                "candidate_run_dir": str(candidate_dir),
+            },
+        ],
+    )
+    _write_json(
+        candidate_dir / "decision_vs_original_baseline.json",
+        {
+            "status": "valid_not_improved",
+            "comparison": {
+                "speedup": 0.992,
+                "runtime_reduction_percent": -0.8,
+            },
+            "non_acceptance_reasons": ["runtime_not_improved"],
+        },
+    )
+
+    report_data = collect_report_data(experiment_dir)
+
+    iteration = report_data.iterations[0]
+    assert iteration.speedup_vs_baseline == 0.992
+    assert iteration.reason == "runtime_not_improved"
+
+
+def test_candidate_summary_fields_fall_back_to_candidate_json(tmp_path: Path) -> None:
+    experiment_dir = _experiment_dir(tmp_path)
+    candidate_dir = tmp_path / "results" / "runs" / "candidate_001"
+    _write_json(experiment_dir / "closed_loop_summary.json", _summary())
+    _write_jsonl(
+        experiment_dir / "closed_loop_iterations.jsonl",
+        [
+            {
+                "iteration": 1,
+                "status": "accepted_improvement",
+                "candidate_run_dir": str(candidate_dir),
+            },
+        ],
+    )
+    _write_json(
+        candidate_dir / "candidate.json",
+        {
+            "summary": "Hoist invariant expression.",
+            "expected_effect": "runtime",
+            "risk_level": "low",
+            "extra": {"not": "copied"},
+        },
+    )
+
+    report_data = collect_report_data(experiment_dir)
+
+    iteration = report_data.iterations[0]
+    assert iteration.candidate_summary == "Hoist invariant expression."
+    assert iteration.expected_effect == "runtime"
+    assert iteration.risk_level == "low"
+
+
+def test_missing_optional_candidate_artifacts_do_not_fail(tmp_path: Path) -> None:
+    experiment_dir = _experiment_dir(tmp_path)
+    candidate_dir = tmp_path / "results" / "runs" / "candidate_001"
+    candidate_dir.mkdir(parents=True)
+    _write_json(experiment_dir / "closed_loop_summary.json", _summary())
+    _write_jsonl(
+        experiment_dir / "closed_loop_iterations.jsonl",
+        [
+            {
+                "iteration": 1,
+                "status": "accepted_improvement",
+                "candidate_run_dir": str(candidate_dir),
+            },
+        ],
+    )
+
+    report_data = collect_report_data(experiment_dir)
+
+    iteration = report_data.iterations[0]
+    assert iteration.runtime_ns_per_case_median is None
+    assert iteration.correctness_passed is None
+    assert iteration.speedup_vs_baseline is None
+    assert iteration.reason is None
+
+
+def test_bad_optional_candidate_json_does_not_fail(tmp_path: Path) -> None:
+    experiment_dir = _experiment_dir(tmp_path)
+    candidate_dir = tmp_path / "results" / "runs" / "candidate_001"
+    candidate_dir.mkdir(parents=True)
+    (candidate_dir / "verification.json").write_text("{not json", encoding="utf-8")
+    _write_json(experiment_dir / "closed_loop_summary.json", _summary())
+    _write_jsonl(
+        experiment_dir / "closed_loop_iterations.jsonl",
+        [
+            {
+                "iteration": 1,
+                "status": "accepted_improvement",
+                "candidate_run_dir": str(candidate_dir),
+            },
+        ],
+    )
+
+    report_data = collect_report_data(experiment_dir)
+
+    assert report_data.iterations[0].runtime_ns_per_case_median is None
+
+
+def test_valid_not_improved_uses_default_reason_when_none_available(
+    tmp_path: Path,
+) -> None:
+    experiment_dir = _experiment_dir(tmp_path)
+    _write_json(experiment_dir / "closed_loop_summary.json", _summary())
+    _write_jsonl(
+        experiment_dir / "closed_loop_iterations.jsonl",
+        [{"iteration": 1, "status": "valid_not_improved"}],
+    )
+
+    report_data = collect_report_data(experiment_dir)
+
+    assert report_data.iterations[0].reason == "runtime_not_improved"
+
+
+def test_repo_relative_candidate_run_dir_is_resolved_for_artifacts(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    experiment_dir = _experiment_dir(tmp_path)
+    candidate_dir = tmp_path / "results" / "runs" / "candidate_001"
+    monkeypatch.chdir(tmp_path)
+    _write_json(experiment_dir / "closed_loop_summary.json", _summary())
+    _write_jsonl(
+        experiment_dir / "closed_loop_iterations.jsonl",
+        [
+            {
+                "iteration": 1,
+                "status": "accepted_improvement",
+                "candidate_run_dir": "results/runs/candidate_001",
+            },
+        ],
+    )
+    _write_json(
+        candidate_dir / "verification.json",
+        {"metrics": {"runtime_ns_per_case_median": 615.0}},
+    )
+
+    report_data = collect_report_data(experiment_dir)
+
+    assert report_data.iterations[0].runtime_ns_per_case_median == 615.0
+
+
 def test_collect_report_data_extracts_reason_from_decision_lists(tmp_path: Path) -> None:
     experiment_dir = _experiment_dir(tmp_path)
     _write_json(experiment_dir / "closed_loop_summary.json", _summary())
