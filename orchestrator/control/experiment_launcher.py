@@ -39,6 +39,7 @@ PROVIDER_API_KEYS = {
 def build_experiment_command(config_path: Path, dry_run: bool = False) -> list[str]:
     command = [
         sys.executable,
+        "-u",
         "-m",
         "orchestrator.experiments.run_experiment",
         "--config",

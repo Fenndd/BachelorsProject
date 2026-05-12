@@ -29,11 +29,12 @@ class BaselineRunResult:
 
 
 def build_baseline_command() -> list[str]:
-    return [sys.executable, "-m", "orchestrator.cli.main"]
+    return [sys.executable, "-u", "-m", "orchestrator.cli.main"]
 
 
 def build_baseline_environment(repo_root: Path | None = None) -> dict[str, str]:
     env = dict(os.environ)
+    env["PYTHONUNBUFFERED"] = "1"
     statuses = load_environment(repo_root)
     known_names = {spec.name for spec in get_env_specs()}
     for status in statuses:

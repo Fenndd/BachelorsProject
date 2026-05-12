@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import threading
+import queue
 
 from textual.app import ComposeResult
 from textual.containers import Container, Horizontal
@@ -12,6 +13,7 @@ from textual.widgets import Button, Footer, Header, ListItem, ListView, RichLog,
 from orchestrator.control import (
     ExperimentConfigSummary,
     list_experiment_config_summaries,
+    build_experiment_command,
     run_experiment_control,
 )
 
@@ -56,6 +58,8 @@ class ExperimentScreen(Screen[None]):
         self.summaries = list_experiment_config_summaries()
         self._running = False
         self._confirm_real_run = False
+        self._log_queue: queue.Queue[tuple[str, str]] = queue.Queue()
+        self._result_queue: queue.Queue[str] = queue.Queue()
 
     def compose(self) -> ComposeResult:
         yield Header()
@@ -94,6 +98,7 @@ class ExperimentScreen(Screen[None]):
         return self.summaries[index]
 
     def on_mount(self) -> None:
+        self.set_interval(0.1, self._drain_queues)
         if self.summaries:
             self.query_one("#experiment-list", ListView).index = 0
 
@@ -141,20 +146,27 @@ class ExperimentScreen(Screen[None]):
             return
         self._running = True
         self._confirm_real_run = False
+        command = build_experiment_command(summary.path, dry_run=dry_run)
         register_process = getattr(self.app, "register_process", None)
         if callable(register_process):
             register_process()
         self._set_buttons_disabled(True)
-        self.query_one("#experiment-status", Static).update(
-            f"Status: running {'dry-run' if dry_run else 'real run'}"
-        )
-        self.query_one("#experiment-log", RichLog).clear()
+        self.query_one("#experiment-status", Static).update("Status: starting")
+        log = self.query_one("#experiment-log", RichLog)
+        log.clear()
+        log.write("Starting experiment subprocess...")
+        log.write(f"Command: {' '.join(command)}")
+        log.write(f"Mode: {'dry-run' if dry_run else 'real run'}")
+        log.write("Waiting for output...")
         thread = threading.Thread(
             target=self._run_experiment_thread,
             args=(summary, dry_run),
             daemon=True,
         )
         thread.start()
+        self.query_one("#experiment-status", Static).update(
+            f"Status: running {'dry-run' if dry_run else 'real run'}"
+        )
 
     def _append_log(self, line: str, stream_name: str) -> None:
         prefix = "[stderr] " if stream_name == "stderr" else ""
@@ -171,16 +183,30 @@ class ExperimentScreen(Screen[None]):
             unregister_process()
         self.query_one("#experiment-status", Static).update(status_text)
 
+    def _drain_queues(self) -> None:
+        while True:
+            try:
+                stream_name, line = self._log_queue.get_nowait()
+            except queue.Empty:
+                break
+            self._append_log(line, stream_name)
+
+        try:
+            status_text = self._result_queue.get_nowait()
+        except queue.Empty:
+            return
+        self._set_result(status_text)
+
     def _run_experiment_thread(
         self,
         summary: ExperimentConfigSummary,
         dry_run: bool,
     ) -> None:
         def on_stdout(line: str) -> None:
-            self.app.call_from_thread(self._append_log, line, "stdout")
+            self._log_queue.put(("stdout", line))
 
         def on_stderr(line: str) -> None:
-            self.app.call_from_thread(self._append_log, line, "stderr")
+            self._log_queue.put(("stderr", line))
 
         try:
             result = run_experiment_control(
@@ -203,4 +229,4 @@ class ExperimentScreen(Screen[None]):
                 "Latest experiment directory: -\n"
                 f"Message: Unexpected experiment launcher error: {exc}"
             )
-        self.app.call_from_thread(self._set_result, status_text)
+        self._result_queue.put(status_text)

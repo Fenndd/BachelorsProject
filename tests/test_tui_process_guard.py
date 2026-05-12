@@ -76,6 +76,38 @@ def test_baseline_back_is_blocked_while_running(monkeypatch) -> None:
     ]
 
 
+def test_baseline_drain_queues_appends_logs(monkeypatch) -> None:
+    screen = BaselineScreen()
+    appended: list[tuple[str, str]] = []
+
+    monkeypatch.setattr(
+        screen,
+        "_append_log",
+        lambda line, stream_name: appended.append((stream_name, line)),
+    )
+    screen._log_queue.put(("stdout", "baseline out"))
+    screen._log_queue.put(("stderr", "baseline err"))
+
+    screen._drain_queues()
+
+    assert appended == [
+        ("stdout", "baseline out"),
+        ("stderr", "baseline err"),
+    ]
+
+
+def test_baseline_drain_queues_applies_result(monkeypatch) -> None:
+    screen = BaselineScreen()
+    results: list[str] = []
+
+    monkeypatch.setattr(screen, "_set_result", results.append)
+    screen._result_queue.put("Status: success")
+
+    screen._drain_queues()
+
+    assert results == ["Status: success"]
+
+
 def test_experiment_back_is_blocked_while_running(monkeypatch) -> None:
     screen = ExperimentScreen()
     messages: list[str] = []
@@ -88,3 +120,35 @@ def test_experiment_back_is_blocked_while_running(monkeypatch) -> None:
     assert messages == [
         "Experiment is still running. Wait until it finishes before leaving this screen."
     ]
+
+
+def test_experiment_drain_queues_appends_logs(monkeypatch) -> None:
+    screen = ExperimentScreen()
+    appended: list[tuple[str, str]] = []
+
+    monkeypatch.setattr(
+        screen,
+        "_append_log",
+        lambda line, stream_name: appended.append((stream_name, line)),
+    )
+    screen._log_queue.put(("stdout", "experiment out"))
+    screen._log_queue.put(("stderr", "experiment err"))
+
+    screen._drain_queues()
+
+    assert appended == [
+        ("stdout", "experiment out"),
+        ("stderr", "experiment err"),
+    ]
+
+
+def test_experiment_drain_queues_applies_result(monkeypatch) -> None:
+    screen = ExperimentScreen()
+    results: list[str] = []
+
+    monkeypatch.setattr(screen, "_set_result", results.append)
+    screen._result_queue.put("Status: failed")
+
+    screen._drain_queues()
+
+    assert results == ["Status: failed"]

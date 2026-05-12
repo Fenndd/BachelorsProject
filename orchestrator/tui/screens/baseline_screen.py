@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import threading
+import queue
 
 from textual.app import ComposeResult
 from textual.containers import Container, Horizontal
@@ -51,6 +52,8 @@ class BaselineScreen(Screen[None]):
     def __init__(self) -> None:
         super().__init__()
         self._running = False
+        self._log_queue: queue.Queue[tuple[str, str]] = queue.Queue()
+        self._result_queue: queue.Queue[str] = queue.Queue()
 
     def compose(self) -> ComposeResult:
         command = " ".join(build_baseline_command())
@@ -71,6 +74,9 @@ class BaselineScreen(Screen[None]):
                 yield Button("Back", id="back")
         yield Footer()
 
+    def on_mount(self) -> None:
+        self.set_interval(0.1, self._drain_queues)
+
     def on_button_pressed(self, event: Button.Pressed) -> None:
         if event.button.id == "back":
             self.action_request_back()
@@ -90,14 +96,20 @@ class BaselineScreen(Screen[None]):
         if self._running:
             return
         self._running = True
+        command = build_baseline_command()
         register_process = getattr(self.app, "register_process", None)
         if callable(register_process):
             register_process()
         self.query_one("#start-baseline", Button).disabled = True
-        self.query_one("#baseline-status", Static).update("Status: running")
-        self.query_one("#baseline-log", RichLog).clear()
+        self.query_one("#baseline-status", Static).update("Status: starting")
+        log = self.query_one("#baseline-log", RichLog)
+        log.clear()
+        log.write("Starting baseline subprocess...")
+        log.write(f"Command: {' '.join(command)}")
+        log.write("Waiting for output...")
         thread = threading.Thread(target=self._run_baseline_thread, daemon=True)
         thread.start()
+        self.query_one("#baseline-status", Static).update("Status: running")
 
     def _append_log(self, line: str, stream_name: str) -> None:
         prefix = "[stderr] " if stream_name == "stderr" else ""
@@ -114,12 +126,26 @@ class BaselineScreen(Screen[None]):
             unregister_process()
         self.query_one("#baseline-status", Static).update(status_text)
 
+    def _drain_queues(self) -> None:
+        while True:
+            try:
+                stream_name, line = self._log_queue.get_nowait()
+            except queue.Empty:
+                break
+            self._append_log(line, stream_name)
+
+        try:
+            status_text = self._result_queue.get_nowait()
+        except queue.Empty:
+            return
+        self._set_result(status_text)
+
     def _run_baseline_thread(self) -> None:
         def on_stdout(line: str) -> None:
-            self.app.call_from_thread(self._append_log, line, "stdout")
+            self._log_queue.put(("stdout", line))
 
         def on_stderr(line: str) -> None:
-            self.app.call_from_thread(self._append_log, line, "stderr")
+            self._log_queue.put(("stderr", line))
 
         try:
             result = run_baseline(on_stdout=on_stdout, on_stderr=on_stderr)
@@ -137,4 +163,4 @@ class BaselineScreen(Screen[None]):
                 "Latest run directory: -\n"
                 f"Message: Unexpected baseline launcher error: {exc}"
             )
-        self.app.call_from_thread(self._set_result, status_text)
+        self._result_queue.put(status_text)

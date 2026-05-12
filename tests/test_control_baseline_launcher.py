@@ -67,6 +67,20 @@ def test_build_baseline_environment_preserves_process_priority(
     assert env["EIGEN3_INCLUDE_DIR"] == str(process_value)
 
 
+def test_build_baseline_environment_sets_python_unbuffered(tmp_path: Path) -> None:
+    root = _repo_root(tmp_path)
+
+    env = baseline_launcher.build_baseline_environment(root)
+
+    assert env["PYTHONUNBUFFERED"] == "1"
+
+
+def test_build_baseline_command_uses_unbuffered_python() -> None:
+    command = baseline_launcher.build_baseline_command()
+
+    assert command[1:4] == ["-u", "-m", "orchestrator.cli.main"]
+
+
 def test_baseline_launcher_builds_expected_command_without_real_baseline(
     tmp_path: Path,
     monkeypatch,

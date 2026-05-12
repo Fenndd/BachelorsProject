@@ -55,6 +55,11 @@ def test_build_experiment_command_includes_config() -> None:
 
     command = experiment_launcher.build_experiment_command(config)
 
+    assert command[1:4] == [
+        "-u",
+        "-m",
+        "orchestrator.experiments.run_experiment",
+    ]
     assert "--config" in command
     assert str(config) in command
 
