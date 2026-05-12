@@ -78,6 +78,21 @@ class OptimizerTuiApp(App[None]):
         width: 100%;
         text-style: bold;
     }
+
+    #results-list {
+        height: 7;
+        min-height: 7;
+    }
+
+    #result-summary-panel {
+        height: 14;
+        min-height: 14;
+    }
+
+    #results-status {
+        height: 4;
+        min-height: 4;
+    }
     """
 
     def __init__(self) -> None:

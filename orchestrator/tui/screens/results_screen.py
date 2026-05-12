@@ -63,14 +63,15 @@ class ResultsScreen(Screen[None]):
                 id="results-list",
                 classes="panel",
             )
-            yield Static(_format_item(self._selected_item()), id="result-summary", classes="panel")
+            with VerticalScroll(id="result-summary-panel", classes="panel"):
+                yield Static(_format_item(self._selected_item()), id="result-summary-text")
             yield Static("Status: idle", id="results-status", classes="panel")
             with Horizontal(classes="actions"):
                 yield Button("Refresh", id="refresh")
-                yield Button("Open Directory", id="open-directory", variant="primary")
-                yield Button("Open Summary", id="open-summary")
-                yield Button("Open Final Source", id="open-final-source")
-                yield Button("Open Final Diff", id="open-final-diff")
+                yield Button("Open Dir", id="open-directory", variant="primary")
+                yield Button("Summary", id="open-summary")
+                yield Button("Final Source", id="open-final-source")
+                yield Button("Final Diff", id="open-final-diff")
                 yield Button("Back", id="back")
         yield Footer()
 
@@ -102,7 +103,7 @@ class ResultsScreen(Screen[None]):
             )
         if self.items:
             list_view.index = 0
-        self.query_one("#result-summary", Static).update(_format_item(self._selected_item()))
+        self.query_one("#result-summary-text", Static).update(_format_item(self._selected_item()))
         self._set_status("refreshed")
 
     def _open_artifact(self, artifact: str) -> None:
@@ -127,7 +128,7 @@ class ResultsScreen(Screen[None]):
         self._set_status(f"opened {path}")
 
     def on_list_view_highlighted(self, event: ListView.Highlighted) -> None:
-        self.query_one("#result-summary", Static).update(_format_item(self._selected_item()))
+        self.query_one("#result-summary-text", Static).update(_format_item(self._selected_item()))
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
         if event.button.id == "back":
