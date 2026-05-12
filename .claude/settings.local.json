@@ -10,7 +10,9 @@
       "Bash(.venv\\\\Scripts\\\\pip install *)",
       "Bash(.venv\\\\Scripts\\\\pytest --tb=short -q)",
       "Bash(pip install *)",
-      "Bash(pytest --tb=short -q)"
+      "Bash(pytest --tb=short -q)",
+      "Bash(python -m pytest)",
+      "Bash(python -m pytest tests/test_tui_text.py tests/test_tui_process_guard.py -v)"
     ]
   }
 }
