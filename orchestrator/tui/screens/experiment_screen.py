@@ -73,6 +73,26 @@ def _compact_summary_label(summary: ExperimentConfigSummary) -> str:
 
 
 class ExperimentScreen(Screen[None]):
+    DEFAULT_CSS = """
+    #experiment-action-row {
+        height: 3;
+        margin-top: 1;
+        layout: grid;
+        grid-size: 2;
+        grid-gutter: 1;
+    }
+
+    .experiment-button {
+        width: 100%;
+        height: 3;
+    }
+
+    .experiment-back-button {
+        width: 100%;
+        height: 3;
+        margin-top: 1;
+    }
+    """
     BINDINGS = [
         ("escape", "request_back", "Back"),
         ("ctrl+u", "force_unlock", "Force Unlock"),
@@ -111,15 +131,15 @@ class ExperimentScreen(Screen[None]):
             summary.styles.height = 12
             yield summary
             status = Static("Status: idle", id="experiment-status", classes="panel")
-            status.styles.height = 3
+            status.styles.height = 5
             yield status
             log = RichLog(id="experiment-log", classes="panel", wrap=True, highlight=True)
             log.styles.height = 10
             yield log
-            with Horizontal(classes="actions"):
-                yield Button("Dry Run", id="dry-run")
-                yield Button("Real Run", id="real-run")
-                yield Button("Back", id="back")
+            with Horizontal(id="experiment-action-row"):
+                yield Button("Dry Run", id="dry-run", classes="experiment-button")
+                yield Button("Real Run", id="real-run", classes="experiment-button")
+            yield Button("Back", id="back", classes="experiment-back-button")
         yield Footer()
 
     def on_mount(self) -> None:
