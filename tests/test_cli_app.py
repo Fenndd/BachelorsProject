@@ -70,12 +70,23 @@ def test_cli_workspace_status_exits_successfully() -> None:
 
 
 def test_cli_placeholder_commands_do_not_crash() -> None:
-    for args in (
-        ("results", "latest"),
-    ):
-        result = run_cli(*args)
+    result = run_cli("workspace", "status")
 
-        assert result.returncode == 0, result.stderr
+    assert result.returncode == 0, result.stderr
+
+
+def test_cli_results_list_exits_successfully() -> None:
+    result = run_cli("results", "list")
+
+    assert result.returncode == 0
+    assert "Results" in result.stdout
+
+
+def test_cli_results_show_missing_selector_fails_cleanly() -> None:
+    result = run_cli("results", "show", "definitely_missing_result_selector")
+
+    assert result.returncode == 1
+    assert "Result not found or ambiguous" in result.stdout
 
 
 def test_cli_baseline_run_fails_cleanly_on_preflight_failure(tmp_path: Path) -> None:

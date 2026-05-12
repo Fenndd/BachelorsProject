@@ -14,14 +14,19 @@ from orchestrator.control import (
     build_experiment_command,
     get_project_paths,
     list_experiment_config_summaries,
+    list_result_items,
     load_environment,
+    open_path,
     read_experiment_config_summary,
     read_project_status,
     resolve_project_path,
+    resolve_result_selector,
     run_baseline,
     run_experiment_control,
     summarize_environment,
 )
+from orchestrator.control.open_artifact import OpenArtifactError
+from orchestrator.control.results_browser import ResultItem
 from orchestrator.control import placeholders
 
 
@@ -102,15 +107,6 @@ def _selected_environment_table(names: set[str]) -> Table:
     return table
 
 
-def _latest_directories() -> list[tuple[str, Path]]:
-    paths = get_project_paths()
-    candidates: list[tuple[str, Path]] = []
-    for label, root in (("run", paths.result_runs), ("experiment", paths.result_experiments)):
-        if root.is_dir():
-            candidates.extend((label, child) for child in root.iterdir() if child.is_dir())
-    return sorted(candidates, key=lambda item: item[1].stat().st_mtime, reverse=True)
-
-
 def _format_bool(value: bool | None) -> str:
     if value is None:
         return "unknown"
@@ -141,6 +137,83 @@ def _experiment_summary_panel(config_path: Path) -> Panel:
         ]
     )
     return Panel(text, title="Experiment Summary", border_style="cyan")
+
+
+def _format_number(value: float | None) -> str:
+    if value is None:
+        return "-"
+    return f"{value:.4f}"
+
+
+def _artifact_rows(item: ResultItem) -> list[tuple[str, str]]:
+    artifacts = item.artifacts
+    rows: list[tuple[str, str]] = []
+    for label, path in (
+        ("directory", artifacts.directory),
+        ("summary", artifacts.summary_txt),
+        ("metadata", artifacts.metadata_json),
+        ("status", artifacts.status_json),
+        ("metrics", artifacts.metrics_json),
+        ("experiment_status", artifacts.experiment_status_json),
+        ("closed_loop_summary", artifacts.closed_loop_summary_json),
+        ("closed_loop_iterations", artifacts.closed_loop_iterations_jsonl),
+        ("final_source", artifacts.final_optimized_source_dir),
+        ("final_diff", artifacts.final_optimized_source_diff),
+        ("report_dir", artifacts.report_dir),
+        ("report_pdf", artifacts.report_pdf),
+        ("report_html", artifacts.report_html),
+    ):
+        rows.append((label, "-" if path is None else _display_path(path)))
+    return rows
+
+
+def _result_detail_panel(item: ResultItem) -> Panel:
+    text = "\n".join(
+        [
+            f"Kind: {item.kind}",
+            f"Name: {item.name}",
+            f"Path: {_display_path(item.path)}",
+            f"Status: {item.status or 'unknown'}",
+            f"Started: {item.started_at or '-'}",
+            f"Finished: {item.finished_at or '-'}",
+            f"Speedup vs baseline: {_format_number(item.final_speedup_vs_baseline)}",
+            f"Runtime reduction %: {_format_number(item.final_runtime_reduction_percent)}",
+            f"Best iteration: {item.final_best_iteration if item.final_best_iteration is not None else '-'}",
+            f"Accepted improvements: {item.accepted_improvements if item.accepted_improvements is not None else '-'}",
+        ]
+    )
+    return Panel(text, title="Result", border_style="cyan")
+
+
+def _print_result_details(item: ResultItem) -> None:
+    console.print(_result_detail_panel(item))
+    if item.summary_text:
+        console.print(Panel(item.summary_text, title="Summary", border_style="cyan"))
+    artifacts = Table(title="Artifacts", show_header=True, header_style="bold cyan")
+    artifacts.add_column("Artifact")
+    artifacts.add_column("Path")
+    for label, path_text in _artifact_rows(item):
+        artifacts.add_row(label, path_text)
+    console.print(artifacts)
+    if item.read_errors:
+        console.print(
+            Panel("\n".join(item.read_errors), title="Read Errors", border_style="red")
+        )
+
+
+def _artifact_path(item: ResultItem, artifact: str) -> Path | None:
+    artifacts = item.artifacts
+    if artifact == "directory":
+        return artifacts.directory
+    if artifact == "summary":
+        return artifacts.summary_txt
+    if artifact == "final-source":
+        return artifacts.final_optimized_source_dir
+    if artifact == "final-diff":
+        return artifacts.final_optimized_source_diff
+    if artifact == "report":
+        return artifacts.report_html or artifacts.report_pdf or artifacts.report_dir
+    return artifacts.directory
 
 
 @app.command()
@@ -358,23 +431,79 @@ def experiment_run(
         raise typer.Exit(1)
 
 
+@results_app.command("list")
+def results_list() -> None:
+    """List saved runs and experiments."""
+
+    items = list_result_items()
+    table = Table(title="Results", show_header=True, header_style="bold cyan")
+    table.add_column("Kind")
+    table.add_column("Name")
+    table.add_column("Status")
+    table.add_column("Started")
+    table.add_column("Finished")
+    table.add_column("Speedup")
+    table.add_column("Best iteration")
+    table.add_column("Path")
+    if not items:
+        table.add_row("none", "No results found", "-", "-", "-", "-", "-", "-")
+    for item in items:
+        table.add_row(
+            item.kind,
+            item.name,
+            item.status or "unknown",
+            item.started_at or "-",
+            item.finished_at or "-",
+            _format_number(item.final_speedup_vs_baseline),
+            str(item.final_best_iteration) if item.final_best_iteration is not None else "-",
+            _display_path(item.path),
+        )
+    console.print(table)
+
+
 @results_app.command("latest")
 def results_latest() -> None:
-    """Show latest result directories when available."""
+    """Show the latest saved result."""
 
-    latest = _latest_directories()
-    if not latest:
-        console.print(Panel("No result directories found yet.", title="Latest Results"))
-        return
+    results_show("latest")
 
-    table = Table(title="Latest Results", show_header=True, header_style="bold cyan")
-    table.add_column("Kind")
-    table.add_column("Path")
-    table.add_column("Modified")
-    for kind, path in latest[:10]:
-        modified = path.stat().st_mtime
-        table.add_row(kind, _display_path(path), f"{modified:.0f}")
-    console.print(table)
+
+@results_app.command("show")
+def results_show(selector: str) -> None:
+    """Show details for a saved result."""
+
+    item = resolve_result_selector(selector)
+    if item is None:
+        console.print(Panel(f"Result not found or ambiguous: {selector}", title="Results", border_style="red"))
+        raise typer.Exit(1)
+    _print_result_details(item)
+
+
+@results_app.command("open")
+def results_open(
+    selector: str,
+    artifact: str = typer.Option(
+        "directory",
+        "--artifact",
+        help="Artifact to open: directory, summary, final-source, final-diff, report.",
+    ),
+) -> None:
+    """Open a result directory or artifact in the OS file explorer."""
+
+    item = resolve_result_selector(selector)
+    if item is None:
+        console.print(Panel(f"Result not found or ambiguous: {selector}", title="Results", border_style="red"))
+        raise typer.Exit(1)
+    path = _artifact_path(item, artifact)
+    if path is None:
+        console.print(Panel(f"Artifact is not available: {artifact}", title="Results", border_style="red"))
+        raise typer.Exit(1)
+    try:
+        open_path(path)
+    except OpenArtifactError as exc:
+        console.print(Panel(str(exc), title="Results", border_style="red"))
+        raise typer.Exit(1) from exc
+    console.print(f"Opened: {_display_path(path)}")
 
 
 @workspace_app.command("status")

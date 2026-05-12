@@ -107,12 +107,17 @@ python -m orchestrator.cli.app baseline run
 python -m orchestrator.cli.app experiment list
 python -m orchestrator.cli.app experiment run --config configs/experiments/mock_p3p_basic.json --dry-run
 python -m orchestrator.cli.app experiment run --config configs/experiments/<file>.json --yes
+python -m orchestrator.cli.app results list
+python -m orchestrator.cli.app results latest
+python -m orchestrator.cli.app results show latest
+python -m orchestrator.cli.app results open latest
 python -m orchestrator.cli.app tui
 ```
 
 The `doctor` command currently checks project structure and environment variables, masks API keys, and reports missing or invalid local paths.
 The `baseline run` command launches the existing baseline automation entry point through the new control layer and streams logs to the terminal. It requires `EIGEN3_INCLUDE_DIR` to be configured in `.env.local` or the process environment. The TUI also exposes an experimental Run Baseline screen with live logs.
 The `experiment run --dry-run` command is safe and does not call an LLM. Real experiment runs may use API tokens configured in `.env.local`; the CLI asks for confirmation unless `--yes` is supplied. The TUI provides experiment config selection with dry-run/real-run controls and live logs.
+The results browser is read-only. It lists saved artifacts and opens existing result directories/files, but it does not recalculate metrics, decisions, reports, or modify artifacts. The TUI Browse Results screen provides the same read-only navigation.
 
 The existing baseline entry point remains `orchestrator/cli/main.py`, and the new command layer does not change optimization, benchmark, validation, materialization, or closed-loop experiment behavior.
 

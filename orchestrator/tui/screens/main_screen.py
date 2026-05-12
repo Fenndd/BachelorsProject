@@ -14,6 +14,7 @@ from orchestrator.tui.screens.doctor_screen import DoctorScreen
 from orchestrator.tui.screens.experiment_screen import ExperimentScreen
 from orchestrator.tui.screens.help_screen import HelpScreen
 from orchestrator.tui.screens.placeholder_screen import PlaceholderScreen
+from orchestrator.tui.screens.results_screen import ResultsScreen
 
 
 class MainScreen(Screen[None]):
@@ -69,9 +70,11 @@ class MainScreen(Screen[None]):
         if button_id == "run-experiment":
             self.app.push_screen(ExperimentScreen())
             return
+        if button_id == "browse-results":
+            self.app.push_screen(ResultsScreen())
+            return
 
         placeholders_by_button = {
-            "browse-results": ("Browse Results", placeholders.RESULTS_BROWSE),
             "environment": ("Environment", placeholders.ENVIRONMENT),
             "workspace": ("Workspace", placeholders.WORKSPACE),
         }
