@@ -59,6 +59,7 @@ def test_cli_experiment_list_exits_successfully() -> None:
 
     assert result.returncode == 0
     assert "Experiment Configs" in result.stdout
+    assert "Status" in result.stdout
 
 
 def test_cli_workspace_status_exits_successfully() -> None:
@@ -91,11 +92,11 @@ def test_cli_baseline_run_fails_cleanly_on_preflight_failure(tmp_path: Path) -> 
     assert "EIGEN3_INCLUDE_DIR" in result.stdout
 
 
-def test_cli_experiment_run_validates_existing_config(tmp_path: Path) -> None:
+def test_cli_experiment_run_reports_invalid_config(tmp_path: Path) -> None:
     config = tmp_path / "experiment.json"
     config.write_text("{}\n", encoding="utf-8")
 
-    result = run_cli("experiment", "run", "--config", str(config))
+    result = run_cli("experiment", "run", "--config", str(config), "--dry-run")
 
-    assert result.returncode == 0
-    assert "Validated config" in result.stdout
+    assert result.returncode == 1
+    assert "preflight_failed" in result.stdout

@@ -1,0 +1,85 @@
+from __future__ import annotations
+
+from pathlib import Path
+
+from orchestrator.control.experiment_configs import (
+    list_experiment_config_summaries,
+    read_experiment_config_summary,
+)
+
+
+REPO_ROOT = Path(__file__).resolve().parents[1]
+
+
+def _write_valid_experiment(root: Path, provider: str = "deepseek", model: str = "model-x") -> Path:
+    (root / ".git").mkdir(exist_ok=True)
+    (root / "configs" / "experiments").mkdir(parents=True, exist_ok=True)
+    llm_config = root / "configs" / "llm_test.json"
+    llm_config.write_text(
+        f'{{"provider": "{provider}", "model": "{model}"}}\n',
+        encoding="utf-8",
+    )
+    experiment = root / "configs" / "experiments" / "test_exp.json"
+    experiment.write_text(
+        """{
+  "experiment_name": "test_exp",
+  "description": "Test experiment",
+  "llm_config": "configs/llm_test.json",
+  "target_file": "cpp/external/lambdatwist/p3p.cc",
+  "iterations": 2,
+  "optimization_scope": {
+    "allowed_files": ["cpp/external/lambdatwist/p3p.cc"]
+  },
+  "pipeline": {
+    "generate_candidate": true,
+    "materialize_candidate": false,
+    "verify_candidate": false
+  },
+  "candidate_generation": {
+    "max_source_chars": 120000
+  }
+}
+""",
+        encoding="utf-8",
+    )
+    return experiment
+
+
+def test_listing_existing_configs_does_not_crash() -> None:
+    summaries = list_experiment_config_summaries(REPO_ROOT)
+
+    assert isinstance(summaries, list)
+    assert summaries
+
+
+def test_existing_valid_config_summary_can_be_read() -> None:
+    config = REPO_ROOT / "configs" / "experiments" / "mock_p3p_basic.json"
+
+    summary = read_experiment_config_summary(config)
+
+    assert summary.status == "ok"
+    assert summary.name == "mock_p3p_basic"
+    assert summary.total_iterations == 1
+
+
+def test_invalid_json_config_is_reported_without_crashing(tmp_path: Path) -> None:
+    (tmp_path / ".git").mkdir()
+    config_dir = tmp_path / "configs" / "experiments"
+    config_dir.mkdir(parents=True)
+    (config_dir / "bad.json").write_text("{not valid json", encoding="utf-8")
+
+    summaries = list_experiment_config_summaries(tmp_path)
+
+    assert len(summaries) == 1
+    assert summaries[0].status == "invalid"
+    assert summaries[0].message
+
+
+def test_provider_and_model_are_extracted_from_llm_config(tmp_path: Path) -> None:
+    config = _write_valid_experiment(tmp_path, provider="deepseek", model="deepseek-test")
+
+    summary = read_experiment_config_summary(config)
+
+    assert summary.status == "ok"
+    assert summary.providers == ["deepseek"]
+    assert summary.models == ["deepseek-test"]

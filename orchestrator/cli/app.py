@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Iterable
 
 import typer
 from rich.console import Console
@@ -12,11 +11,15 @@ from rich.table import Table
 
 from orchestrator.control import (
     build_baseline_command,
+    build_experiment_command,
     get_project_paths,
+    list_experiment_config_summaries,
     load_environment,
+    read_experiment_config_summary,
     read_project_status,
     resolve_project_path,
     run_baseline,
+    run_experiment_control,
     summarize_environment,
 )
 from orchestrator.control import placeholders
@@ -99,13 +102,6 @@ def _selected_environment_table(names: set[str]) -> Table:
     return table
 
 
-def _iter_json_configs() -> Iterable[Path]:
-    paths = get_project_paths()
-    if not paths.experiments_config.is_dir():
-        return []
-    return sorted(paths.experiments_config.glob("*.json"))
-
-
 def _latest_directories() -> list[tuple[str, Path]]:
     paths = get_project_paths()
     candidates: list[tuple[str, Path]] = []
@@ -113,6 +109,38 @@ def _latest_directories() -> list[tuple[str, Path]]:
         if root.is_dir():
             candidates.extend((label, child) for child in root.iterdir() if child.is_dir())
     return sorted(candidates, key=lambda item: item[1].stat().st_mtime, reverse=True)
+
+
+def _format_bool(value: bool | None) -> str:
+    if value is None:
+        return "unknown"
+    return "yes" if value else "no"
+
+
+def _format_list(values: list[str]) -> str:
+    return ", ".join(values) if values else "unknown"
+
+
+def _experiment_summary_panel(config_path: Path) -> Panel:
+    summary = read_experiment_config_summary(config_path)
+    text = "\n".join(
+        [
+            f"Config: {_display_path(summary.path)}",
+            f"Experiment: {summary.name}",
+            f"Description: {summary.description or 'unknown'}",
+            f"Target: {summary.target_file or 'unknown'}",
+            f"Iterations: {summary.total_iterations if summary.total_iterations is not None else 'unknown'}",
+            f"Candidate format: {summary.candidate_format or 'unknown'}",
+            f"Source presentation: {summary.source_presentation or 'unknown'}",
+            f"Selection: {_format_bool(summary.selection_enabled)}",
+            f"Closed-loop: {_format_bool(summary.closed_loop_enabled)}",
+            f"Providers: {_format_list(summary.providers)}",
+            f"Models: {_format_list(summary.models)}",
+            f"Status: {summary.status}",
+            f"Message: {summary.message or '-'}",
+        ]
+    )
+    return Panel(text, title="Experiment Summary", border_style="cyan")
 
 
 @app.command()
@@ -218,32 +246,116 @@ def baseline_run() -> None:
 def experiment_list() -> None:
     """List experiment JSON configs."""
 
-    paths = get_project_paths()
     table = Table(title="Experiment Configs", show_header=True, header_style="bold cyan")
     table.add_column("Config")
-    table.add_column("Path")
+    table.add_column("Experiment name")
+    table.add_column("Iterations")
+    table.add_column("Candidate format")
+    table.add_column("Selection")
+    table.add_column("Closed-loop")
+    table.add_column("Provider/model")
+    table.add_column("Status")
 
-    configs = list(_iter_json_configs())
-    if configs:
-        for config in configs:
-            table.add_row(config.stem, _display_path(config))
+    summaries = list_experiment_config_summaries()
+    if summaries:
+        for summary in summaries:
+            providers = _format_list(summary.providers)
+            models = _format_list(summary.models)
+            status = summary.status if summary.message is None else f"{summary.status}: {summary.message}"
+            table.add_row(
+                summary.path.name,
+                summary.name,
+                str(summary.total_iterations) if summary.total_iterations is not None else "unknown",
+                summary.candidate_format or "unknown",
+                _format_bool(summary.selection_enabled),
+                _format_bool(summary.closed_loop_enabled),
+                f"{providers} / {models}",
+                status,
+            )
     else:
-        table.add_row("none", f"No JSON configs found under {_display_path(paths.experiments_config)}")
+        paths = get_project_paths()
+        table.add_row(
+            "none",
+            f"No JSON configs found under {_display_path(paths.experiments_config)}",
+            "unknown",
+            "unknown",
+            "unknown",
+            "unknown",
+            "missing",
+        )
     console.print(table)
 
 
 @experiment_app.command("run")
 def experiment_run(
     config: Path = typer.Option(..., "--config", help="Experiment config JSON path."),
+    dry_run: bool = typer.Option(False, "--dry-run", help="Run experiment runner in dry-run mode."),
+    yes: bool = typer.Option(False, "--yes", help="Skip confirmation for real experiment runs."),
 ) -> None:
-    """Validate an experiment config path, then show integration placeholder."""
+    """Run or dry-run an experiment config via the existing experiment runner."""
 
     config_path = resolve_project_path(config)
     if not config_path.is_file():
         raise typer.BadParameter(f"Config path does not exist: {config_path}")
 
-    message = f"{placeholders.EXPERIMENT_RUN}\n\nValidated config: {_display_path(config_path)}"
-    console.print(Panel(message, title="Experiment Run", border_style="yellow"))
+    console.print(_experiment_summary_panel(config_path))
+    command = build_experiment_command(config_path, dry_run=dry_run)
+    console.print(
+        Panel(
+            f"Command: {' '.join(command)}\n"
+            f"Mode: {'dry-run' if dry_run else 'real run'}",
+            title="Experiment Launch",
+            border_style="cyan",
+        )
+    )
+    if not dry_run:
+        console.print(
+            Panel(
+                "This may use paid LLM API calls. API keys are read from the process environment or .env.local.",
+                title="Confirmation Required",
+                border_style="yellow",
+            )
+        )
+        if not yes and not typer.confirm("Continue with the real experiment run?"):
+            console.print("Experiment run cancelled.")
+            return
+
+    def print_stdout(line: str) -> None:
+        console.print(line)
+
+    def print_stderr(line: str) -> None:
+        console.print(line, style="red")
+
+    result = run_experiment_control(
+        config_path,
+        dry_run=dry_run,
+        on_stdout=print_stdout,
+        on_stderr=print_stderr,
+    )
+    duration = (
+        "n/a"
+        if result.process_result is None
+        else f"{result.process_result.duration_seconds:.3f}s"
+    )
+    latest_dir = (
+        "-"
+        if result.latest_experiment_dir is None
+        else _display_path(result.latest_experiment_dir)
+    )
+    console.print(
+        Panel(
+            f"Status: {result.status}\n"
+            f"Exit code: {result.exit_code if result.exit_code is not None else 'n/a'}\n"
+            f"Duration: {duration}\n"
+            f"Latest experiment directory: {latest_dir}\n"
+            f"Message: {result.message}\n\n"
+            "Hint: use `python -m orchestrator.cli.app results latest` to inspect recent runs.",
+            title="Experiment Result",
+            border_style="green" if result.status == "success" else "red",
+        )
+    )
+    if result.status != "success":
+        raise typer.Exit(1)
 
 
 @results_app.command("latest")
