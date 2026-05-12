@@ -39,9 +39,18 @@ from .results_browser import (
     resolve_result_selector,
 )
 from .status import ProjectStatus, read_project_status
+from .workspace_manager import (
+    CleanupResult,
+    WorkspaceStatus,
+    clean_workspace_all,
+    clean_workspace_candidates,
+    clean_workspace_experiments,
+    get_workspace_status,
+)
 
 __all__ = [
     "BaselineRunResult",
+    "CleanupResult",
     "EnvironmentSummary",
     "EnvVarSpec",
     "EnvVarStatus",
@@ -54,13 +63,18 @@ __all__ = [
     "ProjectStatus",
     "ResultArtifactMap",
     "ResultItem",
+    "WorkspaceStatus",
     "build_baseline_command",
     "build_baseline_environment",
     "build_experiment_command",
+    "clean_workspace_all",
+    "clean_workspace_candidates",
+    "clean_workspace_experiments",
     "find_repo_root",
     "get_env_specs",
     "get_latest_result",
     "get_project_paths",
+    "get_workspace_status",
     "list_experiment_items",
     "load_environment",
     "mask_secret",

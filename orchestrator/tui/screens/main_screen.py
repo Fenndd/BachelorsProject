@@ -11,10 +11,11 @@ from orchestrator.control import load_environment, read_project_status, summariz
 from orchestrator.control import placeholders
 from orchestrator.tui.screens.baseline_screen import BaselineScreen
 from orchestrator.tui.screens.doctor_screen import DoctorScreen
+from orchestrator.tui.screens.environment_screen import EnvironmentScreen
 from orchestrator.tui.screens.experiment_screen import ExperimentScreen
 from orchestrator.tui.screens.help_screen import HelpScreen
-from orchestrator.tui.screens.placeholder_screen import PlaceholderScreen
 from orchestrator.tui.screens.results_screen import ResultsScreen
+from orchestrator.tui.screens.workspace_screen import WorkspaceScreen
 
 
 class MainScreen(Screen[None]):
@@ -73,13 +74,8 @@ class MainScreen(Screen[None]):
         if button_id == "browse-results":
             self.app.push_screen(ResultsScreen())
             return
-
-        placeholders_by_button = {
-            "environment": ("Environment", placeholders.ENVIRONMENT),
-            "workspace": ("Workspace", placeholders.WORKSPACE),
-        }
-        title, message = placeholders_by_button.get(
-            button_id or "",
-            ("Placeholder", "This action is not implemented yet."),
-        )
-        self.app.push_screen(PlaceholderScreen(title, message))
+        if button_id == "environment":
+            self.app.push_screen(EnvironmentScreen())
+            return
+        if button_id == "workspace":
+            self.app.push_screen(WorkspaceScreen())

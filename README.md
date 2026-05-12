@@ -119,6 +119,8 @@ The `baseline run` command launches the existing baseline automation entry point
 The `experiment run --dry-run` command is safe and does not call an LLM. Real experiment runs may use API tokens configured in `.env.local`; the CLI asks for confirmation unless `--yes` is supplied. The TUI provides experiment config selection with dry-run/real-run controls and live logs.
 The results browser is read-only. It lists saved artifacts and opens existing result directories/files, but it does not recalculate metrics, decisions, reports, or modify artifacts. The TUI Browse Results screen provides the same read-only navigation.
 
+See `docs/interactive_terminal_control_layer.md` for the full CLI/TUI command reference and safety notes.
+
 The existing baseline entry point remains `orchestrator/cli/main.py`, and the new command layer does not change optimization, benchmark, validation, materialization, or closed-loop experiment behavior.
 
 ## LLM Candidate Generation and Candidate Edit Formats

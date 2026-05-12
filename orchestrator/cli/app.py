@@ -13,6 +13,7 @@ from orchestrator.control import (
     build_baseline_command,
     build_experiment_command,
     get_project_paths,
+    get_workspace_status,
     list_experiment_config_summaries,
     list_result_items,
     load_environment,
@@ -24,9 +25,13 @@ from orchestrator.control import (
     run_baseline,
     run_experiment_control,
     summarize_environment,
+    clean_workspace_all,
+    clean_workspace_candidates,
+    clean_workspace_experiments,
 )
 from orchestrator.control.open_artifact import OpenArtifactError
 from orchestrator.control.results_browser import ResultItem
+from orchestrator.control.workspace_manager import CleanupResult, WorkspaceStatus
 from orchestrator.control import placeholders
 
 
@@ -214,6 +219,67 @@ def _artifact_path(item: ResultItem, artifact: str) -> Path | None:
     if artifact == "report":
         return artifacts.report_html or artifacts.report_pdf or artifacts.report_dir
     return artifacts.directory
+
+
+def _format_bytes(size: int) -> str:
+    units = ["B", "KiB", "MiB", "GiB"]
+    value = float(size)
+    for unit in units:
+        if value < 1024 or unit == units[-1]:
+            return f"{value:.1f} {unit}" if unit != "B" else f"{int(value)} B"
+        value /= 1024
+    return f"{size} B"
+
+
+def _workspace_status_table(status: WorkspaceStatus) -> Table:
+    table = Table(title="Workspace Status", show_header=True, header_style="bold cyan")
+    table.add_column("Item")
+    table.add_column("Value")
+    table.add_row("Path", _display_path(status.path))
+    table.add_row("Exists", _yes_no(status.exists))
+    table.add_row("Total files", str(status.total_files))
+    table.add_row("Total directories", str(status.total_dirs))
+    table.add_row("Total size", _format_bytes(status.total_size_bytes))
+    table.add_row("Candidate workspaces", str(len(status.candidate_workspaces)))
+    table.add_row("Experiment workspaces", str(len(status.experiment_workspaces)))
+    table.add_row("Other entries", str(len(status.other_entries)))
+    return table
+
+
+def _cleanup_result_panel(result: CleanupResult) -> Panel:
+    text = "\n".join(
+        [
+            f"Kind: {result.kind}",
+            f"Deleted paths: {result.deleted_paths_count}",
+            f"Deleted files: {result.deleted_files_count}",
+            f"Deleted bytes estimate: {_format_bytes(result.deleted_bytes_estimate)}",
+            f"Errors: {len(result.errors)}",
+        ]
+    )
+    return Panel(text, title="Workspace Cleanup", border_style="red" if result.errors else "green")
+
+
+def _run_workspace_cleanup(kind: str, yes: bool) -> None:
+    if not yes and not typer.confirm(
+        f"Clean workspace {kind}? This only deletes data inside workspace/ and never results/."
+    ):
+        console.print("Workspace cleanup cancelled.")
+        return
+    cleanup = {
+        "candidates": clean_workspace_candidates,
+        "experiments": clean_workspace_experiments,
+        "all": clean_workspace_all,
+    }[kind]
+    result = cleanup()
+    console.print(_cleanup_result_panel(result))
+    if result.deleted_paths:
+        table = Table(title="Deleted Paths", show_header=True, header_style="bold cyan")
+        table.add_column("Path")
+        for path in result.deleted_paths:
+            table.add_row(_display_path(path))
+        console.print(table)
+    if result.errors:
+        console.print(Panel("\n".join(result.errors), title="Cleanup Errors", border_style="red"))
 
 
 @app.command()
@@ -508,28 +574,37 @@ def results_open(
 
 @workspace_app.command("status")
 def workspace_status() -> None:
-    """Show basic workspace presence and file counts."""
+    """Show workspace presence, size, and temporary workspace counts."""
 
-    paths = get_project_paths()
-    workspace = paths.workspace
-    table = Table(title="Workspace Status", show_header=True, header_style="bold cyan")
-    table.add_column("Item")
-    table.add_column("Value")
-    table.add_row("Path", _display_path(workspace))
-    table.add_row("Exists", _yes_no(workspace.is_dir()))
+    console.print(Panel("Workspace cleanup only affects workspace/ and never results/.", title="Workspace", border_style="cyan"))
+    console.print(_workspace_status_table(get_workspace_status()))
 
-    if workspace.is_dir():
-        direct_files = sum(1 for child in workspace.iterdir() if child.is_file())
-        direct_dirs = sum(1 for child in workspace.iterdir() if child.is_dir())
-        all_files = sum(1 for child in workspace.rglob("*") if child.is_file())
-        all_dirs = sum(1 for child in workspace.rglob("*") if child.is_dir())
-        table.add_row("Direct files", str(direct_files))
-        table.add_row("Direct directories", str(direct_dirs))
-        table.add_row("Total files", str(all_files))
-        table.add_row("Total directories", str(all_dirs))
 
-    console.print(Panel(placeholders.WORKSPACE, title="Workspace", border_style="cyan"))
-    console.print(table)
+@workspace_app.command("clean-candidates")
+def workspace_clean_candidates(
+    yes: bool = typer.Option(False, "--yes", help="Skip confirmation."),
+) -> None:
+    """Delete candidate workspaces under workspace/candidates/."""
+
+    _run_workspace_cleanup("candidates", yes)
+
+
+@workspace_app.command("clean-experiments")
+def workspace_clean_experiments(
+    yes: bool = typer.Option(False, "--yes", help="Skip confirmation."),
+) -> None:
+    """Delete experiment workspaces under workspace/experiments/."""
+
+    _run_workspace_cleanup("experiments", yes)
+
+
+@workspace_app.command("clean-all")
+def workspace_clean_all(
+    yes: bool = typer.Option(False, "--yes", help="Skip confirmation."),
+) -> None:
+    """Delete temporary entries inside workspace/ while preserving workspace/.gitkeep."""
+
+    _run_workspace_cleanup("all", yes)
 
 
 app.add_typer(baseline_app, name="baseline")

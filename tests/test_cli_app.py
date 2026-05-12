@@ -89,6 +89,43 @@ def test_cli_results_show_missing_selector_fails_cleanly() -> None:
     assert "Result not found or ambiguous" in result.stdout
 
 
+def test_cli_workspace_clean_declined_does_not_delete(tmp_path: Path) -> None:
+    (tmp_path / ".git").mkdir()
+    candidate = tmp_path / "workspace" / "candidates" / "candidate_001"
+    candidate.mkdir(parents=True)
+    env = os.environ.copy()
+    env["PYTHONPATH"] = str(REPO_ROOT)
+
+    result = subprocess.run(
+        [sys.executable, "-m", "orchestrator.cli.app", "workspace", "clean-candidates"],
+        cwd=tmp_path,
+        env=env,
+        input="n\n",
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert result.returncode == 0
+    assert candidate.exists()
+
+
+def test_cli_workspace_clean_yes_deletes_temp_workspace_only(tmp_path: Path) -> None:
+    (tmp_path / ".git").mkdir()
+    candidate = tmp_path / "workspace" / "candidates" / "candidate_001"
+    candidate.mkdir(parents=True)
+    results = tmp_path / "results" / "runs" / "run_001"
+    results.mkdir(parents=True)
+    env = os.environ.copy()
+    env["PYTHONPATH"] = str(REPO_ROOT)
+
+    result = run_cli("workspace", "clean-candidates", "--yes", cwd=tmp_path, env=env)
+
+    assert result.returncode == 0
+    assert not candidate.exists()
+    assert results.exists()
+
+
 def test_cli_baseline_run_fails_cleanly_on_preflight_failure(tmp_path: Path) -> None:
     (tmp_path / ".git").mkdir()
     env = os.environ.copy()

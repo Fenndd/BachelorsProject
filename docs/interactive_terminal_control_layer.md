@@ -1,0 +1,79 @@
+# Interactive Terminal Control Layer
+
+The Interactive Terminal Control Layer provides a Typer/Rich CLI and Textual TUI for operating the bachelor thesis prototype without reimplementing the optimization pipeline. It launches existing entry points, reads existing artifacts, and reports status.
+
+## Setup
+
+Install Python dependencies:
+
+```powershell
+python -m pip install -r requirements.txt
+```
+
+Create local environment settings from the committed template:
+
+```powershell
+copy .env.example .env.local
+```
+
+Keep local paths and API keys in `.env.local`. Secrets are masked in CLI/TUI diagnostics.
+
+## Commands
+
+Diagnostics:
+
+```powershell
+python -m orchestrator.cli.app doctor
+python -m orchestrator.cli.app tui
+```
+
+Baseline:
+
+```powershell
+python -m orchestrator.cli.app baseline run
+```
+
+Experiments:
+
+```powershell
+python -m orchestrator.cli.app experiment list
+python -m orchestrator.cli.app experiment run --config configs/experiments/mock_p3p_basic.json --dry-run
+python -m orchestrator.cli.app experiment run --config configs/experiments/<file>.json --yes
+```
+
+Results:
+
+```powershell
+python -m orchestrator.cli.app results list
+python -m orchestrator.cli.app results latest
+python -m orchestrator.cli.app results show latest
+python -m orchestrator.cli.app results open latest
+```
+
+Workspace:
+
+```powershell
+python -m orchestrator.cli.app workspace status
+python -m orchestrator.cli.app workspace clean-candidates --yes
+python -m orchestrator.cli.app workspace clean-experiments --yes
+python -m orchestrator.cli.app workspace clean-all --yes
+```
+
+## TUI
+
+Launch the TUI:
+
+```powershell
+python -m orchestrator.cli.app tui
+```
+
+Available screens include Doctor, Environment, Run Baseline, Run Experiment, Browse Results, Workspace, and Help. Use `Esc` to go back from secondary screens and `Ctrl+Q` to quit.
+
+## Safety Guarantees
+
+- The control layer does not reimplement baseline or experiment logic.
+- Baseline and experiment actions launch existing Python entry points.
+- The results browser is read-only and does not recalculate metrics, decisions, or reports.
+- Workspace cleanup only deletes entries inside `workspace/`; it does not delete `results/`.
+- API keys and other secrets are masked in displays.
+- The main `cpp/` source tree is not modified automatically by the control layer.

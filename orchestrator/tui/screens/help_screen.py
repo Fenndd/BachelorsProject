@@ -16,20 +16,42 @@ class HelpScreen(Screen[None]):
         with Container(id="main"):
             yield Static("Help", classes="title")
             yield Static(
-                "This is the first skeleton of the Interactive Terminal Control Layer.",
+                "Interactive Terminal Control Layer for the bachelor project optimizer.",
                 classes="subtitle",
             )
             yield Static(
-                "Use the main screen to inspect repository status and open placeholder "
-                "controls. Real baseline and experiment launching will be connected in "
-                "later architecture steps.",
+                "Core actions:\n"
+                "  Doctor: project and environment diagnostics\n"
+                "  Environment: masked .env.local/process/default settings\n"
+                "  Run Baseline: launch the existing baseline automation with live logs\n"
+                "  Run Experiment: select configs, dry-run, or confirm real runs\n"
+                "  Browse Results: read-only navigation for saved artifacts\n"
+                "  Workspace: inspect and clean temporary workspace data",
                 classes="panel",
             )
             yield Static(
                 "CLI entry points:\n"
                 "  python -m orchestrator.cli.app --help\n"
                 "  python -m orchestrator.cli.app doctor\n"
+                "  python -m orchestrator.cli.app baseline run\n"
+                "  python -m orchestrator.cli.app experiment list\n"
+                "  python -m orchestrator.cli.app results list\n"
+                "  python -m orchestrator.cli.app workspace status\n"
                 "  python -m orchestrator.cli.app tui",
+                classes="panel",
+            )
+            yield Static(
+                "Hotkeys:\n"
+                "  Ctrl+Q: quit\n"
+                "  Esc: back from secondary screens",
+                classes="panel",
+            )
+            yield Static(
+                "Safety notes:\n"
+                "  Results browsing is read-only.\n"
+                "  Workspace cleanup only affects workspace/ and never results/.\n"
+                "  Real experiments may use API tokens from .env.local.\n"
+                "  The control layer does not automatically modify the main cpp/ source tree.",
                 classes="panel",
             )
             yield Button("Back", id="back")
