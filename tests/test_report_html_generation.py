@@ -453,3 +453,110 @@ def test_report_template_packaging_renders_real_template(tmp_path: Path) -> None
     assert html_path.is_file()
     html = html_path.read_text(encoding="utf-8")
     assert "exp_tpl" in html
+
+
+# ---------------------------------------------------------------------------
+# Fix 4: Runtime Improvement label in HTML
+# ---------------------------------------------------------------------------
+
+
+def test_html_contains_runtime_improvement_label(tmp_path: Path) -> None:
+    """HTML renders 'Runtime Improvement ns/case' label with positive value."""
+
+    report_data = _report_data()
+    report_data.final_best_candidate = ReportFinalBestCandidate(
+        iteration=1,
+        runtime_ns_per_case_median=80.0,
+        baseline_runtime_ns_per_case_median=100.0,
+        absolute_runtime_difference_ns_per_case=20.0,
+        speedup_vs_baseline=1.25,
+    )
+    plot_paths = build_report_figures(report_data, tmp_path / "plots")
+    html_path = render_report_html(report_data, plot_paths, tmp_path / "report.html")
+    html = html_path.read_text(encoding="utf-8")
+
+    assert "Runtime Improvement ns/case" in html
+    assert "20" in html
+
+
+# ---------------------------------------------------------------------------
+# Fix 6: List fields render cleanly (not Python repr)
+# ---------------------------------------------------------------------------
+
+
+def test_list_fields_render_as_comma_separated(tmp_path: Path) -> None:
+    """List fields in HTML display as comma-separated, not Python list syntax."""
+
+    report_data = make_empty_report_data("exp_001", TARGET_FILE)
+    report_data.experiment.total_iterations = 1
+    report_data.experiment.completed_iterations = 1
+    report_data.baseline_metrics = ReportBaselineMetrics(
+        runtime_ns_per_case_median=100.0,
+        correctness_passed=True,
+    )
+    report_data.reporting_status = ReportReportingStatus(
+        enabled=True,
+        status="completed",
+        formats=["html"],
+        pdf_generated=False,
+        pdf_display='Not generated. Current reporting formats: ["html"]',
+    )
+    report_data.experiment_config_details = ReportExperimentConfigDetails(
+        optimization_scope_allowed_files=["cpp/external/lambdatwist/p3p.cc"],
+    )
+    report_data.final_best_candidate = ReportFinalBestCandidate(
+        changed_files=["cpp/external/lambdatwist/p3p.cc"],
+    )
+    counts = default_status_counts()
+    counts["accepted_improvement"] = 1
+    report_data.status_counts = counts
+
+    plot_paths = build_report_figures(report_data, tmp_path / "plots")
+    html_path = render_report_html(report_data, plot_paths, tmp_path / "report.html")
+    html = html_path.read_text(encoding="utf-8")
+
+    assert "html" in html
+    assert "cpp/external/lambdatwist/p3p.cc" in html
+    assert "['html']" not in html
+    assert "['cpp/external/lambdatwist/p3p.cc']" not in html
+
+
+# ---------------------------------------------------------------------------
+# Fix 7: Empty reason_summary hides the section
+# ---------------------------------------------------------------------------
+
+
+def test_reason_summary_section_absent_when_empty(tmp_path: Path) -> None:
+    """Reason Summary section is not rendered when reason_summary is empty."""
+
+    report_data = _report_data()
+    report_data.reason_summary = []
+
+    plot_paths = build_report_figures(report_data, tmp_path / "plots")
+    html_path = render_report_html(report_data, plot_paths, tmp_path / "report.html")
+    html = html_path.read_text(encoding="utf-8")
+
+    assert "Reason Summary" not in html
+
+
+def test_reason_summary_section_present_when_nonempty(tmp_path: Path) -> None:
+    """Reason Summary section is rendered when reason_summary has entries."""
+
+    report_data = _report_data()
+    report_data.reason_summary = [
+        ReportReasonSummaryItem(reason="runtime_not_improved", count=1, iterations=[2]),
+    ]
+    report_data.reporting_status = ReportReportingStatus(
+        enabled=True,
+        status="completed",
+        formats=["html"],
+        pdf_generated=False,
+        pdf_display='Not generated. Current reporting formats: ["html"]',
+    )
+
+    plot_paths = build_report_figures(report_data, tmp_path / "plots")
+    html_path = render_report_html(report_data, plot_paths, tmp_path / "report.html")
+    html = html_path.read_text(encoding="utf-8")
+
+    assert "Reason Summary" in html
+    assert "runtime_not_improved" in html

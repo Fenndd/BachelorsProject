@@ -29,7 +29,11 @@ def generate_basic_report(
     report_dir = experiment_path / "report"
     requested_formats = _normalize_formats(formats)
 
-    report_data_path = collect_and_write_report_data(experiment_path)
+    report_data_path = collect_and_write_report_data(
+        experiment_path,
+        reporting_formats_override=tuple(requested_formats),
+        reporting_renderer_override=renderer,
+    )
     report_data = json.loads(report_data_path.read_text(encoding="utf-8"))
     plot_paths = build_report_figures(report_data, report_dir / "plots")
     html_path = render_report_html(report_data, plot_paths, report_dir / "report.html")

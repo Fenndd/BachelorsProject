@@ -32,6 +32,8 @@ def collect_report_data(
     experiment_dir: Path | str,
     *,
     output_path: Path | str | None = None,
+    reporting_formats_override: tuple[str, ...] | list[str] | None = None,
+    reporting_renderer_override: str | None = None,
 ) -> ReportData:
     """Collect normalized report data from persisted closed-loop artifacts."""
 
@@ -145,7 +147,9 @@ def collect_report_data(
             summary, iterations, baseline_metrics, records, experiment_path
         ),
         reporting_status=_build_reporting_status(
-            experiment_path, config_snapshot, status_payload
+            experiment_path, config_snapshot, status_payload,
+            formats_override=reporting_formats_override,
+            renderer_override=reporting_renderer_override,
         ),
         reason_summary=_build_reason_summary(iterations),
     )
@@ -158,6 +162,9 @@ def collect_report_data(
 def collect_and_write_report_data(
     experiment_dir: Path | str,
     output_path: Path | str | None = None,
+    *,
+    reporting_formats_override: tuple[str, ...] | list[str] | None = None,
+    reporting_renderer_override: str | None = None,
 ) -> Path:
     """Collect report data and write report/report_data.json."""
 
@@ -167,7 +174,12 @@ def collect_and_write_report_data(
         if output_path is not None
         else experiment_path / "report" / "report_data.json"
     )
-    collect_report_data(experiment_path, output_path=report_data_path)
+    collect_report_data(
+        experiment_path,
+        output_path=report_data_path,
+        reporting_formats_override=reporting_formats_override,
+        reporting_renderer_override=reporting_renderer_override,
+    )
     return report_data_path
 
 
@@ -176,7 +188,7 @@ def collect_and_write_report_data(
 # ---------------------------------------------------------------------------
 
 def _display_path(path: Any, experiment_dir: Path | None = None) -> str | None:
-    """Convert an absolute path to a repo-relative POSIX string for display."""
+    """Convert a path to a repo-relative POSIX string for display."""
 
     if path is None:
         return None
@@ -184,8 +196,36 @@ def _display_path(path: Any, experiment_dir: Path | None = None) -> str | None:
     if not path_text:
         return None
 
+    _KNOWN_PREFIXES = (
+        "results/", "workspace/", "configs/", "cpp/",
+        "orchestrator/", "tests/",
+    )
+
+    path_obj = Path(path_text)
+    if not path_obj.is_absolute():
+        normalized = path_obj.as_posix()
+        if any(normalized.startswith(p) for p in _KNOWN_PREFIXES):
+            return normalized
+        try:
+            candidate = (_REPO_ROOT / normalized).resolve()
+            return candidate.relative_to(_REPO_ROOT).as_posix()
+        except (ValueError, OSError):
+            pass
+        if experiment_dir is not None:
+            try:
+                candidate = (experiment_dir / normalized).resolve()
+                return candidate.relative_to(_REPO_ROOT).as_posix()
+            except (ValueError, OSError):
+                pass
+        try:
+            candidate = (Path.cwd() / normalized).resolve()
+            return candidate.relative_to(_REPO_ROOT).as_posix()
+        except (ValueError, OSError):
+            pass
+        return normalized
+
     try:
-        resolved = Path(path_text).resolve()
+        resolved = path_obj.resolve()
     except (OSError, ValueError):
         return path_text
 
@@ -505,7 +545,7 @@ def _build_final_best_candidate(
     # Absolute runtime difference
     abs_diff: float | None = None
     if final_rt is not None and baseline_rt is not None:
-        abs_diff = final_rt - baseline_rt
+        abs_diff = baseline_rt - final_rt
 
     # Changed files from materialization.json of the best candidate record
     changed_files: list[str] = []
@@ -553,6 +593,8 @@ def _build_reporting_status(
     experiment_path: Path,
     config_snapshot: dict[str, Any],
     status_payload: dict[str, Any],
+    formats_override: tuple[str, ...] | list[str] | None = None,
+    renderer_override: str | None = None,
 ) -> ReportReportingStatus:
     """Build ReportReportingStatus from runner status block and config snapshot."""
 
@@ -564,12 +606,28 @@ def _build_reporting_status(
         config_rep.get("enabled"),
     )
     status = _string_or_none(runner_rep.get("status"))
-    formats_raw = runner_rep.get("formats") or config_rep.get("formats")
-    formats: list[str] = list(formats_raw) if isinstance(formats_raw, list) else []
+
+    # Priority for formats: override > runner > config > empty
+    if formats_override is not None:
+        seen: set[str] = set()
+        deduped: list[str] = []
+        for fmt in formats_override:
+            f = fmt.strip().lower()
+            if f in ("html", "pdf") and f not in seen:
+                seen.add(f)
+                deduped.append(f)
+        formats = deduped
+    else:
+        formats_raw = runner_rep.get("formats") or config_rep.get("formats")
+        formats = list(formats_raw) if isinstance(formats_raw, list) else []
+
+    # Priority for renderer: override > runner > config > "auto"
     renderer = _first_string(
+        renderer_override,
         runner_rep.get("renderer"),
         config_rep.get("renderer"),
-    )
+    ) or "auto"
+
     error = _string_or_none(runner_rep.get("error"))
 
     report_dir = experiment_path / "report"
@@ -577,16 +635,8 @@ def _build_reporting_status(
     report_html_file = report_dir / "report.html"
     report_pdf_file = report_dir / "report.pdf"
 
-    report_data_path = (
-        _display_path(report_data_file, experiment_path)
-        if report_data_file.exists()
-        else None
-    )
-    report_html_path = (
-        _display_path(report_html_file, experiment_path)
-        if report_html_file.exists()
-        else None
-    )
+    report_data_path = _display_path(report_data_file, experiment_path)
+    report_html_path = _display_path(report_html_file, experiment_path)
 
     if report_pdf_file.exists():
         pdf_generated = True
@@ -599,7 +649,7 @@ def _build_reporting_status(
             formats_json = json.dumps(formats)
             pdf_display = f"Not generated. Current reporting formats: {formats_json}"
         else:
-            pdf_display = "Not generated or missing"
+            pdf_display = "PDF requested; generation pending or file missing"
 
     return ReportReportingStatus(
         enabled=enabled,

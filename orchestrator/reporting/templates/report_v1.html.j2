@@ -119,7 +119,7 @@
       <div class="metric"><strong>Correctness Preserved</strong>{{ report.final_result.correctness_preserved|yes_no }}</div>
       <div class="metric"><strong>Baseline Runtime ns/case</strong>{{ report.baseline_metrics.runtime_ns_per_case_median|display }}</div>
       <div class="metric"><strong>Final Best Runtime ns/case</strong>{{ report.final_best_candidate.runtime_ns_per_case_median|display }}</div>
-      <div class="metric"><strong>Absolute Runtime Difference ns/case</strong>{{ report.final_best_candidate.absolute_runtime_difference_ns_per_case|display }}</div>
+      <div class="metric"><strong>Runtime Improvement ns/case</strong>{{ report.final_best_candidate.absolute_runtime_difference_ns_per_case|display }}</div>
       <div class="metric"><strong>PDF Report</strong>{{ report.reporting_status.pdf_display|display }}</div>
     </div>
   </section>
@@ -223,9 +223,9 @@
     <figure><img src="{{ plots.candidate_funnel }}" alt="Candidate funnel plot"></figure>
   </section>
 
+  {% if report.reason_summary %}
   <section id="reason-summary">
     <h2>Reason Summary</h2>
-    {% if report.reason_summary %}
     <table>
       <thead><tr><th>Reason</th><th>Count</th><th>Iterations</th></tr></thead>
       <tbody>
@@ -238,10 +238,8 @@
       {% endfor %}
       </tbody>
     </table>
-    {% else %}
-    <p class="muted">No non-accepted iterations recorded.</p>
-    {% endif %}
   </section>
+  {% endif %}
 
   <section id="closed-loop-selection">
     <h2>Closed-Loop Selection</h2>
@@ -310,7 +308,7 @@
         <tr><th>Candidate Run Dir</th><td><code>{{ report.final_best_candidate.candidate_run_dir|display }}</code></td></tr>
         <tr><th>Runtime ns/case</th><td>{{ report.final_best_candidate.runtime_ns_per_case_median|display }}</td></tr>
         <tr><th>Baseline Runtime ns/case</th><td>{{ report.final_best_candidate.baseline_runtime_ns_per_case_median|display }}</td></tr>
-        <tr><th>Absolute Runtime Difference ns/case</th><td>{{ report.final_best_candidate.absolute_runtime_difference_ns_per_case|display }}</td></tr>
+        <tr><th>Runtime Improvement ns/case</th><td>{{ report.final_best_candidate.absolute_runtime_difference_ns_per_case|display }}</td></tr>
         <tr><th>Speedup vs Baseline</th><td>{{ report.final_best_candidate.speedup_vs_baseline|display }}</td></tr>
         <tr><th>Runtime Reduction %</th><td>{{ report.final_best_candidate.runtime_reduction_percent|display }}</td></tr>
         <tr><th>Accepted Improvements</th><td>{{ report.final_result.accepted_improvements|display }}</td></tr>

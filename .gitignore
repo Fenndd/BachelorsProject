@@ -68,6 +68,12 @@ temp/
 .idea/
 .vscode/
 
+# Agent / AI config files
+AGENTS.MD
+CLAUDE.MD
+.claude/
+opencode.json
+
 # OS junk
 .DS_Store
 Thumbs.db

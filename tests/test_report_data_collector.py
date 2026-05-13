@@ -669,3 +669,154 @@ def test_e_artifact_paths_end_with_known_segments(
     assert closed_loop_display.endswith("closed_loop_summary.json")
     # report_pdf is None since no PDF file was generated
     assert report_data.artifacts.report_pdf is None
+
+
+# ---------------------------------------------------------------------------
+# Fix 1: Report paths always populated even before files exist
+# ---------------------------------------------------------------------------
+
+
+def test_reporting_status_paths_always_populated(tmp_path: Path) -> None:
+    """report_data_path and report_html_path are set even before files exist."""
+
+    experiment_dir = _experiment_dir(tmp_path)
+    _write_json(experiment_dir / "closed_loop_summary.json", _summary())
+    _write_jsonl(experiment_dir / "closed_loop_iterations.jsonl", [])
+
+    assert not (experiment_dir / "report" / "report_data.json").exists()
+    assert not (experiment_dir / "report" / "report.html").exists()
+
+    report_data = collect_report_data(experiment_dir)
+
+    rdp = report_data.reporting_status.report_data_path or ""
+    rhp = report_data.reporting_status.report_html_path or ""
+    assert "report/report_data.json" in rdp.replace("\\", "/")
+    assert "report/report.html" in rhp.replace("\\", "/")
+
+
+# ---------------------------------------------------------------------------
+# Fix 2: Reporting formats override
+# ---------------------------------------------------------------------------
+
+
+def test_reporting_formats_override(tmp_path: Path) -> None:
+    """collect_report_data accepts reporting_formats_override and overrides config."""
+
+    experiment_dir = _experiment_dir(tmp_path)
+    _write_json(experiment_dir / "closed_loop_summary.json", _summary())
+    _write_jsonl(experiment_dir / "closed_loop_iterations.jsonl", [])
+    _write_json(
+        experiment_dir / "experiment_config_snapshot.json",
+        {
+            "experiment_name": "Override Test",
+            "target_file": TARGET_FILE,
+            "reporting": {"enabled": True, "formats": ["html"], "renderer": "weasyprint"},
+            "closed_loop": {"enabled": True},
+        },
+    )
+
+    report_data = collect_report_data(
+        experiment_dir,
+        reporting_formats_override=("html", "pdf"),
+        reporting_renderer_override="playwright",
+    )
+
+    assert report_data.reporting_status.formats == ["html", "pdf"]
+    assert report_data.reporting_status.renderer == "playwright"
+
+
+def test_reporting_pdf_pending_when_pdf_absent_but_requested(tmp_path: Path) -> None:
+    """pdf_display shows 'generation pending' when formats include pdf but file missing."""
+
+    experiment_dir = _experiment_dir(tmp_path)
+    _write_json(experiment_dir / "closed_loop_summary.json", _summary())
+    _write_jsonl(experiment_dir / "closed_loop_iterations.jsonl", [])
+    _write_json(
+        experiment_dir / "experiment_config_snapshot.json",
+        {
+            "experiment_name": "PDF Pending",
+            "target_file": TARGET_FILE,
+            "reporting": {"enabled": True, "formats": ["html", "pdf"], "renderer": "auto"},
+            "closed_loop": {"enabled": True},
+        },
+    )
+
+    report_data = collect_report_data(experiment_dir)
+
+    assert report_data.reporting_status.pdf_generated is False
+    assert report_data.reporting_status.report_pdf_path is None
+    assert "PDF requested" in (report_data.reporting_status.pdf_display or "")
+    assert "generation pending" in (report_data.reporting_status.pdf_display or "")
+
+
+# ---------------------------------------------------------------------------
+# Fix 4: Runtime difference sign
+# ---------------------------------------------------------------------------
+
+
+def test_runtime_difference_sign_positive_for_improvement(tmp_path: Path) -> None:
+    """absolute_runtime_difference_ns_per_case is positive when final is faster."""
+
+    experiment_dir = _experiment_dir(tmp_path)
+    metrics_path = tmp_path / "results" / "runs" / "baseline" / "metrics.json"
+    _write_json(
+        metrics_path,
+        {
+            "benchmark": {"parsed_runtime_ns_per_case_median": 100.0},
+        },
+    )
+    _write_json(
+        experiment_dir / "closed_loop_summary.json",
+        _summary(
+            original_baseline_metrics_path=str(metrics_path),
+            final_best_iteration=1,
+            final_speedup_vs_original_baseline=1.25,
+            final_runtime_reduction_percent=20.0,
+        ),
+    )
+    _write_jsonl(
+        experiment_dir / "closed_loop_iterations.jsonl",
+        [
+            {
+                "iteration": 1,
+                "status": "accepted_improvement",
+                "runtime_ns_per_case_median": 80.0,
+                "correctness_passed": True,
+                "current_best_updated": True,
+            },
+        ],
+    )
+
+    report_data = collect_report_data(experiment_dir)
+
+    diff = report_data.final_best_candidate.absolute_runtime_difference_ns_per_case
+    assert diff == 20.0  # 100.0 - 80.0
+
+
+# ---------------------------------------------------------------------------
+# Fix 5: _display_path with known relative prefixes
+# ---------------------------------------------------------------------------
+
+
+def test_display_path_known_relative_prefixes(tmp_path: Path) -> None:
+    """_display_path preserves known relative prefixes without CWD resolution."""
+
+    import orchestrator.reporting.report_data_collector as rdc
+
+    result = rdc._display_path("results/runs/baseline")
+    assert result is not None
+    assert "results/runs/baseline" in result
+    assert "\\" not in result
+
+    result = rdc._display_path("configs/llm.json")
+    assert result is not None
+    assert "configs/llm.json" in result
+
+    result = rdc._display_path("cpp/external/lambdatwist/p3p.cc")
+    assert result is not None
+    assert "cpp/external/lambdatwist/p3p.cc" in result
+
+    result = rdc._display_path("workspace/experiments/x")
+    assert result is not None
+    assert result.startswith("workspace/experiments/x")
+    assert "\\" not in result

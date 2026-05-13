@@ -73,6 +73,13 @@ def _display_value(value: Any) -> str:
         return "Yes" if value else "No"
     if isinstance(value, float):
         return f"{value:.6g}"
+    if isinstance(value, (list, tuple)):
+        if not value:
+            return "Not available"
+        return ", ".join(str(item) for item in value)
+    if isinstance(value, dict):
+        import json
+        return json.dumps(value, ensure_ascii=False)
     return str(value)
 
 
