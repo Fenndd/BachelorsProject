@@ -180,6 +180,27 @@ candidate format. The prompt schema and candidate JSON schema are unchanged; the
 LLM still sees the logical repo-relative target file, not the temporary
 workspace path.
 
+`llm_response.json` includes a structured `llm_usage` block for reporting and
+auditability. Fields are nullable when a provider or mock response does not
+report them:
+
+```json
+{
+  "llm_usage": {
+    "prompt_tokens": 1234,
+    "completion_tokens": 567,
+    "total_tokens": 1801,
+    "api_latency_seconds": 2.345,
+    "finish_reason": "stop",
+    "model": "deepseek-chat",
+    "model_version": null
+  }
+}
+```
+
+The response artifact records usage metadata and raw provider response data, but
+does not include API keys or environment secrets.
+
 Generation and materialization both have configurable physical source roots for
 closed-loop runs. Generation uses `--source-root` to read the source shown to the
 LLM while keeping candidate paths logical and repo-relative. Materialization uses
@@ -262,8 +283,10 @@ closed-loop artifacts under the experiment result directory:
 ```text
 results/experiments/<experiment_id>/final_optimized_source/
 results/experiments/<experiment_id>/final_optimized_source.diff
+results/experiments/<experiment_id>/final_diff_stats.json
 results/experiments/<experiment_id>/closed_loop_summary.json
 results/experiments/<experiment_id>/closed_loop_selection_report.json
+results/experiments/<experiment_id>/experiment_metadata.json
 results/experiments/<experiment_id>/current_best_state.json
 ```
 
@@ -310,6 +333,7 @@ to the candidate workspace.
 - `status_counts` for every closed-loop iteration status, including zero counts
 - `created_at`
 - `finished_at`
+- `final_diff_stats`
 
 If the final best remains the baseline, speedup is `1.0` and runtime reduction is
 `0.0`. If the final best is an accepted candidate, these values are read from the
@@ -322,6 +346,34 @@ workspace current-best state. The workspace state file is kept.
 `experiment_status.json` includes a `closed_loop` block when closed-loop mode is
 enabled. The block contains final best iteration, accepted improvement count,
 final artifact paths, final speedup/runtime reduction, and status counts.
+
+`experiment_metadata.json` records process metadata for experiment runs:
+
+```json
+{
+  "schema_version": "experiment_metadata.v1",
+  "started_at": "...",
+  "finished_at": "...",
+  "total_duration_seconds": 60.0,
+  "repository": {
+    "git_commit": "...",
+    "git_branch": "...",
+    "dirty_worktree": false
+  },
+  "environment": {
+    "os": "...",
+    "platform": "...",
+    "python_version": "...",
+    "cmake_build_type": "Release",
+    "cmake_exe": "...",
+    "cmake_generator": "...",
+    "cxx_compiler": "..."
+  }
+}
+```
+
+Only selected safe environment fields are persisted; API keys and other secrets
+are not written.
 
 `closed_loop_selection_report.json` is reporting-only. It records a
 `control_decision` section describing the promotion policy and final best run,
@@ -372,6 +424,10 @@ Each `closed_loop_iterations.jsonl` record contains:
   closed-loop history
 - `history_guidance`: deterministic future guidance for included records, or
   `null` for excluded records
+- `phase_timings`: optional per-phase durations with `generation_seconds`,
+  `materialization_seconds`, `verification_seconds`, `benchmark_seconds`, and
+  `total_iteration_seconds`. `benchmark_seconds` may be `null` until a separate
+  benchmark duration is available.
 
 The main `cpp/` source tree is never modified automatically.
 
@@ -400,6 +456,28 @@ a no-op is recorded but excluded from future compact history.
 - `scope_enforcement`
 - `allowed_files`
 - `patch_apply_strategy`
+- `diff_stats`
+
+`diff_stats` summarizes the candidate unified diff source used by the
+materializer. For `unified_diff`, this is `candidate.diff`; for
+`line_range_edits`, this is the generated `candidate.generated.diff` when it is
+available. The object contains:
+
+```json
+{
+  "files_changed": 1,
+  "lines_added": 2,
+  "lines_removed": 1,
+  "changed_blocks": 1,
+  "edit_count": 1,
+  "fallback_used": false
+}
+```
+
+`edit_count` is populated for `line_range_edits` from
+`line_range_edit_count`; it is `null` for legacy unified diffs unless a clear
+structured count exists. `fallback_used` maps to `line_range_fallback_used` for
+line-range candidates and to `git_apply_recount_used` for unified diffs.
 
 `source_root` remains for backward compatibility. `base_source_root` is the
 explicit field for the source tree copied from. `source_root_mode` describes how

@@ -87,6 +87,54 @@ class ReportBaselineMetrics:
 
 
 @dataclass
+class ReportPhaseTimings:
+    """Per-iteration process phase durations in seconds."""
+
+    generation_seconds: float | None = None
+    materialization_seconds: float | None = None
+    verification_seconds: float | None = None
+    benchmark_seconds: float | None = None
+    total_iteration_seconds: float | None = None
+
+
+@dataclass
+class ReportLlmUsage:
+    """LLM usage and latency metadata for one generated candidate."""
+
+    prompt_tokens: int | None = None
+    completion_tokens: int | None = None
+    total_tokens: int | None = None
+    api_latency_seconds: float | None = None
+    finish_reason: str | None = None
+    model: str | None = None
+    model_version: str | None = None
+
+
+@dataclass
+class ReportDiffStats:
+    """Compact unified-diff size summary."""
+
+    files_changed: int = 0
+    lines_added: int = 0
+    lines_removed: int = 0
+    changed_blocks: int = 0
+    edit_count: int | None = None
+    fallback_used: bool | None = None
+
+
+@dataclass
+class ReportExperimentMetadata:
+    """Experiment-level process, repository, and environment metadata."""
+
+    schema_version: str | None = None
+    started_at: str | None = None
+    finished_at: str | None = None
+    total_duration_seconds: float | None = None
+    repository: dict[str, Any] = field(default_factory=dict)
+    environment: dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass
 class ReportIterationSummary:
     """Normalized per-iteration summary for reports."""
 
@@ -102,6 +150,9 @@ class ReportIterationSummary:
     promoted: bool = False
     reason: str | None = None
     candidate_run_dir: Path | str | None = None
+    phase_timings: ReportPhaseTimings | None = None
+    llm_usage: ReportLlmUsage | None = None
+    diff_stats: ReportDiffStats | None = None
 
 
 @dataclass
@@ -239,6 +290,7 @@ class ReportFinalBestCandidate:
     changed_files: list[str] = field(default_factory=list)
     final_optimized_source: str | None = None
     final_diff: str | None = None
+    diff_stats: ReportDiffStats | None = None
 
 
 @dataclass
@@ -275,6 +327,7 @@ class ReportData:
     )
     reporting_status: ReportReportingStatus = field(default_factory=ReportReportingStatus)
     reason_summary: list[ReportReasonSummaryItem] = field(default_factory=list)
+    experiment_metadata: ReportExperimentMetadata | None = None
 
 
 def default_status_counts() -> dict[str, int]:
@@ -339,9 +392,13 @@ __all__ = [
     "ReportExperimentConfigDetails",
     "ReportFinalBestCandidate",
     "ReportFinalResult",
+    "ReportDiffStats",
+    "ReportExperimentMetadata",
     "ReportIterationSummary",
+    "ReportLlmUsage",
     "ReportLlmInfo",
     "ReportMetadata",
+    "ReportPhaseTimings",
     "ReportReasonSummaryItem",
     "ReportReportingStatus",
     "ReportStatusCounts",

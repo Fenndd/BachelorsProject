@@ -210,6 +210,84 @@ def test_candidate_summary_fields_fall_back_to_candidate_json(tmp_path: Path) ->
     assert iteration.risk_level == "low"
 
 
+def test_collect_report_data_includes_process_metadata(tmp_path: Path) -> None:
+    experiment_dir = _experiment_dir(tmp_path)
+    candidate_dir = tmp_path / "results" / "runs" / "candidate_001"
+    _write_json(
+        experiment_dir / "closed_loop_summary.json",
+        _summary(final_diff_stats={"files_changed": 1, "lines_added": 2, "lines_removed": 1, "changed_blocks": 1}),
+    )
+    _write_jsonl(
+        experiment_dir / "closed_loop_iterations.jsonl",
+        [
+            {
+                "iteration": 1,
+                "status": "accepted_improvement",
+                "candidate_run_dir": str(candidate_dir),
+                "phase_timings": {
+                    "generation_seconds": 0.1,
+                    "materialization_seconds": 0.2,
+                    "verification_seconds": 0.3,
+                    "benchmark_seconds": None,
+                    "total_iteration_seconds": 0.7,
+                },
+            }
+        ],
+    )
+    _write_json(
+        candidate_dir / "llm_response.json",
+        {
+            "llm_usage": {
+                "prompt_tokens": 10,
+                "completion_tokens": 20,
+                "total_tokens": 30,
+                "api_latency_seconds": 1.25,
+                "finish_reason": "stop",
+                "model": "mock-model",
+                "model_version": None,
+            }
+        },
+    )
+    _write_json(
+        candidate_dir / "materialization.json",
+        {
+            "diff_stats": {
+                "files_changed": 1,
+                "lines_added": 2,
+                "lines_removed": 1,
+                "changed_blocks": 1,
+                "edit_count": 1,
+                "fallback_used": False,
+            }
+        },
+    )
+    _write_json(
+        experiment_dir / "experiment_metadata.json",
+        {
+            "schema_version": "experiment_metadata.v1",
+            "started_at": "2026-05-13T10:00:00+02:00",
+            "finished_at": "2026-05-13T10:01:00+02:00",
+            "total_duration_seconds": 60.0,
+            "repository": {"git_commit": "abc", "git_branch": "reportUpdatev2v3", "dirty_worktree": True},
+            "environment": {"platform": "test", "python_version": "3.x"},
+        },
+    )
+
+    report_data = collect_report_data(experiment_dir)
+
+    iteration = report_data.iterations[0]
+    assert iteration.phase_timings is not None
+    assert iteration.phase_timings.total_iteration_seconds == 0.7
+    assert iteration.llm_usage is not None
+    assert iteration.llm_usage.total_tokens == 30
+    assert iteration.diff_stats is not None
+    assert iteration.diff_stats.edit_count == 1
+    assert report_data.experiment_metadata is not None
+    assert report_data.experiment_metadata.repository["git_branch"] == "reportUpdatev2v3"
+    assert report_data.final_best_candidate.diff_stats is not None
+    assert report_data.final_best_candidate.diff_stats.files_changed == 1
+
+
 def test_missing_optional_candidate_artifacts_do_not_fail(tmp_path: Path) -> None:
     experiment_dir = _experiment_dir(tmp_path)
     candidate_dir = tmp_path / "results" / "runs" / "candidate_001"
@@ -233,6 +311,10 @@ def test_missing_optional_candidate_artifacts_do_not_fail(tmp_path: Path) -> Non
     assert iteration.correctness_passed is None
     assert iteration.speedup_vs_baseline is None
     assert iteration.reason is None
+    assert iteration.phase_timings is None
+    assert iteration.llm_usage is None
+    assert iteration.diff_stats is None
+    assert report_data.experiment_metadata is None
 
 
 def test_bad_optional_candidate_json_does_not_fail(tmp_path: Path) -> None:

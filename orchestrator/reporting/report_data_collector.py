@@ -15,10 +15,14 @@ from orchestrator.reporting.report_data import (
     ReportClosedLoopSelection,
     ReportData,
     ReportExperimentConfigDetails,
+    ReportExperimentMetadata,
     ReportFinalBestCandidate,
     ReportFinalResult,
+    ReportDiffStats,
     ReportIterationSummary,
+    ReportLlmUsage,
     ReportLlmInfo,
+    ReportPhaseTimings,
     ReportReasonSummaryItem,
     ReportReportingStatus,
     default_status_counts,
@@ -64,6 +68,9 @@ def collect_report_data(
     selection_report = _safe_read_json_object(
         experiment_path / "closed_loop_selection_report.json"
     ) or {}
+    experiment_metadata = _safe_read_json_object(
+        experiment_path / "experiment_metadata.json"
+    ) or {}
 
     # Resolve variant LLM config
     variant_llm_config = _load_variant_llm_config(experiment_path, config_snapshot)
@@ -104,10 +111,13 @@ def collect_report_data(
             ),
             total_iterations=_int_or_default(summary.get("total_iterations")),
             completed_iterations=_int_or_default(summary.get("completed_iterations")),
-            closed_loop_enabled=_first_available_bool(
-                _nested_get(config_snapshot, "closed_loop", "enabled")
-                if config_snapshot
-                else None,
+            closed_loop_enabled=_bool_or_default(
+                _first_available_bool(
+                    _nested_get(config_snapshot, "closed_loop", "enabled")
+                    if config_snapshot
+                    else None,
+                    True,
+                ),
                 True,
             ),
             benchmark_family=_string_or_none(
@@ -152,6 +162,7 @@ def collect_report_data(
             renderer_override=reporting_renderer_override,
         ),
         reason_summary=_build_reason_summary(iterations),
+        experiment_metadata=_build_experiment_metadata(experiment_metadata),
     )
 
     if output_path is not None:
@@ -505,6 +516,23 @@ def _build_closed_loop_selection(
     )
 
 
+def _build_experiment_metadata(
+    payload: dict[str, Any],
+) -> ReportExperimentMetadata | None:
+    if not payload:
+        return None
+    repository = payload.get("repository")
+    environment = payload.get("environment")
+    return ReportExperimentMetadata(
+        schema_version=_string_or_none(payload.get("schema_version")),
+        started_at=_string_or_none(payload.get("started_at")),
+        finished_at=_string_or_none(payload.get("finished_at")),
+        total_duration_seconds=_number_or_none(payload.get("total_duration_seconds")),
+        repository=repository if isinstance(repository, dict) else {},
+        environment=environment if isinstance(environment, dict) else {},
+    )
+
+
 def _build_final_best_candidate(
     summary: dict[str, Any],
     iterations: list[ReportIterationSummary],
@@ -563,6 +591,10 @@ def _build_final_best_candidate(
                 if isinstance(raw_files, list):
                     changed_files = [str(f) for f in raw_files if f]
 
+    final_diff_stats = _safe_read_json_object(experiment_path / "final_diff_stats.json")
+    if not isinstance(final_diff_stats, dict):
+        final_diff_stats = summary.get("final_diff_stats") if isinstance(summary.get("final_diff_stats"), dict) else None
+
     return ReportFinalBestCandidate(
         iteration=final_best_iter,
         candidate_run_dir=candidate_run_dir_display if final_best_iter > 0 else None,
@@ -586,6 +618,7 @@ def _build_final_best_candidate(
         final_diff=_display_path(
             summary.get("final_optimized_source_diff_path"), experiment_path
         ),
+        diff_stats=_build_diff_stats(final_diff_stats),
     )
 
 
@@ -800,6 +833,9 @@ def _iteration_summary(
             decision_vs_original_baseline=artifacts.get("decision_vs_original_baseline"),
         ),
         candidate_run_dir=candidate_run_dir_text,
+        phase_timings=_build_phase_timings(record.get("phase_timings")),
+        llm_usage=_build_llm_usage((artifacts.get("llm_response") or {}).get("llm_usage")),
+        diff_stats=_build_diff_stats((artifacts.get("materialization") or {}).get("diff_stats")),
     )
 
 
@@ -815,10 +851,50 @@ def _candidate_artifacts(candidate_run_dir: Path | None) -> dict[str, dict[str, 
             candidate_run_dir / "decision_vs_original_baseline.json"
         ),
         "candidate": _safe_read_json_object(candidate_run_dir / "candidate.json"),
+        "llm_response": _safe_read_json_object(candidate_run_dir / "llm_response.json"),
         "materialization": _safe_read_json_object(
             candidate_run_dir / "materialization.json"
         ),
     }
+
+
+def _build_phase_timings(value: Any) -> ReportPhaseTimings | None:
+    if not isinstance(value, dict):
+        return None
+    return ReportPhaseTimings(
+        generation_seconds=_number_or_none(value.get("generation_seconds")),
+        materialization_seconds=_number_or_none(value.get("materialization_seconds")),
+        verification_seconds=_number_or_none(value.get("verification_seconds")),
+        benchmark_seconds=_number_or_none(value.get("benchmark_seconds")),
+        total_iteration_seconds=_number_or_none(value.get("total_iteration_seconds")),
+    )
+
+
+def _build_llm_usage(value: Any) -> ReportLlmUsage | None:
+    if not isinstance(value, dict):
+        return None
+    return ReportLlmUsage(
+        prompt_tokens=_int_or_none(value.get("prompt_tokens")),
+        completion_tokens=_int_or_none(value.get("completion_tokens")),
+        total_tokens=_int_or_none(value.get("total_tokens")),
+        api_latency_seconds=_number_or_none(value.get("api_latency_seconds")),
+        finish_reason=_string_or_none(value.get("finish_reason")),
+        model=_string_or_none(value.get("model")),
+        model_version=_string_or_none(value.get("model_version")),
+    )
+
+
+def _build_diff_stats(value: Any) -> ReportDiffStats | None:
+    if not isinstance(value, dict):
+        return None
+    return ReportDiffStats(
+        files_changed=_int_or_default(value.get("files_changed")),
+        lines_added=_int_or_default(value.get("lines_added")),
+        lines_removed=_int_or_default(value.get("lines_removed")),
+        changed_blocks=_int_or_default(value.get("changed_blocks")),
+        edit_count=_int_or_none(value.get("edit_count")),
+        fallback_used=_bool_or_none(value.get("fallback_used")),
+    )
 
 
 def _safe_read_json_object(path: Path) -> dict[str, Any] | None:
@@ -1128,6 +1204,10 @@ def _number_or_none(value: Any) -> float | None:
 
 def _bool_or_none(value: Any) -> bool | None:
     return value if isinstance(value, bool) else None
+
+
+def _bool_or_default(value: Any, default: bool) -> bool:
+    return value if isinstance(value, bool) else default
 
 
 def _int_or_default(value: Any, default: int = 0) -> int:

@@ -132,6 +132,7 @@ class ClosedLoopIterationRecord:
     failure_stage: str | None = None
     failure_reason: str | None = None
     materialization_match_summary: dict[str, Any] | None = None
+    phase_timings: dict[str, float | None] | None = None
     history_included: bool = False
     history_guidance: str | None = None
     created_at: str | None = None
@@ -157,6 +158,7 @@ class ClosedLoopSummary:
     status_counts: dict[str, int]
     created_at: str
     finished_at: str
+    final_diff_stats: dict[str, Any] | None = None
 
 
 def to_plain_dict(value: Any) -> Any:
