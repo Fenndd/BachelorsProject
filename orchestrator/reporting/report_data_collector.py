@@ -22,12 +22,15 @@ from orchestrator.reporting.report_data import (
     ReportIterationSummary,
     ReportLlmUsage,
     ReportLlmInfo,
+    ReportOutcomeReason,
     ReportPhaseTimings,
+    ReportReasonCodeCount,
     ReportReasonSummaryItem,
     ReportReportingStatus,
     default_status_counts,
     write_report_data,
 )
+from orchestrator.experiments.outcome_reason import build_outcome_reason, outcome_reason_to_dict
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 
@@ -162,6 +165,7 @@ def collect_report_data(
             renderer_override=reporting_renderer_override,
         ),
         reason_summary=_build_reason_summary(iterations),
+        reason_code_counts=_build_reason_code_counts(iterations),
         experiment_metadata=_build_experiment_metadata(experiment_metadata),
     )
 
@@ -794,6 +798,14 @@ def _iteration_summary(
         record.get("decision_vs_original_baseline"),
         artifacts.get("decision_vs_original_baseline"),
     )
+    outcome_reason = _build_outcome_reason(
+        record,
+        candidate_run_dir,
+        candidate_run_dir_text,
+        artifacts,
+        candidate,
+        decision_vs_current_best,
+    )
 
     return ReportIterationSummary(
         iteration=_int_or_default(record.get("iteration")),
@@ -836,6 +848,7 @@ def _iteration_summary(
         phase_timings=_build_phase_timings(record.get("phase_timings")),
         llm_usage=_build_llm_usage((artifacts.get("llm_response") or {}).get("llm_usage")),
         diff_stats=_build_diff_stats((artifacts.get("materialization") or {}).get("diff_stats")),
+        outcome_reason=outcome_reason,
     )
 
 
@@ -851,6 +864,7 @@ def _candidate_artifacts(candidate_run_dir: Path | None) -> dict[str, dict[str, 
             candidate_run_dir / "decision_vs_original_baseline.json"
         ),
         "candidate": _safe_read_json_object(candidate_run_dir / "candidate.json"),
+        "status": _safe_read_json_object(candidate_run_dir / "status.json"),
         "llm_response": _safe_read_json_object(candidate_run_dir / "llm_response.json"),
         "materialization": _safe_read_json_object(
             candidate_run_dir / "materialization.json"
@@ -868,6 +882,61 @@ def _build_phase_timings(value: Any) -> ReportPhaseTimings | None:
         benchmark_seconds=_number_or_none(value.get("benchmark_seconds")),
         total_iteration_seconds=_number_or_none(value.get("total_iteration_seconds")),
     )
+
+
+def _build_outcome_reason(
+    record: dict[str, Any],
+    candidate_run_dir: Path | None,
+    candidate_run_dir_text: str | None,
+    artifacts: dict[str, dict[str, Any] | None],
+    candidate: dict[str, Any],
+    decision_vs_current_best: dict[str, Any] | None,
+) -> ReportOutcomeReason:
+    existing = record.get("outcome_reason")
+    if isinstance(existing, dict):
+        return _report_outcome_reason(existing)
+    source_artifacts = _source_artifacts(candidate_run_dir, candidate_run_dir_text)
+    generation = artifacts.get("status") if record.get("status") == "generation_failed" else None
+    reason = build_outcome_reason(
+        status=_string_or_default(record.get("status")),
+        record=record,
+        candidate_run_dir=candidate_run_dir_text,
+        candidate=candidate,
+        generation=generation,
+        materialization=artifacts.get("materialization"),
+        verification=artifacts.get("verification"),
+        decision_vs_current_best=decision_vs_current_best,
+        source_artifacts=source_artifacts,
+    )
+    return _report_outcome_reason(outcome_reason_to_dict(reason) or {})
+
+
+def _report_outcome_reason(value: dict[str, Any]) -> ReportOutcomeReason:
+    return ReportOutcomeReason(
+        category=_string_or_none(value.get("category")),
+        code=_string_or_none(value.get("code")),
+        severity=_string_or_none(value.get("severity")),
+        message=_string_or_none(value.get("message")),
+        source_artifact=_string_or_none(value.get("source_artifact")),
+    )
+
+
+def _source_artifacts(
+    candidate_run_dir: Path | None,
+    candidate_run_dir_text: str | None,
+) -> dict[str, str | None]:
+    if candidate_run_dir is None:
+        return {}
+    display_root = candidate_run_dir_text or str(candidate_run_dir)
+    return {
+        "status": _display_path(candidate_run_dir / "status.json"),
+        "candidate": _display_path(candidate_run_dir / "candidate.json"),
+        "materialization": _display_path(candidate_run_dir / "materialization.json"),
+        "verification": _display_path(candidate_run_dir / "verification.json"),
+        "decision_vs_current_best": _display_path(candidate_run_dir / "decision_vs_current_best.json"),
+        "decision_vs_original_baseline": _display_path(candidate_run_dir / "decision_vs_original_baseline.json"),
+        "candidate_run_dir": display_root,
+    }
 
 
 def _build_llm_usage(value: Any) -> ReportLlmUsage | None:
@@ -1280,6 +1349,33 @@ def _build_reason_summary(
     return [
         ReportReasonSummaryItem(reason=r, count=len(grouped[r]), iterations=grouped[r])
         for r in order
+    ]
+
+
+def _build_reason_code_counts(
+    iterations: list[ReportIterationSummary],
+) -> list[ReportReasonCodeCount]:
+    grouped: dict[tuple[str, str], list[int]] = {}
+    order: list[tuple[str, str]] = []
+    for iteration in sorted(iterations, key=lambda item: item.iteration):
+        reason = iteration.outcome_reason
+        category = reason.category
+        code = reason.code
+        if not category or not code:
+            continue
+        key = (category, code)
+        if key not in grouped:
+            grouped[key] = []
+            order.append(key)
+        grouped[key].append(iteration.iteration)
+    return [
+        ReportReasonCodeCount(
+            category=category,
+            code=code,
+            count=len(grouped[(category, code)]),
+            iterations=grouped[(category, code)],
+        )
+        for category, code in order
     ]
 
 

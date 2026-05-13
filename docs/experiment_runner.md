@@ -192,6 +192,15 @@ wall-clock durations. Stage durations come from the existing subprocess timing
 records. `benchmark_seconds` may be `null` until verification exposes a separate
 benchmark-only duration.
 
+Each record also includes an optional `outcome_reason` object for new runs. It
+normalizes why the iteration reached its status without changing how that status
+is computed. Categories are `generation`, `no_op`, `materialization`,
+`verification`, `decision`, and `unknown`; severities are `info`, `warning`, and
+`error`. Example codes include `llm_response_parse_failed`,
+`line_range_mismatch`, `benchmark_correctness_failed`, `accepted_improvement`,
+and `valid_not_improved`. Older records without this field are reconstructed
+best-effort by the report data collector from existing candidate artifacts.
+
 No-op candidates are recorded as `no_op` when `expected_effect="none"` and the edit payload is empty (`edits` for `line_range_edits`, or `unified_diff` for `unified_diff`).
 
 ## Experiment Metadata
@@ -214,6 +223,11 @@ results/experiments/<experiment_id>/final_diff_stats.json
 
 The same final diff summary is embedded as `final_diff_stats` in
 `closed_loop_summary.json` for reporting consumers.
+
+The normalized `report/report_data.json` artifact includes per-iteration
+`outcome_reason` and top-level `reason_code_counts`, grouped by reason category
+and code. The existing `reason_summary` remains for compatibility with the v1
+report data shape.
 
 ## Verification and Decisions
 

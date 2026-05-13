@@ -135,6 +135,17 @@ class ReportExperimentMetadata:
 
 
 @dataclass
+class ReportOutcomeReason:
+    """Normalized reason explaining one iteration outcome."""
+
+    category: str | None = None
+    code: str | None = None
+    severity: str | None = None
+    message: str | None = None
+    source_artifact: str | None = None
+
+
+@dataclass
 class ReportIterationSummary:
     """Normalized per-iteration summary for reports."""
 
@@ -153,6 +164,7 @@ class ReportIterationSummary:
     phase_timings: ReportPhaseTimings | None = None
     llm_usage: ReportLlmUsage | None = None
     diff_stats: ReportDiffStats | None = None
+    outcome_reason: ReportOutcomeReason = field(default_factory=ReportOutcomeReason)
 
 
 @dataclass
@@ -302,6 +314,16 @@ class ReportReasonSummaryItem:
     iterations: list[int] = field(default_factory=list)
 
 
+@dataclass
+class ReportReasonCodeCount:
+    """Grouped normalized outcome reason count."""
+
+    category: str
+    code: str
+    count: int
+    iterations: list[int] = field(default_factory=list)
+
+
 @dataclass(kw_only=True)
 class ReportData:
     """Top-level normalized report_data.json contract."""
@@ -327,6 +349,7 @@ class ReportData:
     )
     reporting_status: ReportReportingStatus = field(default_factory=ReportReportingStatus)
     reason_summary: list[ReportReasonSummaryItem] = field(default_factory=list)
+    reason_code_counts: list[ReportReasonCodeCount] = field(default_factory=list)
     experiment_metadata: ReportExperimentMetadata | None = None
 
 
@@ -398,7 +421,9 @@ __all__ = [
     "ReportLlmUsage",
     "ReportLlmInfo",
     "ReportMetadata",
+    "ReportOutcomeReason",
     "ReportPhaseTimings",
+    "ReportReasonCodeCount",
     "ReportReasonSummaryItem",
     "ReportReportingStatus",
     "ReportStatusCounts",

@@ -114,6 +114,116 @@ def test_collect_report_data_maps_iteration_records(tmp_path: Path) -> None:
     assert failed.reason == "Patch could not be applied."
 
 
+def test_collect_report_data_reads_existing_outcome_reason(tmp_path: Path) -> None:
+    experiment_dir = _experiment_dir(tmp_path)
+    _write_json(experiment_dir / "closed_loop_summary.json", _summary())
+    _write_jsonl(
+        experiment_dir / "closed_loop_iterations.jsonl",
+        [
+            {
+                "iteration": 1,
+                "status": "generation_failed",
+                "outcome_reason": {
+                    "category": "generation",
+                    "code": "llm_response_parse_failed",
+                    "severity": "error",
+                    "message": "LLM response could not be parsed as a valid candidate.",
+                    "source_artifact": "results/runs/candidate_001/status.json",
+                },
+            }
+        ],
+    )
+
+    report_data = collect_report_data(experiment_dir)
+
+    reason = report_data.iterations[0].outcome_reason
+    assert reason.category == "generation"
+    assert reason.code == "llm_response_parse_failed"
+    assert report_data.reason_code_counts[0].category == "generation"
+    assert report_data.reason_code_counts[0].code == "llm_response_parse_failed"
+
+
+def test_collect_report_data_reconstructs_missing_outcome_reason(tmp_path: Path) -> None:
+    experiment_dir = _experiment_dir(tmp_path)
+    candidate_dir = tmp_path / "results" / "runs" / "candidate_001"
+    _write_json(experiment_dir / "closed_loop_summary.json", _summary())
+    _write_jsonl(
+        experiment_dir / "closed_loop_iterations.jsonl",
+        [
+            {
+                "iteration": 1,
+                "status": "verification_failed",
+                "candidate_run_dir": str(candidate_dir),
+            }
+        ],
+    )
+    _write_json(
+        candidate_dir / "verification.json",
+        {
+            "overall_status": "failed",
+            "failed_step": "benchmark_correctness_check",
+            "error_message": "correctness failed",
+        },
+    )
+
+    report_data = collect_report_data(experiment_dir)
+
+    reason = report_data.iterations[0].outcome_reason
+    assert reason.category == "verification"
+    assert reason.code == "benchmark_correctness_failed"
+    assert reason.source_artifact is not None
+
+
+def test_reason_code_counts_group_iterations(tmp_path: Path) -> None:
+    experiment_dir = _experiment_dir(tmp_path)
+    _write_json(experiment_dir / "closed_loop_summary.json", _summary())
+    _write_jsonl(
+        experiment_dir / "closed_loop_iterations.jsonl",
+        [
+            {
+                "iteration": 1,
+                "status": "valid_not_improved",
+                "outcome_reason": {
+                    "category": "decision",
+                    "code": "valid_not_improved",
+                    "severity": "info",
+                    "message": "Candidate preserved correctness but did not improve over current best.",
+                    "source_artifact": None,
+                },
+            },
+            {
+                "iteration": 2,
+                "status": "valid_not_improved",
+                "outcome_reason": {
+                    "category": "decision",
+                    "code": "valid_not_improved",
+                    "severity": "info",
+                    "message": "Candidate preserved correctness but did not improve over current best.",
+                    "source_artifact": None,
+                },
+            },
+            {
+                "iteration": 3,
+                "status": "no_op",
+                "outcome_reason": {
+                    "category": "no_op",
+                    "code": "empty_edit_payload",
+                    "severity": "info",
+                    "message": "Candidate declared no expected effect and did not include edits.",
+                    "source_artifact": None,
+                },
+            },
+        ],
+    )
+
+    report_data = collect_report_data(experiment_dir)
+
+    assert [(item.category, item.code, item.count, item.iterations) for item in report_data.reason_code_counts] == [
+        ("decision", "valid_not_improved", 2, [1, 2]),
+        ("no_op", "empty_edit_payload", 1, [3]),
+    ]
+
+
 def test_iteration_metrics_are_enriched_from_verification_json(tmp_path: Path) -> None:
     experiment_dir = _experiment_dir(tmp_path)
     candidate_dir = tmp_path / "results" / "runs" / "candidate_001"
@@ -314,6 +424,7 @@ def test_missing_optional_candidate_artifacts_do_not_fail(tmp_path: Path) -> Non
     assert iteration.phase_timings is None
     assert iteration.llm_usage is None
     assert iteration.diff_stats is None
+    assert iteration.outcome_reason.code == "accepted_improvement"
     assert report_data.experiment_metadata is None
 
 

@@ -272,6 +272,8 @@
           <th>Speedup vs Baseline</th>
           <th>Correctness</th>
           <th>Promoted</th>
+          <th>Reason Category</th>
+          <th>Reason Code</th>
           <th>Expected Effect</th>
           <th>Risk Level</th>
           <th>Summary</th>
@@ -288,13 +290,15 @@
           <td>{{ iteration.speedup_vs_baseline|display }}</td>
           <td>{{ iteration.correctness_passed|yes_no }}</td>
           <td>{{ iteration.promoted|yes_no }}</td>
+          <td>{{ iteration.outcome_reason.category|display }}</td>
+          <td>{{ iteration.outcome_reason.code|display }}</td>
           <td>{{ iteration.expected_effect|display }}</td>
           <td>{{ iteration.risk_level|display }}</td>
           <td>{{ iteration.candidate_summary|display }}</td>
           <td>{{ iteration.reason|display }}</td>
         </tr>
       {% else %}
-        <tr><td colspan="11">No iterations recorded.</td></tr>
+        <tr><td colspan="13">No iterations recorded.</td></tr>
       {% endfor %}
       </tbody>
     </table>

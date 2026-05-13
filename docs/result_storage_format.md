@@ -428,6 +428,42 @@ Each `closed_loop_iterations.jsonl` record contains:
   `materialization_seconds`, `verification_seconds`, `benchmark_seconds`, and
   `total_iteration_seconds`. `benchmark_seconds` may be `null` until a separate
   benchmark duration is available.
+- `outcome_reason`: optional normalized reason object explaining why the status
+  occurred. New closed-loop runs write it directly; report collection
+  reconstructs a best-effort value for older artifacts.
+
+Example `outcome_reason`:
+
+```json
+{
+  "category": "verification",
+  "code": "benchmark_correctness_failed",
+  "severity": "error",
+  "message": "Candidate failed benchmark correctness check.",
+  "source_artifact": "results/runs/<candidate_run_id>/verification.json"
+}
+```
+
+Stable categories are `generation`, `no_op`, `materialization`, `verification`,
+`decision`, and `unknown`. Stable severities are `info`, `warning`, and `error`.
+Reason codes are compact and intentionally do not encode raw exception text.
+Common codes include:
+
+- Generation: `generation_failed`, `llm_request_failed`,
+  `llm_response_parse_failed`, `candidate_json_invalid`,
+  `candidate_artifacts_missing`, `candidate_run_dir_parse_failed`
+- No-op: `no_op_candidate`, `empty_edit_payload`
+- Materialization: `materialization_failed`, `scope_violation`,
+  `diff_apply_failed`, `line_range_mismatch`,
+  `line_range_fallback_ambiguous`, `target_file_missing`, `no_files_changed`
+- Verification: `verification_failed`, `configure_failed`, `build_failed`,
+  `smoke_test_failed`, `adapter_validation_failed`,
+  `benchmark_execution_failed`, `benchmark_parse_failed`,
+  `benchmark_correctness_failed`, `metrics_missing`
+- Decision: `accepted_improvement`, `valid_not_improved`,
+  `rejected_correctness`, `rejected_not_comparable`, `rejected_no_speedup`,
+  `rejected_benchmark_audit_failed`, `decision_artifact_missing`
+- Fallback: `unknown_reason`
 
 The main `cpp/` source tree is never modified automatically.
 
@@ -439,6 +475,11 @@ Deterministic tests validate these storage and safety contracts with fixtures an
 monkeypatched closed-loop runners. They include a controlled mock scenario where
 one accepted candidate is promoted, a later slower candidate is not promoted, and
 a no-op is recorded but excluded from future compact history.
+
+`report/report_data.json` includes each iteration's normalized
+`outcome_reason` and a top-level `reason_code_counts` array grouped by
+`category` and `code`. This complements the older human-readable
+`reason_summary`, which remains available for backward compatibility.
 
 ## Candidate Materialization Artifacts
 

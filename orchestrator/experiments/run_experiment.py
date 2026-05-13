@@ -65,6 +65,7 @@ from .closed_loop_history import (
     build_history_guidance,
     should_include_in_closed_loop_history,
 )
+from .outcome_reason import build_outcome_reason, outcome_reason_to_dict
 from orchestrator.benchmarking.candidate_decision import (
     evaluate_candidate_against_reference,
     write_candidate_decision,
@@ -1948,6 +1949,59 @@ def _stage_duration_or_none(stage_result: dict[str, Any] | None) -> float | None
     return float(duration) if isinstance(duration, (int, float)) and not isinstance(duration, bool) else None
 
 
+def _candidate_source_artifacts(candidate_run_dir: Path | None) -> dict[str, str | None]:
+    if candidate_run_dir is None:
+        return {}
+    return {
+        "status": _display_path(candidate_run_dir / "status.json"),
+        "candidate": _display_path(candidate_run_dir / "candidate.json"),
+        "materialization": _display_path(candidate_run_dir / "materialization.json"),
+        "verification": _display_path(candidate_run_dir / "verification.json"),
+        "decision_vs_current_best": _display_path(candidate_run_dir / "decision_vs_current_best.json"),
+        "decision_vs_original_baseline": _display_path(candidate_run_dir / "decision_vs_original_baseline.json"),
+    }
+
+
+def _read_optional_candidate_artifact(candidate_run_dir: Path | None, name: str) -> dict[str, Any] | None:
+    if candidate_run_dir is None:
+        return None
+    try:
+        return _read_json_object(candidate_run_dir / name)
+    except (OSError, ValueError, json.JSONDecodeError):
+        return None
+
+
+def _closed_loop_outcome_reason(
+    *,
+    status: IterationStatus,
+    record_fields: dict[str, Any] | None = None,
+    candidate_run_dir: Path | None = None,
+    candidate: dict[str, Any] | None = None,
+    generation: dict[str, Any] | None = None,
+    materialization: dict[str, Any] | None = None,
+    verification: dict[str, Any] | None = None,
+    decision_vs_current_best: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    if materialization is None:
+        materialization = _read_optional_candidate_artifact(candidate_run_dir, "materialization.json")
+    if verification is None:
+        verification = _read_optional_candidate_artifact(candidate_run_dir, "verification.json")
+    if decision_vs_current_best is None:
+        decision_vs_current_best = _read_optional_candidate_artifact(candidate_run_dir, "decision_vs_current_best.json")
+    reason = build_outcome_reason(
+        status=status.value,
+        record=record_fields,
+        candidate_run_dir=candidate_run_dir,
+        candidate=candidate,
+        generation=generation,
+        materialization=materialization,
+        verification=verification,
+        decision_vs_current_best=decision_vs_current_best,
+        source_artifacts=_candidate_source_artifacts(candidate_run_dir),
+    )
+    return outcome_reason_to_dict(reason) or {}
+
+
 def _build_closed_loop_iteration_record(
     *,
     experiment_id: str,
@@ -1966,6 +2020,7 @@ def _build_closed_loop_iteration_record(
     failure_reason: str | None = None,
     materialization_match_summary: dict[str, Any] | None = None,
     phase_timings: dict[str, float | None] | None = None,
+    outcome_reason: dict[str, Any] | None = None,
 ) -> ClosedLoopIterationRecord:
     record = ClosedLoopIterationRecord(
         experiment_id=experiment_id,
@@ -1989,6 +2044,7 @@ def _build_closed_loop_iteration_record(
         failure_reason=failure_reason,
         materialization_match_summary=materialization_match_summary,
         phase_timings=phase_timings,
+        outcome_reason=outcome_reason,
         history_included=False,
         history_guidance=None,
         created_at=_now_iso(),
@@ -2526,6 +2582,12 @@ def _run_closed_loop_experiment(
                 failure_stage="generation",
                 failure_reason=generation_record.get("error_message") or generation_record.get("failed_step"),
                 phase_timings=_closed_loop_phase_timings(iteration_started, generation_result),
+                outcome_reason=_closed_loop_outcome_reason(
+                    status=IterationStatus.GENERATION_FAILED,
+                    record_fields=generation_record,
+                    candidate_run_dir=candidate_run_dir,
+                    generation=generation_record,
+                ),
             )
             records.append(record)
             _append_closed_loop_record_and_state(closed_loop_paths, state, record)
@@ -2551,6 +2613,12 @@ def _run_closed_loop_experiment(
                 failure_stage="generation",
                 failure_reason=f"Could not read usable candidate.json: {exc}",
                 phase_timings=_closed_loop_phase_timings(iteration_started, generation_result),
+                outcome_reason=_closed_loop_outcome_reason(
+                    status=IterationStatus.GENERATION_FAILED,
+                    record_fields={"failed_step": "read_candidate_json", "failure_reason": str(exc)},
+                    candidate_run_dir=candidate_run_dir,
+                    generation={"failed_step": "candidate_json_invalid", "error_message": str(exc)},
+                ),
             )
             records.append(record)
             _append_closed_loop_record_and_state(closed_loop_paths, state, record)
@@ -2572,6 +2640,11 @@ def _run_closed_loop_experiment(
                 current_best_updated=False,
                 current_best_iteration_after=state.current_best_iteration,
                 phase_timings=_closed_loop_phase_timings(iteration_started, generation_result),
+                outcome_reason=_closed_loop_outcome_reason(
+                    status=IterationStatus.NO_OP,
+                    candidate_run_dir=candidate_run_dir,
+                    candidate=candidate,
+                ),
             )
             records.append(record)
             _append_closed_loop_record_and_state(closed_loop_paths, state, record)
@@ -2613,6 +2686,12 @@ def _run_closed_loop_experiment(
                     generation_result,
                     materialization_result,
                 ),
+                outcome_reason=_closed_loop_outcome_reason(
+                    status=IterationStatus.MATERIALIZATION_FAILED,
+                    record_fields=materialization_record,
+                    candidate_run_dir=candidate_run_dir,
+                    candidate=candidate,
+                ),
             )
             records.append(record)
             _append_closed_loop_record_and_state(closed_loop_paths, state, record)
@@ -2650,6 +2729,12 @@ def _run_closed_loop_experiment(
                     generation_result,
                     materialization_result,
                     verification_result,
+                ),
+                outcome_reason=_closed_loop_outcome_reason(
+                    status=IterationStatus.VERIFICATION_FAILED,
+                    record_fields=verification_record,
+                    candidate_run_dir=candidate_run_dir,
+                    candidate=candidate,
                 ),
             )
             records.append(record)
@@ -2706,6 +2791,12 @@ def _run_closed_loop_experiment(
                 generation_result,
                 materialization_result,
                 verification_result,
+            ),
+            outcome_reason=_closed_loop_outcome_reason(
+                status=iteration_status,
+                candidate_run_dir=candidate_run_dir,
+                candidate=candidate,
+                decision_vs_current_best=decision_vs_current_best,
             ),
         )
         records.append(record)

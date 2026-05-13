@@ -258,6 +258,8 @@ class RunExperimentClosedLoopTests(unittest.TestCase):
         self.assertEqual(record["phase_timings"]["verification_seconds"], 0.1)
         self.assertIsNone(record["phase_timings"]["benchmark_seconds"])
         self.assertIsInstance(record["phase_timings"]["total_iteration_seconds"], float)
+        self.assertEqual(record["outcome_reason"]["category"], "decision")
+        self.assertEqual(record["outcome_reason"]["code"], "accepted_improvement")
         self.assertTrue(record["history_included"])
         self.assertIn("already included in the current source", record["history_guidance"])
         self.assertEqual((root / TARGET_FILE).read_text(encoding="utf-8"), "baseline\n")

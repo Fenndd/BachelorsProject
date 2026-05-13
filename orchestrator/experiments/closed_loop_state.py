@@ -133,6 +133,7 @@ class ClosedLoopIterationRecord:
     failure_reason: str | None = None
     materialization_match_summary: dict[str, Any] | None = None
     phase_timings: dict[str, float | None] | None = None
+    outcome_reason: dict[str, Any] | None = None
     history_included: bool = False
     history_guidance: str | None = None
     created_at: str | None = None
