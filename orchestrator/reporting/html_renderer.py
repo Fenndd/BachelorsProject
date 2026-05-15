@@ -5,7 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from jinja2 import Environment, FileSystemLoader, select_autoescape
+from jinja2 import ChainableUndefined, Environment, FileSystemLoader, Undefined, select_autoescape
 
 from orchestrator.reporting.report_data import ReportData, to_report_dict
 
@@ -26,6 +26,7 @@ def render_report_html(
         autoescape=select_autoescape(("html", "xml", "j2")),
         trim_blocks=True,
         lstrip_blocks=True,
+        undefined=ChainableUndefined,
     )
     env.filters["display"] = _display_value
     env.filters["yes_no"] = _yes_no
@@ -67,6 +68,8 @@ def _status_items(data: dict[str, Any]) -> list[tuple[str, int]]:
 
 
 def _display_value(value: Any) -> str:
+    if isinstance(value, Undefined):
+        return "Not available"
     if value is None or value == "":
         return "Not available"
     if isinstance(value, bool):
@@ -84,6 +87,8 @@ def _display_value(value: Any) -> str:
 
 
 def _yes_no(value: Any) -> str:
+    if isinstance(value, Undefined):
+        return "Not available"
     if value is None:
         return "Not available"
     return "Yes" if value is True else "No"

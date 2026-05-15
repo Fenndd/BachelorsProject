@@ -481,6 +481,24 @@ a no-op is recorded but excluded from future compact history.
 `category` and `code`. This complements the older human-readable
 `reason_summary`, which remains available for backward compatibility.
 
+The generated `report/report.html` and optional `report/report.pdf` use these
+enriched fields in report v2 sections:
+
+- Failure Analysis, backed by `reason_code_counts`
+- Phase Timings, backed by per-iteration `phase_timings`
+- LLM Usage, backed by per-iteration `llm_usage`
+- Diff Statistics, backed by per-iteration `diff_stats` and final
+  `final_best_candidate.diff_stats`
+- Iteration Appendix, a compact per-iteration summary combining status,
+  candidate metadata, outcome reason, runtime, correctness, timings, LLM usage,
+  diff stats, and candidate run directory
+
+These sections are presentation-only. They do not promote candidates, rerun
+benchmarks, recompute verification, materialize source, or modify `cpp/`. Older
+v1-like report data remains valid: if enriched metadata is missing, report
+generation still succeeds and the corresponding tables or SVG plots state that
+the data is unavailable.
+
 ## Candidate Materialization Artifacts
 
 `materialization.json` records scope traceability for successful, skipped, and failed materializations. Common fields include:

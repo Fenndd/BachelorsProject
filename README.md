@@ -19,6 +19,7 @@ Implemented now:
 - Closed-loop iterative optimization in the experiment runner with experiment-local `current_best_source`.
 - Compact benchmark-aware closed-loop history for later generations.
 - Final closed-loop artifacts and analysis-only selector/reporting.
+- Single-experiment HTML/PDF reports with runtime, correctness, failure analysis, phase timing, LLM usage, diff statistics, and iteration appendix sections.
 
 Not implemented yet:
 
@@ -26,7 +27,7 @@ Not implemented yet:
 - Multi-variant closed-loop optimization strategy.
 - Additional solver families/adapters beyond the current minimal Lambda Twist P3P path.
 - JSON metrics output directly from C++ benchmarks.
-- Advanced plots and broader statistical dashboards or aggregate reports.
+- Broader statistical dashboards or aggregate reports across multiple experiments.
 - Memory measurement; the current prototype focuses on runtime and correctness/reprojection metrics.
 
 ## Repository Structure
@@ -153,6 +154,8 @@ Verification configures/builds/runs inside the isolated candidate workspace and 
 Pairwise candidate decision and multi-candidate best-result selection consume verified benchmark artifacts and explicit references. The closed-loop runner uses reference-vs-candidate decisions against the current best for promotion and against the original baseline for reporting.
 
 Selection and final reporting do not promote, merge, copy, or commit candidates into the main source tree.
+
+Generated reports are read-only visualizations under `results/experiments/<experiment_id>/report/`. Report v2 expands the HTML/PDF output with Failure Analysis, Phase Timings, LLM Usage, Diff Statistics, and an Iteration Appendix. If older v1 artifacts do not contain enriched metadata, report generation still succeeds and marks the missing fields or plots as unavailable.
 
 ## External Baseline Code
 

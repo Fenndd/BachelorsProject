@@ -20,6 +20,11 @@ PLOT_FILENAMES = {
     "correctness_metrics": "correctness_metrics.svg",
     "status_breakdown": "status_breakdown.svg",
     "candidate_funnel": "candidate_funnel.svg",
+    "phase_timings": "phase_timings.svg",
+    "llm_tokens_by_iteration": "llm_tokens_by_iteration.svg",
+    "llm_latency_by_iteration": "llm_latency_by_iteration.svg",
+    "failure_reason_breakdown": "failure_reason_breakdown.svg",
+    "diff_stats_by_iteration": "diff_stats_by_iteration.svg",
 }
 
 
@@ -48,6 +53,17 @@ def build_report_figures(
     )
     _plot_status_breakdown(data, output_dir / PLOT_FILENAMES["status_breakdown"])
     _plot_candidate_funnel(data, output_dir / PLOT_FILENAMES["candidate_funnel"])
+    _plot_phase_timings(data, output_dir / PLOT_FILENAMES["phase_timings"])
+    _plot_llm_tokens(data, output_dir / PLOT_FILENAMES["llm_tokens_by_iteration"])
+    _plot_llm_latency(data, output_dir / PLOT_FILENAMES["llm_latency_by_iteration"])
+    _plot_failure_reason_breakdown(
+        data,
+        output_dir / PLOT_FILENAMES["failure_reason_breakdown"],
+    )
+    _plot_diff_stats_by_iteration(
+        data,
+        output_dir / PLOT_FILENAMES["diff_stats_by_iteration"],
+    )
 
     return {
         key: str(Path(output_dir.name) / filename).replace("\\", "/")
@@ -233,6 +249,139 @@ def _plot_candidate_funnel(data: dict[str, Any], output_path: Path) -> None:
     _save(fig, output_path)
 
 
+def _plot_phase_timings(data: dict[str, Any], output_path: Path) -> None:
+    phases = [
+        ("generation_seconds", "Generation", "#246b8f"),
+        ("materialization_seconds", "Materialization", "#7a9fbf"),
+        ("verification_seconds", "Verification", "#4f8f46"),
+        ("benchmark_seconds", "Benchmark", "#e07b39"),
+    ]
+    rows: list[tuple[int, dict[str, float]]] = []
+    for iteration in _iterations(data):
+        if not _is_number(iteration.get("iteration")):
+            continue
+        timings = _dict_value(iteration.get("phase_timings"))
+        values = {
+            key: value
+            for key, _, _ in phases
+            if (value := _number_or_none(timings.get(key))) is not None
+        }
+        if values:
+            rows.append((int(iteration["iteration"]), values))
+
+    if not rows:
+        _save_placeholder(output_path, "Phase timing data unavailable")
+        return
+
+    x_values = [row[0] for row in rows]
+    bottoms = [0.0 for _ in rows]
+    fig, ax = _new_figure(width=9.0)
+    for key, label, color in phases:
+        y_values = [row[1].get(key, 0.0) for row in rows]
+        if any(value != 0.0 for value in y_values):
+            ax.bar(x_values, y_values, bottom=bottoms, label=label, color=color)
+        bottoms = [bottom + value for bottom, value in zip(bottoms, y_values)]
+
+    ax.set_title("Phase Timings by Iteration")
+    ax.set_xlabel("Iteration")
+    ax.set_ylabel("Seconds")
+    ax.grid(True, axis="y", alpha=0.3)
+    ax.legend(fontsize=9)
+    _save(fig, output_path)
+
+
+def _plot_llm_tokens(data: dict[str, Any], output_path: Path) -> None:
+    points = [
+        (int(iteration["iteration"]), int(tokens))
+        for iteration in _iterations(data)
+        if _is_number(iteration.get("iteration"))
+        and (tokens := _number_or_none(_dict_value(iteration.get("llm_usage")).get("total_tokens")))
+        is not None
+    ]
+    if not points:
+        _save_placeholder(output_path, "LLM token usage data unavailable")
+        return
+
+    x_values, y_values = zip(*points)
+    fig, ax = _new_figure()
+    ax.bar(x_values, y_values, color="#6d5a9c")
+    ax.set_title("LLM Token Usage by Iteration")
+    ax.set_xlabel("Iteration")
+    ax.set_ylabel("Total tokens")
+    ax.grid(True, axis="y", alpha=0.3)
+    _save(fig, output_path)
+
+
+def _plot_llm_latency(data: dict[str, Any], output_path: Path) -> None:
+    points = [
+        (int(iteration["iteration"]), latency)
+        for iteration in _iterations(data)
+        if _is_number(iteration.get("iteration"))
+        and (latency := _number_or_none(_dict_value(iteration.get("llm_usage")).get("api_latency_seconds")))
+        is not None
+    ]
+    if not points:
+        _save_placeholder(output_path, "LLM latency data unavailable")
+        return
+
+    x_values, y_values = zip(*points)
+    fig, ax = _new_figure()
+    ax.plot(x_values, y_values, color="#2f6f6d", linewidth=1.5)
+    ax.scatter(x_values, y_values, color="#2f6f6d")
+    ax.set_title("LLM API Latency by Iteration")
+    ax.set_xlabel("Iteration")
+    ax.set_ylabel("Latency (seconds)")
+    ax.grid(True, alpha=0.3)
+    _save(fig, output_path)
+
+
+def _plot_failure_reason_breakdown(data: dict[str, Any], output_path: Path) -> None:
+    rows = [
+        (str(item.get("code")), count)
+        for item in _reason_code_counts(data)
+        if (count := _int_or_none(item.get("count"))) is not None and count > 0
+    ]
+    if not rows:
+        _save_placeholder(output_path, "Failure reason data unavailable")
+        return
+
+    labels, values = zip(*rows)
+    fig, ax = _new_figure(width=9.5)
+    ax.bar(labels, values, color="#8a6d3b")
+    ax.set_title("Failure and Rejection Reason Breakdown")
+    ax.set_ylabel("Count")
+    ax.tick_params(axis="x", labelrotation=35)
+    ax.grid(True, axis="y", alpha=0.3)
+    fig.tight_layout()
+    _save(fig, output_path)
+
+
+def _plot_diff_stats_by_iteration(data: dict[str, Any], output_path: Path) -> None:
+    points: list[tuple[int, int]] = []
+    for iteration in _iterations(data):
+        if not _is_number(iteration.get("iteration")):
+            continue
+        diff_stats = _dict_value(iteration.get("diff_stats"))
+        lines_added = _int_or_none(diff_stats.get("lines_added"))
+        lines_removed = _int_or_none(diff_stats.get("lines_removed"))
+        if lines_added is None and lines_removed is None:
+            continue
+        points.append((int(iteration["iteration"]), (lines_added or 0) + (lines_removed or 0)))
+
+    if not points:
+        _save_placeholder(output_path, "Diff statistics unavailable")
+        return
+
+    x_values, y_values = zip(*points)
+    fig, ax = _new_figure()
+    ax.bar(x_values, y_values, color="#9b5f6d")
+    ax.set_title("Diff Size by Iteration")
+    ax.set_xlabel("Iteration")
+    ax.set_ylabel("Changed lines")
+    ax.grid(True, axis="y", alpha=0.3)
+    _save(fig, output_path)
+
+
 def _candidate_funnel_values(data: dict[str, Any]) -> dict[str, int]:
     experiment = _dict_value(data.get("experiment"))
     final_result = _dict_value(data.get("final_result"))
@@ -303,6 +452,13 @@ def _status_counts(data: dict[str, Any]) -> dict[str, int]:
     }
 
 
+def _reason_code_counts(data: dict[str, Any]) -> list[dict[str, Any]]:
+    counts = data.get("reason_code_counts")
+    if not isinstance(counts, list):
+        return []
+    return [item for item in counts if isinstance(item, dict)]
+
+
 def _dict_value(value: Any) -> dict[str, Any]:
     return value if isinstance(value, dict) else {}
 
@@ -319,6 +475,10 @@ def _is_number(value: Any) -> bool:
 
 def _int_or_zero(value: Any) -> int:
     return value if isinstance(value, int) and not isinstance(value, bool) else 0
+
+
+def _int_or_none(value: Any) -> int | None:
+    return value if isinstance(value, int) and not isinstance(value, bool) else None
 
 
 __all__ = ["build_report_figures"]

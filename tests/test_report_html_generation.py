@@ -8,11 +8,17 @@ from orchestrator.reporting import (
     ReportBaselineMetrics,
     ReportBenchmarkConfig,
     ReportClosedLoopSelection,
+    ReportData,
+    ReportDiffStats,
     ReportExperimentConfigDetails,
     ReportFinalBestCandidate,
     ReportFinalResult,
     ReportIterationSummary,
     ReportLlmInfo,
+    ReportLlmUsage,
+    ReportOutcomeReason,
+    ReportPhaseTimings,
+    ReportReasonCodeCount,
     ReportReasonSummaryItem,
     ReportReportingStatus,
     build_report_figures,
@@ -32,10 +38,23 @@ EXPECTED_PLOTS = {
     "correctness_metrics": "correctness_metrics.svg",
     "status_breakdown": "status_breakdown.svg",
     "candidate_funnel": "candidate_funnel.svg",
+    "phase_timings": "phase_timings.svg",
+    "llm_tokens_by_iteration": "llm_tokens_by_iteration.svg",
+    "llm_latency_by_iteration": "llm_latency_by_iteration.svg",
+    "failure_reason_breakdown": "failure_reason_breakdown.svg",
+    "diff_stats_by_iteration": "diff_stats_by_iteration.svg",
 }
 
+NEW_SECTION_IDS = (
+    "failure-analysis",
+    "phase-timings",
+    "llm-usage",
+    "diff-statistics",
+    "iteration-appendix",
+)
 
-def _report_data() -> object:
+
+def _report_data() -> ReportData:
     report_data = make_empty_report_data("exp_001", TARGET_FILE)
     report_data.experiment.total_iterations = 2
     report_data.experiment.completed_iterations = 2
@@ -90,6 +109,87 @@ def _report_data() -> object:
         final_diff="results/experiments/exp_001/final_optimized_source.diff",
         closed_loop_summary="results/experiments/exp_001/closed_loop_summary.json",
         closed_loop_iterations="results/experiments/exp_001/closed_loop_iterations.jsonl",
+    )
+    return report_data
+
+
+def _enriched_report_data() -> ReportData:
+    report_data = _report_data()
+    report_data.final_best_candidate = ReportFinalBestCandidate(
+        iteration=1,
+        runtime_ns_per_case_median=800.0,
+        speedup_vs_baseline=1.25,
+        diff_stats=ReportDiffStats(
+            files_changed=1,
+            lines_added=4,
+            lines_removed=2,
+            changed_blocks=1,
+            edit_count=2,
+            fallback_used=False,
+        ),
+    )
+    report_data.reason_code_counts = [
+        ReportReasonCodeCount(
+            category="decision",
+            code="valid_not_improved",
+            count=1,
+            iterations=[2],
+        )
+    ]
+    report_data.iterations[0].phase_timings = ReportPhaseTimings(
+        generation_seconds=0.1,
+        materialization_seconds=0.2,
+        verification_seconds=0.3,
+        benchmark_seconds=0.4,
+        total_iteration_seconds=1.0,
+    )
+    report_data.iterations[0].llm_usage = ReportLlmUsage(
+        prompt_tokens=100,
+        completion_tokens=50,
+        total_tokens=150,
+        api_latency_seconds=1.2,
+        finish_reason="stop",
+        model="mock-model",
+    )
+    report_data.iterations[0].diff_stats = ReportDiffStats(
+        files_changed=1,
+        lines_added=4,
+        lines_removed=2,
+        changed_blocks=1,
+        edit_count=2,
+        fallback_used=False,
+    )
+    report_data.iterations[0].outcome_reason = ReportOutcomeReason(
+        category="decision",
+        code="accepted_improvement",
+        message="Candidate improved the current best runtime.",
+    )
+    report_data.iterations[1].phase_timings = ReportPhaseTimings(
+        generation_seconds=0.2,
+        materialization_seconds=0.1,
+        verification_seconds=0.3,
+        total_iteration_seconds=0.6,
+    )
+    report_data.iterations[1].llm_usage = ReportLlmUsage(
+        prompt_tokens=120,
+        completion_tokens=40,
+        total_tokens=160,
+        api_latency_seconds=1.4,
+        finish_reason="stop",
+        model="mock-model",
+    )
+    report_data.iterations[1].diff_stats = ReportDiffStats(
+        files_changed=1,
+        lines_added=1,
+        lines_removed=1,
+        changed_blocks=1,
+        edit_count=1,
+        fallback_used=True,
+    )
+    report_data.iterations[1].outcome_reason = ReportOutcomeReason(
+        category="decision",
+        code="valid_not_improved",
+        message="Candidate was correct but slower than the current best.",
     )
     return report_data
 
@@ -157,6 +257,21 @@ def test_build_report_figures_creates_placeholder_svgs_when_data_missing(
     assert "Correctness data unavailable" in (
         plots_dir / "correctness_metrics.svg"
     ).read_text(encoding="utf-8")
+    assert "Phase timing data unavailable" in (
+        plots_dir / "phase_timings.svg"
+    ).read_text(encoding="utf-8")
+    assert "LLM token usage data unavailable" in (
+        plots_dir / "llm_tokens_by_iteration.svg"
+    ).read_text(encoding="utf-8")
+    assert "LLM latency data unavailable" in (
+        plots_dir / "llm_latency_by_iteration.svg"
+    ).read_text(encoding="utf-8")
+    assert "Failure reason data unavailable" in (
+        plots_dir / "failure_reason_breakdown.svg"
+    ).read_text(encoding="utf-8")
+    assert "Diff statistics unavailable" in (
+        plots_dir / "diff_stats_by_iteration.svg"
+    ).read_text(encoding="utf-8")
 
 
 def test_render_report_html_creates_report_html(tmp_path: Path) -> None:
@@ -192,8 +307,68 @@ def test_report_html_contains_expected_report_content(tmp_path: Path) -> None:
     assert "Simplify arithmetic." in html
     assert "Artifact Map" in html
     assert "final_optimized_source" in html
+    for section_id in NEW_SECTION_IDS:
+        assert f'id="{section_id}"' in html
     for filename in EXPECTED_PLOTS.values():
         assert f"plots/{filename}" in html
+
+
+def test_report_html_contains_v2_enriched_sections(tmp_path: Path) -> None:
+    report_data = _enriched_report_data()
+    plot_paths = build_report_figures(report_data, tmp_path / "report" / "plots")
+    html_path = render_report_html(
+        report_data,
+        plot_paths,
+        tmp_path / "report" / "report.html",
+    )
+
+    html = html_path.read_text(encoding="utf-8")
+
+    for section_id in NEW_SECTION_IDS:
+        assert f'id="{section_id}"' in html
+    assert "Failure Analysis" in html
+    assert "Phase Timings" in html
+    assert "LLM Usage" in html
+    assert "Diff Statistics" in html
+    assert "Iteration Appendix" in html
+    assert "valid_not_improved" in html
+    assert "mock-model" in html
+    assert "Candidate improved the current best runtime." in html
+    assert "reports/runs" not in html
+
+
+def test_report_html_handles_v1_like_missing_enriched_fields(tmp_path: Path) -> None:
+    report_data = {
+        "schema_version": "report.v1",
+        "report_metadata": {"report_profile": "basic_single_experiment"},
+        "experiment": {"experiment_id": "exp_old", "target_file": TARGET_FILE},
+        "final_result": {},
+        "baseline_metrics": {},
+        "iterations": [
+            {
+                "iteration": 1,
+                "status": "valid_not_improved",
+                "candidate_summary": "Old artifact without v2 fields.",
+            }
+        ],
+        "status_counts": {"valid_not_improved": 1},
+        "artifacts": {},
+    }
+    plot_paths = build_report_figures(report_data, tmp_path / "report" / "plots")
+    html_path = render_report_html(
+        report_data,
+        plot_paths,
+        tmp_path / "report" / "report.html",
+    )
+
+    html = html_path.read_text(encoding="utf-8")
+
+    assert "exp_old" in html
+    assert "Old artifact without v2 fields." in html
+    assert "No structured failure/rejection reasons are available" in html
+    assert "Not available" in html
+    for section_id in NEW_SECTION_IDS:
+        assert f'id="{section_id}"' in html
 
 
 def test_generate_basic_html_report_creates_report_outputs_read_only(

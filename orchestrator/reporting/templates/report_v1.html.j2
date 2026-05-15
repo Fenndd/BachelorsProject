@@ -75,6 +75,9 @@
       font-size: 14px;
       width: 100%;
     }
+    table.compact {
+      font-size: 12px;
+    }
     th,
     td {
       border: 1px solid var(--line);
@@ -88,6 +91,35 @@
     code {
       overflow-wrap: anywhere;
       color: #334155;
+    }
+    .plot-grid {
+      display: grid;
+      gap: 14px;
+      grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+    }
+    .badge {
+      background: #eef3f7;
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      display: inline-block;
+      font-size: 12px;
+      padding: 2px 8px;
+    }
+    .appendix-card {
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      margin: 14px 0;
+      padding: 12px;
+      break-inside: avoid;
+      page-break-inside: avoid;
+    }
+    .appendix-card h3 {
+      font-size: 16px;
+      margin: 0 0 10px;
+    }
+    .page-break-before {
+      break-before: page;
+      page-break-before: always;
     }
   </style>
 </head>
@@ -223,6 +255,141 @@
     <figure><img src="{{ plots.candidate_funnel }}" alt="Candidate funnel plot"></figure>
   </section>
 
+  <section id="failure-analysis">
+    <h2>Failure Analysis</h2>
+    <p class="muted">Structured outcome reason codes summarize why iterations failed, were rejected, or reached their final status.</p>
+    <figure><img src="{{ plots.failure_reason_breakdown }}" alt="Failure reason breakdown plot"></figure>
+    {% if report.reason_code_counts %}
+    <table class="compact">
+      <thead><tr><th>Category</th><th>Reason Code</th><th>Count</th><th>Iterations</th></tr></thead>
+      <tbody>
+      {% for item in report.reason_code_counts %}
+        <tr>
+          <td>{{ item.category|display }}</td>
+          <td>{{ item.code|display }}</td>
+          <td>{{ item.count|display }}</td>
+          <td>{{ item.iterations | join(', ') }}</td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+    {% else %}
+    <p>No structured failure/rejection reasons are available for this report.</p>
+    {% endif %}
+  </section>
+
+  <section id="phase-timings">
+    <h2>Phase Timings</h2>
+    <figure><img src="{{ plots.phase_timings }}" alt="Phase timings plot"></figure>
+    <table class="compact">
+      <thead>
+        <tr>
+          <th>Iteration</th>
+          <th>Generation s</th>
+          <th>Materialization s</th>
+          <th>Verification s</th>
+          <th>Benchmark s</th>
+          <th>Total s</th>
+        </tr>
+      </thead>
+      <tbody>
+      {% for iteration in report.iterations %}
+        <tr>
+          <td>{{ iteration.iteration|display }}</td>
+          <td>{{ iteration.phase_timings.generation_seconds|display }}</td>
+          <td>{{ iteration.phase_timings.materialization_seconds|display }}</td>
+          <td>{{ iteration.phase_timings.verification_seconds|display }}</td>
+          <td>{{ iteration.phase_timings.benchmark_seconds|display }}</td>
+          <td>{{ iteration.phase_timings.total_iteration_seconds|display }}</td>
+        </tr>
+      {% else %}
+        <tr><td colspan="6">No iterations recorded.</td></tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </section>
+
+  <section id="llm-usage">
+    <h2>LLM Usage</h2>
+    <div class="plot-grid">
+      <figure><img src="{{ plots.llm_tokens_by_iteration }}" alt="LLM token usage by iteration plot"></figure>
+      <figure><img src="{{ plots.llm_latency_by_iteration }}" alt="LLM latency by iteration plot"></figure>
+    </div>
+    <table class="compact">
+      <thead>
+        <tr>
+          <th>Iteration</th>
+          <th>Model</th>
+          <th>Prompt Tokens</th>
+          <th>Completion Tokens</th>
+          <th>Total Tokens</th>
+          <th>API Latency s</th>
+          <th>Finish Reason</th>
+        </tr>
+      </thead>
+      <tbody>
+      {% for iteration in report.iterations %}
+        <tr>
+          <td>{{ iteration.iteration|display }}</td>
+          <td>{{ iteration.llm_usage.model|display }}</td>
+          <td>{{ iteration.llm_usage.prompt_tokens|display }}</td>
+          <td>{{ iteration.llm_usage.completion_tokens|display }}</td>
+          <td>{{ iteration.llm_usage.total_tokens|display }}</td>
+          <td>{{ iteration.llm_usage.api_latency_seconds|display }}</td>
+          <td>{{ iteration.llm_usage.finish_reason|display }}</td>
+        </tr>
+      {% else %}
+        <tr><td colspan="7">No iterations recorded.</td></tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </section>
+
+  <section id="diff-statistics">
+    <h2>Diff Statistics</h2>
+    {% if report.final_best_candidate.diff_stats %}
+    <div class="metric-grid">
+      <div class="metric"><strong>Final Files Changed</strong>{{ report.final_best_candidate.diff_stats.files_changed|display }}</div>
+      <div class="metric"><strong>Final Lines Added</strong>{{ report.final_best_candidate.diff_stats.lines_added|display }}</div>
+      <div class="metric"><strong>Final Lines Removed</strong>{{ report.final_best_candidate.diff_stats.lines_removed|display }}</div>
+      <div class="metric"><strong>Final Changed Blocks</strong>{{ report.final_best_candidate.diff_stats.changed_blocks|display }}</div>
+    </div>
+    {% else %}
+    <p class="muted">Final diff summary is not available.</p>
+    {% endif %}
+    <figure><img src="{{ plots.diff_stats_by_iteration }}" alt="Diff statistics by iteration plot"></figure>
+    <table class="compact">
+      <thead>
+        <tr>
+          <th>Iteration</th>
+          <th>Status</th>
+          <th>Files Changed</th>
+          <th>Lines Added</th>
+          <th>Lines Removed</th>
+          <th>Changed Blocks</th>
+          <th>Edit Count</th>
+          <th>Fallback Used</th>
+        </tr>
+      </thead>
+      <tbody>
+      {% for iteration in report.iterations %}
+        <tr>
+          <td>{{ iteration.iteration|display }}</td>
+          <td>{{ iteration.status|display }}</td>
+          <td>{{ iteration.diff_stats.files_changed|display }}</td>
+          <td>{{ iteration.diff_stats.lines_added|display }}</td>
+          <td>{{ iteration.diff_stats.lines_removed|display }}</td>
+          <td>{{ iteration.diff_stats.changed_blocks|display }}</td>
+          <td>{{ iteration.diff_stats.edit_count|display }}</td>
+          <td>{{ iteration.diff_stats.fallback_used|yes_no }}</td>
+        </tr>
+      {% else %}
+        <tr><td colspan="8">No iterations recorded.</td></tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </section>
+
   {% if report.reason_summary %}
   <section id="reason-summary">
     <h2>Reason Summary</h2>
@@ -302,6 +469,36 @@
       {% endfor %}
       </tbody>
     </table>
+  </section>
+
+  <section id="iteration-appendix" class="page-break-before">
+    <h2>Iteration Appendix</h2>
+    {% for iteration in report.iterations %}
+    <article class="appendix-card">
+      <h3>Iteration {{ iteration.iteration|display }} <span class="badge">{{ iteration.status|display }}</span></h3>
+      <table class="compact">
+        <tbody>
+          <tr><th>Candidate Summary</th><td>{{ iteration.candidate_summary|display }}</td></tr>
+          <tr><th>Expected Effect</th><td>{{ iteration.expected_effect|display }}</td></tr>
+          <tr><th>Risk Level</th><td>{{ iteration.risk_level|display }}</td></tr>
+          <tr><th>Outcome Category</th><td>{{ iteration.outcome_reason.category|display }}</td></tr>
+          <tr><th>Outcome Code</th><td>{{ iteration.outcome_reason.code|display }}</td></tr>
+          <tr><th>Outcome Message</th><td>{{ iteration.outcome_reason.message|display }}</td></tr>
+          <tr><th>Runtime ns/case</th><td>{{ iteration.runtime_ns_per_case_median|display }}</td></tr>
+          <tr><th>Speedup vs Current Best</th><td>{{ iteration.speedup_vs_current_best|display }}</td></tr>
+          <tr><th>Speedup vs Baseline</th><td>{{ iteration.speedup_vs_baseline|display }}</td></tr>
+          <tr><th>Correctness</th><td>{{ iteration.correctness_passed|yes_no }}</td></tr>
+          <tr><th>Promoted</th><td>{{ iteration.promoted|yes_no }}</td></tr>
+          <tr><th>Phase Timings</th><td>generation={{ iteration.phase_timings.generation_seconds|display }}, materialization={{ iteration.phase_timings.materialization_seconds|display }}, verification={{ iteration.phase_timings.verification_seconds|display }}, benchmark={{ iteration.phase_timings.benchmark_seconds|display }}, total={{ iteration.phase_timings.total_iteration_seconds|display }}</td></tr>
+          <tr><th>LLM Usage</th><td>model={{ iteration.llm_usage.model|display }}, prompt={{ iteration.llm_usage.prompt_tokens|display }}, completion={{ iteration.llm_usage.completion_tokens|display }}, total={{ iteration.llm_usage.total_tokens|display }}, latency={{ iteration.llm_usage.api_latency_seconds|display }}, finish={{ iteration.llm_usage.finish_reason|display }}</td></tr>
+          <tr><th>Diff Stats</th><td>files={{ iteration.diff_stats.files_changed|display }}, added={{ iteration.diff_stats.lines_added|display }}, removed={{ iteration.diff_stats.lines_removed|display }}, blocks={{ iteration.diff_stats.changed_blocks|display }}, edits={{ iteration.diff_stats.edit_count|display }}, fallback={{ iteration.diff_stats.fallback_used|yes_no }}</td></tr>
+          <tr><th>Candidate Run Dir</th><td><code>{{ iteration.candidate_run_dir|display }}</code></td></tr>
+        </tbody>
+      </table>
+    </article>
+    {% else %}
+    <p>No iterations recorded.</p>
+    {% endfor %}
   </section>
 
   <section id="final-best-candidate-summary">

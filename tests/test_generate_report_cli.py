@@ -17,6 +17,11 @@ EXPECTED_PLOTS = (
     "correctness_metrics.svg",
     "status_breakdown.svg",
     "candidate_funnel.svg",
+    "phase_timings.svg",
+    "llm_tokens_by_iteration.svg",
+    "llm_latency_by_iteration.svg",
+    "failure_reason_breakdown.svg",
+    "diff_stats_by_iteration.svg",
 )
 
 
@@ -136,6 +141,12 @@ def test_generate_basic_report_pdf_calls_exporter(
 
     def fake_pdf_export(html_path: Path, pdf_path: Path, *, renderer: str) -> Path:
         assert html_path == experiment_dir / "report" / "report.html"
+        html = html_path.read_text(encoding="utf-8")
+        assert 'id="failure-analysis"' in html
+        assert 'id="phase-timings"' in html
+        assert 'id="llm-usage"' in html
+        assert 'id="diff-statistics"' in html
+        assert 'id="iteration-appendix"' in html
         assert renderer == "weasyprint"
         pdf_path.write_bytes(b"%PDF-dummy")
         return pdf_path
