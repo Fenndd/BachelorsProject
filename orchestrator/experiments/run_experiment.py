@@ -65,6 +65,7 @@ from .closed_loop_history import (
     build_history_guidance,
     should_include_in_closed_loop_history,
 )
+from .final_validation import run_final_validation
 from .outcome_reason import build_outcome_reason, outcome_reason_to_dict
 from orchestrator.benchmarking.candidate_decision import (
     evaluate_candidate_against_reference,
@@ -2206,6 +2207,32 @@ def finalize_closed_loop_artifacts(
     return summary, results_state_path
 
 
+def _update_closed_loop_summary_with_final_validation(
+    paths: ClosedLoopPaths,
+    summary: ClosedLoopSummary,
+    report_path: Path,
+) -> dict[str, Any]:
+    report = _read_json_object(report_path)
+    comparison_raw = report.get("comparison")
+    comparison = comparison_raw if isinstance(comparison_raw, dict) else {}
+    median_speedup = _numeric_or_none(comparison.get("median_speedup"))
+    median_reduction = _numeric_or_none(
+        comparison.get("median_runtime_reduction_percent")
+    )
+    summary.final_validation_report_path = report_path
+    summary.final_validation_median_speedup = median_speedup
+    summary.final_validation_median_runtime_reduction_percent = median_reduction
+    _write_json(paths.closed_loop_summary_path, _portable_plain_dict(summary))
+    return {
+        "enabled": report.get("enabled"),
+        "status": report.get("status"),
+        "benchmark_repetitions": report.get("benchmark_repetitions"),
+        "report_path": _display_path(report_path),
+        "median_speedup": median_speedup,
+        "median_runtime_reduction_percent": median_reduction,
+    }
+
+
 def write_closed_loop_selection_report(
     experiment_dir: Path,
     state: CurrentBestState,
@@ -2342,8 +2369,9 @@ def _closed_loop_status_block(
     summary: ClosedLoopSummary,
     results_state_path: Path,
     accepted_improvements: int,
+    final_validation_status: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    return {
+    payload = {
         "enabled": True,
         "final_best_iteration": summary.final_best_iteration,
         "accepted_improvements": accepted_improvements,
@@ -2358,6 +2386,12 @@ def _closed_loop_status_block(
         "final_runtime_reduction_percent": summary.final_runtime_reduction_percent,
         "status_counts": summary.status_counts,
     }
+    if final_validation_status is not None:
+        payload["final_validation"] = final_validation_status
+        payload["final_validation_report_path"] = final_validation_status.get("report_path")
+        payload["final_validation_median_speedup"] = final_validation_status.get("median_speedup")
+        payload["final_validation_median_runtime_reduction_percent"] = final_validation_status.get("median_runtime_reduction_percent")
+    return payload
 
 
 def _reporting_status_disabled(config: ExperimentConfig) -> dict[str, Any]:
@@ -2440,6 +2474,7 @@ def _build_closed_loop_summary_text(
     results_state_path: Path,
     accepted_improvements: int,
     reporting_status: dict[str, Any] | None = None,
+    final_validation_status: dict[str, Any] | None = None,
 ) -> str:
     lines = [
         f"Experiment id: {experiment_id}",
@@ -2492,6 +2527,27 @@ def _build_closed_loop_summary_text(
                 )
             elif reporting_status.get("status") == "failed":
                 lines.append(f"  error: {reporting_status.get('error') or 'none'}")
+        lines.append("")
+    if final_validation_status is not None:
+        lines.append("Final repeated benchmark validation:")
+        lines.append(f"  enabled: {str(final_validation_status.get('enabled')).lower()}")
+        lines.append(f"  status: {final_validation_status.get('status') or 'none'}")
+        lines.append(
+            "  benchmark repetitions: "
+            f"{final_validation_status.get('benchmark_repetitions') or 'none'}"
+        )
+        lines.append(
+            "  report: "
+            f"{final_validation_status.get('report_path') or 'none'}"
+        )
+        lines.append(
+            "  median speedup: "
+            f"{_format_optional_float(final_validation_status.get('median_speedup'))}"
+        )
+        lines.append(
+            "  median runtime reduction percent: "
+            f"{_format_optional_float(final_validation_status.get('median_runtime_reduction_percent'))}"
+        )
         lines.append("")
     return "\n".join(lines)
 
@@ -2815,6 +2871,20 @@ def _run_closed_loop_experiment(
         finished_at=finished_at,
     )
     selection_report_path = write_closed_loop_selection_report(experiment_dir, state, summary, records)
+    final_validation_report_path = run_final_validation(
+        experiment_dir=experiment_dir,
+        experiment_id=experiment_id,
+        repo_root=REPO_ROOT,
+        baseline_source_dir=REPO_ROOT,
+        final_source_dir=closed_loop_paths.final_optimized_source_dir,
+        enabled=config.final_validation.enabled,
+        benchmark_repetitions=config.final_validation.benchmark_repetitions,
+    )
+    final_validation_status = _update_closed_loop_summary_with_final_validation(
+        closed_loop_paths,
+        summary,
+        final_validation_report_path,
+    )
     reporting_status = _run_final_reporting(experiment_dir, config)
     final_status = {
         "experiment_id": experiment_id,
@@ -2825,6 +2895,7 @@ def _run_closed_loop_experiment(
             summary,
             results_state_path,
             state.accepted_improvements,
+            final_validation_status,
         ),
         "started_at": started_at.isoformat(timespec="seconds"),
         "finished_at": finished_at,
@@ -2845,6 +2916,7 @@ def _run_closed_loop_experiment(
             results_state_path=results_state_path,
             accepted_improvements=state.accepted_improvements,
             reporting_status=reporting_status,
+            final_validation_status=final_validation_status,
         ),
         encoding="utf-8",
     )

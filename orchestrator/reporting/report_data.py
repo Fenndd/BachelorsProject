@@ -200,6 +200,8 @@ class ReportArtifactMap:
     closed_loop_selection_report: Path | str | None = None
     experiment_status: Path | str | None = None
     summary_txt: Path | str | None = None
+    final_validation_dir: Path | str | None = None
+    final_validation_report: Path | str | None = None
 
 
 @dataclass
@@ -305,6 +307,49 @@ class ReportReportingStatus:
 
 
 @dataclass
+class ReportRepeatedValidationGroupSummary:
+    successful_runs: int = 0
+    failed_runs: int = 0
+    median_runtime_ns_per_case: float | None = None
+    mean_runtime_ns_per_case: float | None = None
+    min_runtime_ns_per_case: float | None = None
+    max_runtime_ns_per_case: float | None = None
+    std_runtime_ns_per_case: float | None = None
+    all_correctness_passed: bool | None = None
+    success_rate_min: float | None = None
+    success_rate_mean: float | None = None
+
+
+@dataclass
+class ReportFinalValidationComparison:
+    median_speedup: float | None = None
+    median_runtime_reduction_percent: float | None = None
+    mean_speedup: float | None = None
+    mean_runtime_reduction_percent: float | None = None
+    baseline_reference: str | None = None
+    final_reference: str | None = None
+
+
+@dataclass
+class ReportFinalValidation:
+    enabled: bool | None = None
+    status: str | None = None
+    benchmark_repetitions: int | None = None
+    report_path: str | None = None
+    baseline: ReportRepeatedValidationGroupSummary = field(
+        default_factory=ReportRepeatedValidationGroupSummary
+    )
+    final: ReportRepeatedValidationGroupSummary = field(
+        default_factory=ReportRepeatedValidationGroupSummary
+    )
+    baseline_runs: list[dict[str, Any]] = field(default_factory=list)
+    final_runs: list[dict[str, Any]] = field(default_factory=list)
+    comparison: ReportFinalValidationComparison = field(
+        default_factory=ReportFinalValidationComparison
+    )
+
+
+@dataclass
 class ReportFinalBestCandidate:
     """Full summary of the final best candidate (or baseline if no improvement)."""
 
@@ -369,6 +414,7 @@ class ReportData:
         default_factory=ReportFinalBestCandidate
     )
     reporting_status: ReportReportingStatus = field(default_factory=ReportReportingStatus)
+    final_validation: ReportFinalValidation = field(default_factory=ReportFinalValidation)
     reason_summary: list[ReportReasonSummaryItem] = field(default_factory=list)
     reason_code_counts: list[ReportReasonCodeCount] = field(default_factory=list)
     experiment_metadata: ReportExperimentMetadata | None = None
@@ -435,7 +481,10 @@ __all__ = [
     "ReportData",
     "ReportExperimentConfigDetails",
     "ReportFinalBestCandidate",
+    "ReportFinalValidation",
+    "ReportFinalValidationComparison",
     "ReportFinalResult",
+    "ReportRepeatedValidationGroupSummary",
     "ReportDiffStats",
     "ReportExperimentMetadata",
     "ReportIterationSummary",

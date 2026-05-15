@@ -22,6 +22,7 @@ EXPECTED_PLOTS = (
     "llm_latency_by_iteration.svg",
     "failure_reason_breakdown.svg",
     "diff_stats_by_iteration.svg",
+    "final_validation_runtime_distribution.svg",
 )
 
 
@@ -149,9 +150,11 @@ def test_generate_basic_report_pdf_calls_exporter(
     def fake_pdf_export(html_path: Path, pdf_path: Path, *, renderer: str) -> Path:
         assert html_path == experiment_dir / "report" / "report.html"
         html = html_path.read_text(encoding="utf-8")
+        assert "<th>Status</th><td>pdf_pending</td>" in html
         assert 'id="failure-analysis"' in html
         assert 'id="phase-timings"' in html
         assert 'id="llm-usage"' in html
+        assert 'id="final-validation"' in html
         assert 'id="diff-statistics"' in html
         assert 'id="iteration-appendix"' in html
         assert renderer == "weasyprint"
@@ -173,6 +176,32 @@ def test_generate_basic_report_pdf_calls_exporter(
     assert payload["reporting_status"]["status"] == "completed"
     assert payload["reporting_status"]["pdf_generated"] is True
     assert payload["reporting_status"]["report_pdf_path"].endswith("report.pdf")
+    html = (experiment_dir / "report" / "report.html").read_text(encoding="utf-8")
+    assert "<th>Status</th><td>completed</td>" in html
+
+
+def test_generate_basic_report_pdf_failure_writes_failed_status(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    experiment_dir = _experiment_dir(tmp_path)
+
+    def fake_pdf_export(html_path: Path, pdf_path: Path, *, renderer: str) -> Path:
+        assert "<th>Status</th><td>pdf_pending</td>" in html_path.read_text(encoding="utf-8")
+        raise RuntimeError("pdf boom")
+
+    monkeypatch.setattr(generate_report, "export_pdf_from_html", fake_pdf_export)
+
+    with pytest.raises(RuntimeError, match="pdf boom"):
+        generate_basic_report(experiment_dir, formats=("html", "pdf"))
+
+    payload = json.loads((experiment_dir / "report" / "report_data.json").read_text(encoding="utf-8"))
+    assert payload["reporting_status"]["status"] == "failed"
+    assert payload["reporting_status"]["pdf_generated"] is False
+    assert payload["reporting_status"]["error"] == "pdf boom"
+    html = (experiment_dir / "report" / "report.html").read_text(encoding="utf-8")
+    assert "<th>Status</th><td>failed</td>" in html
+    assert "pdf boom" in html
 
 
 def test_cli_no_pdf_creates_html_report(

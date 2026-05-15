@@ -21,6 +21,7 @@ EXPECTED_PLOTS = (
     "llm_latency_by_iteration.svg",
     "failure_reason_breakdown.svg",
     "diff_stats_by_iteration.svg",
+    "final_validation_runtime_distribution.svg",
 )
 
 EXPECTED_SECTIONS = (
@@ -28,6 +29,7 @@ EXPECTED_SECTIONS = (
     "executive-summary",
     "experiment-configuration",
     "benchmark-configuration",
+    "final-validation",
     "baseline-metrics",
     "reproducibility-environment",
     "runtime-progress",

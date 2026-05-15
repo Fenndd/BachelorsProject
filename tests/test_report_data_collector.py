@@ -73,6 +73,68 @@ def test_collect_report_data_maps_minimal_closed_loop_summary(tmp_path: Path) ->
     assert report_data.final_result.accepted_improvements == 1
 
 
+def test_collect_report_data_uses_final_validation_metrics_when_available(tmp_path: Path) -> None:
+    experiment_dir = _experiment_dir(tmp_path)
+    _write_json(experiment_dir / "closed_loop_summary.json", _summary())
+    _write_jsonl(experiment_dir / "closed_loop_iterations.jsonl", [])
+    _write_json(
+        experiment_dir / "final_validation" / "final_validation_report.json",
+        {
+            "schema_version": "final_validation.v1",
+            "enabled": True,
+            "status": "completed",
+            "benchmark_repetitions": 5,
+            "baseline": {
+                "runs": [{"run_index": 1, "runtime_ns_per_case_median": 100.0}],
+                "summary": {
+                    "successful_runs": 5,
+                    "failed_runs": 0,
+                    "median_runtime_ns_per_case": 100.0,
+                    "mean_runtime_ns_per_case": 101.0,
+                    "min_runtime_ns_per_case": 98.0,
+                    "max_runtime_ns_per_case": 104.0,
+                    "std_runtime_ns_per_case": 2.0,
+                    "all_correctness_passed": True,
+                    "success_rate_min": 1.0,
+                    "success_rate_mean": 1.0,
+                },
+            },
+            "final": {
+                "runs": [{"run_index": 1, "runtime_ns_per_case_median": 80.0}],
+                "summary": {
+                    "successful_runs": 5,
+                    "failed_runs": 0,
+                    "median_runtime_ns_per_case": 80.0,
+                    "mean_runtime_ns_per_case": 81.0,
+                    "min_runtime_ns_per_case": 78.0,
+                    "max_runtime_ns_per_case": 84.0,
+                    "std_runtime_ns_per_case": 2.0,
+                    "all_correctness_passed": True,
+                    "success_rate_min": 1.0,
+                    "success_rate_mean": 1.0,
+                },
+            },
+            "comparison": {
+                "median_speedup": 1.25,
+                "median_runtime_reduction_percent": 20.0,
+            },
+        },
+    )
+
+    report_data = collect_report_data(experiment_dir)
+
+    assert report_data.final_validation.benchmark_repetitions == 5
+    assert report_data.final_result.final_speedup_vs_baseline == 1.25
+    assert report_data.final_result.final_runtime_reduction_percent == 20.0
+    assert report_data.final_best_candidate.runtime_ns_per_case_median == 80.0
+    assert report_data.final_best_candidate.baseline_runtime_ns_per_case_median == 100.0
+    assert report_data.final_best_candidate.absolute_runtime_difference_ns_per_case == 20.0
+    assert report_data.final_best_candidate.speedup_vs_baseline == 1.25
+    assert report_data.final_best_candidate.runtime_reduction_percent == 20.0
+    assert report_data.final_result.correctness_preserved is True
+    assert report_data.artifacts.final_validation_report is not None
+
+
 def test_collect_report_data_maps_iteration_records(tmp_path: Path) -> None:
     experiment_dir = _experiment_dir(tmp_path)
     _write_json(experiment_dir / "closed_loop_summary.json", _summary())
@@ -982,6 +1044,33 @@ def test_llm_usage_summary_is_aggregated(tmp_path: Path) -> None:
     assert summary.iterations_with_usage == 2
     assert summary.most_expensive_iteration == 2
     assert summary.highest_latency_iteration == 2
+
+
+def test_llm_usage_summary_computes_missing_total_tokens(tmp_path: Path) -> None:
+    experiment_dir = _experiment_dir(tmp_path)
+    candidate_1 = tmp_path / "results" / "runs" / "candidate_001"
+    candidate_2 = tmp_path / "results" / "runs" / "candidate_002"
+    _write_json(experiment_dir / "closed_loop_summary.json", _summary())
+    _write_jsonl(
+        experiment_dir / "closed_loop_iterations.jsonl",
+        [
+            {"iteration": 1, "status": "valid_not_improved", "candidate_run_dir": str(candidate_1)},
+            {"iteration": 2, "status": "valid_not_improved", "candidate_run_dir": str(candidate_2)},
+        ],
+    )
+    _write_json(
+        candidate_1 / "llm_response.json",
+        {"llm_usage": {"prompt_tokens": 10, "completion_tokens": 5}},
+    )
+    _write_json(
+        candidate_2 / "llm_response.json",
+        {"llm_usage": {"prompt_tokens": 20, "completion_tokens": 10}},
+    )
+
+    report_data = collect_report_data(experiment_dir)
+
+    assert report_data.llm_usage_summary.total_tokens == 45
+    assert report_data.llm_usage_summary.most_expensive_iteration == 2
 
 
 # ---------------------------------------------------------------------------

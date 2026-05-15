@@ -25,6 +25,7 @@ PLOT_FILENAMES = {
     "llm_latency_by_iteration": "llm_latency_by_iteration.svg",
     "failure_reason_breakdown": "failure_reason_breakdown.svg",
     "diff_stats_by_iteration": "diff_stats_by_iteration.svg",
+    "final_validation_runtime_distribution": "final_validation_runtime_distribution.svg",
 }
 
 
@@ -63,6 +64,10 @@ def build_report_figures(
     _plot_diff_stats_by_iteration(
         data,
         output_dir / PLOT_FILENAMES["diff_stats_by_iteration"],
+    )
+    _plot_final_validation_runtime_distribution(
+        data,
+        output_dir / PLOT_FILENAMES["final_validation_runtime_distribution"],
     )
 
     return {
@@ -385,6 +390,43 @@ def _plot_diff_stats_by_iteration(data: dict[str, Any], output_path: Path) -> No
     ax.set_ylabel("Changed lines")
     ax.grid(True, axis="y", alpha=0.3)
     _save(fig, output_path)
+
+
+def _plot_final_validation_runtime_distribution(data: dict[str, Any], output_path: Path) -> None:
+    validation = _dict_value(data.get("final_validation"))
+    baseline_points = _validation_points(validation.get("baseline_runs"))
+    final_points = _validation_points(validation.get("final_runs"))
+    if not baseline_points and not final_points:
+        _save_placeholder(output_path, "Final validation data unavailable")
+        return
+
+    fig, ax = _new_figure()
+    if baseline_points:
+        x_values, y_values = zip(*baseline_points)
+        ax.plot(x_values, y_values, marker="o", color="#e07b39", label="baseline")
+    if final_points:
+        x_values, y_values = zip(*final_points)
+        ax.plot(x_values, y_values, marker="o", color="#4f8f46", label="final")
+    ax.set_title("Final Repeated Validation Runtime")
+    ax.set_xlabel("Run index")
+    ax.set_ylabel("Runtime ns/case")
+    ax.grid(True, alpha=0.3)
+    ax.legend(fontsize=9)
+    _save(fig, output_path)
+
+
+def _validation_points(value: Any) -> list[tuple[int, float]]:
+    if not isinstance(value, list):
+        return []
+    points: list[tuple[int, float]] = []
+    for run in value:
+        if not isinstance(run, dict):
+            continue
+        index = _int_or_none(run.get("run_index"))
+        runtime = _number_or_none(run.get("runtime_ns_per_case_median"))
+        if index is not None and runtime is not None:
+            points.append((index, runtime))
+    return points
 
 
 def _candidate_funnel_values(data: dict[str, Any]) -> dict[str, int]:

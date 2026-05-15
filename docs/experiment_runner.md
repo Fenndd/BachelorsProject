@@ -24,6 +24,7 @@ Experiment configs live under `configs/experiments/`. A config defines:
 - `history_policy`: optional variant-local prompt history for non-closed-loop runs.
 - `selection`: optional baseline-vs-candidates best-result selection and, in closed-loop mode, the required original baseline reference.
 - `closed_loop`: optional iterative current-best optimization mode.
+- `final_validation`: optional final repeated benchmark validation block.
 - `variants`: one or more model/config/context/parameter setups.
 - `optimization_scope.allowed_files`: the strict set of repo-relative files candidates may modify.
 
@@ -57,6 +58,21 @@ Closed-loop mode is enabled with:
 ```
 
 `selection.baseline_run_dir` is required in closed-loop mode as the original baseline reference, even when final non-closed-loop selection is disabled.
+
+Final repeated benchmark validation is enabled by default. The optional block is:
+
+```json
+{
+  "final_validation": {
+    "enabled": true,
+    "benchmark_repetitions": 5
+  }
+}
+```
+
+If the block is omitted, `enabled=true` and `benchmark_repetitions=5` are used.
+If `final_validation.benchmark_repetitions` is omitted, default 5 is used. The
+repetition count must be a positive integer.
 
 ## Candidate Formats
 
@@ -186,6 +202,14 @@ In closed-loop mode, each planned iteration runs this flow:
 
 Only `decision_vs_current_best.json` controls promotion. `decision_vs_original_baseline.json` is for reporting/control and does not control promotion.
 
+After all closed-loop iterations finish, the runner first finalizes closed-loop
+artifacts (`final_optimized_source/`, final diff/statistics, current-best state,
+closed-loop summary, and selection report). It then runs final repeated benchmark
+validation, and only after that generates the report. Final validation compares
+the original baseline source with the final optimized source. It does not call an
+LLM, does not rerun every candidate, does not affect promotion decisions, does
+not update `current_best_source`, and does not modify the main `cpp/` tree.
+
 Each closed-loop JSONL iteration record includes optional `phase_timings` for
 generation, materialization, verification, benchmark, and total iteration
 wall-clock durations. Stage durations come from the existing subprocess timing
@@ -224,6 +248,17 @@ results/experiments/<experiment_id>/final_diff_stats.json
 The same final diff summary is embedded as `final_diff_stats` in
 `closed_loop_summary.json` for reporting consumers.
 
+Final repeated benchmark validation writes:
+
+```text
+results/experiments/<experiment_id>/final_validation/final_validation_report.json
+```
+
+The report stores all baseline/final validation repetitions, aggregates using
+successful correctness-passing runs, and comparison metrics. Population standard
+deviation is used. If validation is disabled, a skipped report is still written
+so the final report can show that final validation was unavailable/skipped.
+
 The normalized `report/report_data.json` artifact uses `schema_version:
 "report.v2"`. It includes per-iteration `outcome_reason` and top-level
 `reason_code_counts`, grouped by reason category and code. The existing
@@ -242,6 +277,10 @@ The normalized `report/report_data.json` artifact uses `schema_version:
 If parsing succeeds but `correctness_passed=false`, verification fails at `benchmark_correctness_check` while preserving parsed metrics.
 
 Candidate verification builds default to **Release** for accurate runtime metrics. Set `CMAKE_BUILD_TYPE=Debug` in the environment to override. The build type is recorded in `verification.json` and is surfaced as reproducibility metadata. Build type is metadata in the report only; reporting does not change build behavior.
+
+Final repeated validation uses the same verifier path and environment conventions
+as candidate verification. Verification time includes benchmark execution;
+`benchmark_seconds` is not separately shown in the main report.
 
 Pairwise candidate decisions and multi-candidate best-result selection consume verified artifacts and audit comparability. The reference-vs-candidate decision path supports:
 
@@ -320,9 +359,9 @@ results/experiments/<experiment_id>/current_best_state.json
 
 `final_optimized_source.diff` is a unified diff from the original clean baseline source in `REPO_ROOT/<target_file>` to the final optimized source. It covers at least `target_file`. If the final source is unchanged, the diff file is written but empty.
 
-`closed_loop_summary.json` records the experiment id, target file, total and completed iterations, original baseline paths, final best iteration, final best candidate run directory when applicable, final optimized source paths, final speedup/runtime reduction versus the original baseline when available, iterations after the final best, all closed-loop status counts including zero values, and timestamps.
+`closed_loop_summary.json` records the experiment id, target file, total and completed iterations, original baseline paths, final best iteration, final best candidate run directory when applicable, final optimized source paths, final speedup/runtime reduction versus the original baseline when available, final validation path/median metrics when available, iterations after the final best, all closed-loop status counts including zero values, and timestamps.
 
-`experiment_status.json` includes a `closed_loop` block with final artifact paths, accepted improvement count, final best iteration, final speedup/runtime reduction, and status counts. The human-readable `summary.txt` includes a concise closed-loop section with the same final artifact locations.
+`experiment_status.json` includes a `closed_loop` block with final artifact paths, accepted improvement count, final best iteration, final speedup/runtime reduction, final validation path/median metrics, and status counts. The human-readable `summary.txt` includes a concise closed-loop section with the same final artifact locations.
 
 Closed-loop reports can be enabled with a top-level `reporting` block:
 
@@ -335,11 +374,12 @@ Closed-loop reports can be enabled with a top-level `reporting` block:
 }
 ```
 
-Automatic reporting runs only after closed-loop final artifacts are written. It creates files under `results/experiments/<experiment_id>/report/`, including `report_data.json`, `report.html`, `plots/*.svg`, and optionally `report.pdf` when `pdf` is requested. Reporting is read-only post-processing: it does not run LLM generation, verification, benchmarking, candidate promotion, source copying, or selection recomputation.
+Automatic reporting runs only after closed-loop final artifacts and final repeated benchmark validation are written. It creates files under `results/experiments/<experiment_id>/report/`, including `report_data.json`, `report.html`, `plots/*.svg`, and optionally `report.pdf` when `pdf` is requested. Reporting is read-only post-processing: it does not run LLM generation, candidate verification, benchmarking, candidate promotion, source copying, or selection recomputation.
 
 The report is a single unified current report, not separate v1/v2 modes. The single-experiment HTML/PDF report focuses on closed-loop mode and includes runtime, correctness, status, candidate funnel, configuration, selection, final-best, reporting-status, and artifact sections. Legacy `selection_enabled` and `history_policy` fields are not shown as main report concepts. The closed-loop promotion policy is `decision_vs_current_best.accepted_improvement_only`. The same unified report also surfaces enriched process metadata when present:
 
 - Outcome and Failure Analysis: structured outcome reason counts by category/code and affected iterations, including successful, neutral, rejected, and failed iterations.
+- Final Repeated Benchmark Validation: original-baseline versus final-source repeated metrics, with median final metrics used for headline final speedup/runtime reduction when available.
 - Phase Timings: per-iteration generation, materialization, verification, and total durations. Verification time includes build, smoke tests, adapter validation, benchmark execution, parsing, and correctness checks.
 - LLM Usage: aggregate and per-iteration token counts, API latency, model, and finish reason.
 - Reproducibility and Environment: git, OS/platform/Python, CMake build type, CMake executable, generator, and C++ compiler metadata.
@@ -363,15 +403,10 @@ python -m orchestrator.reporting.report_inspector --experiment-dir results/exper
 
 The inspector is read-only. It checks report files, expected SVG plots, and HTML
 section ids. Missing PDF is valid for HTML-only reports; if PDF was requested and
-`report.pdf` is missing, the inspector reports a warning. See
+`report.pdf` is missing, the inspector reports a warning. Build type is
+reproducibility metadata in the report; `Release` is the default. See
 `docs/report_v2_checklist.md` for the manual current-report verification
 checklist.
-
-Final repeated benchmark validation is recommended as a future/final evaluation
-step, not per-candidate repeated benchmarking. A future implementation should
-benchmark the original baseline N times, benchmark the final optimized source N
-times, compare median/mean/std/min/max, write `final_validation_report.json`, and
-render a Final Validation report section after closed-loop completion.
 
 Candidate run artifacts are written under `results/runs/<candidate_run_id>/`:
 

@@ -13,6 +13,7 @@ The report is a single unified current report, not separate v1/v2 modes. The his
 - `results/experiments/<experiment_id>/final_optimized_source/` exists.
 - `results/experiments/<experiment_id>/final_optimized_source.diff` exists.
 - `results/experiments/<experiment_id>/final_diff_stats.json` exists for new runs.
+- `results/experiments/<experiment_id>/final_validation/final_validation_report.json` exists for new closed-loop runs unless final validation failed before artifact creation.
 
 ## Expected Report Directory Structure
 
@@ -32,7 +33,8 @@ results/experiments/<experiment_id>/report/
     ├── llm_tokens_by_iteration.svg
     ├── llm_latency_by_iteration.svg
     ├── failure_reason_breakdown.svg
-    └── diff_stats_by_iteration.svg
+    ├── diff_stats_by_iteration.svg
+    └── final_validation_runtime_distribution.svg
 ```
 
 `report.pdf` is optional when only HTML output was requested. Some SVGs may contain placeholder text if their corresponding metadata is unavailable.
@@ -44,6 +46,8 @@ results/experiments/<experiment_id>/report/
 - `experiment`, `baseline_metrics`, `final_result`, `iterations`, `status_counts`, and `artifacts` are present.
 - Current reports include per-iteration `phase_timings`, `llm_usage`, `diff_stats`, and `outcome_reason` where applicable.
 - Current reports include top-level `reason_code_counts`.
+- Current reports include top-level `final_validation` when the final validation artifact is available.
+- Final report headline final metrics use repeated validation median metrics when available.
 - No API keys, full environment dumps, full logs, or full diffs are embedded.
 
 ## Plot Checks
@@ -54,14 +58,16 @@ results/experiments/<experiment_id>/report/
 - LLM token and latency plots show per-iteration values or placeholder text.
 - `failure_reason_breakdown.svg` shows outcome reason-code counts or placeholder text.
 - `diff_stats_by_iteration.svg` shows changed lines per iteration or placeholder text.
+- `final_validation_runtime_distribution.svg` shows baseline/final repeated validation runtimes or placeholder text.
 
 ## HTML Report Checks
 
 - `report.html` opens in a browser without visible template errors.
-- Core sections are present: cover, executive summary, experiment configuration, benchmark configuration, baseline metrics, runtime progress, correctness, status breakdown, candidate funnel, per-iteration table, final best candidate summary, reporting status, and artifact map.
+- Core sections are present: cover, executive summary, experiment configuration, benchmark configuration, final repeated benchmark validation, baseline metrics, runtime progress, correctness, status breakdown, candidate funnel, per-iteration table, final best candidate summary, reporting status, and artifact map.
 - Enriched sections are present: Outcome and Failure Analysis, Phase Timings, LLM Usage, Diff Statistics, Closed-Loop Selection, Reproducibility and Environment, and Iteration Appendix.
 - The user-facing report focuses on closed-loop mode. Legacy `selection_enabled` and `history_policy` fields are not shown as main report concepts.
 - Closed-loop promotion policy is `decision_vs_current_best.accepted_improvement_only`.
+- Final repeated benchmark validation runs automatically after closed-loop completion and before report generation. It compares original baseline source vs final optimized source, defaults to 5 repetitions, does not affect candidate promotion, and does not change `current_best_source`.
 - Tables show `Not available` for missing optional values instead of crashing or showing raw template placeholders.
 
 ## PDF Report Checks
@@ -91,6 +97,17 @@ results/experiments/<experiment_id>/report/
 - Mock or provider responses without usage metadata display unavailable values.
 - No prompts, secrets, raw provider responses, or API keys are exposed in the report.
 - Aggregate LLM token and latency totals are shown when usage metadata exists.
+- Most Expensive Iteration and Highest Latency Iteration cards are shown when usage metadata exists.
+
+## Final Validation Checks
+
+- The Final Repeated Benchmark Validation section shows enabled/skipped status and benchmark repetitions.
+- If `final_validation.benchmark_repetitions` was missing in the config, the report shows default 5 repetitions.
+- Successful baseline/final run counts match `final_validation_report.json`.
+- Baseline and final median/mean/std/min/max runtime values match `final_validation_report.json`.
+- Median speedup and median runtime reduction percent match `final_validation_report.json`.
+- Baseline and final all-correctness-passed values are shown.
+- If final validation is skipped or missing, the report clearly states that final repeated benchmark validation was not available.
 
 ## Reproducibility Checks
 
@@ -121,9 +138,6 @@ results/experiments/<experiment_id>/report/
 - Final best iteration matches `closed_loop_summary.json` and `closed_loop_selection_report.json`.
 - Accepted improvement counts match status counts.
 - Final runtime/speedup values match the final best candidate metrics.
+- When final validation metrics are available, final runtime/speedup values match repeated validation median metrics, not single-run selection metrics.
 - Report artifact paths point inside the completed experiment directory.
 - Reporting remains read-only: no source files, candidate workspaces, verification artifacts, benchmark results, or promotion state are modified by report inspection or viewing.
-
-## Future Final Validation
-
-Final repeated benchmark validation is recommended as a future/final evaluation step, not per-candidate repeated benchmarking. The intended future step is to benchmark the original baseline N times, benchmark the final optimized source N times, compare median/mean/std/min/max, write `final_validation_report.json`, and show a Final Validation section. This checklist does not require or implement those reruns.

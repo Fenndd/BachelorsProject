@@ -17,6 +17,8 @@ from orchestrator.reporting.report_data import (
     ReportExperimentConfigDetails,
     ReportExperimentMetadata,
     ReportFinalBestCandidate,
+    ReportFinalValidation,
+    ReportFinalValidationComparison,
     ReportFinalResult,
     ReportDiffStats,
     ReportIterationSummary,
@@ -27,6 +29,7 @@ from orchestrator.reporting.report_data import (
     ReportPhaseTimings,
     ReportReasonCodeCount,
     ReportReasonSummaryItem,
+    ReportRepeatedValidationGroupSummary,
     ReportReportingStatus,
     default_status_counts,
     write_report_data,
@@ -75,6 +78,7 @@ def collect_report_data(
     experiment_metadata = _safe_read_json_object(
         experiment_path / "experiment_metadata.json"
     ) or {}
+    final_validation = _build_final_validation(experiment_path)
 
     # Resolve variant LLM config
     variant_llm_config = _load_variant_llm_config(experiment_path, config_snapshot)
@@ -97,6 +101,26 @@ def collect_report_data(
     )
 
     llm_info = _build_llm_info(config_snapshot, variant_llm_config)
+
+    final_result = ReportFinalResult(
+        final_best_iteration=final_best_iter,
+        final_speedup_vs_baseline=_number_or_none(
+            summary.get("final_speedup_vs_original_baseline")
+        ),
+        final_runtime_reduction_percent=_number_or_none(
+            summary.get("final_runtime_reduction_percent")
+        ),
+        accepted_improvements=status_counts["accepted_improvement"],
+        correctness_preserved=correctness_preserved,
+    )
+    final_best_candidate = _build_final_best_candidate(
+        summary, iterations, baseline_metrics, records, experiment_path
+    )
+    _apply_final_validation_overrides(
+        final_result,
+        final_best_candidate,
+        final_validation,
+    )
 
     report_data = ReportData(
         experiment=ExperimentReportInfo(
@@ -130,17 +154,7 @@ def collect_report_data(
             if baseline_raw
             else None,
         ),
-        final_result=ReportFinalResult(
-            final_best_iteration=final_best_iter,
-            final_speedup_vs_baseline=_number_or_none(
-                summary.get("final_speedup_vs_original_baseline")
-            ),
-            final_runtime_reduction_percent=_number_or_none(
-                summary.get("final_runtime_reduction_percent")
-            ),
-            accepted_improvements=status_counts["accepted_improvement"],
-            correctness_preserved=correctness_preserved,
-        ),
+        final_result=final_result,
         baseline_metrics=baseline_metrics,
         iterations=iterations,
         status_counts=status_counts,
@@ -158,14 +172,13 @@ def collect_report_data(
         closed_loop_selection=_build_closed_loop_selection(
             selection_report, current_best_state, experiment_path
         ),
-        final_best_candidate=_build_final_best_candidate(
-            summary, iterations, baseline_metrics, records, experiment_path
-        ),
+        final_best_candidate=final_best_candidate,
         reporting_status=_build_reporting_status(
             experiment_path, config_snapshot, status_payload,
             formats_override=reporting_formats_override,
             renderer_override=reporting_renderer_override,
         ),
+        final_validation=final_validation,
         reason_summary=_build_reason_summary(iterations),
         reason_code_counts=_build_reason_code_counts(iterations),
         experiment_metadata=_build_experiment_metadata(experiment_metadata),
@@ -536,6 +549,93 @@ def _build_closed_loop_selection(
         ),
         matches_final_current_best=_bool_or_none(bvc.get("matches_final_current_best")),
     )
+
+
+def _build_final_validation(experiment_path: Path) -> ReportFinalValidation:
+    report_path = experiment_path / "final_validation" / "final_validation_report.json"
+    payload = _safe_read_json_object(report_path)
+    if not isinstance(payload, dict):
+        return ReportFinalValidation()
+    baseline_raw = payload.get("baseline")
+    final_raw = payload.get("final")
+    comparison_raw = payload.get("comparison")
+    baseline = baseline_raw if isinstance(baseline_raw, dict) else {}
+    final = final_raw if isinstance(final_raw, dict) else {}
+    comparison = comparison_raw if isinstance(comparison_raw, dict) else {}
+    return ReportFinalValidation(
+        enabled=_bool_or_none(payload.get("enabled")),
+        status=_string_or_none(payload.get("status")),
+        benchmark_repetitions=_int_or_none(payload.get("benchmark_repetitions")),
+        report_path=_display_path(report_path, experiment_path),
+        baseline=_build_repeated_validation_summary(baseline.get("summary")),
+        final=_build_repeated_validation_summary(final.get("summary")),
+        baseline_runs=_list_of_dicts(baseline.get("runs")),
+        final_runs=_list_of_dicts(final.get("runs")),
+        comparison=ReportFinalValidationComparison(
+            median_speedup=_number_or_none(comparison.get("median_speedup")),
+            median_runtime_reduction_percent=_number_or_none(
+                comparison.get("median_runtime_reduction_percent")
+            ),
+            mean_speedup=_number_or_none(comparison.get("mean_speedup")),
+            mean_runtime_reduction_percent=_number_or_none(
+                comparison.get("mean_runtime_reduction_percent")
+            ),
+            baseline_reference=_string_or_none(comparison.get("baseline_reference")),
+            final_reference=_string_or_none(comparison.get("final_reference")),
+        ),
+    )
+
+
+def _build_repeated_validation_summary(value: Any) -> ReportRepeatedValidationGroupSummary:
+    summary = value if isinstance(value, dict) else {}
+    return ReportRepeatedValidationGroupSummary(
+        successful_runs=_int_or_default(summary.get("successful_runs")),
+        failed_runs=_int_or_default(summary.get("failed_runs")),
+        median_runtime_ns_per_case=_number_or_none(summary.get("median_runtime_ns_per_case")),
+        mean_runtime_ns_per_case=_number_or_none(summary.get("mean_runtime_ns_per_case")),
+        min_runtime_ns_per_case=_number_or_none(summary.get("min_runtime_ns_per_case")),
+        max_runtime_ns_per_case=_number_or_none(summary.get("max_runtime_ns_per_case")),
+        std_runtime_ns_per_case=_number_or_none(summary.get("std_runtime_ns_per_case")),
+        all_correctness_passed=_bool_or_none(summary.get("all_correctness_passed")),
+        success_rate_min=_number_or_none(summary.get("success_rate_min")),
+        success_rate_mean=_number_or_none(summary.get("success_rate_mean")),
+    )
+
+
+def _list_of_dicts(value: Any) -> list[dict[str, Any]]:
+    if not isinstance(value, list):
+        return []
+    return [item for item in value if isinstance(item, dict)]
+
+
+def _apply_final_validation_overrides(
+    final_result: ReportFinalResult,
+    final_best_candidate: ReportFinalBestCandidate,
+    final_validation: ReportFinalValidation,
+) -> None:
+    median_speedup = final_validation.comparison.median_speedup
+    median_reduction = final_validation.comparison.median_runtime_reduction_percent
+    baseline_runtime = final_validation.baseline.median_runtime_ns_per_case
+    final_runtime = final_validation.final.median_runtime_ns_per_case
+    if median_speedup is None or median_reduction is None:
+        return
+
+    final_result.final_speedup_vs_baseline = median_speedup
+    final_result.final_runtime_reduction_percent = median_reduction
+    final_result.correctness_preserved = (
+        final_validation.baseline.all_correctness_passed is True
+        and final_validation.final.all_correctness_passed is True
+    )
+    final_best_candidate.runtime_ns_per_case_median = final_runtime
+    final_best_candidate.baseline_runtime_ns_per_case_median = baseline_runtime
+    final_best_candidate.absolute_runtime_difference_ns_per_case = (
+        baseline_runtime - final_runtime
+        if baseline_runtime is not None and final_runtime is not None
+        else None
+    )
+    final_best_candidate.speedup_vs_baseline = median_speedup
+    final_best_candidate.runtime_reduction_percent = median_reduction
+    final_best_candidate.correctness_passed = final_validation.final.all_correctness_passed
 
 
 def _build_experiment_metadata(
@@ -996,11 +1096,16 @@ def _build_llm_usage_summary(
         if usage.completion_tokens is not None:
             completion_total += usage.completion_tokens
             has_usage = True
-        if usage.total_tokens is not None:
-            total_tokens += usage.total_tokens
+        iteration_total_tokens = usage.total_tokens
+        if iteration_total_tokens is None:
+            token_parts = [usage.prompt_tokens, usage.completion_tokens]
+            if any(part is not None for part in token_parts):
+                iteration_total_tokens = sum(part or 0 for part in token_parts)
+        if iteration_total_tokens is not None:
+            total_tokens += iteration_total_tokens
             has_usage = True
-            if max_tokens is None or usage.total_tokens > max_tokens:
-                max_tokens = usage.total_tokens
+            if max_tokens is None or iteration_total_tokens > max_tokens:
+                max_tokens = iteration_total_tokens
                 most_expensive_iteration = iteration.iteration
         if usage.api_latency_seconds is not None:
             latency_total += usage.api_latency_seconds
@@ -1279,6 +1384,8 @@ def _artifact_map(
         closed_loop_selection_report=existing("closed_loop_selection_report.json"),
         experiment_status=existing("experiment_status.json"),
         summary_txt=existing("summary.txt"),
+        final_validation_dir=existing("final_validation"),
+        final_validation_report=existing("final_validation/final_validation_report.json"),
     )
 
 

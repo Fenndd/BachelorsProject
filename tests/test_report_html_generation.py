@@ -13,6 +13,8 @@ from orchestrator.reporting import (
     ReportExperimentConfigDetails,
     ReportExperimentMetadata,
     ReportFinalBestCandidate,
+    ReportFinalValidation,
+    ReportFinalValidationComparison,
     ReportFinalResult,
     ReportIterationSummary,
     ReportLlmInfo,
@@ -22,6 +24,7 @@ from orchestrator.reporting import (
     ReportPhaseTimings,
     ReportReasonCodeCount,
     ReportReasonSummaryItem,
+    ReportRepeatedValidationGroupSummary,
     ReportReportingStatus,
     build_report_figures,
     default_status_counts,
@@ -45,6 +48,7 @@ EXPECTED_PLOTS = {
     "llm_latency_by_iteration": "llm_latency_by_iteration.svg",
     "failure_reason_breakdown": "failure_reason_breakdown.svg",
     "diff_stats_by_iteration": "diff_stats_by_iteration.svg",
+    "final_validation_runtime_distribution": "final_validation_runtime_distribution.svg",
 }
 
 NEW_SECTION_IDS = (
@@ -52,6 +56,7 @@ NEW_SECTION_IDS = (
     "failure-analysis",
     "phase-timings",
     "llm-usage",
+    "final-validation",
     "diff-statistics",
     "iteration-appendix",
 )
@@ -700,6 +705,56 @@ def test_phase_timings_chart_still_generated_without_benchmark_column(tmp_path: 
     html = html_path.read_text(encoding="utf-8")
     assert "Benchmark s" not in html
     assert "Verification time includes build" in html
+    assert 'colspan="6"' not in html
+
+
+def test_html_contains_final_validation_section_and_llm_kpis(tmp_path: Path) -> None:
+    report_data = _report_data()
+    report_data.llm_usage_summary = ReportLlmUsageSummary(
+        total_tokens=100,
+        most_expensive_iteration=2,
+        highest_latency_iteration=1,
+    )
+    report_data.final_validation = ReportFinalValidation(
+        enabled=True,
+        status="completed",
+        benchmark_repetitions=5,
+        baseline=ReportRepeatedValidationGroupSummary(
+            successful_runs=5,
+            median_runtime_ns_per_case=100.0,
+            all_correctness_passed=True,
+        ),
+        final=ReportRepeatedValidationGroupSummary(
+            successful_runs=5,
+            median_runtime_ns_per_case=80.0,
+            all_correctness_passed=True,
+        ),
+        comparison=ReportFinalValidationComparison(
+            median_speedup=1.25,
+            median_runtime_reduction_percent=20.0,
+        ),
+    )
+
+    plot_paths = build_report_figures(report_data, tmp_path / "plots")
+    html_path = render_report_html(report_data, plot_paths, tmp_path / "report.html")
+    html = html_path.read_text(encoding="utf-8")
+
+    assert 'id="final-validation"' in html
+    assert "Benchmark Repetitions" in html
+    assert "Median Speedup" in html
+    assert "Most Expensive Iteration" in html
+    assert "Highest Latency Iteration" in html
+
+
+def test_final_validation_plot_generated_when_missing_data(tmp_path: Path) -> None:
+    report_data = _report_data()
+    plots_dir = tmp_path / "plots"
+
+    build_report_figures(report_data, plots_dir)
+
+    plot_path = plots_dir / "final_validation_runtime_distribution.svg"
+    assert plot_path.is_file()
+    assert "Final validation data unavailable" in plot_path.read_text(encoding="utf-8")
 
 
 # ---------------------------------------------------------------------------

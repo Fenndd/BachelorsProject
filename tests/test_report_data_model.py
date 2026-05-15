@@ -63,6 +63,7 @@ def test_json_output_contains_required_top_level_sections(tmp_path: Path) -> Non
         "closed_loop_selection",
         "final_best_candidate",
         "reporting_status",
+        "final_validation",
         "reason_summary",
         "reason_code_counts",
         "experiment_metadata",

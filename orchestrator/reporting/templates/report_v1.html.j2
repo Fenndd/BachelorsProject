@@ -214,6 +214,37 @@
     </table>
   </section>
 
+  <section id="final-validation">
+    <h2>Final Repeated Benchmark Validation</h2>
+    {% if report.final_validation.enabled is not none %}
+    <p class="muted">Final repeated validation compares the original baseline source with the final optimized source. It is reporting/evaluation only and does not affect candidate promotion or current_best_source.</p>
+    <div class="metric-grid">
+      <div class="metric"><strong>Enabled</strong>{{ report.final_validation.enabled|yes_no }}</div>
+      <div class="metric"><strong>Status</strong>{{ report.final_validation.status|display }}</div>
+      <div class="metric"><strong>Benchmark Repetitions</strong>{{ report.final_validation.benchmark_repetitions|display }}</div>
+      <div class="metric"><strong>Successful Baseline Runs</strong>{{ report.final_validation.baseline.successful_runs|display }}</div>
+      <div class="metric"><strong>Successful Final Runs</strong>{{ report.final_validation.final.successful_runs|display }}</div>
+      <div class="metric"><strong>Baseline Median Runtime</strong>{{ report.final_validation.baseline.median_runtime_ns_per_case|display }}</div>
+      <div class="metric"><strong>Final Median Runtime</strong>{{ report.final_validation.final.median_runtime_ns_per_case|display }}</div>
+      <div class="metric"><strong>Median Speedup</strong>{{ report.final_validation.comparison.median_speedup|display }}</div>
+      <div class="metric"><strong>Median Runtime Reduction %</strong>{{ report.final_validation.comparison.median_runtime_reduction_percent|display }}</div>
+      <div class="metric"><strong>Baseline Correctness Passed</strong>{{ report.final_validation.baseline.all_correctness_passed|yes_no }}</div>
+      <div class="metric"><strong>Final Correctness Passed</strong>{{ report.final_validation.final.all_correctness_passed|yes_no }}</div>
+    </div>
+    <figure><img src="{{ plots.final_validation_runtime_distribution }}" alt="Final validation runtime distribution plot"></figure>
+    <table class="compact">
+      <thead><tr><th>Group</th><th>Mean</th><th>Std</th><th>Min</th><th>Max</th><th>Success Rate Mean</th><th>Success Rate Min</th></tr></thead>
+      <tbody>
+        <tr><td>Baseline</td><td>{{ report.final_validation.baseline.mean_runtime_ns_per_case|display }}</td><td>{{ report.final_validation.baseline.std_runtime_ns_per_case|display }}</td><td>{{ report.final_validation.baseline.min_runtime_ns_per_case|display }}</td><td>{{ report.final_validation.baseline.max_runtime_ns_per_case|display }}</td><td>{{ report.final_validation.baseline.success_rate_mean|display }}</td><td>{{ report.final_validation.baseline.success_rate_min|display }}</td></tr>
+        <tr><td>Final</td><td>{{ report.final_validation.final.mean_runtime_ns_per_case|display }}</td><td>{{ report.final_validation.final.std_runtime_ns_per_case|display }}</td><td>{{ report.final_validation.final.min_runtime_ns_per_case|display }}</td><td>{{ report.final_validation.final.max_runtime_ns_per_case|display }}</td><td>{{ report.final_validation.final.success_rate_mean|display }}</td><td>{{ report.final_validation.final.success_rate_min|display }}</td></tr>
+      </tbody>
+    </table>
+    {% else %}
+    <p class="muted">Final repeated benchmark validation was not available for this experiment.</p>
+    <figure><img src="{{ plots.final_validation_runtime_distribution }}" alt="Final validation data unavailable"></figure>
+    {% endif %}
+  </section>
+
   <section id="baseline-metrics">
     <h2>Baseline Metrics</h2>
     <div class="metric-grid">
@@ -320,7 +351,7 @@
           <td>{{ iteration.phase_timings.total_iteration_seconds|display }}</td>
         </tr>
       {% else %}
-        <tr><td colspan="6">No iterations recorded.</td></tr>
+        <tr><td colspan="5">No iterations recorded.</td></tr>
       {% endfor %}
       </tbody>
     </table>
@@ -335,6 +366,8 @@
       <div class="metric"><strong>Total API Latency s</strong>{{ report.llm_usage_summary.api_latency_seconds_total|display }}</div>
       <div class="metric"><strong>Average API Latency s</strong>{{ report.llm_usage_summary.api_latency_seconds_average|display }}</div>
       <div class="metric"><strong>Iterations with Usage</strong>{{ report.llm_usage_summary.iterations_with_usage|display }}</div>
+      <div class="metric"><strong>Most Expensive Iteration</strong>{{ report.llm_usage_summary.most_expensive_iteration|display }}</div>
+      <div class="metric"><strong>Highest Latency Iteration</strong>{{ report.llm_usage_summary.highest_latency_iteration|display }}</div>
     </div>
     <div class="plot-grid">
       <figure><img src="{{ plots.llm_tokens_by_iteration }}" alt="LLM token usage by iteration plot"></figure>

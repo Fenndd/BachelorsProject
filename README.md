@@ -19,7 +19,8 @@ Implemented now:
 - Closed-loop iterative optimization in the experiment runner with experiment-local `current_best_source`.
 - Compact benchmark-aware closed-loop history for later generations.
 - Final closed-loop artifacts and analysis-only selector/reporting.
-- Single unified current single-experiment HTML/PDF report with runtime, correctness, failure analysis, phase timing, LLM usage, reproducibility metadata, diff statistics, iteration appendix sections, and a read-only report inspector.
+- Automatic final repeated benchmark validation after closed-loop completion and before report generation.
+- Single unified current single-experiment HTML/PDF report with runtime, correctness, final repeated validation, failure analysis, phase timing, LLM usage, reproducibility metadata, diff statistics, iteration appendix sections, and a read-only report inspector.
 
 Not implemented yet:
 
@@ -76,6 +77,7 @@ Key closed-loop artifacts are written under `results/experiments/<experiment_id>
 - `closed_loop_summary.json`
 - `closed_loop_iterations.jsonl`
 - `closed_loop_selection_report.json`
+- `final_validation/final_validation_report.json`
 - `current_best_state.json`
 
 See `docs/architecture.md`, `docs/experiment_runner.md`, `docs/closed_loop_optimization.md`, `docs/result_storage_format.md`, `docs/candidate_edit_formats.md`, and `docs/best_result_selection_policy.md`.
@@ -91,7 +93,7 @@ py orchestrator/cli/main.py
 
 The flow configures CMake, builds/runs `baseline_smoke_test`, `baseline_runner`, `absolute_pose_lambdatwist_adapter_validator`, and `absolute_pose_lambdatwist_benchmark`, parses metrics, and checks `correctness_passed`. Benchmark and evaluation builds default to **Release**. Build type is recorded as reproducibility metadata in reports.
 
-The user-facing report focuses on closed-loop mode. Legacy `selection_enabled` and `history_policy` fields are not shown as main report concepts; closed-loop promotion policy is `decision_vs_current_best.accepted_improvement_only`. Verification time includes benchmark execution, so `benchmark_seconds` is not separately shown in the main report. Missing PDF is valid for HTML-only reports. Final repeated benchmark validation is recommended as a future/final evaluation step, not per-candidate repeated benchmarking.
+The user-facing report is a single unified current report, not separate v1/v2 modes. It focuses on closed-loop mode. Legacy `selection_enabled` and `history_policy` fields are not shown as main report concepts; closed-loop promotion policy is `decision_vs_current_best.accepted_improvement_only`. Verification time includes benchmark execution, so `benchmark_seconds` is not separately shown in the main report. Missing PDF is valid for HTML-only reports. Final repeated benchmark validation runs automatically after closed-loop completion and before report generation. It compares the original baseline source against the final optimized source, defaults to 5 benchmark repetitions, does not affect candidate promotion, and does not change `current_best_source`. When available, report headline final metrics use repeated validation median metrics. Build type is reproducibility metadata; `Release` is the default benchmark build type.
 
 ## Experimental Terminal Control Layer
 

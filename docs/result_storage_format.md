@@ -286,6 +286,8 @@ results/experiments/<experiment_id>/final_optimized_source.diff
 results/experiments/<experiment_id>/final_diff_stats.json
 results/experiments/<experiment_id>/closed_loop_summary.json
 results/experiments/<experiment_id>/closed_loop_selection_report.json
+results/experiments/<experiment_id>/final_validation/
+results/experiments/<experiment_id>/final_validation/final_validation_report.json
 results/experiments/<experiment_id>/experiment_metadata.json
 results/experiments/<experiment_id>/current_best_state.json
 ```
@@ -334,6 +336,9 @@ to the candidate workspace.
 - `created_at`
 - `finished_at`
 - `final_diff_stats`
+- `final_validation_report_path`
+- `final_validation_median_speedup`
+- `final_validation_median_runtime_reduction_percent`
 
 If the final best remains the baseline, speedup is `1.0` and runtime reduction is
 `0.0`. If the final best is an accepted candidate, these values are read from the
@@ -345,7 +350,58 @@ workspace current-best state. The workspace state file is kept.
 
 `experiment_status.json` includes a `closed_loop` block when closed-loop mode is
 enabled. The block contains final best iteration, accepted improvement count,
-final artifact paths, final speedup/runtime reduction, and status counts.
+final artifact paths, final speedup/runtime reduction, status counts, and the
+final validation report path/median comparison metrics when final validation has
+run.
+
+## Final Repeated Benchmark Validation
+
+Final repeated benchmark validation runs automatically after closed-loop
+completion and final artifact creation, and before report generation. It compares
+the original baseline source against `final_optimized_source/`. It does not rerun
+the LLM, does not rerun every candidate, does not affect candidate promotion, and
+does not change `current_best_source`.
+
+The optional config block is:
+
+```json
+{
+  "final_validation": {
+    "enabled": true,
+    "benchmark_repetitions": 5
+  }
+}
+```
+
+If `final_validation` is missing, validation defaults to enabled. If
+`final_validation.benchmark_repetitions` is missing, default 5 is used. The value
+must be a positive integer.
+
+The validation directory layout is:
+
+```text
+results/experiments/<experiment_id>/final_validation/
+├── baseline_runs/
+│   ├── run_01/
+│   └── ...
+├── final_runs/
+│   ├── run_01/
+│   └── ...
+└── final_validation_report.json
+```
+
+Each run directory is candidate-like: it contains an isolated copied workspace,
+a minimal successful `materialization.json`, and the normal verifier output
+`verification.json` when verification reaches artifact writing. Failed
+repetitions are recorded and remaining repetitions continue when possible.
+
+`final_validation_report.json` uses `schema_version: "final_validation.v1"` and
+contains per-run records, aggregate median/mean/min/max/population-std runtime
+statistics, correctness summaries, comparison speedups, and safety flags stating
+that validation does not update current-best state, promotion decisions, or the
+main `cpp/` tree. Runtime aggregates use only successful runs whose correctness
+passed. If baseline or final has no successful correct run, comparison metrics
+are `null`.
 
 `experiment_metadata.json` records process metadata for experiment runs:
 
@@ -384,9 +440,9 @@ report does not promote candidates, update `current_best_source`, update
 
 `summary.txt` includes a concise closed-loop section listing the experiment id,
 target file, total/completed iterations, final best iteration, accepted
-improvements, final speedup/runtime reduction, status counts, and paths to the
-final optimized source, final diff, summary JSON, iteration JSONL, and final
-current-best metadata.
+improvements, final speedup/runtime reduction, status counts, paths to the final
+optimized source, final diff, summary JSON, iteration JSONL, final current-best
+metadata, and final repeated benchmark validation status/path/median metrics.
 
 Closed-loop history is deliberately separate from the non-closed-loop
 `history_policy` variant-local sliding-window history. It includes all
