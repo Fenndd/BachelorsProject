@@ -178,11 +178,11 @@
         <tr><th>Max Source Chars</th><td>{{ report.experiment_config_details.candidate_generation_max_source_chars|display }}</td></tr>
         <tr><th>Total Iterations</th><td>{{ report.experiment.total_iterations|display }}</td></tr>
         <tr><th>Completed Iterations</th><td>{{ report.experiment.completed_iterations|display }}</td></tr>
-        <tr><th>Closed Loop Enabled</th><td>{{ report.experiment.closed_loop_enabled|yes_no }}</td></tr>
-        <tr><th>History Policy Enabled</th><td>{{ report.experiment_config_details.history_policy_enabled|yes_no }}</td></tr>
-        <tr><th>History Policy Scope</th><td>{{ report.experiment_config_details.history_policy_scope|display }}</td></tr>
-        <tr><th>Selection Enabled</th><td>{{ report.experiment_config_details.selection_enabled|yes_no }}</td></tr>
-        <tr><th>Baseline Run Dir</th><td><code>{{ report.experiment_config_details.selection_baseline_run_dir|display }}</code></td></tr>
+        <tr><th>Closed-loop Decision Logic</th><td>{{ report.experiment.closed_loop_enabled|yes_no }}</td></tr>
+        <tr><th>Promotion Policy</th><td>{{ report.closed_loop_selection.promotion_policy|display }}</td></tr>
+        <tr><th>Baseline Run Directory</th><td><code>{{ report.experiment_config_details.selection_baseline_run_dir|display }}</code></td></tr>
+        <tr><th>Closed-loop History Context</th><td>{% if report.experiment.closed_loop_enabled %}enabled{% else %}Not available{% endif %}</td></tr>
+        <tr><th>History Context Detail</th><td>{% if report.experiment.closed_loop_enabled %}Previous iteration summaries are included in candidate generation prompts.{% else %}Not available{% endif %}</td></tr>
         <tr><th>Optimization Scope</th><td><code>{{ report.experiment_config_details.optimization_scope_allowed_files|display }}</code></td></tr>
         <tr><th>Reporting Enabled</th><td>{{ report.experiment_config_details.reporting_enabled|yes_no }}</td></tr>
         <tr><th>Reporting Formats</th><td>{{ report.experiment_config_details.reporting_formats|display }}</td></tr>
@@ -255,6 +255,24 @@
     <figure><img src="{{ plots.candidate_funnel }}" alt="Candidate funnel plot"></figure>
   </section>
 
+  <section id="reproducibility-environment">
+    <h2>Reproducibility and Environment</h2>
+    <table>
+      <tbody>
+        <tr><th>Git Commit</th><td>{{ report.experiment_metadata.repository.git_commit|display }}</td></tr>
+        <tr><th>Git Branch</th><td>{{ report.experiment_metadata.repository.git_branch|display }}</td></tr>
+        <tr><th>Dirty Worktree</th><td>{{ report.experiment_metadata.repository.dirty_worktree|display }}</td></tr>
+        <tr><th>OS</th><td>{{ report.experiment_metadata.environment.os|display }}</td></tr>
+        <tr><th>Platform</th><td>{{ report.experiment_metadata.environment.platform|display }}</td></tr>
+        <tr><th>Python Version</th><td>{{ report.experiment_metadata.environment.python_version|display }}</td></tr>
+        <tr><th>CMake Build Type</th><td>{{ report.experiment_metadata.environment.cmake_build_type|display }}</td></tr>
+        <tr><th>CMake Executable</th><td>{{ report.experiment_metadata.environment.cmake_exe|display }}</td></tr>
+        <tr><th>CMake Generator</th><td>{{ report.experiment_metadata.environment.cmake_generator|display }}</td></tr>
+        <tr><th>C++ Compiler</th><td>{{ report.experiment_metadata.environment.cxx_compiler|display }}</td></tr>
+      </tbody>
+    </table>
+  </section>
+
   <section id="failure-analysis">
     <h2>Outcome and Failure Analysis</h2>
     <p class="muted">Structured outcome reason codes summarize why each iteration reached its final status, including accepted improvements, valid-but-not-promoted candidates, rejected candidates, and pipeline failures.</p>
@@ -280,6 +298,7 @@
 
   <section id="phase-timings">
     <h2>Phase Timings</h2>
+    <p class="muted">Verification time includes build, smoke tests, adapter validation, benchmark execution, parsing, and correctness checks.</p>
     <figure><img src="{{ plots.phase_timings }}" alt="Phase timings plot"></figure>
     <table class="compact">
       <thead>
@@ -288,7 +307,6 @@
           <th>Generation s</th>
           <th>Materialization s</th>
           <th>Verification s</th>
-          <th>Benchmark s</th>
           <th>Total s</th>
         </tr>
       </thead>
@@ -299,7 +317,6 @@
           <td>{{ iteration.phase_timings.generation_seconds|display }}</td>
           <td>{{ iteration.phase_timings.materialization_seconds|display }}</td>
           <td>{{ iteration.phase_timings.verification_seconds|display }}</td>
-          <td>{{ iteration.phase_timings.benchmark_seconds|display }}</td>
           <td>{{ iteration.phase_timings.total_iteration_seconds|display }}</td>
         </tr>
       {% else %}
@@ -311,6 +328,14 @@
 
   <section id="llm-usage">
     <h2>LLM Usage</h2>
+    <div class="metric-grid">
+      <div class="metric"><strong>Total Tokens</strong>{{ report.llm_usage_summary.total_tokens|display }}</div>
+      <div class="metric"><strong>Prompt Tokens</strong>{{ report.llm_usage_summary.prompt_tokens_total|display }}</div>
+      <div class="metric"><strong>Completion Tokens</strong>{{ report.llm_usage_summary.completion_tokens_total|display }}</div>
+      <div class="metric"><strong>Total API Latency s</strong>{{ report.llm_usage_summary.api_latency_seconds_total|display }}</div>
+      <div class="metric"><strong>Average API Latency s</strong>{{ report.llm_usage_summary.api_latency_seconds_average|display }}</div>
+      <div class="metric"><strong>Iterations with Usage</strong>{{ report.llm_usage_summary.iterations_with_usage|display }}</div>
+    </div>
     <div class="plot-grid">
       <figure><img src="{{ plots.llm_tokens_by_iteration }}" alt="LLM token usage by iteration plot"></figure>
       <figure><img src="{{ plots.llm_latency_by_iteration }}" alt="LLM latency by iteration plot"></figure>
@@ -541,7 +566,7 @@
           <tr><th>Speedup vs Baseline</th><td>{{ iteration.speedup_vs_baseline|display }}</td></tr>
           <tr><th>Correctness</th><td>{{ iteration.correctness_passed|yes_no }}</td></tr>
           <tr><th>Promoted</th><td>{{ iteration.promoted|yes_no }}</td></tr>
-          <tr><th>Phase Timings</th><td>generation={{ iteration.phase_timings.generation_seconds|display }}, materialization={{ iteration.phase_timings.materialization_seconds|display }}, verification={{ iteration.phase_timings.verification_seconds|display }}, benchmark={{ iteration.phase_timings.benchmark_seconds|display }}, total={{ iteration.phase_timings.total_iteration_seconds|display }}</td></tr>
+          <tr><th>Phase Timings</th><td>generation={{ iteration.phase_timings.generation_seconds|display }}, materialization={{ iteration.phase_timings.materialization_seconds|display }}, verification={{ iteration.phase_timings.verification_seconds|display }}, total={{ iteration.phase_timings.total_iteration_seconds|display }}</td></tr>
           <tr><th>LLM Usage</th><td>model={{ iteration.llm_usage.model|display }}, prompt={{ iteration.llm_usage.prompt_tokens|display }}, completion={{ iteration.llm_usage.completion_tokens|display }}, total={{ iteration.llm_usage.total_tokens|display }}, latency={{ iteration.llm_usage.api_latency_seconds|display }}, finish={{ iteration.llm_usage.finish_reason|display }}</td></tr>
           <tr><th>Diff Stats</th><td>files={{ iteration.diff_stats.files_changed|display }}, added={{ iteration.diff_stats.lines_added|display }}, removed={{ iteration.diff_stats.lines_removed|display }}, blocks={{ iteration.diff_stats.changed_blocks|display }}, edits={{ iteration.diff_stats.edit_count|display }}, fallback={{ iteration.diff_stats.fallback_used|yes_no }}</td></tr>
           <tr><th>Candidate Run Dir</th><td><code>{{ iteration.candidate_run_dir|display }}</code></td></tr>

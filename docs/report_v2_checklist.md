@@ -2,6 +2,8 @@
 
 Use this checklist after a real closed-loop experiment has completed and report generation has run. It is for manual inspection only; it does not replace deterministic tests or rerun optimization stages.
 
+The report is a single unified current report, not separate v1/v2 modes. The historical template filename is an implementation detail.
+
 ## Expected Experiment Artifacts
 
 - `results/experiments/<experiment_id>/closed_loop_summary.json` exists.
@@ -18,7 +20,7 @@ Use this checklist after a real closed-loop experiment has completed and report 
 results/experiments/<experiment_id>/report/
 ├── report_data.json
 ├── report.html
-├── report.pdf
+├── report.pdf          # only when PDF output was requested
 └── plots/
     ├── runtime_progress.svg
     ├── candidate_runtime_by_iteration.svg
@@ -57,7 +59,9 @@ results/experiments/<experiment_id>/report/
 
 - `report.html` opens in a browser without visible template errors.
 - Core sections are present: cover, executive summary, experiment configuration, benchmark configuration, baseline metrics, runtime progress, correctness, status breakdown, candidate funnel, per-iteration table, final best candidate summary, reporting status, and artifact map.
-- Enriched sections are present: Outcome and Failure Analysis, Phase Timings, LLM Usage, Diff Statistics, Closed-Loop Selection, and Iteration Appendix.
+- Enriched sections are present: Outcome and Failure Analysis, Phase Timings, LLM Usage, Diff Statistics, Closed-Loop Selection, Reproducibility and Environment, and Iteration Appendix.
+- The user-facing report focuses on closed-loop mode. Legacy `selection_enabled` and `history_policy` fields are not shown as main report concepts.
+- Closed-loop promotion policy is `decision_vs_current_best.accepted_improvement_only`.
 - Tables show `Not available` for missing optional values instead of crashing or showing raw template placeholders.
 
 ## PDF Report Checks
@@ -78,14 +82,20 @@ results/experiments/<experiment_id>/report/
 ## Phase Timings Checks
 
 - Per-iteration timing rows match `iterations[*].phase_timings`.
-- `generation_seconds`, `materialization_seconds`, `verification_seconds`, `benchmark_seconds`, and total values are shown when available.
-- Missing benchmark-only timing is displayed as unavailable, not as an error.
+- `generation_seconds`, `materialization_seconds`, `verification_seconds`, and total values are shown when available.
+- Verification time includes benchmark execution; `benchmark_seconds` is not separately shown in the main report.
 
 ## LLM Usage Checks
 
 - Token counts, model, finish reason, and API latency match `iterations[*].llm_usage`.
 - Mock or provider responses without usage metadata display unavailable values.
 - No prompts, secrets, raw provider responses, or API keys are exposed in the report.
+- Aggregate LLM token and latency totals are shown when usage metadata exists.
+
+## Reproducibility Checks
+
+- Git commit, branch, dirty worktree, OS, platform, Python version, CMake executable, generator, C++ compiler, and CMake build type are visible when recorded.
+- Build type is reproducibility metadata; `Release` is the default benchmark build type.
 
 ## Diff Statistics Checks
 
@@ -113,3 +123,7 @@ results/experiments/<experiment_id>/report/
 - Final runtime/speedup values match the final best candidate metrics.
 - Report artifact paths point inside the completed experiment directory.
 - Reporting remains read-only: no source files, candidate workspaces, verification artifacts, benchmark results, or promotion state are modified by report inspection or viewing.
+
+## Future Final Validation
+
+Final repeated benchmark validation is recommended as a future/final evaluation step, not per-candidate repeated benchmarking. The intended future step is to benchmark the original baseline N times, benchmark the final optimized source N times, compare median/mean/std/min/max, write `final_validation_report.json`, and show a Final Validation section. This checklist does not require or implement those reruns.

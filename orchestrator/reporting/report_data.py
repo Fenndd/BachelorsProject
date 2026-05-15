@@ -194,6 +194,26 @@ class ReportArtifactMap:
     final_diff: Path | str | None = None
     closed_loop_summary: Path | str | None = None
     closed_loop_iterations: Path | str | None = None
+    experiment_metadata: Path | str | None = None
+    final_diff_stats: Path | str | None = None
+    current_best_state: Path | str | None = None
+    closed_loop_selection_report: Path | str | None = None
+    experiment_status: Path | str | None = None
+    summary_txt: Path | str | None = None
+
+
+@dataclass
+class ReportLlmUsageSummary:
+    """Aggregate LLM token and latency usage across iterations."""
+
+    prompt_tokens_total: int | None = None
+    completion_tokens_total: int | None = None
+    total_tokens: int | None = None
+    api_latency_seconds_total: float | None = None
+    api_latency_seconds_average: float | None = None
+    iterations_with_usage: int = 0
+    most_expensive_iteration: int | None = None
+    highest_latency_iteration: int | None = None
 
 
 @dataclass
@@ -337,6 +357,7 @@ class ReportData:
     status_counts: ReportStatusCounts | dict[str, int] = field(default_factory=ReportStatusCounts)
     artifacts: ReportArtifactMap = field(default_factory=ReportArtifactMap)
     llm: ReportLlmInfo = field(default_factory=ReportLlmInfo)
+    llm_usage_summary: ReportLlmUsageSummary = field(default_factory=ReportLlmUsageSummary)
     experiment_config_details: ReportExperimentConfigDetails = field(
         default_factory=ReportExperimentConfigDetails
     )
@@ -419,6 +440,7 @@ __all__ = [
     "ReportExperimentMetadata",
     "ReportIterationSummary",
     "ReportLlmUsage",
+    "ReportLlmUsageSummary",
     "ReportLlmInfo",
     "ReportMetadata",
     "ReportOutcomeReason",

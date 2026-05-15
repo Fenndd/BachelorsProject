@@ -57,6 +57,7 @@ def test_json_output_contains_required_top_level_sections(tmp_path: Path) -> Non
         "status_counts",
         "artifacts",
         "llm",
+        "llm_usage_summary",
         "experiment_config_details",
         "benchmark_config",
         "closed_loop_selection",

@@ -27,6 +27,7 @@ def _minimal_report_data() -> dict:
         "iterations": [],
         "status_counts": {},
         "artifacts": {},
+        "reporting_status": {"formats": ["html", "pdf"]},
     }
 
 
@@ -78,7 +79,22 @@ def test_inspect_report_ok_for_complete_report(tmp_path: Path) -> None:
     assert result["sections"]["missing"] == []
 
 
-def test_inspect_report_warns_when_pdf_missing(tmp_path: Path) -> None:
+def test_inspect_report_ok_when_html_only_pdf_missing(tmp_path: Path) -> None:
+    experiment_dir = tmp_path / "results" / "experiments" / "exp_001"
+    payload = _minimal_report_data()
+    payload["reporting_status"] = {"formats": ["html"]}
+    _write_report_data(experiment_dir, payload)
+    _write_html(experiment_dir)
+    _write_plots(experiment_dir)
+
+    result = inspect_report(experiment_dir)
+
+    assert result["status"] == "ok"
+    assert result["errors"] == []
+    assert not any("report.pdf" in warning for warning in result["warnings"])
+
+
+def test_inspect_report_warns_when_pdf_requested_and_missing(tmp_path: Path) -> None:
     experiment_dir = tmp_path / "results" / "experiments" / "exp_001"
     _write_report_data(experiment_dir)
     _write_html(experiment_dir)
@@ -89,6 +105,10 @@ def test_inspect_report_warns_when_pdf_missing(tmp_path: Path) -> None:
     assert result["status"] == "warning"
     assert result["errors"] == []
     assert any("report.pdf" in warning for warning in result["warnings"])
+
+
+def test_expected_sections_include_reproducibility_environment() -> None:
+    assert "reproducibility-environment" in EXPECTED_SECTIONS
 
 
 def test_inspect_report_fails_when_report_data_missing(tmp_path: Path) -> None:
@@ -171,6 +191,7 @@ def test_inspect_report_warns_when_enriched_sections_missing(tmp_path: Path) -> 
         for section_id in EXPECTED_SECTIONS
         if section_id
         not in {
+            "reproducibility-environment",
             "failure-analysis",
             "phase-timings",
             "llm-usage",
@@ -188,6 +209,7 @@ def test_inspect_report_warns_when_enriched_sections_missing(tmp_path: Path) -> 
     assert result["status"] == "warning"
     assert result["errors"] == []
     assert "failure-analysis" in result["sections"]["missing"]
+    assert "reproducibility-environment" in result["sections"]["missing"]
     assert "iteration-appendix" in result["sections"]["missing"]
 
 

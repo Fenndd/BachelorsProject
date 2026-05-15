@@ -521,6 +521,57 @@ def test_collect_report_data_extracts_reason_from_decision_lists(tmp_path: Path)
     )
 
 
+def test_reason_summary_ignores_original_baseline_decision(tmp_path: Path) -> None:
+    experiment_dir = _experiment_dir(tmp_path)
+    _write_json(experiment_dir / "closed_loop_summary.json", _summary())
+    _write_jsonl(
+        experiment_dir / "closed_loop_iterations.jsonl",
+        [
+            {
+                "iteration": 1,
+                "status": "valid_not_improved",
+                "decision_vs_current_best": {"non_acceptance_reasons": []},
+                "decision_vs_original_baseline": {
+                    "non_acceptance_reasons": [
+                        "runtime_improvement_below_minimum_threshold"
+                    ]
+                },
+            }
+        ],
+    )
+
+    report_data = collect_report_data(experiment_dir)
+
+    assert report_data.iterations[0].reason == "runtime_not_improved"
+    assert report_data.reason_summary[0].reason == "runtime_not_improved"
+
+
+def test_valid_not_improved_uses_current_best_specific_reason(tmp_path: Path) -> None:
+    experiment_dir = _experiment_dir(tmp_path)
+    _write_json(experiment_dir / "closed_loop_summary.json", _summary())
+    _write_jsonl(
+        experiment_dir / "closed_loop_iterations.jsonl",
+        [
+            {
+                "iteration": 1,
+                "status": "valid_not_improved",
+                "decision_vs_current_best": {
+                    "non_acceptance_reasons": ["candidate_not_promoted"]
+                },
+                "decision_vs_original_baseline": {
+                    "non_acceptance_reasons": [
+                        "runtime_improvement_below_minimum_threshold"
+                    ]
+                },
+            }
+        ],
+    )
+
+    report_data = collect_report_data(experiment_dir)
+
+    assert report_data.iterations[0].reason == "candidate_not_promoted"
+
+
 def test_summary_status_counts_are_completed_with_zero_defaults(tmp_path: Path) -> None:
     experiment_dir = _experiment_dir(tmp_path)
     _write_json(
@@ -712,6 +763,7 @@ def test_b_collector_fills_benchmark_config(tmp_path: Path) -> None:
                 "runtime_unit": "ns",
                 "build_type": "Release",
                 "benchmark_options": {
+                    "build_type": "Release",
                     "num_cases": 1024,
                     "points_per_case": 3,
                     "warmup_iterations": 10,
@@ -740,6 +792,16 @@ def test_b_collector_fills_benchmark_config(tmp_path: Path) -> None:
     assert report_data.benchmark_config.num_cases == 1024
     assert report_data.benchmark_config.timed_iterations == 50
     assert report_data.benchmark_config.seed == 42
+    assert report_data.benchmark_config.build_type == "Release"
+
+
+def test_benchmark_config_build_type_falls_back_to_release(tmp_path: Path) -> None:
+    experiment_dir = _experiment_dir(tmp_path)
+    _write_json(experiment_dir / "closed_loop_summary.json", _summary())
+    _write_jsonl(experiment_dir / "closed_loop_iterations.jsonl", [])
+
+    report_data = collect_report_data(experiment_dir)
+
     assert report_data.benchmark_config.build_type == "Release"
 
 
@@ -862,6 +924,64 @@ def test_e_artifact_paths_end_with_known_segments(
     assert closed_loop_display.endswith("closed_loop_summary.json")
     # report_pdf is None since no PDF file was generated
     assert report_data.artifacts.report_pdf is None
+
+
+def test_artifact_map_includes_extended_existing_artifacts(tmp_path: Path) -> None:
+    experiment_dir = _experiment_dir(tmp_path)
+    _write_json(experiment_dir / "closed_loop_summary.json", _summary())
+    _write_jsonl(experiment_dir / "closed_loop_iterations.jsonl", [])
+    for name in (
+        "experiment_metadata.json",
+        "final_diff_stats.json",
+        "current_best_state.json",
+        "closed_loop_selection_report.json",
+        "experiment_status.json",
+    ):
+        _write_json(experiment_dir / name, {})
+    (experiment_dir / "summary.txt").write_text("summary\n", encoding="utf-8")
+
+    report_data = collect_report_data(experiment_dir)
+
+    assert str(report_data.artifacts.experiment_metadata).endswith("experiment_metadata.json")
+    assert str(report_data.artifacts.final_diff_stats).endswith("final_diff_stats.json")
+    assert str(report_data.artifacts.current_best_state).endswith("current_best_state.json")
+    assert str(report_data.artifacts.closed_loop_selection_report).endswith("closed_loop_selection_report.json")
+    assert str(report_data.artifacts.experiment_status).endswith("experiment_status.json")
+    assert str(report_data.artifacts.summary_txt).endswith("summary.txt")
+
+
+def test_llm_usage_summary_is_aggregated(tmp_path: Path) -> None:
+    experiment_dir = _experiment_dir(tmp_path)
+    candidate_1 = tmp_path / "results" / "runs" / "candidate_001"
+    candidate_2 = tmp_path / "results" / "runs" / "candidate_002"
+    _write_json(experiment_dir / "closed_loop_summary.json", _summary())
+    _write_jsonl(
+        experiment_dir / "closed_loop_iterations.jsonl",
+        [
+            {"iteration": 1, "status": "valid_not_improved", "candidate_run_dir": str(candidate_1)},
+            {"iteration": 2, "status": "valid_not_improved", "candidate_run_dir": str(candidate_2)},
+        ],
+    )
+    _write_json(
+        candidate_1 / "llm_response.json",
+        {"llm_usage": {"prompt_tokens": 10, "completion_tokens": 5, "total_tokens": 15, "api_latency_seconds": 1.0}},
+    )
+    _write_json(
+        candidate_2 / "llm_response.json",
+        {"llm_usage": {"prompt_tokens": 20, "completion_tokens": 10, "total_tokens": 30, "api_latency_seconds": 3.0}},
+    )
+
+    report_data = collect_report_data(experiment_dir)
+
+    summary = report_data.llm_usage_summary
+    assert summary.prompt_tokens_total == 30
+    assert summary.completion_tokens_total == 15
+    assert summary.total_tokens == 45
+    assert summary.api_latency_seconds_total == 4.0
+    assert summary.api_latency_seconds_average == 2.0
+    assert summary.iterations_with_usage == 2
+    assert summary.most_expensive_iteration == 2
+    assert summary.highest_latency_iteration == 2
 
 
 # ---------------------------------------------------------------------------

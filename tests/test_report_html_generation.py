@@ -11,11 +11,13 @@ from orchestrator.reporting import (
     ReportData,
     ReportDiffStats,
     ReportExperimentConfigDetails,
+    ReportExperimentMetadata,
     ReportFinalBestCandidate,
     ReportFinalResult,
     ReportIterationSummary,
     ReportLlmInfo,
     ReportLlmUsage,
+    ReportLlmUsageSummary,
     ReportOutcomeReason,
     ReportPhaseTimings,
     ReportReasonCodeCount,
@@ -46,6 +48,7 @@ EXPECTED_PLOTS = {
 }
 
 NEW_SECTION_IDS = (
+    "reproducibility-environment",
     "failure-analysis",
     "phase-timings",
     "llm-usage",
@@ -109,6 +112,8 @@ def _report_data() -> ReportData:
         final_diff="results/experiments/exp_001/final_optimized_source.diff",
         closed_loop_summary="results/experiments/exp_001/closed_loop_summary.json",
         closed_loop_iterations="results/experiments/exp_001/closed_loop_iterations.jsonl",
+        experiment_metadata="results/experiments/exp_001/experiment_metadata.json",
+        closed_loop_selection_report="results/experiments/exp_001/closed_loop_selection_report.json",
     )
     return report_data
 
@@ -190,6 +195,32 @@ def _enriched_report_data() -> ReportData:
         category="decision",
         code="valid_not_improved",
         message="Candidate was correct but slower than the current best.",
+    )
+    report_data.llm_usage_summary = ReportLlmUsageSummary(
+        prompt_tokens_total=220,
+        completion_tokens_total=90,
+        total_tokens=310,
+        api_latency_seconds_total=2.6,
+        api_latency_seconds_average=1.3,
+        iterations_with_usage=2,
+        most_expensive_iteration=2,
+        highest_latency_iteration=2,
+    )
+    report_data.experiment_metadata = ReportExperimentMetadata(
+        repository={
+            "git_commit": "abc123",
+            "git_branch": "reportUpdatev2v3",
+            "dirty_worktree": False,
+        },
+        environment={
+            "os": "nt",
+            "platform": "Windows-test",
+            "python_version": "3.12",
+            "cmake_build_type": "Release",
+            "cmake_exe": "cmake",
+            "cmake_generator": "Ninja",
+            "cxx_compiler": "clang++",
+        },
     )
     return report_data
 
@@ -307,6 +338,8 @@ def test_report_html_contains_expected_report_content(tmp_path: Path) -> None:
     assert "Simplify arithmetic." in html
     assert "Artifact Map" in html
     assert "final_optimized_source" in html
+    assert "experiment_metadata" in html
+    assert "closed_loop_selection_report" in html
     for section_id in NEW_SECTION_IDS:
         assert f'id="{section_id}"' in html
     for filename in EXPECTED_PLOTS.values():
@@ -330,12 +363,17 @@ def test_report_html_contains_enriched_sections(tmp_path: Path) -> None:
     assert "Outcome and Failure Analysis" in html
     assert "Phase Timings" in html
     assert "LLM Usage" in html
+    assert "Total Tokens" in html
+    assert "310" in html
     assert "Diff Statistics" in html
     assert "Iteration Appendix" in html
+    assert "Reproducibility and Environment" in html
+    assert "reportUpdatev2v3" in html
     assert "valid_not_improved" in html
     assert "mock-model" in html
     assert "Candidate improved the current best runtime." in html
     assert "reports/runs" not in html
+    assert "Benchmark s" not in html
 
 
 def test_report_html_handles_older_missing_enriched_fields(tmp_path: Path) -> None:
@@ -443,6 +481,7 @@ def test_f_html_contains_enriched_fields(tmp_path: Path) -> None:
     report_data.experiment_config_details = ReportExperimentConfigDetails(
         candidate_format_type="line_range_edits",
         source_presentation="line_numbered",
+        selection_baseline_run_dir="results/runs/baseline",
     )
     report_data.benchmark_config = ReportBenchmarkConfig(
         family="absolute_pose_solvers",
@@ -496,6 +535,11 @@ def test_f_html_contains_enriched_fields(tmp_path: Path) -> None:
     assert "lambdatwist_p3p" in html
     assert "Speedup vs Current Best" in html
     assert "Closed-Loop Selection" in html
+    assert "Promotion Policy" in html
+    assert "decision_vs_current_best.accepted_improvement_only" in html
+    assert "Closed-loop History Context" in html
+    assert "Selection Enabled" not in html
+    assert "History Policy Enabled" not in html
     assert "Final Best Candidate" in html
     assert "Not generated" in html
     # correctness_preserved rendered as Yes/No
@@ -638,6 +682,24 @@ def test_report_template_packaging_renders_real_template(tmp_path: Path) -> None
     assert html_path.is_file()
     html = html_path.read_text(encoding="utf-8")
     assert "exp_tpl" in html
+    payload = json.loads((experiment_dir / "report" / "report_data.json").read_text(encoding="utf-8"))
+    assert payload["reporting_status"]["status"] == "completed"
+    assert payload["reporting_status"]["pdf_generated"] is False
+    assert payload["reporting_status"]["pdf_display"] == 'Not generated. Current reporting formats: ["html"]'
+    assert "<th>Status</th><td>completed</td>" in html
+    assert "PDF requested" not in payload["reporting_status"]["pdf_display"]
+
+
+def test_phase_timings_chart_still_generated_without_benchmark_column(tmp_path: Path) -> None:
+    report_data = _enriched_report_data()
+    plots_dir = tmp_path / "plots"
+    plot_paths = build_report_figures(report_data, plots_dir)
+    html_path = render_report_html(report_data, plot_paths, tmp_path / "report.html")
+
+    assert (plots_dir / "phase_timings.svg").is_file()
+    html = html_path.read_text(encoding="utf-8")
+    assert "Benchmark s" not in html
+    assert "Verification time includes build" in html
 
 
 # ---------------------------------------------------------------------------

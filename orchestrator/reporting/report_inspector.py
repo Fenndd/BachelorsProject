@@ -29,6 +29,7 @@ EXPECTED_SECTIONS = (
     "experiment-configuration",
     "benchmark-configuration",
     "baseline-metrics",
+    "reproducibility-environment",
     "runtime-progress",
     "correctness-and-accuracy-safety",
     "status-breakdown",
@@ -85,9 +86,9 @@ def inspect_report(experiment_dir: Path | str) -> dict[str, Any]:
     if not report_dir.is_dir():
         errors.append(f"Report directory does not exist: {report_dir}")
 
-    _inspect_report_data(report_data_path, result, errors)
+    report_data = _inspect_report_data(report_data_path, result, errors)
     html_text = _inspect_html(html_path, result, errors)
-    _inspect_pdf(pdf_path, result, warnings)
+    _inspect_pdf(pdf_path, result, warnings, report_data)
     _inspect_plots(plots_dir, result, warnings, errors)
     _inspect_sections(html_text, result, warnings)
 
@@ -99,7 +100,7 @@ def _inspect_report_data(
     report_data_path: Path,
     result: dict[str, Any],
     errors: list[str],
-) -> None:
+) -> dict[str, Any] | None:
     warnings = result["warnings"]
     entry: dict[str, Any] = {
         "path": str(report_data_path),
@@ -110,16 +111,16 @@ def _inspect_report_data(
     result["files"]["report_data_json"] = entry
     if not report_data_path.is_file():
         errors.append(f"Missing report_data.json: {report_data_path}")
-        return
+        return None
     try:
         payload = json.loads(report_data_path.read_text(encoding="utf-8"))
     except json.JSONDecodeError as exc:
         errors.append(f"Invalid report_data.json: {exc}")
-        return
+        return None
     entry["valid_json"] = True
     if not isinstance(payload, dict):
         errors.append("Invalid report_data.json: top-level payload must be a JSON object")
-        return
+        return None
     entry["json_object"] = True
     entry["schema_version"] = payload.get("schema_version")
     missing_keys = [key for key in IMPORTANT_REPORT_DATA_KEYS if key not in payload]
@@ -131,6 +132,7 @@ def _inspect_report_data(
             "report_data.json is missing important top-level key(s): "
             + ", ".join(missing_keys)
         )
+    return payload
 
 
 def _inspect_html(
@@ -150,11 +152,31 @@ def _inspect_pdf(
     pdf_path: Path,
     result: dict[str, Any],
     warnings: list[str],
+    report_data: dict[str, Any] | None,
 ) -> None:
     exists = pdf_path.is_file()
     result["files"]["report_pdf"] = {"path": str(pdf_path), "exists": exists}
-    if not exists:
+    requested_formats = _requested_report_formats(report_data)
+    if not exists and (requested_formats is None or "pdf" in requested_formats):
         warnings.append(f"Missing report.pdf: {pdf_path}")
+
+
+def _requested_report_formats(report_data: dict[str, Any] | None) -> set[str] | None:
+    if not isinstance(report_data, dict):
+        return None
+    candidates = []
+    reporting_status = report_data.get("reporting_status")
+    if isinstance(reporting_status, dict):
+        candidates.append(reporting_status.get("formats"))
+    report_metadata = report_data.get("report_metadata")
+    if isinstance(report_metadata, dict):
+        reporting = report_metadata.get("reporting")
+        if isinstance(reporting, dict):
+            candidates.append(reporting.get("formats"))
+    for value in candidates:
+        if isinstance(value, list):
+            return {str(item).strip().lower() for item in value if str(item).strip()}
+    return None
 
 
 def _inspect_plots(

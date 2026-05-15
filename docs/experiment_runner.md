@@ -189,8 +189,8 @@ Only `decision_vs_current_best.json` controls promotion. `decision_vs_original_b
 Each closed-loop JSONL iteration record includes optional `phase_timings` for
 generation, materialization, verification, benchmark, and total iteration
 wall-clock durations. Stage durations come from the existing subprocess timing
-records. `benchmark_seconds` may be `null` until verification exposes a separate
-benchmark-only duration.
+records. Verification time includes benchmark execution; `benchmark_seconds` is
+internal metadata and is not separately shown in the main report.
 
 Each record also includes an optional `outcome_reason` object for new runs. It
 normalizes why the iteration reached its status without changing how that status
@@ -241,7 +241,7 @@ The normalized `report/report_data.json` artifact uses `schema_version:
 
 If parsing succeeds but `correctness_passed=false`, verification fails at `benchmark_correctness_check` while preserving parsed metrics.
 
-Candidate verification builds default to **Release** for accurate runtime metrics. Set `CMAKE_BUILD_TYPE=Debug` in the environment to override. The build type is recorded in `verification.json`.
+Candidate verification builds default to **Release** for accurate runtime metrics. Set `CMAKE_BUILD_TYPE=Debug` in the environment to override. The build type is recorded in `verification.json` and is surfaced as reproducibility metadata. Build type is metadata in the report only; reporting does not change build behavior.
 
 Pairwise candidate decisions and multi-candidate best-result selection consume verified artifacts and audit comparability. The reference-vs-candidate decision path supports:
 
@@ -337,11 +337,12 @@ Closed-loop reports can be enabled with a top-level `reporting` block:
 
 Automatic reporting runs only after closed-loop final artifacts are written. It creates files under `results/experiments/<experiment_id>/report/`, including `report_data.json`, `report.html`, `plots/*.svg`, and optionally `report.pdf` when `pdf` is requested. Reporting is read-only post-processing: it does not run LLM generation, verification, benchmarking, candidate promotion, source copying, or selection recomputation.
 
-The single-experiment HTML/PDF report includes runtime, correctness, status, candidate funnel, configuration, selection, final-best, reporting-status, and artifact sections. The same unified report also surfaces enriched process metadata when present:
+The report is a single unified current report, not separate v1/v2 modes. The single-experiment HTML/PDF report focuses on closed-loop mode and includes runtime, correctness, status, candidate funnel, configuration, selection, final-best, reporting-status, and artifact sections. Legacy `selection_enabled` and `history_policy` fields are not shown as main report concepts. The closed-loop promotion policy is `decision_vs_current_best.accepted_improvement_only`. The same unified report also surfaces enriched process metadata when present:
 
 - Outcome and Failure Analysis: structured outcome reason counts by category/code and affected iterations, including successful, neutral, rejected, and failed iterations.
-- Phase Timings: per-iteration generation, materialization, verification, benchmark, and total durations.
-- LLM Usage: per-iteration token counts, API latency, model, and finish reason.
+- Phase Timings: per-iteration generation, materialization, verification, and total durations. Verification time includes build, smoke tests, adapter validation, benchmark execution, parsing, and correctness checks.
+- LLM Usage: aggregate and per-iteration token counts, API latency, model, and finish reason.
+- Reproducibility and Environment: git, OS/platform/Python, CMake build type, CMake executable, generator, and C++ compiler metadata.
 - Diff Statistics: final diff summary and per-iteration changed-line/edit statistics.
 - Iteration Appendix: compact per-iteration cards with candidate summary, status, outcome reason, runtime, correctness, timings, LLM usage, diff stats, and candidate run directory.
 
@@ -361,9 +362,16 @@ python -m orchestrator.reporting.report_inspector --experiment-dir results/exper
 ```
 
 The inspector is read-only. It checks report files, expected SVG plots, and HTML
-section ids, warning about optional missing pieces such as an absent PDF for
-HTML-only reports. See `docs/report_v2_checklist.md` for the manual current-report
-verification checklist.
+section ids. Missing PDF is valid for HTML-only reports; if PDF was requested and
+`report.pdf` is missing, the inspector reports a warning. See
+`docs/report_v2_checklist.md` for the manual current-report verification
+checklist.
+
+Final repeated benchmark validation is recommended as a future/final evaluation
+step, not per-candidate repeated benchmarking. A future implementation should
+benchmark the original baseline N times, benchmark the final optimized source N
+times, compare median/mean/std/min/max, write `final_validation_report.json`, and
+render a Final Validation report section after closed-loop completion.
 
 Candidate run artifacts are written under `results/runs/<candidate_run_id>/`:
 

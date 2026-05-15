@@ -29,6 +29,38 @@ def test_materialization_fallback_no_match_maps_to_line_range_mismatch() -> None
     assert reason.code == "line_range_mismatch"
 
 
+def test_materialization_skips_previous_edit_failed_for_fallback_ambiguous() -> None:
+    reason = build_outcome_reason(
+        status="materialization_failed",
+        materialization={
+            "failed_step": "line_range_apply",
+            "line_range_edit_results": [
+                {"status": "failed", "failure_reason": "previous_edit_failed"},
+                {"status": "failed", "failure_reason": "fallback_ambiguous"},
+            ],
+        },
+    )
+
+    assert reason.category == "materialization"
+    assert reason.code == "line_range_fallback_ambiguous"
+
+
+def test_materialization_skips_previous_edit_failed_for_fallback_no_match() -> None:
+    reason = build_outcome_reason(
+        status="materialization_failed",
+        materialization={
+            "failed_step": "line_range_apply",
+            "line_range_edit_results": [
+                {"status": "failed", "failure_reason": "previous_edit_failed"},
+                {"status": "failed", "failure_reason": "fallback_no_match"},
+            ],
+        },
+    )
+
+    assert reason.category == "materialization"
+    assert reason.code == "line_range_mismatch"
+
+
 def test_verification_benchmark_correctness_maps_to_benchmark_correctness_failed() -> None:
     reason = build_outcome_reason(
         status="verification_failed",

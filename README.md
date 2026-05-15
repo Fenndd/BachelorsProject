@@ -19,7 +19,7 @@ Implemented now:
 - Closed-loop iterative optimization in the experiment runner with experiment-local `current_best_source`.
 - Compact benchmark-aware closed-loop history for later generations.
 - Final closed-loop artifacts and analysis-only selector/reporting.
-- Single-experiment HTML/PDF reports with runtime, correctness, failure analysis, phase timing, LLM usage, diff statistics, iteration appendix sections, and a read-only report inspector.
+- Single unified current single-experiment HTML/PDF report with runtime, correctness, failure analysis, phase timing, LLM usage, reproducibility metadata, diff statistics, iteration appendix sections, and a read-only report inspector.
 
 Not implemented yet:
 
@@ -89,7 +89,9 @@ $env:EIGEN3_INCLUDE_DIR="C:\path\to\eigen"
 py orchestrator/cli/main.py
 ```
 
-The flow configures CMake, builds/runs `baseline_smoke_test`, `baseline_runner`, `absolute_pose_lambdatwist_adapter_validator`, and `absolute_pose_lambdatwist_benchmark`, parses metrics, and checks `correctness_passed`. Benchmark and evaluation builds default to **Release**.
+The flow configures CMake, builds/runs `baseline_smoke_test`, `baseline_runner`, `absolute_pose_lambdatwist_adapter_validator`, and `absolute_pose_lambdatwist_benchmark`, parses metrics, and checks `correctness_passed`. Benchmark and evaluation builds default to **Release**. Build type is recorded as reproducibility metadata in reports.
+
+The user-facing report focuses on closed-loop mode. Legacy `selection_enabled` and `history_policy` fields are not shown as main report concepts; closed-loop promotion policy is `decision_vs_current_best.accepted_improvement_only`. Verification time includes benchmark execution, so `benchmark_seconds` is not separately shown in the main report. Missing PDF is valid for HTML-only reports. Final repeated benchmark validation is recommended as a future/final evaluation step, not per-candidate repeated benchmarking.
 
 ## Experimental Terminal Control Layer
 

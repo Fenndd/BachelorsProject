@@ -254,7 +254,6 @@ def _plot_phase_timings(data: dict[str, Any], output_path: Path) -> None:
         ("generation_seconds", "Generation", "#246b8f"),
         ("materialization_seconds", "Materialization", "#7a9fbf"),
         ("verification_seconds", "Verification", "#4f8f46"),
-        ("benchmark_seconds", "Benchmark", "#e07b39"),
     ]
     rows: list[tuple[int, dict[str, float]]] = []
     for iteration in _iterations(data):

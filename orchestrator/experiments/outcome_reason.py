@@ -194,6 +194,9 @@ def _materialization_reason(
     elif edit_failure == "target_file_missing" or "target_file_missing" in error_text:
         code = CODE_TARGET_FILE_MISSING
         message = "Materialization target file was missing."
+    elif edit_failure in {"invalid_line_range", "fallback_not_allowed"}:
+        code = CODE_LINE_RANGE_MISMATCH
+        message = "Line-range edit could not be matched to the target source."
     elif "no target file hash changed" in error_text or "no_files_changed" in error_text:
         code = CODE_NO_FILES_CHANGED
         message = "Candidate applied without changing any target file."
@@ -308,11 +311,12 @@ def _line_range_failure_reason(materialization: dict[str, Any]) -> str | None:
     results = materialization.get("line_range_edit_results")
     if not isinstance(results, list):
         return None
+    ignored = {"previous_edit_failed", "not_attempted"}
     for result in results:
         if not isinstance(result, dict):
             continue
         reason = result.get("failure_reason")
-        if isinstance(reason, str) and reason:
+        if isinstance(reason, str) and reason and reason not in ignored:
             return reason
     return None
 

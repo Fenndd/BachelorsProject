@@ -48,6 +48,14 @@ def generate_basic_report(
             report_dir / "report.pdf",
             renderer=renderer,
         )
+    report_data = _finalize_reporting_status(
+        report_data_path,
+        requested_formats=requested_formats,
+        renderer=renderer,
+        html_path=html_path,
+        pdf_path=artifacts.get("pdf"),
+    )
+    render_report_html(report_data, plot_paths, html_path)
     return artifacts
 
 
@@ -57,15 +65,68 @@ def generate_basic_html_report(experiment_dir: Path | str) -> Path:
     return generate_basic_report(experiment_dir, formats=("html",))["html"]
 
 
-def _normalize_formats(formats: tuple[str, ...]) -> set[str]:
-    normalized = {format_name.strip().lower() for format_name in formats}
-    unknown = normalized - SUPPORTED_FORMATS
+def _normalize_formats(formats: tuple[str, ...]) -> list[str]:
+    normalized: list[str] = []
+    seen: set[str] = set()
+    for format_name in formats:
+        value = format_name.strip().lower()
+        if value and value not in seen:
+            normalized.append(value)
+            seen.add(value)
+    unknown = set(normalized) - SUPPORTED_FORMATS
     if unknown:
         raise ValueError(
             "Unsupported report format(s): "
             f"{', '.join(sorted(unknown))}. Expected one or both of: html, pdf."
         )
     return normalized
+
+
+def _finalize_reporting_status(
+    report_data_path: Path,
+    *,
+    requested_formats: list[str],
+    renderer: str,
+    html_path: Path,
+    pdf_path: Path | None,
+) -> dict:
+    payload = json.loads(report_data_path.read_text(encoding="utf-8"))
+    if not isinstance(payload, dict):
+        raise ValueError("report_data.json must contain a JSON object")
+
+    pdf_generated = pdf_path is not None and pdf_path.is_file()
+    report_pdf_path = str(pdf_path) if pdf_generated else None
+    if pdf_generated:
+        pdf_display = report_pdf_path
+    elif "pdf" not in requested_formats:
+        formats_json = json.dumps(requested_formats)
+        pdf_display = f"Not generated. Current reporting formats: {formats_json}"
+    else:
+        pdf_display = "PDF requested; generation pending or file missing"
+
+    existing_status = payload.get("reporting_status")
+    if not isinstance(existing_status, dict):
+        existing_status = {}
+    existing_status.update(
+        {
+            "enabled": True,
+            "status": "completed",
+            "formats": requested_formats,
+            "renderer": renderer,
+            "report_data_path": str(report_data_path),
+            "report_html_path": str(html_path),
+            "report_pdf_path": report_pdf_path,
+            "pdf_generated": pdf_generated,
+            "pdf_display": pdf_display,
+            "error": None,
+        }
+    )
+    payload["reporting_status"] = existing_status
+    report_data_path.write_text(
+        json.dumps(payload, indent=2, ensure_ascii=False) + "\n",
+        encoding="utf-8",
+    )
+    return payload
 
 
 def _parse_args(argv: list[str]) -> argparse.Namespace:

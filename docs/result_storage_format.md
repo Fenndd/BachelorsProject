@@ -427,7 +427,8 @@ Each `closed_loop_iterations.jsonl` record contains:
 - `phase_timings`: optional per-phase durations with `generation_seconds`,
   `materialization_seconds`, `verification_seconds`, `benchmark_seconds`, and
   `total_iteration_seconds`. `benchmark_seconds` may be `null` until a separate
-  benchmark duration is available.
+  benchmark duration is available. Verification time includes benchmark
+  execution; `benchmark_seconds` is not separately shown in the main report.
 - `outcome_reason`: optional normalized reason object explaining why the status
   occurred. New closed-loop runs write it directly; report collection
   reconstructs a best-effort value for older artifacts.
@@ -476,6 +477,7 @@ monkeypatched closed-loop runners. They include a controlled mock scenario where
 one accepted candidate is promoted, a later slower candidate is not promoted, and
 a no-op is recorded but excluded from future compact history.
 
+The report is a single unified current report, not separate v1/v2 modes.
 `report/report_data.json` uses `schema_version: "report.v2"` and includes each
 iteration's normalized `outcome_reason` and a top-level `reason_code_counts`
 array grouped by `category` and `code`. This complements the older
@@ -488,11 +490,18 @@ enriched fields in the unified single-experiment report:
 - Outcome and Failure Analysis, backed by `reason_code_counts`
 - Phase Timings, backed by per-iteration `phase_timings`
 - LLM Usage, backed by per-iteration `llm_usage`
+- Reproducibility and Environment, backed by `experiment_metadata`
 - Diff Statistics, backed by per-iteration `diff_stats` and final
   `final_best_candidate.diff_stats`
 - Iteration Appendix, a compact per-iteration summary combining status,
   candidate metadata, outcome reason, runtime, correctness, timings, LLM usage,
   diff stats, and candidate run directory
+
+The user-facing report focuses on closed-loop mode. Legacy `selection_enabled`
+and `history_policy` fields are not shown as main report concepts. Closed-loop
+promotion policy is `decision_vs_current_best.accepted_improvement_only`.
+Build type is reproducibility metadata; `Release` is the default benchmark build
+type.
 
 These sections are presentation-only. They do not promote candidates, rerun
 benchmarks, recompute verification, materialize source, or modify `cpp/`. Older
@@ -509,10 +518,16 @@ python -m orchestrator.reporting.report_inspector --experiment-dir results/exper
 
 It validates the presence and object shape of `report_data.json`, `report.html`,
 optional `report.pdf`, expected plot files, and important HTML section ids.
-Missing PDFs and optional enriched metadata are warnings when HTML-only or older
-reports are being reviewed; invalid or missing `report_data.json` and missing
+Missing PDF is valid for HTML-only reports. If PDF was requested and missing, the
+inspector reports a warning. Invalid or missing `report_data.json` and missing
 `report.html` are failures. The manual checklist for real-cycle current-report review is
 `docs/report_v2_checklist.md`.
+
+Final repeated benchmark validation is recommended as a future/final evaluation
+step, not per-candidate repeated benchmarking. The future artifact should compare
+N repeated baseline runs against N repeated final optimized source runs, report
+median/mean/std/min/max, write `final_validation_report.json`, and display a
+Final Validation section.
 
 ## Candidate Materialization Artifacts
 

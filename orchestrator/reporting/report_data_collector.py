@@ -22,6 +22,7 @@ from orchestrator.reporting.report_data import (
     ReportIterationSummary,
     ReportLlmUsage,
     ReportLlmInfo,
+    ReportLlmUsageSummary,
     ReportOutcomeReason,
     ReportPhaseTimings,
     ReportReasonCodeCount,
@@ -149,10 +150,11 @@ def collect_report_data(
             report_data_path=report_data_path,
         ),
         llm=llm_info,
+        llm_usage_summary=_build_llm_usage_summary(iterations),
         experiment_config_details=_build_experiment_config_details(
             config_snapshot, experiment_path
         ),
-        benchmark_config=_build_benchmark_config(baseline_raw),
+        benchmark_config=_build_benchmark_config(baseline_raw, experiment_metadata),
         closed_loop_selection=_build_closed_loop_selection(
             selection_report, current_best_state, experiment_path
         ),
@@ -386,11 +388,22 @@ def _build_experiment_config_details(
     )
 
 
-def _build_benchmark_config(baseline_raw: dict[str, Any] | None) -> ReportBenchmarkConfig:
+def _build_benchmark_config(
+    baseline_raw: dict[str, Any] | None,
+    experiment_metadata: dict[str, Any] | None = None,
+) -> ReportBenchmarkConfig:
     """Build ReportBenchmarkConfig from raw baseline metrics payload."""
 
+    experiment_metadata = experiment_metadata or {}
+    metadata_environment = experiment_metadata.get("environment")
+    if not isinstance(metadata_environment, dict):
+        metadata_environment = {}
+
     if not baseline_raw:
-        return ReportBenchmarkConfig()
+        return ReportBenchmarkConfig(
+            build_type=_first_string(metadata_environment.get("cmake_build_type"), "Release")
+            or "Release"
+        )
 
     bm = baseline_raw.get("benchmark") or {}
 
@@ -460,7 +473,12 @@ def _build_benchmark_config(baseline_raw: dict[str, Any] | None) -> ReportBenchm
         use_max_reprojection_error_as_hard_gate=_o_bool(
             "use_max_reprojection_error_as_hard_gate"
         ),
-        build_type=_b_str("build_type"),
+        build_type=_first_string(
+            _o_str("build_type"),
+            _b_str("build_type"),
+            metadata_environment.get("cmake_build_type"),
+            "Release",
+        ),
     )
 
 
@@ -842,7 +860,6 @@ def _iteration_summary(
         reason=_extract_reason(
             record,
             decision_vs_current_best=artifacts.get("decision_vs_current_best"),
-            decision_vs_original_baseline=artifacts.get("decision_vs_original_baseline"),
         ),
         candidate_run_dir=candidate_run_dir_text,
         phase_timings=_build_phase_timings(record.get("phase_timings")),
@@ -950,6 +967,65 @@ def _build_llm_usage(value: Any) -> ReportLlmUsage | None:
         finish_reason=_string_or_none(value.get("finish_reason")),
         model=_string_or_none(value.get("model")),
         model_version=_string_or_none(value.get("model_version")),
+    )
+
+
+def _build_llm_usage_summary(
+    iterations: list[ReportIterationSummary],
+) -> ReportLlmUsageSummary:
+    prompt_total = 0
+    completion_total = 0
+    total_tokens = 0
+    latency_total = 0.0
+    usage_count = 0
+    latency_count = 0
+    most_expensive_iteration: int | None = None
+    highest_latency_iteration: int | None = None
+    max_tokens: int | None = None
+    max_latency: float | None = None
+
+    for iteration in iterations:
+        usage = iteration.llm_usage
+        if usage is None:
+            continue
+
+        has_usage = False
+        if usage.prompt_tokens is not None:
+            prompt_total += usage.prompt_tokens
+            has_usage = True
+        if usage.completion_tokens is not None:
+            completion_total += usage.completion_tokens
+            has_usage = True
+        if usage.total_tokens is not None:
+            total_tokens += usage.total_tokens
+            has_usage = True
+            if max_tokens is None or usage.total_tokens > max_tokens:
+                max_tokens = usage.total_tokens
+                most_expensive_iteration = iteration.iteration
+        if usage.api_latency_seconds is not None:
+            latency_total += usage.api_latency_seconds
+            latency_count += 1
+            has_usage = True
+            if max_latency is None or usage.api_latency_seconds > max_latency:
+                max_latency = usage.api_latency_seconds
+                highest_latency_iteration = iteration.iteration
+        if has_usage:
+            usage_count += 1
+
+    if usage_count == 0:
+        return ReportLlmUsageSummary()
+
+    return ReportLlmUsageSummary(
+        prompt_tokens_total=prompt_total,
+        completion_tokens_total=completion_total,
+        total_tokens=total_tokens,
+        api_latency_seconds_total=latency_total if latency_count else None,
+        api_latency_seconds_average=(latency_total / latency_count)
+        if latency_count
+        else None,
+        iterations_with_usage=usage_count,
+        most_expensive_iteration=most_expensive_iteration,
+        highest_latency_iteration=highest_latency_iteration,
     )
 
 
@@ -1067,7 +1143,6 @@ def _first_summary_text(*values: Any) -> str | None:
 def _extract_reason(
     record: dict[str, Any],
     decision_vs_current_best: dict[str, Any] | None = None,
-    decision_vs_original_baseline: dict[str, Any] | None = None,
 ) -> str | None:
     failure_reason = _reason_text(record.get("failure_reason"))
     if failure_reason is not None:
@@ -1078,10 +1153,6 @@ def _extract_reason(
         (record.get("decision_vs_current_best"), "non_acceptance_reasons"),
         (decision_vs_current_best, "rejection_reasons"),
         (decision_vs_current_best, "non_acceptance_reasons"),
-        (record.get("decision_vs_original_baseline"), "rejection_reasons"),
-        (record.get("decision_vs_original_baseline"), "non_acceptance_reasons"),
-        (decision_vs_original_baseline, "rejection_reasons"),
-        (decision_vs_original_baseline, "non_acceptance_reasons"),
     ]
     for decision, reason_key in reason_sources:
         if not isinstance(decision, dict):
@@ -1176,6 +1247,11 @@ def _artifact_map(
 ) -> ReportArtifactMap:
     report_dir = experiment_dir / "report"
     report_pdf = report_dir / "report.pdf"
+
+    def existing(name: str) -> str | None:
+        path = experiment_dir / name
+        return _display_path(path) if path.exists() else None
+
     return ReportArtifactMap(
         experiment_dir=_display_path(experiment_dir),
         report_dir=_display_path(report_dir),
@@ -1197,6 +1273,12 @@ def _artifact_map(
         closed_loop_iterations=_display_path(
             experiment_dir / "closed_loop_iterations.jsonl"
         ),
+        experiment_metadata=existing("experiment_metadata.json"),
+        final_diff_stats=existing("final_diff_stats.json"),
+        current_best_state=existing("current_best_state.json"),
+        closed_loop_selection_report=existing("closed_loop_selection_report.json"),
+        experiment_status=existing("experiment_status.json"),
+        summary_txt=existing("summary.txt"),
     )
 
 

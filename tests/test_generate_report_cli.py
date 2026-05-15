@@ -130,6 +130,13 @@ def test_generate_basic_report_html_only_does_not_require_pdf_exporter(
     assert set(artifacts) == {"report_data", "html"}
     _assert_html_report_outputs(experiment_dir)
     assert not (experiment_dir / "report" / "report.pdf").exists()
+    payload = json.loads((experiment_dir / "report" / "report_data.json").read_text(encoding="utf-8"))
+    assert payload["reporting_status"]["status"] == "completed"
+    assert payload["reporting_status"]["pdf_generated"] is False
+    assert payload["reporting_status"]["report_pdf_path"] is None
+    assert payload["reporting_status"]["pdf_display"] == 'Not generated. Current reporting formats: ["html"]'
+    html = (experiment_dir / "report" / "report.html").read_text(encoding="utf-8")
+    assert "<th>Status</th><td>completed</td>" in html
     _assert_inputs_unchanged(experiment_dir, before)
 
 
@@ -162,6 +169,10 @@ def test_generate_basic_report_pdf_calls_exporter(
     assert set(artifacts) == {"report_data", "html", "pdf"}
     assert artifacts["pdf"] == experiment_dir / "report" / "report.pdf"
     assert artifacts["pdf"].read_bytes() == b"%PDF-dummy"
+    payload = json.loads((experiment_dir / "report" / "report_data.json").read_text(encoding="utf-8"))
+    assert payload["reporting_status"]["status"] == "completed"
+    assert payload["reporting_status"]["pdf_generated"] is True
+    assert payload["reporting_status"]["report_pdf_path"].endswith("report.pdf")
 
 
 def test_cli_no_pdf_creates_html_report(
