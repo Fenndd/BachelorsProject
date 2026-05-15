@@ -90,9 +90,9 @@ def generate_basic_report(
         report_data_path,
         requested_formats=requested_formats,
         renderer=renderer,
-            html_path=html_path,
-            pdf_path=None,
-            status="completed",
+        html_path=html_path,
+        pdf_path=None,
+        status="completed",
     )
     render_report_html(report_data, plot_paths, html_path)
     return artifacts

@@ -297,6 +297,9 @@
     <h2>Reproducibility and Environment</h2>
     <table>
       <tbody>
+        <tr><th>Started At</th><td>{{ report.experiment_metadata.started_at|display }}</td></tr>
+        <tr><th>Finished At</th><td>{{ report.experiment_metadata.finished_at|display }}</td></tr>
+        <tr><th>Total Duration s</th><td>{{ report.experiment_metadata.total_duration_seconds|display }}</td></tr>
         <tr><th>Git Commit</th><td>{{ report.experiment_metadata.repository.git_commit|display }}</td></tr>
         <tr><th>Git Branch</th><td>{{ report.experiment_metadata.repository.git_branch|display }}</td></tr>
         <tr><th>Dirty Worktree</th><td>{{ report.experiment_metadata.repository.dirty_worktree|display }}</td></tr>

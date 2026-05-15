@@ -2889,6 +2889,7 @@ def _run_closed_loop_experiment(
     reporting_status = _run_final_reporting(experiment_dir, config)
     finished_at = _now_iso()
     _write_experiment_metadata(experiment_dir, started_at, finished_at)
+    reporting_status = _run_final_reporting(experiment_dir, config)
     final_status = {
         "experiment_id": experiment_id,
         "experiment_name": config.experiment_name,

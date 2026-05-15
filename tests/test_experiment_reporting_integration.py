@@ -236,7 +236,7 @@ def test_final_validation_runs_after_finalization_before_reporting(
     exit_code = run_experiment._run_experiment(config, payload)
 
     assert exit_code == 0
-    assert call_order == ["finalize", "validation", "reporting"]
+    assert call_order == ["finalize", "validation", "reporting", "reporting"]
     assert metadata_final_order == [["finalize", "validation", "reporting"]]
     experiment_dir = next((root / "results" / "experiments").iterdir())
     status = json.loads((experiment_dir / "experiment_status.json").read_text(encoding="utf-8"))
@@ -364,7 +364,10 @@ def test_enabled_reporting_runs_after_final_closed_loop_artifacts_exist(
         },
     )
 
-    assert calls == [(experiment_dir, ("html",), "auto")]
+    assert calls == [
+        (experiment_dir, ("html",), "auto"),
+        (experiment_dir, ("html",), "auto"),
+    ]
     status = json.loads((experiment_dir / "experiment_status.json").read_text(encoding="utf-8"))
     assert status["reporting"]["status"] == "completed"
     assert status["reporting"]["report_data_path"].endswith("report/report_data.json")
@@ -373,6 +376,32 @@ def test_enabled_reporting_runs_after_final_closed_loop_artifacts_exist(
     summary = (experiment_dir / "summary.txt").read_text(encoding="utf-8")
     assert "Reporting:" in summary
     assert "status: completed" in summary
+
+
+def test_final_report_includes_final_experiment_metadata(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    experiment_dir = _run_noop_closed_loop_experiment(
+        tmp_path,
+        monkeypatch,
+        reporting={
+            "enabled": True,
+            "formats": ["html"],
+            "renderer": "auto",
+            "fail_on_error": False,
+        },
+    )
+
+    status = json.loads((experiment_dir / "experiment_status.json").read_text(encoding="utf-8"))
+    report_data = json.loads(
+        (experiment_dir / "report" / "report_data.json").read_text(encoding="utf-8")
+    )
+    html = (experiment_dir / "report" / "report.html").read_text(encoding="utf-8")
+
+    assert report_data["experiment_metadata"]["finished_at"] == status["finished_at"]
+    assert report_data["experiment_metadata"]["total_duration_seconds"] is not None
+    assert status["finished_at"] in html
 
 
 def test_disabled_reporting_does_not_call_generator(
