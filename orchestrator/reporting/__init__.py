@@ -42,6 +42,7 @@ from orchestrator.reporting.generate_report import (
 )
 from orchestrator.reporting.html_renderer import render_report_html
 from orchestrator.reporting.pdf_exporter import PdfExportError, export_pdf_from_html
+from orchestrator.reporting.report_inspector import inspect_report
 
 __all__ = [
     "KNOWN_ITERATION_STATUSES",
@@ -76,6 +77,7 @@ __all__ = [
     "default_status_counts",
     "generate_basic_html_report",
     "generate_basic_report",
+    "inspect_report",
     "make_empty_report_data",
     "render_report_html",
     "export_pdf_from_html",

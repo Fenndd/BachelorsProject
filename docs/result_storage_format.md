@@ -499,6 +499,20 @@ v1-like report data remains valid: if enriched metadata is missing, report
 generation still succeeds and the corresponding tables or SVG plots state that
 the data is unavailable.
 
+`orchestrator.reporting.report_inspector` can inspect an existing report directory
+without regenerating anything:
+
+```powershell
+python -m orchestrator.reporting.report_inspector --experiment-dir results/experiments/<experiment_id>
+```
+
+It validates the presence of `report_data.json`, `report.html`, optional
+`report.pdf`, expected plot files, and important HTML section ids. Missing PDFs
+and optional v2-only metadata are warnings when HTML-only or older reports are
+being reviewed; invalid or missing `report_data.json` and missing `report.html`
+are failures. The manual checklist for real-cycle Report v2 review is
+`docs/report_v2_checklist.md`.
+
 ## Candidate Materialization Artifacts
 
 `materialization.json` records scope traceability for successful, skipped, and failed materializations. Common fields include:

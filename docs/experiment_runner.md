@@ -353,6 +353,18 @@ Reports can also be generated manually for a completed experiment:
 python -m orchestrator.reporting.generate_report --experiment-dir results/experiments/<experiment_id>
 ```
 
+Existing reports can be inspected without regenerating files:
+
+```powershell
+python -m orchestrator.reporting.report_inspector --experiment-dir results/experiments/<experiment_id>
+python -m orchestrator.reporting.report_inspector --experiment-dir results/experiments/<experiment_id> --json
+```
+
+The inspector is read-only. It checks report files, expected SVG plots, and HTML
+section ids, warning about optional missing pieces such as an absent PDF for
+HTML-only reports. See `docs/report_v2_checklist.md` for the manual Report v2
+verification checklist.
+
 Candidate run artifacts are written under `results/runs/<candidate_run_id>/`:
 
 ```text

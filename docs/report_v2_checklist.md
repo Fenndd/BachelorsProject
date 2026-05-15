@@ -1,0 +1,114 @@
+# Report v2 Manual Verification Checklist
+
+Use this checklist after a real closed-loop experiment has completed and report generation has run. It is for manual inspection only; it does not replace deterministic tests or rerun optimization stages.
+
+## Expected Experiment Artifacts
+
+- `results/experiments/<experiment_id>/closed_loop_summary.json` exists.
+- `results/experiments/<experiment_id>/closed_loop_iterations.jsonl` exists.
+- `results/experiments/<experiment_id>/closed_loop_selection_report.json` exists.
+- `results/experiments/<experiment_id>/experiment_metadata.json` exists for new v2 runs.
+- `results/experiments/<experiment_id>/final_optimized_source/` exists.
+- `results/experiments/<experiment_id>/final_optimized_source.diff` exists.
+- `results/experiments/<experiment_id>/final_diff_stats.json` exists for new v2 runs.
+
+## Expected Report Directory Structure
+
+```text
+results/experiments/<experiment_id>/report/
+├── report_data.json
+├── report.html
+├── report.pdf
+└── plots/
+    ├── runtime_progress.svg
+    ├── candidate_runtime_by_iteration.svg
+    ├── runtime_reduction_by_iteration.svg
+    ├── correctness_metrics.svg
+    ├── status_breakdown.svg
+    ├── candidate_funnel.svg
+    ├── phase_timings.svg
+    ├── llm_tokens_by_iteration.svg
+    ├── llm_latency_by_iteration.svg
+    ├── failure_reason_breakdown.svg
+    └── diff_stats_by_iteration.svg
+```
+
+`report.pdf` is optional when only HTML output was requested. Some SVGs may contain placeholder text if their corresponding metadata is unavailable.
+
+## `report_data.json` Checks
+
+- JSON parses successfully.
+- `schema_version` is present.
+- `experiment`, `baseline_metrics`, `final_result`, `iterations`, `status_counts`, and `artifacts` are present.
+- New v2 reports include per-iteration `phase_timings`, `llm_usage`, `diff_stats`, and `outcome_reason` where applicable.
+- New v2 reports include top-level `reason_code_counts`.
+- No API keys, full environment dumps, full logs, or full diffs are embedded.
+
+## Plot Checks
+
+- All expected SVG files are present under `report/plots/`.
+- Runtime plots show baseline/current-best/candidate progression where data exists.
+- `phase_timings.svg` shows stacked per-iteration phase durations or placeholder text.
+- LLM token and latency plots show per-iteration values or placeholder text.
+- `failure_reason_breakdown.svg` shows reason-code counts or placeholder text.
+- `diff_stats_by_iteration.svg` shows changed lines per iteration or placeholder text.
+
+## HTML Report Checks
+
+- `report.html` opens in a browser without visible template errors.
+- Existing v1 sections are present: executive summary, experiment configuration, baseline metrics, runtime progress, correctness, status breakdown, candidate funnel, per-iteration table, final best candidate summary, reporting status, and artifact map.
+- Report v2 sections are present: Failure Analysis, Phase Timings, LLM Usage, Diff Statistics, and Iteration Appendix.
+- Tables show `Not available` for missing optional values instead of crashing or showing raw template placeholders.
+
+## PDF Report Checks
+
+- If PDF was requested, `report.pdf` exists and opens.
+- PDF content matches the HTML sections at a high level.
+- Wide tables remain readable enough for A4-style review.
+- If PDF was not requested, missing `report.pdf` is acceptable.
+
+## Failure Analysis Checks
+
+- `reason_code_counts` in `report_data.json` matches the Failure Analysis table.
+- Categories and reason codes are compact structured values, not raw stack traces.
+- Iteration lists point to the relevant iterations.
+- Placeholder text appears if structured reason data is absent.
+
+## Phase Timings Checks
+
+- Per-iteration timing rows match `iterations[*].phase_timings`.
+- `generation_seconds`, `materialization_seconds`, `verification_seconds`, `benchmark_seconds`, and total values are shown when available.
+- Missing benchmark-only timing is displayed as unavailable, not as an error.
+
+## LLM Usage Checks
+
+- Token counts, model, finish reason, and API latency match `iterations[*].llm_usage`.
+- Mock or provider responses without usage metadata display unavailable values.
+- No prompts, secrets, raw provider responses, or API keys are exposed in the report.
+
+## Diff Statistics Checks
+
+- Final diff summary cards match `final_best_candidate.diff_stats` when available.
+- Per-iteration rows match `iterations[*].diff_stats`.
+- Changed lines equal lines added plus lines removed in the plot.
+- Fallback usage is shown as Yes, No, or Not available.
+
+## Iteration Appendix Checks
+
+- Each iteration has a compact appendix entry.
+- Entries include status, candidate summary, expected effect, risk level, outcome reason, runtime, speedups, correctness, promotion flag, timings, LLM usage, diff stats, and candidate run directory.
+- Full JSON dumps, full logs, and full diffs are not included.
+
+## Graceful Degradation Checks
+
+- Old v1-like `report_data.json` can still render.
+- Missing `phase_timings`, `llm_usage`, `diff_stats`, `outcome_reason`, and `reason_code_counts` produce unavailable markers or placeholder plots.
+- HTML-only reports are accepted when PDF was not requested.
+
+## Final Consistency Checks
+
+- Final best iteration matches `closed_loop_summary.json` and `closed_loop_selection_report.json`.
+- Accepted improvement counts match status counts.
+- Final runtime/speedup values match the final best candidate metrics.
+- Report artifact paths point inside the completed experiment directory.
+- Reporting remains read-only: no source files, candidate workspaces, verification artifacts, benchmark results, or promotion state are modified by report inspection or viewing.

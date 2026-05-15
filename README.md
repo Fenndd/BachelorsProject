@@ -19,7 +19,7 @@ Implemented now:
 - Closed-loop iterative optimization in the experiment runner with experiment-local `current_best_source`.
 - Compact benchmark-aware closed-loop history for later generations.
 - Final closed-loop artifacts and analysis-only selector/reporting.
-- Single-experiment HTML/PDF reports with runtime, correctness, failure analysis, phase timing, LLM usage, diff statistics, and iteration appendix sections.
+- Single-experiment HTML/PDF reports with runtime, correctness, failure analysis, phase timing, LLM usage, diff statistics, iteration appendix sections, and a read-only report inspector.
 
 Not implemented yet:
 
@@ -156,6 +156,14 @@ Pairwise candidate decision and multi-candidate best-result selection consume ve
 Selection and final reporting do not promote, merge, copy, or commit candidates into the main source tree.
 
 Generated reports are read-only visualizations under `results/experiments/<experiment_id>/report/`. Report v2 expands the HTML/PDF output with Failure Analysis, Phase Timings, LLM Usage, Diff Statistics, and an Iteration Appendix. If older v1 artifacts do not contain enriched metadata, report generation still succeeds and marks the missing fields or plots as unavailable.
+
+Completed reports can be checked without regenerating anything:
+
+```powershell
+python -m orchestrator.reporting.report_inspector --experiment-dir results/experiments/<experiment_id>
+```
+
+See `docs/report_v2_checklist.md` for the manual Report v2 verification checklist.
 
 ## External Baseline Code
 
