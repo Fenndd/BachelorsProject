@@ -155,7 +155,7 @@ Pairwise candidate decision and multi-candidate best-result selection consume ve
 
 Selection and final reporting do not promote, merge, copy, or commit candidates into the main source tree.
 
-Generated reports are read-only visualizations under `results/experiments/<experiment_id>/report/`. Report v2 expands the HTML/PDF output with Failure Analysis, Phase Timings, LLM Usage, Diff Statistics, and an Iteration Appendix. If older v1 artifacts do not contain enriched metadata, report generation still succeeds and marks the missing fields or plots as unavailable.
+Generated reports are read-only visualizations under `results/experiments/<experiment_id>/report/`. The single-experiment report uses `schema_version: "report.v2"` and extends the original report with Outcome and Failure Analysis, Phase Timings, LLM Usage, Diff Statistics, and an Iteration Appendix. Older or incomplete artifacts are handled through graceful degradation where possible, with missing fields or plots marked as unavailable.
 
 Completed reports can be checked without regenerating anything:
 
@@ -163,7 +163,7 @@ Completed reports can be checked without regenerating anything:
 python -m orchestrator.reporting.report_inspector --experiment-dir results/experiments/<experiment_id>
 ```
 
-See `docs/report_v2_checklist.md` for the manual Report v2 verification checklist.
+See `docs/report_v2_checklist.md` for the manual current-report verification checklist.
 
 ## External Baseline Code
 

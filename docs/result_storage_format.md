@@ -476,15 +476,16 @@ monkeypatched closed-loop runners. They include a controlled mock scenario where
 one accepted candidate is promoted, a later slower candidate is not promoted, and
 a no-op is recorded but excluded from future compact history.
 
-`report/report_data.json` includes each iteration's normalized
-`outcome_reason` and a top-level `reason_code_counts` array grouped by
-`category` and `code`. This complements the older human-readable
-`reason_summary`, which remains available for backward compatibility.
+`report/report_data.json` uses `schema_version: "report.v2"` and includes each
+iteration's normalized `outcome_reason` and a top-level `reason_code_counts`
+array grouped by `category` and `code`. This complements the older
+human-readable `reason_summary`, which remains available for backward
+compatibility with incomplete artifacts.
 
 The generated `report/report.html` and optional `report/report.pdf` use these
-enriched fields in report v2 sections:
+enriched fields in the unified single-experiment report:
 
-- Failure Analysis, backed by `reason_code_counts`
+- Outcome and Failure Analysis, backed by `reason_code_counts`
 - Phase Timings, backed by per-iteration `phase_timings`
 - LLM Usage, backed by per-iteration `llm_usage`
 - Diff Statistics, backed by per-iteration `diff_stats` and final
@@ -495,9 +496,9 @@ enriched fields in report v2 sections:
 
 These sections are presentation-only. They do not promote candidates, rerun
 benchmarks, recompute verification, materialize source, or modify `cpp/`. Older
-v1-like report data remains valid: if enriched metadata is missing, report
-generation still succeeds and the corresponding tables or SVG plots state that
-the data is unavailable.
+or incomplete report data is handled through graceful degradation where possible:
+if enriched metadata is missing, report generation still succeeds and the
+corresponding tables or SVG plots state that the data is unavailable.
 
 `orchestrator.reporting.report_inspector` can inspect an existing report directory
 without regenerating anything:
@@ -506,11 +507,11 @@ without regenerating anything:
 python -m orchestrator.reporting.report_inspector --experiment-dir results/experiments/<experiment_id>
 ```
 
-It validates the presence of `report_data.json`, `report.html`, optional
-`report.pdf`, expected plot files, and important HTML section ids. Missing PDFs
-and optional v2-only metadata are warnings when HTML-only or older reports are
-being reviewed; invalid or missing `report_data.json` and missing `report.html`
-are failures. The manual checklist for real-cycle Report v2 review is
+It validates the presence and object shape of `report_data.json`, `report.html`,
+optional `report.pdf`, expected plot files, and important HTML section ids.
+Missing PDFs and optional enriched metadata are warnings when HTML-only or older
+reports are being reviewed; invalid or missing `report_data.json` and missing
+`report.html` are failures. The manual checklist for real-cycle current-report review is
 `docs/report_v2_checklist.md`.
 
 ## Candidate Materialization Artifacts

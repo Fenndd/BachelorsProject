@@ -268,12 +268,18 @@ def _decision_reason(
     audit: dict[str, Any] = raw_audit if isinstance(raw_audit, dict) else {}
     code = CODE_REJECTED_NOT_COMPARABLE
     message = "Candidate was rejected by the current-best decision gate."
-    if any("correctness" in reason for reason in reasons):
+    if any(_is_correctness_decision_reason(reason) for reason in reasons):
         code = CODE_REJECTED_CORRECTNESS
-        message = "Candidate was rejected because correctness was not preserved."
-    elif audit.get("comparable") is False or any(reason.startswith("audit_failed_check:") for reason in reasons):
+        message = "Candidate was rejected because correctness or accuracy thresholds were not preserved."
+    elif audit.get("comparable") is False or any(
+        reason == "audit_not_comparable" or reason.startswith("audit_failed_check:")
+        for reason in reasons
+    ):
         code = CODE_REJECTED_BENCHMARK_AUDIT_FAILED
         message = "Candidate was rejected because benchmark artifact audit failed."
+    elif any(reason == "runtime_comparison_unavailable" for reason in reasons):
+        code = CODE_REJECTED_NOT_COMPARABLE
+        message = "Candidate was rejected because benchmark artifacts were not comparable."
     elif any("runtime" in reason or "speedup" in reason for reason in reasons):
         code = CODE_REJECTED_NO_SPEEDUP
         message = "Candidate was rejected because runtime did not improve enough."
@@ -286,6 +292,15 @@ def _decision_reason(
         SEVERITY_ERROR,
         message,
         _source(source_artifacts, "decision_vs_current_best"),
+    )
+
+
+def _is_correctness_decision_reason(reason: str) -> bool:
+    return (
+        "correctness" in reason
+        or reason.startswith("candidate_success_rate_below_minimum")
+        or reason.startswith("candidate_mean_reprojection_error_exceeds_limit")
+        or reason.startswith("candidate_max_reprojection_error_exceeds_limit")
     )
 
 

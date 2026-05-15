@@ -635,7 +635,7 @@ def test_missing_closed_loop_iterations_raises_file_not_found(tmp_path: Path) ->
 
 
 # ---------------------------------------------------------------------------
-# New tests A–E (v1 cleanup)
+# Current report enrichment coverage
 # ---------------------------------------------------------------------------
 
 

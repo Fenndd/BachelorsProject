@@ -24,8 +24,10 @@ EXPECTED_PLOTS = (
 )
 
 EXPECTED_SECTIONS = (
+    "cover",
     "executive-summary",
     "experiment-configuration",
+    "benchmark-configuration",
     "baseline-metrics",
     "runtime-progress",
     "correctness-and-accuracy-safety",
@@ -35,10 +37,23 @@ EXPECTED_SECTIONS = (
     "phase-timings",
     "llm-usage",
     "diff-statistics",
+    "closed-loop-selection",
     "per-iteration-table",
     "final-best-candidate-summary",
-    "iteration-appendix",
+    "reporting-status",
     "artifact-map",
+    "iteration-appendix",
+)
+
+IMPORTANT_REPORT_DATA_KEYS = (
+    "schema_version",
+    "report_metadata",
+    "experiment",
+    "final_result",
+    "baseline_metrics",
+    "iterations",
+    "status_counts",
+    "artifacts",
 )
 
 
@@ -85,10 +100,12 @@ def _inspect_report_data(
     result: dict[str, Any],
     errors: list[str],
 ) -> None:
+    warnings = result["warnings"]
     entry: dict[str, Any] = {
         "path": str(report_data_path),
         "exists": report_data_path.is_file(),
         "valid_json": False,
+        "json_object": False,
     }
     result["files"]["report_data_json"] = entry
     if not report_data_path.is_file():
@@ -100,7 +117,20 @@ def _inspect_report_data(
         errors.append(f"Invalid report_data.json: {exc}")
         return
     entry["valid_json"] = True
-    entry["schema_version"] = payload.get("schema_version") if isinstance(payload, dict) else None
+    if not isinstance(payload, dict):
+        errors.append("Invalid report_data.json: top-level payload must be a JSON object")
+        return
+    entry["json_object"] = True
+    entry["schema_version"] = payload.get("schema_version")
+    missing_keys = [key for key in IMPORTANT_REPORT_DATA_KEYS if key not in payload]
+    entry["missing_top_level_keys"] = missing_keys
+    if "schema_version" not in payload:
+        warnings.append("report_data.json is missing schema_version")
+    if missing_keys:
+        warnings.append(
+            "report_data.json is missing important top-level key(s): "
+            + ", ".join(missing_keys)
+        )
 
 
 def _inspect_html(
@@ -238,4 +268,10 @@ if __name__ == "__main__":
     raise SystemExit(main())
 
 
-__all__ = ["EXPECTED_PLOTS", "EXPECTED_SECTIONS", "inspect_report", "main"]
+__all__ = [
+    "EXPECTED_PLOTS",
+    "EXPECTED_SECTIONS",
+    "IMPORTANT_REPORT_DATA_KEYS",
+    "inspect_report",
+    "main",
+]

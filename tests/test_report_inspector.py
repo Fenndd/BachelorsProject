@@ -4,7 +4,12 @@ import json
 from pathlib import Path
 
 from orchestrator.reporting import inspect_report
-from orchestrator.reporting.report_inspector import EXPECTED_PLOTS, EXPECTED_SECTIONS, main
+from orchestrator.reporting.report_inspector import (
+    EXPECTED_PLOTS,
+    EXPECTED_SECTIONS,
+    IMPORTANT_REPORT_DATA_KEYS,
+    main,
+)
 
 
 def _write_text(path: Path, text: str) -> None:
@@ -12,10 +17,23 @@ def _write_text(path: Path, text: str) -> None:
     path.write_text(text, encoding="utf-8")
 
 
-def _write_report_data(experiment_dir: Path, payload: dict | None = None) -> None:
+def _minimal_report_data() -> dict:
+    return {
+        "schema_version": "report.v2",
+        "report_metadata": {"report_profile": "single_experiment"},
+        "experiment": {"experiment_id": "exp_001"},
+        "final_result": {},
+        "baseline_metrics": {},
+        "iterations": [],
+        "status_counts": {},
+        "artifacts": {},
+    }
+
+
+def _write_report_data(experiment_dir: Path, payload: object | None = None) -> None:
     _write_text(
         experiment_dir / "report" / "report_data.json",
-        json.dumps(payload or {"schema_version": "report.v1", "iterations": []}) + "\n",
+        json.dumps(_minimal_report_data() if payload is None else payload) + "\n",
     )
 
 
@@ -99,7 +117,54 @@ def test_inspect_report_fails_when_report_data_invalid(tmp_path: Path) -> None:
     assert result["files"]["report_data_json"]["valid_json"] is False
 
 
-def test_inspect_report_warns_when_v2_sections_missing(tmp_path: Path) -> None:
+def test_inspect_report_fails_when_report_data_is_not_object(tmp_path: Path) -> None:
+    experiment_dir = tmp_path / "results" / "experiments" / "exp_001"
+    _write_report_data(experiment_dir, [])
+    _write_html(experiment_dir)
+    _write_pdf(experiment_dir)
+    _write_plots(experiment_dir)
+
+    result = inspect_report(experiment_dir)
+
+    assert result["status"] == "failed"
+    assert result["files"]["report_data_json"]["valid_json"] is True
+    assert result["files"]["report_data_json"]["json_object"] is False
+    assert any("JSON object" in error for error in result["errors"])
+
+
+def test_inspect_report_warns_when_schema_version_missing(tmp_path: Path) -> None:
+    experiment_dir = tmp_path / "results" / "experiments" / "exp_001"
+    payload = _minimal_report_data()
+    payload.pop("schema_version")
+    _write_report_data(experiment_dir, payload)
+    _write_html(experiment_dir)
+    _write_pdf(experiment_dir)
+    _write_plots(experiment_dir)
+
+    result = inspect_report(experiment_dir)
+
+    assert result["status"] == "warning"
+    assert result["errors"] == []
+    assert any("schema_version" in warning for warning in result["warnings"])
+
+
+def test_inspect_report_warns_when_important_top_level_keys_missing(tmp_path: Path) -> None:
+    experiment_dir = tmp_path / "results" / "experiments" / "exp_001"
+    _write_report_data(experiment_dir, {"schema_version": "report.v2"})
+    _write_html(experiment_dir)
+    _write_pdf(experiment_dir)
+    _write_plots(experiment_dir)
+
+    result = inspect_report(experiment_dir)
+
+    assert result["status"] == "warning"
+    assert result["errors"] == []
+    missing = result["files"]["report_data_json"]["missing_top_level_keys"]
+    assert "experiment" in missing
+    assert set(missing) == set(IMPORTANT_REPORT_DATA_KEYS) - {"schema_version"}
+
+
+def test_inspect_report_warns_when_enriched_sections_missing(tmp_path: Path) -> None:
     experiment_dir = tmp_path / "results" / "experiments" / "exp_001"
     old_section_ids = tuple(
         section_id
@@ -113,7 +178,7 @@ def test_inspect_report_warns_when_v2_sections_missing(tmp_path: Path) -> None:
             "iteration-appendix",
         }
     )
-    _write_report_data(experiment_dir, {"schema_version": "report.v1", "iterations": []})
+    _write_report_data(experiment_dir)
     _write_html(experiment_dir, old_section_ids)
     _write_pdf(experiment_dir)
     _write_plots(experiment_dir)
@@ -132,8 +197,13 @@ def test_inspect_report_handles_v1_like_report_without_crashing(tmp_path: Path) 
         experiment_dir,
         {
             "schema_version": "report.v1",
+            "report_metadata": {"report_profile": "basic_single_experiment"},
             "experiment": {"experiment_id": "exp_old"},
+            "final_result": {},
+            "baseline_metrics": {},
             "iterations": [{"iteration": 1, "status": "valid_not_improved"}],
+            "status_counts": {"valid_not_improved": 1},
+            "artifacts": {},
         },
     )
     _write_html(experiment_dir)

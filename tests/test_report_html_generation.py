@@ -313,7 +313,7 @@ def test_report_html_contains_expected_report_content(tmp_path: Path) -> None:
         assert f"plots/{filename}" in html
 
 
-def test_report_html_contains_v2_enriched_sections(tmp_path: Path) -> None:
+def test_report_html_contains_enriched_sections(tmp_path: Path) -> None:
     report_data = _enriched_report_data()
     plot_paths = build_report_figures(report_data, tmp_path / "report" / "plots")
     html_path = render_report_html(
@@ -326,7 +326,8 @@ def test_report_html_contains_v2_enriched_sections(tmp_path: Path) -> None:
 
     for section_id in NEW_SECTION_IDS:
         assert f'id="{section_id}"' in html
-    assert "Failure Analysis" in html
+    assert 'id="failure-analysis"' in html
+    assert "Outcome and Failure Analysis" in html
     assert "Phase Timings" in html
     assert "LLM Usage" in html
     assert "Diff Statistics" in html
@@ -337,7 +338,7 @@ def test_report_html_contains_v2_enriched_sections(tmp_path: Path) -> None:
     assert "reports/runs" not in html
 
 
-def test_report_html_handles_v1_like_missing_enriched_fields(tmp_path: Path) -> None:
+def test_report_html_handles_older_missing_enriched_fields(tmp_path: Path) -> None:
     report_data = {
         "schema_version": "report.v1",
         "report_metadata": {"report_profile": "basic_single_experiment"},
@@ -348,7 +349,7 @@ def test_report_html_handles_v1_like_missing_enriched_fields(tmp_path: Path) -> 
             {
                 "iteration": 1,
                 "status": "valid_not_improved",
-                "candidate_summary": "Old artifact without v2 fields.",
+                "candidate_summary": "Old artifact without enriched fields.",
             }
         ],
         "status_counts": {"valid_not_improved": 1},
@@ -364,8 +365,8 @@ def test_report_html_handles_v1_like_missing_enriched_fields(tmp_path: Path) -> 
     html = html_path.read_text(encoding="utf-8")
 
     assert "exp_old" in html
-    assert "Old artifact without v2 fields." in html
-    assert "No structured failure/rejection reasons are available" in html
+    assert "Old artifact without enriched fields." in html
+    assert "No structured outcome reasons are available" in html
     assert "Not available" in html
     for section_id in NEW_SECTION_IDS:
         assert f'id="{section_id}"' in html
@@ -598,6 +599,15 @@ def test_report_html_includes_reason_summary_and_new_plot(tmp_path: Path) -> Non
     assert "All benchmarked non-no-op candidates" not in html
     # Must not leak absolute temp path into HTML body
     assert str(tmp_path) not in html
+
+
+def test_iteration_appendix_appears_after_artifact_map(tmp_path: Path) -> None:
+    report_data = _enriched_report_data()
+    plot_paths = build_report_figures(report_data, tmp_path / "plots")
+    html_path = render_report_html(report_data, plot_paths, tmp_path / "report.html")
+    html = html_path.read_text(encoding="utf-8")
+
+    assert html.index('id="artifact-map"') < html.index('id="iteration-appendix"')
 
 
 def test_report_template_packaging_renders_real_template(tmp_path: Path) -> None:

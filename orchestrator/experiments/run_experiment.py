@@ -168,7 +168,7 @@ def _experiment_environment_info() -> dict[str, Any]:
         "os": os.name,
         "platform": platform.platform(),
         "python_version": platform.python_version(),
-        "cmake_build_type": os.environ.get("CMAKE_BUILD_TYPE"),
+        "cmake_build_type": os.environ.get("CMAKE_BUILD_TYPE") or "Release",
         "cmake_exe": os.environ.get("CMAKE_EXE"),
         "cmake_generator": os.environ.get("CMAKE_GENERATOR"),
         "cxx_compiler": os.environ.get("CMAKE_CXX_COMPILER"),

@@ -224,10 +224,10 @@ results/experiments/<experiment_id>/final_diff_stats.json
 The same final diff summary is embedded as `final_diff_stats` in
 `closed_loop_summary.json` for reporting consumers.
 
-The normalized `report/report_data.json` artifact includes per-iteration
-`outcome_reason` and top-level `reason_code_counts`, grouped by reason category
-and code. The existing `reason_summary` remains for compatibility with the v1
-report data shape.
+The normalized `report/report_data.json` artifact uses `schema_version:
+"report.v2"`. It includes per-iteration `outcome_reason` and top-level
+`reason_code_counts`, grouped by reason category and code. The existing
+`reason_summary` remains for compatibility with older incomplete artifacts.
 
 ## Verification and Decisions
 
@@ -337,15 +337,15 @@ Closed-loop reports can be enabled with a top-level `reporting` block:
 
 Automatic reporting runs only after closed-loop final artifacts are written. It creates files under `results/experiments/<experiment_id>/report/`, including `report_data.json`, `report.html`, `plots/*.svg`, and optionally `report.pdf` when `pdf` is requested. Reporting is read-only post-processing: it does not run LLM generation, verification, benchmarking, candidate promotion, source copying, or selection recomputation.
 
-The single-experiment HTML/PDF report includes the original v1 runtime, correctness, status, candidate funnel, configuration, selection, final-best, reporting-status, and artifact sections. Report v2 also surfaces enriched metadata when present:
+The single-experiment HTML/PDF report includes runtime, correctness, status, candidate funnel, configuration, selection, final-best, reporting-status, and artifact sections. The same unified report also surfaces enriched process metadata when present:
 
-- Failure Analysis: structured outcome reason counts by category/code and affected iterations.
+- Outcome and Failure Analysis: structured outcome reason counts by category/code and affected iterations, including successful, neutral, rejected, and failed iterations.
 - Phase Timings: per-iteration generation, materialization, verification, benchmark, and total durations.
 - LLM Usage: per-iteration token counts, API latency, model, and finish reason.
 - Diff Statistics: final diff summary and per-iteration changed-line/edit statistics.
 - Iteration Appendix: compact per-iteration cards with candidate summary, status, outcome reason, runtime, correctness, timings, LLM usage, diff stats, and candidate run directory.
 
-Report generation remains compatible with older v1-like `report_data.json` artifacts. If enriched fields such as `phase_timings`, `llm_usage`, `diff_stats`, `outcome_reason`, or `reason_code_counts` are absent, HTML/PDF generation still succeeds and marks those values or plots as unavailable.
+Report generation remains compatible with older or incomplete `report_data.json` artifacts where possible. If enriched fields such as `phase_timings`, `llm_usage`, `diff_stats`, `outcome_reason`, or `reason_code_counts` are absent, HTML/PDF generation still succeeds and marks those values or plots as unavailable.
 
 Reports can also be generated manually for a completed experiment:
 
@@ -362,7 +362,7 @@ python -m orchestrator.reporting.report_inspector --experiment-dir results/exper
 
 The inspector is read-only. It checks report files, expected SVG plots, and HTML
 section ids, warning about optional missing pieces such as an absent PDF for
-HTML-only reports. See `docs/report_v2_checklist.md` for the manual Report v2
+HTML-only reports. See `docs/report_v2_checklist.md` for the manual current-report
 verification checklist.
 
 Candidate run artifacts are written under `results/runs/<candidate_run_id>/`:

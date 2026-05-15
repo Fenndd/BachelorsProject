@@ -31,6 +31,8 @@ def render_report_html(
     env.filters["display"] = _display_value
     env.filters["yes_no"] = _yes_no
 
+    # The historical template filename is kept for compatibility. It renders the
+    # current single-experiment report, including enriched sections.
     template = env.get_template("report_v1.html.j2")
     html = template.render(
         report=data,

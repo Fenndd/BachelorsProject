@@ -53,3 +53,88 @@ def test_valid_not_improved_reason_is_info_decision() -> None:
     assert reason.category == "decision"
     assert reason.code == "valid_not_improved"
     assert reason.severity == "info"
+
+
+def test_decision_success_rate_rejection_maps_to_correctness() -> None:
+    reason = build_outcome_reason(
+        status="rejected",
+        decision_vs_current_best={
+            "rejection_reasons": [
+                "candidate_success_rate_below_minimum(candidate=0.9, minimum=1.0)"
+            ]
+        },
+    )
+
+    assert reason.category == "decision"
+    assert reason.code == "rejected_correctness"
+    assert reason.severity == "error"
+
+
+def test_decision_mean_reprojection_rejection_maps_to_correctness() -> None:
+    reason = build_outcome_reason(
+        status="rejected",
+        decision_vs_current_best={
+            "rejection_reasons": [
+                "candidate_mean_reprojection_error_exceeds_limit(candidate=2, maximum=1)"
+            ]
+        },
+    )
+
+    assert reason.code == "rejected_correctness"
+
+
+def test_decision_max_reprojection_rejection_maps_to_correctness() -> None:
+    reason = build_outcome_reason(
+        status="rejected",
+        decision_vs_current_best={
+            "rejection_reasons": [
+                "candidate_max_reprojection_error_exceeds_limit(candidate=2, maximum=1)"
+            ]
+        },
+    )
+
+    assert reason.code == "rejected_correctness"
+
+
+def test_decision_runtime_threshold_rejection_maps_to_no_speedup() -> None:
+    reason = build_outcome_reason(
+        status="rejected",
+        decision_vs_current_best={
+            "rejection_reasons": ["runtime_improvement_below_minimum_threshold"]
+        },
+    )
+
+    assert reason.category == "decision"
+    assert reason.code == "rejected_no_speedup"
+
+
+def test_valid_not_improved_status_keeps_valid_not_improved_reason() -> None:
+    reason = build_outcome_reason(
+        status="valid_not_improved",
+        decision_vs_current_best={
+            "non_acceptance_reasons": ["runtime_improvement_below_minimum_threshold"]
+        },
+    )
+
+    assert reason.code == "valid_not_improved"
+    assert reason.severity == "info"
+
+
+def test_decision_runtime_unavailable_maps_to_not_comparable() -> None:
+    reason = build_outcome_reason(
+        status="rejected",
+        decision_vs_current_best={"rejection_reasons": ["runtime_comparison_unavailable"]},
+    )
+
+    assert reason.code == "rejected_not_comparable"
+
+
+def test_decision_audit_failure_maps_to_benchmark_audit_failed() -> None:
+    for rejection_reason in ("audit_not_comparable", "audit_failed_check:build_type"):
+        reason = build_outcome_reason(
+            status="rejected",
+            decision_vs_current_best={"rejection_reasons": [rejection_reason]},
+        )
+
+        assert reason.category == "decision"
+        assert reason.code == "rejected_benchmark_audit_failed"

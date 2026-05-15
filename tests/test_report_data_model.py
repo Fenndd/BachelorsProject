@@ -18,10 +18,11 @@ from orchestrator.reporting import (
 TARGET_FILE = "cpp/external/lambdatwist/p3p.cc"
 
 
-def test_make_empty_report_data_uses_report_v1_schema() -> None:
+def test_make_empty_report_data_uses_current_report_schema() -> None:
     report_data = make_empty_report_data("exp_001", TARGET_FILE)
 
-    assert report_data.schema_version == "report.v1"
+    assert report_data.schema_version == "report.v2"
+    assert report_data.report_metadata.report_profile == "single_experiment"
 
 
 def test_default_status_counts_includes_every_closed_loop_status() -> None:
@@ -65,7 +66,8 @@ def test_json_output_contains_required_top_level_sections(tmp_path: Path) -> Non
         "reason_code_counts",
         "experiment_metadata",
     ]
-    assert payload["schema_version"] == "report.v1"
+    assert payload["schema_version"] == "report.v2"
+    assert payload["report_metadata"]["report_profile"] == "single_experiment"
     assert payload["experiment"]["experiment_id"] == "exp_001"
     assert payload["experiment"]["target_file"] == TARGET_FILE
     assert payload["final_result"]["final_best_iteration"] == 0

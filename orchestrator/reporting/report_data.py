@@ -30,9 +30,9 @@ except ImportError:
     )
 
 
-REPORT_SCHEMA_VERSION = "report.v1"
+REPORT_SCHEMA_VERSION = "report.v2"
 REPORT_GENERATOR = "orchestrator.reporting"
-REPORT_PROFILE_BASIC_SINGLE_EXPERIMENT = "basic_single_experiment"
+REPORT_PROFILE_BASIC_SINGLE_EXPERIMENT = "single_experiment"
 
 
 def _utc_now_iso() -> str:

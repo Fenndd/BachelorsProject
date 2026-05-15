@@ -336,22 +336,28 @@ def _plot_llm_latency(data: dict[str, Any], output_path: Path) -> None:
 
 
 def _plot_failure_reason_breakdown(data: dict[str, Any], output_path: Path) -> None:
-    rows = [
-        (str(item.get("code")), count)
-        for item in _reason_code_counts(data)
-        if (count := _int_or_none(item.get("count"))) is not None and count > 0
-    ]
+    rows = sorted(
+        [
+            (str(item.get("code")), count)
+            for item in _reason_code_counts(data)
+            if (count := _int_or_none(item.get("count"))) is not None and count > 0
+        ],
+        key=lambda item: (-item[1], item[0]),
+    )
     if not rows:
         _save_placeholder(output_path, "Failure reason data unavailable")
         return
 
     labels, values = zip(*rows)
-    fig, ax = _new_figure(width=9.5)
-    ax.bar(labels, values, color="#8a6d3b")
-    ax.set_title("Failure and Rejection Reason Breakdown")
-    ax.set_ylabel("Count")
-    ax.tick_params(axis="x", labelrotation=35)
-    ax.grid(True, axis="y", alpha=0.3)
+    height = min(9.5, max(3.2, 0.42 * len(rows) + 1.4))
+    fig, ax = _new_figure(width=9.5, height=height)
+    y_positions = range(len(labels))
+    ax.barh(y_positions, values, color="#8a6d3b")
+    ax.set_yticks(list(y_positions), labels=labels)
+    ax.invert_yaxis()
+    ax.set_title("Outcome Reason Breakdown")
+    ax.set_xlabel("Count")
+    ax.grid(True, axis="x", alpha=0.3)
     fig.tight_layout()
     _save(fig, output_path)
 

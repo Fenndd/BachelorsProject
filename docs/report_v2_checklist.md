@@ -1,4 +1,4 @@
-# Report v2 Manual Verification Checklist
+# Current Report Manual Verification Checklist
 
 Use this checklist after a real closed-loop experiment has completed and report generation has run. It is for manual inspection only; it does not replace deterministic tests or rerun optimization stages.
 
@@ -7,10 +7,10 @@ Use this checklist after a real closed-loop experiment has completed and report 
 - `results/experiments/<experiment_id>/closed_loop_summary.json` exists.
 - `results/experiments/<experiment_id>/closed_loop_iterations.jsonl` exists.
 - `results/experiments/<experiment_id>/closed_loop_selection_report.json` exists.
-- `results/experiments/<experiment_id>/experiment_metadata.json` exists for new v2 runs.
+- `results/experiments/<experiment_id>/experiment_metadata.json` exists for new runs.
 - `results/experiments/<experiment_id>/final_optimized_source/` exists.
 - `results/experiments/<experiment_id>/final_optimized_source.diff` exists.
-- `results/experiments/<experiment_id>/final_diff_stats.json` exists for new v2 runs.
+- `results/experiments/<experiment_id>/final_diff_stats.json` exists for new runs.
 
 ## Expected Report Directory Structure
 
@@ -38,10 +38,10 @@ results/experiments/<experiment_id>/report/
 ## `report_data.json` Checks
 
 - JSON parses successfully.
-- `schema_version` is present.
+- `schema_version` is present and is `report.v2` for current generated reports.
 - `experiment`, `baseline_metrics`, `final_result`, `iterations`, `status_counts`, and `artifacts` are present.
-- New v2 reports include per-iteration `phase_timings`, `llm_usage`, `diff_stats`, and `outcome_reason` where applicable.
-- New v2 reports include top-level `reason_code_counts`.
+- Current reports include per-iteration `phase_timings`, `llm_usage`, `diff_stats`, and `outcome_reason` where applicable.
+- Current reports include top-level `reason_code_counts`.
 - No API keys, full environment dumps, full logs, or full diffs are embedded.
 
 ## Plot Checks
@@ -50,14 +50,14 @@ results/experiments/<experiment_id>/report/
 - Runtime plots show baseline/current-best/candidate progression where data exists.
 - `phase_timings.svg` shows stacked per-iteration phase durations or placeholder text.
 - LLM token and latency plots show per-iteration values or placeholder text.
-- `failure_reason_breakdown.svg` shows reason-code counts or placeholder text.
+- `failure_reason_breakdown.svg` shows outcome reason-code counts or placeholder text.
 - `diff_stats_by_iteration.svg` shows changed lines per iteration or placeholder text.
 
 ## HTML Report Checks
 
 - `report.html` opens in a browser without visible template errors.
-- Existing v1 sections are present: executive summary, experiment configuration, baseline metrics, runtime progress, correctness, status breakdown, candidate funnel, per-iteration table, final best candidate summary, reporting status, and artifact map.
-- Report v2 sections are present: Failure Analysis, Phase Timings, LLM Usage, Diff Statistics, and Iteration Appendix.
+- Core sections are present: cover, executive summary, experiment configuration, benchmark configuration, baseline metrics, runtime progress, correctness, status breakdown, candidate funnel, per-iteration table, final best candidate summary, reporting status, and artifact map.
+- Enriched sections are present: Outcome and Failure Analysis, Phase Timings, LLM Usage, Diff Statistics, Closed-Loop Selection, and Iteration Appendix.
 - Tables show `Not available` for missing optional values instead of crashing or showing raw template placeholders.
 
 ## PDF Report Checks
@@ -67,10 +67,11 @@ results/experiments/<experiment_id>/report/
 - Wide tables remain readable enough for A4-style review.
 - If PDF was not requested, missing `report.pdf` is acceptable.
 
-## Failure Analysis Checks
+## Outcome and Failure Analysis Checks
 
-- `reason_code_counts` in `report_data.json` matches the Failure Analysis table.
+- `reason_code_counts` in `report_data.json` matches the Outcome and Failure Analysis table.
 - Categories and reason codes are compact structured values, not raw stack traces.
+- Successful, neutral, rejected, and failed iteration reasons can all appear.
 - Iteration lists point to the relevant iterations.
 - Placeholder text appears if structured reason data is absent.
 
@@ -101,7 +102,7 @@ results/experiments/<experiment_id>/report/
 
 ## Graceful Degradation Checks
 
-- Old v1-like `report_data.json` can still render.
+- Older or incomplete `report_data.json` can still render where possible.
 - Missing `phase_timings`, `llm_usage`, `diff_stats`, `outcome_reason`, and `reason_code_counts` produce unavailable markers or placeholder plots.
 - HTML-only reports are accepted when PDF was not requested.
 
