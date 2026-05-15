@@ -44,8 +44,8 @@ def test_final_validation_aggregates_successful_runs(tmp_path: Path) -> None:
     _write_source(baseline_source)
     _write_source(final_source)
     runtimes = {
-        "baseline": [100.0, 110.0, 90.0],
-        "final": [80.0, 84.0, 76.0],
+        "baseline": [100.0, 110.0, 90.0, 102.0, 98.0],
+        "final": [80.0, 84.0, 76.0, 82.0, 78.0],
     }
 
     def runner(command: Sequence[str], _cwd: Path) -> dict[str, Any]:
@@ -61,11 +61,12 @@ def test_final_validation_aggregates_successful_runs(tmp_path: Path) -> None:
         repo_root=repo_root,
         baseline_source_dir=baseline_source,
         final_source_dir=final_source,
-        benchmark_repetitions=3,
+        benchmark_repetitions=5,
         command_runner=runner,
     )
 
     payload = json.loads(report_path.read_text(encoding="utf-8"))
+    assert payload["status"] == "completed"
     assert payload["baseline"]["summary"]["median_runtime_ns_per_case"] == 100.0
     assert payload["baseline"]["summary"]["mean_runtime_ns_per_case"] == 100.0
     assert payload["baseline"]["summary"]["min_runtime_ns_per_case"] == 90.0
@@ -101,6 +102,7 @@ def test_final_validation_records_failed_repetitions(tmp_path: Path) -> None:
     )
 
     payload = json.loads(report_path.read_text(encoding="utf-8"))
+    assert payload["status"] == "completed_partial"
     assert payload["baseline"]["summary"]["successful_runs"] == 1
     assert payload["baseline"]["summary"]["failed_runs"] == 1
     assert payload["final"]["summary"]["successful_runs"] == 1
@@ -129,5 +131,33 @@ def test_final_validation_comparison_null_without_correct_runs(tmp_path: Path) -
     )
 
     payload = json.loads(report_path.read_text(encoding="utf-8"))
+    assert payload["status"] == "incomplete"
     assert payload["comparison"]["median_speedup"] is None
     assert payload["comparison"]["median_runtime_reduction_percent"] is None
+
+
+def test_final_validation_disabled_is_skipped(tmp_path: Path) -> None:
+    repo_root = tmp_path / "repo"
+    experiment_dir = repo_root / "results" / "experiments" / "exp"
+    baseline_source = repo_root
+    final_source = experiment_dir / "final_optimized_source"
+    _write_source(baseline_source)
+    _write_source(final_source)
+
+    def fail_runner(command: Sequence[str], _cwd: Path) -> dict[str, Any]:
+        raise AssertionError("disabled final validation should not run verifier")
+
+    report_path = run_final_validation(
+        experiment_dir=experiment_dir,
+        experiment_id="exp",
+        repo_root=repo_root,
+        baseline_source_dir=baseline_source,
+        final_source_dir=final_source,
+        enabled=False,
+        benchmark_repetitions=5,
+        command_runner=fail_runner,
+    )
+
+    payload = json.loads(report_path.read_text(encoding="utf-8"))
+    assert payload["enabled"] is False
+    assert payload["status"] == "skipped"

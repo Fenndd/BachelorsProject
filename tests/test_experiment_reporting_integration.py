@@ -203,8 +203,10 @@ def test_final_validation_runs_after_finalization_before_reporting(
     payload = _base_config_payload(root, reporting=None)
     config = load_experiment_config(_write_config(root, payload))
     call_order: list[str] = []
+    metadata_final_order: list[list[str]] = []
     original_finalize = run_experiment.finalize_closed_loop_artifacts
     original_reporting = run_experiment._run_final_reporting
+    original_write_metadata = run_experiment._write_experiment_metadata
 
     def wrapped_finalize(*args: Any, **kwargs: Any):
         call_order.append("finalize")
@@ -218,16 +220,32 @@ def test_final_validation_runs_after_finalization_before_reporting(
         call_order.append("reporting")
         return original_reporting(*args, **kwargs)
 
+    def wrapped_write_metadata(*args: Any, **kwargs: Any) -> Path:
+        finished_at = kwargs.get("finished_at") if kwargs else None
+        if finished_at is None and len(args) >= 3:
+            finished_at = args[2]
+        if finished_at is not None:
+            metadata_final_order.append(list(call_order))
+        return original_write_metadata(*args, **kwargs)
+
     monkeypatch.setattr(run_experiment, "finalize_closed_loop_artifacts", wrapped_finalize)
     monkeypatch.setattr(run_experiment, "run_final_validation", wrapped_validation)
     monkeypatch.setattr(run_experiment, "_run_final_reporting", wrapped_reporting)
+    monkeypatch.setattr(run_experiment, "_write_experiment_metadata", wrapped_write_metadata)
 
     exit_code = run_experiment._run_experiment(config, payload)
 
     assert exit_code == 0
     assert call_order == ["finalize", "validation", "reporting"]
+    assert metadata_final_order == [["finalize", "validation", "reporting"]]
     experiment_dir = next((root / "results" / "experiments").iterdir())
     status = json.loads((experiment_dir / "experiment_status.json").read_text(encoding="utf-8"))
+    metadata = json.loads((experiment_dir / "experiment_metadata.json").read_text(encoding="utf-8"))
+    assert metadata["finished_at"] == status["finished_at"]
+    assert metadata["total_duration_seconds"] is not None
+    assert f"Finished at: {status['finished_at']}" in (experiment_dir / "summary.txt").read_text(
+        encoding="utf-8"
+    )
     assert status["closed_loop"]["final_validation_report_path"].endswith(
         "final_validation/final_validation_report.json"
     )

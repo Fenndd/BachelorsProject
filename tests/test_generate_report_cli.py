@@ -146,11 +146,14 @@ def test_generate_basic_report_pdf_calls_exporter(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     experiment_dir = _experiment_dir(tmp_path)
+    calls: list[Path] = []
 
     def fake_pdf_export(html_path: Path, pdf_path: Path, *, renderer: str) -> Path:
+        calls.append(html_path)
         assert html_path == experiment_dir / "report" / "report.html"
         html = html_path.read_text(encoding="utf-8")
-        assert "<th>Status</th><td>pdf_pending</td>" in html
+        assert "<th>Status</th><td>completed</td>" in html
+        assert "pdf_pending" not in html
         assert 'id="failure-analysis"' in html
         assert 'id="phase-timings"' in html
         assert 'id="llm-usage"' in html
@@ -170,6 +173,7 @@ def test_generate_basic_report_pdf_calls_exporter(
     )
 
     assert set(artifacts) == {"report_data", "html", "pdf"}
+    assert calls == [experiment_dir / "report" / "report.html"]
     assert artifacts["pdf"] == experiment_dir / "report" / "report.pdf"
     assert artifacts["pdf"].read_bytes() == b"%PDF-dummy"
     payload = json.loads((experiment_dir / "report" / "report_data.json").read_text(encoding="utf-8"))
@@ -187,7 +191,9 @@ def test_generate_basic_report_pdf_failure_writes_failed_status(
     experiment_dir = _experiment_dir(tmp_path)
 
     def fake_pdf_export(html_path: Path, pdf_path: Path, *, renderer: str) -> Path:
-        assert "<th>Status</th><td>pdf_pending</td>" in html_path.read_text(encoding="utf-8")
+        html = html_path.read_text(encoding="utf-8")
+        assert "<th>Status</th><td>completed</td>" in html
+        assert "pdf_pending" not in html
         raise RuntimeError("pdf boom")
 
     monkeypatch.setattr(generate_report, "export_pdf_from_html", fake_pdf_export)

@@ -205,10 +205,30 @@ Only `decision_vs_current_best.json` controls promotion. `decision_vs_original_b
 After all closed-loop iterations finish, the runner first finalizes closed-loop
 artifacts (`final_optimized_source/`, final diff/statistics, current-best state,
 closed-loop summary, and selection report). It then runs final repeated benchmark
-validation, and only after that generates the report. Final validation compares
-the original baseline source with the final optimized source. It does not call an
-LLM, does not rerun every candidate, does not affect promotion decisions, does
-not update `current_best_source`, and does not modify the main `cpp/` tree.
+validation, and only after that generates the report. `closed_loop_summary.finished_at`
+marks this closed-loop optimization completion point. `experiment_metadata.finished_at`
+and `experiment_status.finished_at` are written later and cover the whole cycle,
+including final artifacts, final validation, reporting, and summary/status output.
+Final validation compares the original baseline source with the final optimized
+source. It does not call an LLM, does not rerun every candidate, does not affect
+promotion decisions, does not update `current_best_source`, and does not modify
+the main `cpp/` tree.
+
+Final validation status values are:
+
+- `skipped`: validation was disabled.
+- `completed`: comparison metrics are available and every baseline/final repetition was successful and correctness-passing.
+- `completed_partial`: comparison metrics are available but at least one repetition failed or failed correctness.
+- `incomplete`: validation ran but comparison metrics are unavailable.
+
+Final validation aggregates and runtime-distribution plots use only successful
+correctness-passing repetitions.
+
+For HTML-only reports, the runner writes `report_data.json`, plots, and final
+completed `report.html`. When PDF is requested, `report_data.json` and
+`report.html` are finalized with completed reporting status and the expected
+`report/report.pdf` path before `report.pdf` is exported from that final HTML.
+The report is never exported from a pending-status HTML page.
 
 Each closed-loop JSONL iteration record includes optional `phase_timings` for
 generation, materialization, verification, benchmark, and total iteration

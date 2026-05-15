@@ -424,7 +424,12 @@ def _validation_points(value: Any) -> list[tuple[int, float]]:
             continue
         index = _int_or_none(run.get("run_index"))
         runtime = _number_or_none(run.get("runtime_ns_per_case_median"))
-        if index is not None and runtime is not None:
+        if (
+            run.get("verification_status") == "success"
+            and run.get("correctness_passed") is True
+            and index is not None
+            and runtime is not None
+        ):
             points.append((index, runtime))
     return points
 

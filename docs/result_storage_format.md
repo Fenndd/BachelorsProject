@@ -400,10 +400,22 @@ contains per-run records, aggregate median/mean/min/max/population-std runtime
 statistics, correctness summaries, comparison speedups, and safety flags stating
 that validation does not update current-best state, promotion decisions, or the
 main `cpp/` tree. Runtime aggregates use only successful runs whose correctness
-passed. If baseline or final has no successful correct run, comparison metrics
-are `null`.
+passed. Final validation runtime plots use the same filter. If baseline or final
+has no successful correct run, comparison metrics are `null`.
 
-`experiment_metadata.json` records process metadata for experiment runs:
+The final validation `status` field is one of:
+
+- `skipped`: validation was disabled.
+- `completed`: comparison metrics are available and every baseline/final repetition was successful and correctness-passing.
+- `completed_partial`: comparison metrics are available but at least one repetition failed or failed correctness.
+- `incomplete`: validation ran but comparison metrics are unavailable.
+
+`experiment_metadata.json` records process metadata for experiment runs. For
+closed-loop runs, `finished_at` and `total_duration_seconds` cover the full
+experiment cycle: closed-loop iterations, final artifact creation, final
+validation, report generation or recorded reporting failure, and final
+status/summary output. This is distinct from `closed_loop_summary.finished_at`,
+which marks closed-loop optimization completion before final validation.
 
 ```json
 {
@@ -553,6 +565,18 @@ enriched fields in the unified single-experiment report:
   candidate metadata, outcome reason, runtime, correctness, timings, LLM usage,
   diff stats, and candidate run directory
 
+For HTML-only output, report data, plots, and final completed HTML are written.
+For HTML+PDF output, final completed HTML is rendered once with the expected
+`report/report.pdf` path and the PDF is exported from that final HTML. If PDF
+export fails, reporting status is updated to `failed`, HTML is re-rendered with
+that failed status when possible, and the exception is propagated to the runner's
+existing reporting error policy.
+
+When final repeated validation metrics are available, the Executive Summary
+headline baseline runtime and final runtime use the same repeated-validation
+comparison basis. The separate Baseline Metrics section may still show the
+original single-run baseline artifact.
+
 The user-facing report focuses on closed-loop mode. Legacy `selection_enabled`
 and `history_policy` fields are not shown as main report concepts. Closed-loop
 promotion policy is `decision_vs_current_best.accepted_improvement_only`.
@@ -579,11 +603,11 @@ inspector reports a warning. Invalid or missing `report_data.json` and missing
 `report.html` are failures. The manual checklist for real-cycle current-report review is
 `docs/report_v2_checklist.md`.
 
-Final repeated benchmark validation is recommended as a future/final evaluation
-step, not per-candidate repeated benchmarking. The future artifact should compare
-N repeated baseline runs against N repeated final optimized source runs, report
-median/mean/std/min/max, write `final_validation_report.json`, and display a
-Final Validation section.
+Final repeated benchmark validation is a final evaluation step, not
+per-candidate repeated benchmarking. It compares N repeated baseline runs against
+N repeated final optimized source runs, reports median/mean/std/min/max for
+successful correctness-passing repetitions, writes `final_validation_report.json`,
+and displays a Final Validation section.
 
 ## Candidate Materialization Artifacts
 

@@ -48,6 +48,7 @@ results/experiments/<experiment_id>/report/
 - Current reports include top-level `reason_code_counts`.
 - Current reports include top-level `final_validation` when the final validation artifact is available.
 - Final report headline final metrics use repeated validation median metrics when available.
+- Executive Summary headline baseline and final runtimes use the same repeated-validation basis when final validation is available.
 - No API keys, full environment dumps, full logs, or full diffs are embedded.
 
 ## Plot Checks
@@ -58,7 +59,7 @@ results/experiments/<experiment_id>/report/
 - LLM token and latency plots show per-iteration values or placeholder text.
 - `failure_reason_breakdown.svg` shows outcome reason-code counts or placeholder text.
 - `diff_stats_by_iteration.svg` shows changed lines per iteration or placeholder text.
-- `final_validation_runtime_distribution.svg` shows baseline/final repeated validation runtimes or placeholder text.
+- `final_validation_runtime_distribution.svg` shows successful correctness-passing baseline/final repeated validation runtimes or placeholder text.
 
 ## HTML Report Checks
 
@@ -68,11 +69,13 @@ results/experiments/<experiment_id>/report/
 - The user-facing report focuses on closed-loop mode. Legacy `selection_enabled` and `history_policy` fields are not shown as main report concepts.
 - Closed-loop promotion policy is `decision_vs_current_best.accepted_improvement_only`.
 - Final repeated benchmark validation runs automatically after closed-loop completion and before report generation. It compares original baseline source vs final optimized source, defaults to 5 repetitions, does not affect candidate promotion, and does not change `current_best_source`.
+- If PDF was requested, `report.pdf` was exported from final completed `report.html`, not from pending-status HTML.
 - Tables show `Not available` for missing optional values instead of crashing or showing raw template placeholders.
 
 ## PDF Report Checks
 
 - If PDF was requested, `report.pdf` exists and opens.
+- The HTML/PDF reporting status is completed in both artifacts; PDF should not show pending reporting status.
 - PDF content matches the HTML sections at a high level.
 - Wide tables remain readable enough for A4-style review.
 - If PDF was not requested, missing `report.pdf` is acceptable.
@@ -102,12 +105,15 @@ results/experiments/<experiment_id>/report/
 ## Final Validation Checks
 
 - The Final Repeated Benchmark Validation section shows enabled/skipped status and benchmark repetitions.
+- Status is one of `skipped`, `completed`, `completed_partial`, or `incomplete`.
 - If `final_validation.benchmark_repetitions` was missing in the config, the report shows default 5 repetitions.
 - Successful baseline/final run counts match `final_validation_report.json`.
 - Baseline and final median/mean/std/min/max runtime values match `final_validation_report.json`.
 - Median speedup and median runtime reduction percent match `final_validation_report.json`.
 - Baseline and final all-correctness-passed values are shown.
-- If final validation is skipped or missing, the report clearly states that final repeated benchmark validation was not available.
+- Aggregates and plots include only successful correctness-passing repetitions.
+- If final validation is skipped, the report clearly states that it was disabled/skipped and does not show the full empty metrics table.
+- If final validation is missing, the report clearly states that final repeated benchmark validation was not available.
 
 ## Reproducibility Checks
 
@@ -140,4 +146,5 @@ results/experiments/<experiment_id>/report/
 - Final runtime/speedup values match the final best candidate metrics.
 - When final validation metrics are available, final runtime/speedup values match repeated validation median metrics, not single-run selection metrics.
 - Report artifact paths point inside the completed experiment directory.
+- `experiment_metadata.finished_at` and `experiment_status.finished_at` represent the full experiment cycle, including final validation and reporting.
 - Reporting remains read-only: no source files, candidate workspaces, verification artifacts, benchmark results, or promotion state are modified by report inspection or viewing.

@@ -746,6 +746,62 @@ def test_html_contains_final_validation_section_and_llm_kpis(tmp_path: Path) -> 
     assert "Highest Latency Iteration" in html
 
 
+def test_executive_summary_uses_final_best_baseline_runtime(tmp_path: Path) -> None:
+    report_data = _report_data()
+    report_data.baseline_metrics = ReportBaselineMetrics(
+        runtime_ns_per_case_median=1000.0,
+        correctness_passed=True,
+    )
+    report_data.final_best_candidate = ReportFinalBestCandidate(
+        baseline_runtime_ns_per_case_median=900.0,
+        runtime_ns_per_case_median=700.0,
+    )
+
+    plot_paths = build_report_figures(report_data, tmp_path / "plots")
+    html_path = render_report_html(report_data, plot_paths, tmp_path / "report.html")
+    html = html_path.read_text(encoding="utf-8")
+    executive = html.split('id="experiment-configuration"', 1)[0]
+
+    assert "Baseline Runtime ns/case</strong>900" in executive
+    assert "Final Best Runtime ns/case</strong>700" in executive
+    assert "Baseline Runtime ns/case</strong>1000" not in executive
+
+
+def test_final_validation_html_skipped_message_without_empty_table(tmp_path: Path) -> None:
+    report_data = _report_data()
+    report_data.final_validation = ReportFinalValidation(
+        enabled=False,
+        status="skipped",
+        benchmark_repetitions=5,
+    )
+
+    plot_paths = build_report_figures(report_data, tmp_path / "plots")
+    html_path = render_report_html(report_data, plot_paths, tmp_path / "report.html")
+    html = html_path.read_text(encoding="utf-8")
+    final_validation = html.split('id="final-validation"', 1)[1].split(
+        'id="baseline-metrics"', 1
+    )[0]
+
+    assert "Final repeated benchmark validation was disabled/skipped" in final_validation
+    assert "Benchmark Repetitions" in final_validation
+    assert "Successful Baseline Runs" not in final_validation
+    assert "Baseline Median Runtime" not in final_validation
+
+
+def test_final_validation_html_missing_message(tmp_path: Path) -> None:
+    report_data = _report_data()
+
+    plot_paths = build_report_figures(report_data, tmp_path / "plots")
+    html_path = render_report_html(report_data, plot_paths, tmp_path / "report.html")
+    html = html_path.read_text(encoding="utf-8")
+    final_validation = html.split('id="final-validation"', 1)[1].split(
+        'id="baseline-metrics"', 1
+    )[0]
+
+    assert "Final repeated benchmark validation was not available" in final_validation
+    assert "Successful Baseline Runs" not in final_validation
+
+
 def test_final_validation_plot_generated_when_missing_data(tmp_path: Path) -> None:
     report_data = _report_data()
     plots_dir = tmp_path / "plots"
@@ -755,6 +811,64 @@ def test_final_validation_plot_generated_when_missing_data(tmp_path: Path) -> No
     plot_path = plots_dir / "final_validation_runtime_distribution.svg"
     assert plot_path.is_file()
     assert "Final validation data unavailable" in plot_path.read_text(encoding="utf-8")
+
+
+def test_final_validation_plot_filters_failed_and_incorrect_runs(tmp_path: Path) -> None:
+    from orchestrator.reporting.figure_builder import _validation_points
+
+    runs = [
+        {
+            "run_index": 1,
+            "verification_status": "success",
+            "correctness_passed": True,
+            "runtime_ns_per_case_median": 100.0,
+        },
+        {
+            "run_index": 2,
+            "verification_status": "failed",
+            "correctness_passed": True,
+            "runtime_ns_per_case_median": 999.0,
+        },
+        {
+            "run_index": 3,
+            "verification_status": "success",
+            "correctness_passed": False,
+            "runtime_ns_per_case_median": 888.0,
+        },
+    ]
+
+    assert _validation_points(runs) == [(1, 100.0)]
+
+
+def test_final_validation_plot_placeholder_when_all_runs_filtered(tmp_path: Path) -> None:
+    report_data = _report_data()
+    report_data.final_validation = ReportFinalValidation(
+        enabled=True,
+        baseline_runs=[
+            {
+                "run_index": 1,
+                "verification_status": "failed",
+                "correctness_passed": True,
+                "runtime_ns_per_case_median": 100.0,
+            }
+        ],
+        final_runs=[
+            {
+                "run_index": 1,
+                "verification_status": "success",
+                "correctness_passed": False,
+                "runtime_ns_per_case_median": 80.0,
+            }
+        ],
+    )
+    plots_dir = tmp_path / "plots"
+
+    build_report_figures(report_data, plots_dir)
+
+    svg_text = (plots_dir / "final_validation_runtime_distribution.svg").read_text(
+        encoding="utf-8"
+    )
+    assert "Final validation data unavailable" in svg_text
 
 
 # ---------------------------------------------------------------------------

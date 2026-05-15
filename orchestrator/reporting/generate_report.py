@@ -43,19 +43,21 @@ def generate_basic_report(
         "html": html_path,
     }
     if "pdf" in requested_formats:
+        pdf_path = report_dir / "report.pdf"
         report_data = _finalize_reporting_status(
             report_data_path,
             requested_formats=requested_formats,
             renderer=renderer,
             html_path=html_path,
-            pdf_path=None,
-            status="pdf_pending",
+            pdf_path=pdf_path,
+            status="completed",
+            assume_pdf_generated=True,
         )
         render_report_html(report_data, plot_paths, html_path)
         try:
             artifacts["pdf"] = export_pdf_from_html(
                 html_path,
-                report_dir / "report.pdf",
+                pdf_path,
                 renderer=renderer,
             )
         except Exception as exc:
@@ -88,9 +90,9 @@ def generate_basic_report(
         report_data_path,
         requested_formats=requested_formats,
         renderer=renderer,
-        html_path=html_path,
-        pdf_path=None,
-        status="completed",
+            html_path=html_path,
+            pdf_path=None,
+            status="completed",
     )
     render_report_html(report_data, plot_paths, html_path)
     return artifacts
@@ -128,12 +130,15 @@ def _finalize_reporting_status(
     pdf_path: Path | None,
     status: str = "completed",
     error: str | None = None,
+    assume_pdf_generated: bool = False,
 ) -> dict:
     payload = json.loads(report_data_path.read_text(encoding="utf-8"))
     if not isinstance(payload, dict):
         raise ValueError("report_data.json must contain a JSON object")
 
-    pdf_generated = pdf_path is not None and pdf_path.is_file()
+    pdf_generated = (
+        pdf_path is not None and (assume_pdf_generated or pdf_path.is_file())
+    )
     report_pdf_path = _display_path(pdf_path) if pdf_generated and pdf_path is not None else None
     if pdf_generated:
         pdf_display = report_pdf_path

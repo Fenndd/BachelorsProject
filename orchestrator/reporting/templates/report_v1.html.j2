@@ -149,7 +149,7 @@
       <div class="metric"><strong>Final Runtime Reduction %</strong>{{ report.final_result.final_runtime_reduction_percent|display }}</div>
       <div class="metric"><strong>Accepted Improvements</strong>{{ report.final_result.accepted_improvements|display }}</div>
       <div class="metric"><strong>Correctness Preserved</strong>{{ report.final_result.correctness_preserved|yes_no }}</div>
-      <div class="metric"><strong>Baseline Runtime ns/case</strong>{{ report.baseline_metrics.runtime_ns_per_case_median|display }}</div>
+      <div class="metric"><strong>Baseline Runtime ns/case</strong>{{ report.final_best_candidate.baseline_runtime_ns_per_case_median|display }}</div>
       <div class="metric"><strong>Final Best Runtime ns/case</strong>{{ report.final_best_candidate.runtime_ns_per_case_median|display }}</div>
       <div class="metric"><strong>Runtime Improvement ns/case</strong>{{ report.final_best_candidate.absolute_runtime_difference_ns_per_case|display }}</div>
       <div class="metric"><strong>PDF Report</strong>{{ report.reporting_status.pdf_display|display }}</div>
@@ -216,7 +216,7 @@
 
   <section id="final-validation">
     <h2>Final Repeated Benchmark Validation</h2>
-    {% if report.final_validation.enabled is not none %}
+    {% if report.final_validation.enabled is true %}
     <p class="muted">Final repeated validation compares the original baseline source with the final optimized source. It is reporting/evaluation only and does not affect candidate promotion or current_best_source.</p>
     <div class="metric-grid">
       <div class="metric"><strong>Enabled</strong>{{ report.final_validation.enabled|yes_no }}</div>
@@ -239,6 +239,13 @@
         <tr><td>Final</td><td>{{ report.final_validation.final.mean_runtime_ns_per_case|display }}</td><td>{{ report.final_validation.final.std_runtime_ns_per_case|display }}</td><td>{{ report.final_validation.final.min_runtime_ns_per_case|display }}</td><td>{{ report.final_validation.final.max_runtime_ns_per_case|display }}</td><td>{{ report.final_validation.final.success_rate_mean|display }}</td><td>{{ report.final_validation.final.success_rate_min|display }}</td></tr>
       </tbody>
     </table>
+    {% elif report.final_validation.enabled is false %}
+    <p class="muted">Final repeated benchmark validation was disabled/skipped for this experiment.</p>
+    <div class="metric-grid">
+      <div class="metric"><strong>Enabled</strong>{{ report.final_validation.enabled|yes_no }}</div>
+      <div class="metric"><strong>Status</strong>{{ report.final_validation.status|display }}</div>
+      <div class="metric"><strong>Benchmark Repetitions</strong>{{ report.final_validation.benchmark_repetitions|display }}</div>
+    </div>
     {% else %}
     <p class="muted">Final repeated benchmark validation was not available for this experiment.</p>
     <figure><img src="{{ plots.final_validation_runtime_distribution }}" alt="Final validation data unavailable"></figure>

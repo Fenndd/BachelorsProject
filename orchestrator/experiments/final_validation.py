@@ -103,10 +103,16 @@ def run_final_validation(
 
     baseline_summary = _summarize_runs(baseline_runs)
     final_summary = _summarize_runs(final_runs)
+    comparison = _comparison(baseline_summary, final_summary)
     payload = {
         "schema_version": "final_validation.v1",
         "enabled": True,
-        "status": "completed",
+        "status": _validation_status(
+            baseline_summary,
+            final_summary,
+            comparison,
+            benchmark_repetitions,
+        ),
         "benchmark_repetitions": benchmark_repetitions,
         "started_at": started_at,
         "finished_at": _now_iso(),
@@ -120,7 +126,7 @@ def run_final_validation(
             "runs": final_runs,
             "summary": final_summary,
         },
-        "comparison": _comparison(baseline_summary, final_summary),
+        "comparison": comparison,
         "safety": _safety_block(),
         "statistics_note": "Runtime standard deviation uses population std (statistics.pstdev).",
     }
@@ -305,6 +311,28 @@ def _comparison(baseline: dict[str, Any], final: dict[str, Any]) -> dict[str, An
     }
 
 
+def _validation_status(
+    baseline_summary: dict[str, Any],
+    final_summary: dict[str, Any],
+    comparison: dict[str, Any],
+    repetitions: int,
+) -> str:
+    baseline_successful = _int_or_zero(baseline_summary.get("successful_runs"))
+    final_successful = _int_or_zero(final_summary.get("successful_runs"))
+    baseline_failed = _int_or_zero(baseline_summary.get("failed_runs"))
+    final_failed = _int_or_zero(final_summary.get("failed_runs"))
+    if comparison.get("median_speedup") is None:
+        return "incomplete"
+    if (
+        baseline_failed == 0
+        and final_failed == 0
+        and baseline_successful == repetitions
+        and final_successful == repetitions
+    ):
+        return "completed"
+    return "completed_partial"
+
+
 def _empty_group(source_dir: Path) -> dict[str, Any]:
     return {"source_dir": str(source_dir), "runs": [], "summary": _summarize_runs([])}
 
@@ -399,6 +427,10 @@ def _number_or_none(value: Any) -> float | None:
 
 def _int_or_none(value: Any) -> int | None:
     return value if isinstance(value, int) and not isinstance(value, bool) else None
+
+
+def _int_or_zero(value: Any) -> int:
+    return value if isinstance(value, int) and not isinstance(value, bool) else 0
 
 
 def _bool_or_none(value: Any) -> bool | None:

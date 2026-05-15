@@ -2475,11 +2475,13 @@ def _build_closed_loop_summary_text(
     accepted_improvements: int,
     reporting_status: dict[str, Any] | None = None,
     final_validation_status: dict[str, Any] | None = None,
+    finished_at: str | None = None,
 ) -> str:
     lines = [
         f"Experiment id: {experiment_id}",
         f"Experiment name: {config.experiment_name}",
         "Closed-loop mode: enabled",
+        f"Finished at: {finished_at or 'none'}",
         f"Target file: {config.target_file}",
         f"Total planned iterations: {summary.total_iterations}",
         f"Completed iterations: {summary.completed_iterations}",
@@ -2859,8 +2861,7 @@ def _run_closed_loop_experiment(
         _append_closed_loop_record_and_state(closed_loop_paths, state, record)
         print(f"- iteration: {iteration_status.value}")
 
-    finished_at = _now_iso()
-    _write_experiment_metadata(experiment_dir, started_at, finished_at)
+    closed_loop_finished_at = _now_iso()
     summary, results_state_path = finalize_closed_loop_artifacts(
         paths=closed_loop_paths,
         experiment_id=experiment_id,
@@ -2868,7 +2869,7 @@ def _run_closed_loop_experiment(
         state=state,
         records=records,
         started_at=started_at,
-        finished_at=finished_at,
+        finished_at=closed_loop_finished_at,
     )
     selection_report_path = write_closed_loop_selection_report(experiment_dir, state, summary, records)
     final_validation_report_path = run_final_validation(
@@ -2886,6 +2887,8 @@ def _run_closed_loop_experiment(
         final_validation_report_path,
     )
     reporting_status = _run_final_reporting(experiment_dir, config)
+    finished_at = _now_iso()
+    _write_experiment_metadata(experiment_dir, started_at, finished_at)
     final_status = {
         "experiment_id": experiment_id,
         "experiment_name": config.experiment_name,
@@ -2917,6 +2920,7 @@ def _run_closed_loop_experiment(
             accepted_improvements=state.accepted_improvements,
             reporting_status=reporting_status,
             final_validation_status=final_validation_status,
+            finished_at=finished_at,
         ),
         encoding="utf-8",
     )
