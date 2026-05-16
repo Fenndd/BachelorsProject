@@ -49,6 +49,7 @@ SOURCE_TREE_IGNORE_PATTERNS = {
     "*.pdb",
     "*.ilk",
 }
+SOURCE_FILE_SUFFIXES_FOR_PATH_PREFLIGHT = {".cpp", ".cc", ".cxx", ".h", ".hpp", ".hh"}
 
 WINDOWS_FINAL_VALIDATION_PATH_LENGTH_THRESHOLD = 240
 
@@ -450,14 +451,25 @@ def _path_length_preflight(
 
 
 def _critical_validation_paths(source_cpp: Path, build_dir: Path, logs_dir: Path) -> list[Path]:
-    return [
+    paths = [
         source_cpp,
         build_dir,
         logs_dir / "configure_cmake.log",
         logs_dir / "build_absolute_pose_lambdatwist_benchmark.log",
-        source_cpp / "external" / "lambdatwist" / "absolute_pose_lambdatwist_benchmark_adapter.cc",
-        build_dir / "CMakeFiles" / f"{FAMILY_BENCHMARK_TARGET}.dir" / "external" / "lambdatwist" / "absolute_pose_lambdatwist_benchmark_adapter.cc.obj",
     ]
+    object_root = build_dir / "CMakeFiles" / f"{FAMILY_BENCHMARK_TARGET}.dir"
+    if not source_cpp.is_dir():
+        return paths
+    for source_file in sorted(source_cpp.rglob("*")):
+        if not source_file.is_file() or source_file.suffix.lower() not in SOURCE_FILE_SUFFIXES_FOR_PATH_PREFLIGHT:
+            continue
+        try:
+            relative_source = source_file.relative_to(source_cpp)
+        except ValueError:
+            continue
+        object_path = object_root / Path(str(relative_source) + ".obj")
+        paths.extend([source_file, object_path, Path(str(object_path) + ".d")])
+    return paths
 
 
 def _run_benchmark_repetition(
@@ -706,6 +718,7 @@ def _diagnostics(payload: dict[str, Any]) -> dict[str, Any]:
     else:
         summary = "Repeated validation status is unavailable."
 
+    should_suggest_logs = status in {"incomplete", "completed_partial"} or bool(failed_steps)
     suggested_logs = []
     diagnostic_texts: list[str] = []
     observed_paths: list[str] = []
@@ -714,12 +727,13 @@ def _diagnostics(payload: dict[str, Any]) -> dict[str, Any]:
             log_path = setup.get(key)
             if isinstance(log_path, str) and log_path:
                 observed_paths.append(log_path)
-                if log_path not in suggested_logs and setup.get("failed_step"):
+                if should_suggest_logs and log_path not in suggested_logs and setup.get("failed_step"):
                     suggested_logs.append(log_path)
                 diagnostic_texts.append(_read_text_if_available(log_path))
         if isinstance(setup.get("error_message"), str):
             diagnostic_texts.append(str(setup["error_message"]))
-    for run in failed_runs or [*baseline_runs[:1], *final_runs[:1]]:
+    runs_for_suggestions = failed_runs if should_suggest_logs else []
+    for run in runs_for_suggestions:
         log_path = run.get("benchmark_log_path")
         if isinstance(log_path, str) and log_path and log_path not in suggested_logs:
             suggested_logs.append(log_path)
@@ -732,13 +746,15 @@ def _diagnostics(payload: dict[str, Any]) -> dict[str, Any]:
             break
     observed_paths.extend(_collect_path_strings(payload))
     combined_diagnostics = "\n".join(text for text in diagnostic_texts if text)
+    observed_max = max((len(path) for path in observed_paths), default=0)
+    diagnostic_max = _max_path_length_from_text(combined_diagnostics)
 
     return {
         "summary": summary,
         "dominant_failed_step": dominant_failed_step,
         "dominant_error_excerpt": _dominant_error_excerpt(combined_diagnostics),
         "path_length_warning_detected": _path_length_warning_detected(combined_diagnostics),
-        "max_observed_path_length": max((len(path) for path in observed_paths), default=0),
+        "max_observed_path_length": max(observed_max, diagnostic_max or 0),
         "baseline_failed_runs": len([
             run for run in baseline_runs
             if run.get("benchmark_run_status", run.get("verification_status")) != "success"
@@ -799,6 +815,16 @@ def _dominant_error_excerpt(text: str) -> str | None:
 def _path_length_warning_detected(text: str) -> bool:
     lower = text.lower()
     return "maximum full path" in lower or "object file directory" in lower or "path is too long" in lower
+
+
+def _max_path_length_from_text(text: str) -> int | None:
+    import re
+
+    matches = [
+        int(match.group(1))
+        for match in re.finditer(r"maximum observed critical path length is (\d+)", text, flags=re.IGNORECASE)
+    ]
+    return max(matches) if matches else None
 
 
 def _collect_path_strings(value: Any) -> list[str]:

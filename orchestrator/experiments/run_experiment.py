@@ -2287,7 +2287,8 @@ def write_closed_loop_selection_report(
             "final_best_run_dir": final_current_best_run_dir,
             "accepted_improvements": state.accepted_improvements,
         },
-        "final_analysis": {
+        "single_run_selection_analytics": {
+            "metric_source": "single_run_closed_loop_selection_analytics",
             "target_file": summary.target_file,
             "final_optimized_source_dir": _display_path(summary.final_optimized_source_dir),
             "final_optimized_source_diff_path": _display_path(summary.final_optimized_source_diff_path),

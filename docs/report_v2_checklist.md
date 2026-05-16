@@ -109,12 +109,14 @@ results/experiments/<experiment_id>/report/
 - Status is one of `skipped`, `completed`, `completed_partial`, or `incomplete`.
 - If `final_validation.benchmark_repetitions` was missing in the config, the report shows default 5 repetitions.
 - Successful baseline/final run counts match `final_validation_report.json`.
+- Baseline/final benchmark runs attempted match `final_validation_report.json`.
 - Baseline and final median/mean/std/min/max runtime values match `final_validation_report.json`.
 - Median speedup and median runtime reduction percent match `final_validation_report.json`.
 - Baseline and final all-correctness-passed values are shown only when at least one relevant successful validation run exists; otherwise they show `Not available`.
 - Setup failures are represented in each group's `setup` block, with `runs: []` and `benchmark_runs_attempted: 0`, not as fake failed benchmark repetitions.
 - Run records use benchmark-only repeated validation (`validation_mode: benchmark_only`, `benchmark_run_status`) after one configure/build per source, not the full per-candidate verifier.
-- Aggregates and plots include only successful correctness-passing repetitions.
+- Aggregates and plots include only successful correctness-passing repetitions; plots filter on `benchmark_run_status`, not per-iteration verification status.
+- If final validation is incomplete, the report shows compact diagnostics with setup statuses, dominant failure, path-length warning state, max observed path length, and suggested logs instead of a mostly empty full metrics table.
 - If final validation is skipped, the report clearly states that it was disabled/skipped and does not show the full empty metrics table.
 - If final validation is missing, the report clearly states that final repeated benchmark validation was not available.
 

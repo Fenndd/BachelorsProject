@@ -308,6 +308,7 @@ class ReportReportingStatus:
 
 @dataclass
 class ReportRepeatedValidationGroupSummary:
+    benchmark_runs_attempted: int = 0
     successful_runs: int = 0
     failed_runs: int = 0
     median_runtime_ns_per_case: float | None = None
@@ -318,6 +319,18 @@ class ReportRepeatedValidationGroupSummary:
     all_correctness_passed: bool | None = None
     success_rate_min: float | None = None
     success_rate_mean: float | None = None
+
+
+@dataclass
+class ReportFinalValidationSetup:
+    configure_status: str | None = None
+    configure_duration_seconds: float | None = None
+    configure_log_path: str | None = None
+    build_status: str | None = None
+    build_duration_seconds: float | None = None
+    build_log_path: str | None = None
+    failed_step: str | None = None
+    error_message: str | None = None
 
 
 @dataclass
@@ -353,6 +366,12 @@ class ReportFinalValidation:
     )
     final: ReportRepeatedValidationGroupSummary = field(
         default_factory=ReportRepeatedValidationGroupSummary
+    )
+    baseline_setup: ReportFinalValidationSetup = field(
+        default_factory=ReportFinalValidationSetup
+    )
+    final_setup: ReportFinalValidationSetup = field(
+        default_factory=ReportFinalValidationSetup
     )
     baseline_runs: list[dict[str, Any]] = field(default_factory=list)
     final_runs: list[dict[str, Any]] = field(default_factory=list)
@@ -499,6 +518,7 @@ __all__ = [
     "ReportFinalValidation",
     "ReportFinalValidationComparison",
     "ReportFinalValidationDiagnostics",
+    "ReportFinalValidationSetup",
     "ReportFinalResult",
     "ReportRepeatedValidationGroupSummary",
     "ReportDiffStats",

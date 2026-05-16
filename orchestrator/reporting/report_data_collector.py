@@ -20,6 +20,7 @@ from orchestrator.reporting.report_data import (
     ReportFinalValidation,
     ReportFinalValidationComparison,
     ReportFinalValidationDiagnostics,
+    ReportFinalValidationSetup,
     ReportFinalResult,
     ReportDiffStats,
     ReportIterationSummary,
@@ -564,6 +565,8 @@ def _build_final_validation(experiment_path: Path) -> ReportFinalValidation:
         report_path=_display_path(report_path, experiment_path),
         baseline=_build_repeated_validation_summary(baseline.get("summary")),
         final=_build_repeated_validation_summary(final.get("summary")),
+        baseline_setup=_build_final_validation_setup(baseline.get("setup")),
+        final_setup=_build_final_validation_setup(final.get("setup")),
         baseline_runs=_list_of_dicts(baseline.get("runs")),
         final_runs=_list_of_dicts(final.get("runs")),
         comparison=ReportFinalValidationComparison(
@@ -601,6 +604,7 @@ def _build_final_validation(experiment_path: Path) -> ReportFinalValidation:
 def _build_repeated_validation_summary(value: Any) -> ReportRepeatedValidationGroupSummary:
     summary = value if isinstance(value, dict) else {}
     return ReportRepeatedValidationGroupSummary(
+        benchmark_runs_attempted=_int_or_default(summary.get("benchmark_runs_attempted")),
         successful_runs=_int_or_default(summary.get("successful_runs")),
         failed_runs=_int_or_default(summary.get("failed_runs")),
         median_runtime_ns_per_case=_number_or_none(summary.get("median_runtime_ns_per_case")),
@@ -654,6 +658,20 @@ def _apply_final_validation_overrides(
         final_validation.final.all_correctness_passed
         if final_validation.final.successful_runs > 0
         else None
+    )
+
+
+def _build_final_validation_setup(value: Any) -> ReportFinalValidationSetup:
+    setup = value if isinstance(value, dict) else {}
+    return ReportFinalValidationSetup(
+        configure_status=_string_or_none(setup.get("configure_status")),
+        configure_duration_seconds=_number_or_none(setup.get("configure_duration_seconds")),
+        configure_log_path=_string_or_none(setup.get("configure_log_path")),
+        build_status=_string_or_none(setup.get("build_status")),
+        build_duration_seconds=_number_or_none(setup.get("build_duration_seconds")),
+        build_log_path=_string_or_none(setup.get("build_log_path")),
+        failed_step=_string_or_none(setup.get("failed_step")),
+        error_message=_string_or_none(setup.get("error_message")),
     )
 
 

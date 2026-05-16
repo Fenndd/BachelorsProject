@@ -114,8 +114,19 @@ def test_collect_report_data_uses_final_validation_metrics_when_available(tmp_pa
             "status": "completed",
             "benchmark_repetitions": 5,
             "baseline": {
+                "setup": {
+                    "configure_status": "success",
+                    "configure_duration_seconds": 0.1,
+                    "configure_log_path": "validation/baseline/logs/configure_cmake.log",
+                    "build_status": "success",
+                    "build_duration_seconds": 0.2,
+                    "build_log_path": "validation/baseline/logs/build.log",
+                    "failed_step": None,
+                    "error_message": None,
+                },
                 "runs": [{"run_index": 1, "runtime_ns_per_case_median": 100.0}],
                 "summary": {
+                    "benchmark_runs_attempted": 5,
                     "successful_runs": 5,
                     "failed_runs": 0,
                     "median_runtime_ns_per_case": 100.0,
@@ -129,8 +140,19 @@ def test_collect_report_data_uses_final_validation_metrics_when_available(tmp_pa
                 },
             },
             "final": {
+                "setup": {
+                    "configure_status": "success",
+                    "configure_duration_seconds": 0.3,
+                    "configure_log_path": "validation/final/logs/configure_cmake.log",
+                    "build_status": "success",
+                    "build_duration_seconds": 0.4,
+                    "build_log_path": "validation/final/logs/build.log",
+                    "failed_step": None,
+                    "error_message": None,
+                },
                 "runs": [{"run_index": 1, "runtime_ns_per_case_median": 80.0}],
                 "summary": {
+                    "benchmark_runs_attempted": 5,
                     "successful_runs": 5,
                     "failed_runs": 0,
                     "median_runtime_ns_per_case": 80.0,
@@ -153,6 +175,13 @@ def test_collect_report_data_uses_final_validation_metrics_when_available(tmp_pa
     report_data = collect_report_data(experiment_dir)
 
     assert report_data.final_validation.benchmark_repetitions == 5
+    assert report_data.final_validation.baseline.benchmark_runs_attempted == 5
+    assert report_data.final_validation.final.benchmark_runs_attempted == 5
+    assert report_data.final_validation.baseline_setup.configure_status == "success"
+    assert report_data.final_validation.baseline_setup.configure_duration_seconds == 0.1
+    assert report_data.final_validation.baseline_setup.configure_log_path == "validation/baseline/logs/configure_cmake.log"
+    assert report_data.final_validation.final_setup.build_status == "success"
+    assert report_data.final_validation.final_setup.build_duration_seconds == 0.4
     assert str(report_data.final_validation.report_path).endswith(
         "validation/final_validation_report.json"
     )

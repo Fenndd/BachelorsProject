@@ -96,6 +96,7 @@ def test_final_validation_aggregates_successful_runs(tmp_path: Path, monkeypatch
     assert payload["comparison"]["median_runtime_reduction_percent"] == 20.0
     assert payload["safety"]["updates_current_best"] is False
     assert payload["diagnostics"]["summary"] == "All repeated validation runs completed successfully."
+    assert payload["diagnostics"]["suggested_log_paths"] == []
     assert run_counts == {"configure": 2, "build": 2, "benchmark": 10}
     assert report_path == experiment_dir / "validation" / "final_validation_report.json"
     for group in ("baseline", "final"):
@@ -112,6 +113,31 @@ def test_final_validation_aggregates_successful_runs(tmp_path: Path, monkeypatch
         assert not (experiment_dir / "validation" / group / "source" / "cpp").exists()
     assert not (experiment_dir / "final_validation").exists()
     assert not (experiment_dir / "validation" / "baseline_runs").exists()
+
+
+def test_critical_validation_paths_scan_real_source_files(tmp_path: Path) -> None:
+    source_cpp = tmp_path / "src" / "cpp"
+    build_dir = tmp_path / "build"
+    logs_dir = tmp_path / "logs"
+    nested_source = source_cpp / "solvers" / "future_solver.cc"
+    nested_header = source_cpp / "include" / "future_solver.hpp"
+    ignored_text = source_cpp / "notes.txt"
+    nested_source.parent.mkdir(parents=True, exist_ok=True)
+    nested_header.parent.mkdir(parents=True, exist_ok=True)
+    nested_source.write_text("int f() { return 1; }\n", encoding="utf-8")
+    nested_header.write_text("#pragma once\n", encoding="utf-8")
+    ignored_text.write_text("not source\n", encoding="utf-8")
+
+    paths = final_validation._critical_validation_paths(source_cpp, build_dir, logs_dir)
+    path_texts = {path.as_posix() for path in paths}
+    object_root = build_dir / "CMakeFiles" / f"{final_validation.FAMILY_BENCHMARK_TARGET}.dir"
+
+    assert nested_source.as_posix() in path_texts
+    assert nested_header.as_posix() in path_texts
+    assert (object_root / "solvers" / "future_solver.cc.obj").as_posix() in path_texts
+    assert (object_root / "solvers" / "future_solver.cc.obj.d").as_posix() in path_texts
+    assert ignored_text.as_posix() not in path_texts
+    assert not any("absolute_pose_lambdatwist_benchmark_adapter.cc" in text for text in path_texts)
 
 
 def test_final_validation_records_failed_repetitions(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -284,6 +310,9 @@ def test_final_validation_path_length_preflight_skips_setup(tmp_path: Path, monk
     payload = json.loads(report_path.read_text(encoding="utf-8"))
     assert payload["status"] == "incomplete"
     assert payload["baseline"]["setup"]["failed_step"] == "path_length_preflight"
+    assert "Maximum observed critical path length" in payload["baseline"]["setup"]["error_message"]
     assert payload["baseline"]["runs"] == []
     assert payload["baseline"]["summary"]["benchmark_runs_attempted"] == 0
+    assert not (experiment_dir / "validation" / "baseline" / "runs" / "run_01.json").exists()
+    assert (experiment_dir / "validation" / "baseline" / "logs" / "path_length_preflight.log").is_file()
     assert payload["diagnostics"]["dominant_failed_step"] == "path_length_preflight"

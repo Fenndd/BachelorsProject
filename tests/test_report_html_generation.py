@@ -16,6 +16,7 @@ from orchestrator.reporting import (
     ReportFinalValidation,
     ReportFinalValidationComparison,
     ReportFinalValidationDiagnostics,
+    ReportFinalValidationSetup,
     ReportFinalResult,
     ReportIterationSummary,
     ReportLlmInfo,
@@ -721,11 +722,13 @@ def test_html_contains_final_validation_section_and_llm_kpis(tmp_path: Path) -> 
         status="completed",
         benchmark_repetitions=5,
         baseline=ReportRepeatedValidationGroupSummary(
+            benchmark_runs_attempted=5,
             successful_runs=5,
             median_runtime_ns_per_case=100.0,
             all_correctness_passed=True,
         ),
         final=ReportRepeatedValidationGroupSummary(
+            benchmark_runs_attempted=5,
             successful_runs=5,
             median_runtime_ns_per_case=80.0,
             all_correctness_passed=True,
@@ -736,8 +739,6 @@ def test_html_contains_final_validation_section_and_llm_kpis(tmp_path: Path) -> 
         ),
         diagnostics=ReportFinalValidationDiagnostics(
             summary="All repeated validation runs completed successfully.",
-            dominant_failed_step="benchmark_correctness_check",
-            suggested_log_paths=["results/experiments/exp_001/validation/final/logs/run_01.log"],
         ),
     )
 
@@ -748,12 +749,12 @@ def test_html_contains_final_validation_section_and_llm_kpis(tmp_path: Path) -> 
     assert 'id="final-validation"' in html
     assert "Benchmark Repetitions" in html
     assert "Median Speedup" in html
+    assert "Baseline Benchmark Runs Attempted" in html
+    assert "Final Benchmark Runs Attempted" in html
     assert "Most Expensive Iteration" in html
     assert "Highest Latency Iteration" in html
     assert "All repeated validation runs completed successfully." in html
-    assert "Dominant failed step" in html
-    assert "benchmark_correctness_check" in html
-    assert "validation/final/logs/run_01.log" in html
+    assert "Dominant Failed Step" not in html
 
 
 def test_executive_summary_uses_final_validation_baseline_runtime(tmp_path: Path) -> None:
@@ -837,6 +838,58 @@ def test_final_validation_html_missing_message(tmp_path: Path) -> None:
     assert "Successful Baseline Runs" not in final_validation
 
 
+def test_final_validation_html_incomplete_shows_compact_diagnostics(tmp_path: Path) -> None:
+    report_data = _report_data()
+    report_data.final_validation = ReportFinalValidation(
+        enabled=True,
+        status="incomplete",
+        benchmark_repetitions=5,
+        baseline=ReportRepeatedValidationGroupSummary(benchmark_runs_attempted=0),
+        final=ReportRepeatedValidationGroupSummary(benchmark_runs_attempted=0),
+        baseline_setup=ReportFinalValidationSetup(
+            configure_status="skipped",
+            build_status="not_run",
+            failed_step="path_length_preflight",
+        ),
+        final_setup=ReportFinalValidationSetup(
+            configure_status="skipped",
+            build_status="not_run",
+            failed_step="path_length_preflight",
+        ),
+        comparison=ReportFinalValidationComparison(
+            median_speedup=None,
+            median_runtime_reduction_percent=None,
+        ),
+        diagnostics=ReportFinalValidationDiagnostics(
+            summary="Repeated validation could not produce comparison metrics.",
+            dominant_failed_step="path_length_preflight",
+            dominant_error_excerpt="Maximum observed critical path length is 320",
+            path_length_warning_detected=True,
+            max_observed_path_length=320,
+            suggested_log_paths=["validation/baseline/logs/path_length_preflight.log"],
+        ),
+    )
+
+    plot_paths = build_report_figures(report_data, tmp_path / "plots")
+    html_path = render_report_html(report_data, plot_paths, tmp_path / "report.html")
+    html = html_path.read_text(encoding="utf-8")
+    final_validation = html.split('id="final-validation"', 1)[1].split(
+        'id="baseline-metrics"', 1
+    )[0]
+
+    assert "headline performance metrics are unavailable" in final_validation
+    assert "Baseline Benchmark Runs Attempted" in final_validation
+    assert "Final Benchmark Runs Attempted" in final_validation
+    assert "Baseline Configure Status" in final_validation
+    assert "Final Build Status" in final_validation
+    assert "Dominant Failed Step" in final_validation
+    assert "path_length_preflight" in final_validation
+    assert "Path-Length Warning Detected" in final_validation
+    assert "Max Observed Path Length" in final_validation
+    assert "Suggested Logs" in final_validation
+    assert "Success Rate Mean" not in final_validation
+
+
 def test_final_validation_plot_generated_when_missing_data(tmp_path: Path) -> None:
     report_data = _report_data()
     plots_dir = tmp_path / "plots"
@@ -854,21 +907,27 @@ def test_final_validation_plot_filters_failed_and_incorrect_runs(tmp_path: Path)
     runs = [
         {
             "run_index": 1,
-            "verification_status": "success",
+            "benchmark_run_status": "success",
             "correctness_passed": True,
             "runtime_ns_per_case_median": 100.0,
         },
         {
             "run_index": 2,
-            "verification_status": "failed",
+            "benchmark_run_status": "failed",
             "correctness_passed": True,
             "runtime_ns_per_case_median": 999.0,
         },
         {
             "run_index": 3,
-            "verification_status": "success",
+            "benchmark_run_status": "success",
             "correctness_passed": False,
             "runtime_ns_per_case_median": 888.0,
+        },
+        {
+            "run_index": 4,
+            "verification_status": "success",
+            "correctness_passed": True,
+            "runtime_ns_per_case_median": 777.0,
         },
     ]
 
@@ -882,7 +941,7 @@ def test_final_validation_plot_placeholder_when_all_runs_filtered(tmp_path: Path
         baseline_runs=[
             {
                 "run_index": 1,
-                "verification_status": "failed",
+                "benchmark_run_status": "failed",
                 "correctness_passed": True,
                 "runtime_ns_per_case_median": 100.0,
             }
@@ -890,7 +949,7 @@ def test_final_validation_plot_placeholder_when_all_runs_filtered(tmp_path: Path
         final_runs=[
             {
                 "run_index": 1,
-                "verification_status": "success",
+                "benchmark_run_status": "success",
                 "correctness_passed": False,
                 "runtime_ns_per_case_median": 80.0,
             }

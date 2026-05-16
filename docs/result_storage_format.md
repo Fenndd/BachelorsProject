@@ -408,9 +408,11 @@ median/mean/min/max/population-std runtime statistics, correctness summaries,
 comparison speedups, and safety flags stating that validation does not update
 current-best state, promotion decisions, or the main `cpp/` tree. Run records use
 `validation_mode: "benchmark_only"` and `benchmark_run_status`; `verification_status`
-may remain for compatibility. Runtime aggregates use only successful runs whose
-correctness passed. Final validation runtime plots use the same filter. If
-baseline or final has no successful correct run, comparison metrics are `null`.
+may remain in newly written run records for compatibility. Runtime aggregates use
+only successful runs whose correctness passed. Final validation runtime plots use
+only `benchmark_run_status: "success"`, `correctness_passed: true`, and numeric
+runtime values. If baseline or final has no successful correct run, comparison
+metrics are `null`.
 
 The final validation `status` field is one of:
 
@@ -454,9 +456,12 @@ are not written.
 
 `closed_loop_selection_report.json` is reporting-only. It records a
 `control_decision` section describing the promotion policy and final best run,
-and a separate `final_analysis` section describing final source/diff paths,
-speedup, runtime reduction, and status counts. Its safety flags state that the
-report does not promote candidates, update `current_best_source`, update
+and a separate `single_run_selection_analytics` section describing final
+source/diff paths, single-run speedup/runtime-reduction analytics, and status
+counts. That analytics section includes
+`metric_source: "single_run_closed_loop_selection_analytics"`; these metrics are
+not final validated headline metrics. Its safety flags state that the report does
+not promote candidates, update `current_best_source`, update
 `final_optimized_source`, or modify the main `cpp/` tree.
 
 `summary.txt` includes a concise closed-loop section listing the experiment id,
