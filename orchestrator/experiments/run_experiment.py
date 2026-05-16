@@ -73,6 +73,7 @@ from orchestrator.benchmarking.candidate_decision import (
 )
 from orchestrator.patching.diff_stats import parse_unified_diff_stats
 from orchestrator.reporting.generate_report import generate_basic_report, refresh_report_artifact_map
+from orchestrator.storage.experiment_registry import allocate_next_experiment_run
 
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -212,33 +213,12 @@ def _read_json_file_object(path: Path, label: str) -> dict[str, Any]:
         raise ExperimentConfigError(str(exc)) from exc
 
 
-def _sanitize_name(value: str) -> str:
+def _safe_artifact_name(value: str) -> str:
     lowered = value.lower()
     separated = re.sub(r"[\s/\\]+", "_", lowered)
     safe = re.sub(r"[^a-z0-9_-]+", "_", separated)
     compacted = re.sub(r"_+", "_", safe).strip("_-")
     return compacted or "experiment"
-
-
-def _build_experiment_id(config: ExperimentConfig, started_at: datetime) -> str:
-    timestamp = started_at.strftime("%Y-%m-%d_%H-%M")
-    return f"{timestamp}_{_sanitize_name(config.experiment_name)}"
-
-
-def _create_experiment_dir(experiment_id: str) -> Path:
-    EXPERIMENTS_ROOT.mkdir(parents=True, exist_ok=True)
-    experiment_dir = EXPERIMENTS_ROOT / experiment_id
-    if not experiment_dir.exists():
-        (experiment_dir / "logs").mkdir(parents=True)
-        return experiment_dir
-
-    for suffix in range(1, 100):
-        candidate_dir = EXPERIMENTS_ROOT / f"{experiment_id}_{suffix:02d}"
-        if not candidate_dir.exists():
-            (candidate_dir / "logs").mkdir(parents=True)
-            return candidate_dir
-
-    raise OSError(f"Could not create unique experiment directory for {experiment_id}")
 
 
 def _total_iterations(config: ExperimentConfig) -> int:
@@ -296,7 +276,7 @@ def _variant_llm_config_path(experiment_dir: Path, variant_id: str) -> Path:
     return (
         experiment_dir
         / "variant_configs"
-        / f"{_sanitize_name(variant_id)}_llm_config.json"
+        / f"{_safe_artifact_name(variant_id)}_llm_config.json"
     )
 
 
@@ -768,7 +748,7 @@ def _history_context_log_path(
     return (
         experiment_dir
         / "logs"
-        / f"iteration_{global_iteration:03d}_{_sanitize_name(variant_id)}_history_context.txt"
+        / f"iteration_{global_iteration:03d}_{_safe_artifact_name(variant_id)}_history_context.txt"
     )
 
 
@@ -1251,7 +1231,7 @@ def _error_message(record: dict[str, Any]) -> str | None:
 
 
 def _variant_dir(experiment_dir: Path, variant_id: str) -> Path:
-    return experiment_dir / "variants" / _sanitize_name(variant_id)
+    return experiment_dir / "variants" / _safe_artifact_name(variant_id)
 
 
 def _variant_history_path(experiment_dir: Path, variant_id: str) -> Path:
@@ -2939,13 +2919,13 @@ def _run_experiment(
         return 1
 
     started_at = datetime.now().astimezone()
-    experiment_id = _build_experiment_id(config, started_at)
     try:
-        experiment_dir = _create_experiment_dir(experiment_id)
+        allocation = allocate_next_experiment_run(EXPERIMENTS_ROOT)
     except OSError as exc:
         print(f"ERROR: Could not create experiment directory: {exc}", file=sys.stderr)
         return 1
-    experiment_id = experiment_dir.name
+    experiment_id = allocation.experiment_id
+    experiment_dir = allocation.experiment_dir
     iterations_path = experiment_dir / "iterations.jsonl"
 
     _write_json(experiment_dir / "experiment_config_snapshot.json", config_snapshot)

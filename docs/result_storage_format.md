@@ -286,8 +286,8 @@ results/experiments/<experiment_id>/final_optimized_source.diff
 results/experiments/<experiment_id>/final_diff_stats.json
 results/experiments/<experiment_id>/closed_loop_summary.json
 results/experiments/<experiment_id>/closed_loop_selection_report.json
-results/experiments/<experiment_id>/final_validation/
-results/experiments/<experiment_id>/final_validation/final_validation_report.json
+results/experiments/<experiment_id>/validation/
+results/experiments/<experiment_id>/validation/final_validation_report.json
 results/experiments/<experiment_id>/experiment_metadata.json
 results/experiments/<experiment_id>/current_best_state.json
 ```
@@ -380,20 +380,24 @@ must be a positive integer.
 The validation directory layout is:
 
 ```text
-results/experiments/<experiment_id>/final_validation/
-├── baseline_runs/
-│   ├── run_01/
-│   └── ...
-├── final_runs/
-│   ├── run_01/
-│   └── ...
+results/experiments/<experiment_id>/validation/
+├── baseline/
+│   ├── cpp/
+│   ├── build/
+│   ├── runs/
+│   └── logs/
+├── final/
+│   ├── cpp/
+│   ├── build/
+│   ├── runs/
+│   └── logs/
 └── final_validation_report.json
 ```
 
-Each run directory is candidate-like: it contains an isolated copied workspace,
-a minimal successful `materialization.json`, and the normal verifier output
-`verification.json` when verification reaches artifact writing. Failed
-repetitions are recorded and remaining repetitions continue when possible.
+Each group contains one copied `cpp/` source tree and one build directory. The
+runner configures/builds once per group, then writes repeated benchmark run JSON
+and logs under that group. Failed repetitions are recorded and remaining
+repetitions continue when possible.
 
 `final_validation_report.json` uses `schema_version: "final_validation.v1"` and
 contains per-run records, aggregate median/mean/min/max/population-std runtime

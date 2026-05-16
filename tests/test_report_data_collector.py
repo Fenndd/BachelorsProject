@@ -78,7 +78,7 @@ def test_collect_report_data_uses_final_validation_metrics_when_available(tmp_pa
     _write_json(experiment_dir / "closed_loop_summary.json", _summary())
     _write_jsonl(experiment_dir / "closed_loop_iterations.jsonl", [])
     _write_json(
-        experiment_dir / "final_validation" / "final_validation_report.json",
+        experiment_dir / "validation" / "final_validation_report.json",
         {
             "schema_version": "final_validation.v1",
             "enabled": True,
@@ -124,6 +124,9 @@ def test_collect_report_data_uses_final_validation_metrics_when_available(tmp_pa
     report_data = collect_report_data(experiment_dir)
 
     assert report_data.final_validation.benchmark_repetitions == 5
+    assert str(report_data.final_validation.report_path).endswith(
+        "validation/final_validation_report.json"
+    )
     assert report_data.final_result.final_speedup_vs_baseline == 1.25
     assert report_data.final_result.final_runtime_reduction_percent == 20.0
     assert report_data.final_best_candidate.runtime_ns_per_case_median == 80.0
@@ -1000,6 +1003,7 @@ def test_artifact_map_includes_extended_existing_artifacts(tmp_path: Path) -> No
         "experiment_status.json",
     ):
         _write_json(experiment_dir / name, {})
+    _write_json(experiment_dir / "validation" / "final_validation_report.json", {})
     (experiment_dir / "summary.txt").write_text("summary\n", encoding="utf-8")
 
     report_data = collect_report_data(experiment_dir)
@@ -1010,6 +1014,10 @@ def test_artifact_map_includes_extended_existing_artifacts(tmp_path: Path) -> No
     assert str(report_data.artifacts.closed_loop_selection_report).endswith("closed_loop_selection_report.json")
     assert str(report_data.artifacts.experiment_status).endswith("experiment_status.json")
     assert str(report_data.artifacts.summary_txt).endswith("summary.txt")
+    assert str(report_data.artifacts.final_validation_dir).endswith("validation")
+    assert str(report_data.artifacts.final_validation_report).replace("\\", "/").endswith(
+        "validation/final_validation_report.json"
+    )
 
 
 def test_llm_usage_summary_is_aggregated(tmp_path: Path) -> None:

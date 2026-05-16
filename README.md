@@ -77,7 +77,7 @@ Key closed-loop artifacts are written under `results/experiments/<experiment_id>
 - `closed_loop_summary.json`
 - `closed_loop_iterations.jsonl`
 - `closed_loop_selection_report.json`
-- `final_validation/final_validation_report.json`
+- `validation/final_validation_report.json`
 - `current_best_state.json`
 
 See `docs/architecture.md`, `docs/experiment_runner.md`, `docs/closed_loop_optimization.md`, `docs/result_storage_format.md`, `docs/candidate_edit_formats.md`, and `docs/best_result_selection_policy.md`.

@@ -108,7 +108,7 @@ def _patch_runner_roots(monkeypatch: pytest.MonkeyPatch, root: Path) -> None:
 
 def _fake_final_validation(**kwargs: Any) -> Path:
     experiment_dir = Path(kwargs["experiment_dir"])
-    report_path = experiment_dir / "final_validation" / "final_validation_report.json"
+    report_path = experiment_dir / "validation" / "final_validation_report.json"
     _write_json(
         report_path,
         {
@@ -247,7 +247,7 @@ def test_final_validation_runs_after_finalization_before_reporting(
         encoding="utf-8"
     )
     assert status["closed_loop"]["final_validation_report_path"].endswith(
-        "final_validation/final_validation_report.json"
+        "validation/final_validation_report.json"
     )
 
 
@@ -399,6 +399,11 @@ def test_final_report_includes_final_experiment_metadata(
     )
     html = (experiment_dir / "report" / "report.html").read_text(encoding="utf-8")
 
+    assert experiment_dir.name.isdigit()
+    assert experiment_dir == experiment_dir.parent / status["experiment_id"]
+    assert status["experiment_name"] == "reporting integration test"
+    assert report_data["experiment"]["experiment_id"] == status["experiment_id"]
+    assert report_data["experiment"]["experiment_name"] == "reporting integration test"
     assert report_data["experiment_metadata"]["finished_at"] == status["finished_at"]
     assert report_data["experiment_metadata"]["total_duration_seconds"] is not None
     assert status["finished_at"] in html

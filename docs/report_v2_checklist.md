@@ -13,7 +13,7 @@ The report is a single unified current report, not separate v1/v2 modes. The his
 - `results/experiments/<experiment_id>/final_optimized_source/` exists.
 - `results/experiments/<experiment_id>/final_optimized_source.diff` exists.
 - `results/experiments/<experiment_id>/final_diff_stats.json` exists for new runs.
-- `results/experiments/<experiment_id>/final_validation/final_validation_report.json` exists for new closed-loop runs unless final validation failed before artifact creation.
+- `results/experiments/<experiment_id>/validation/final_validation_report.json` exists for new closed-loop runs unless final validation failed before artifact creation.
 
 ## Expected Report Directory Structure
 

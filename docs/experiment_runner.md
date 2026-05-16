@@ -271,7 +271,7 @@ The same final diff summary is embedded as `final_diff_stats` in
 Final repeated benchmark validation writes:
 
 ```text
-results/experiments/<experiment_id>/final_validation/final_validation_report.json
+results/experiments/<experiment_id>/validation/final_validation_report.json
 ```
 
 The report stores all baseline/final validation repetitions, aggregates using

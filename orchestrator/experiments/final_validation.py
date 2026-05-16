@@ -70,7 +70,7 @@ def run_final_validation(
     if benchmark_repetitions <= 0:
         raise ValueError("benchmark_repetitions must be a positive integer")
 
-    validation_dir = experiment_dir / "final_validation"
+    validation_dir = experiment_dir / "validation"
     report_path = validation_dir / "final_validation_report.json"
     validation_dir.mkdir(parents=True, exist_ok=True)
     started_at = _now_iso()
@@ -83,8 +83,8 @@ def run_final_validation(
             "benchmark_repetitions": benchmark_repetitions,
             "started_at": started_at,
             "finished_at": _now_iso(),
-            "baseline": _empty_group(baseline_source_dir),
-            "final": _empty_group(final_source_dir),
+            "baseline": _empty_group(validation_dir / "baseline" / "cpp", repo_root),
+            "final": _empty_group(validation_dir / "final" / "cpp", repo_root),
             "comparison": _empty_comparison(),
             "safety": _safety_block(),
             "statistics_note": "Runtime standard deviation uses population std (statistics.pstdev).",
@@ -121,12 +121,12 @@ def run_final_validation(
         "started_at": started_at,
         "finished_at": _now_iso(),
         "baseline": {
-            "source_dir": _display_path(validation_dir / "baseline" / "source", repo_root),
+            "source_dir": _display_path(validation_dir / "baseline" / "cpp", repo_root),
             "runs": baseline_runs,
             "summary": baseline_summary,
         },
         "final": {
-            "source_dir": _display_path(validation_dir / "final" / "source", repo_root),
+            "source_dir": _display_path(validation_dir / "final" / "cpp", repo_root),
             "runs": final_runs,
             "summary": final_summary,
         },
@@ -157,7 +157,7 @@ def _run_group(
     group_dir = validation_dir / group_name
     if group_dir.exists():
         shutil.rmtree(group_dir)
-    source_cpp = group_dir / "source" / "cpp"
+    source_cpp = group_dir / "cpp"
     build_dir = group_dir / "build"
     runs_dir = group_dir / "runs"
     logs_dir = group_dir / "logs"
@@ -726,8 +726,8 @@ def _validation_status(
     return "completed_partial"
 
 
-def _empty_group(source_dir: Path) -> dict[str, Any]:
-    return {"source_dir": str(source_dir), "runs": [], "summary": _summarize_runs([])}
+def _empty_group(source_dir: Path, repo_root: Path) -> dict[str, Any]:
+    return {"source_dir": _display_path(source_dir, repo_root), "runs": [], "summary": _summarize_runs([])}
 
 
 def _empty_comparison() -> dict[str, Any]:

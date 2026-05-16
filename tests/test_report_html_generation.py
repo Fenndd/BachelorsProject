@@ -737,7 +737,7 @@ def test_html_contains_final_validation_section_and_llm_kpis(tmp_path: Path) -> 
         diagnostics=ReportFinalValidationDiagnostics(
             summary="All repeated validation runs completed successfully.",
             dominant_failed_step="benchmark_correctness_check",
-            suggested_log_paths=["results/experiments/exp_001/final_validation/final/logs/run_01.log"],
+            suggested_log_paths=["results/experiments/exp_001/validation/final/logs/run_01.log"],
         ),
     )
 
@@ -753,7 +753,7 @@ def test_html_contains_final_validation_section_and_llm_kpis(tmp_path: Path) -> 
     assert "All repeated validation runs completed successfully." in html
     assert "Dominant failed step" in html
     assert "benchmark_correctness_check" in html
-    assert "final_validation/final/logs/run_01.log" in html
+    assert "validation/final/logs/run_01.log" in html
 
 
 def test_executive_summary_uses_final_best_baseline_runtime(tmp_path: Path) -> None:

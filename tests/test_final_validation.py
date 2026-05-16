@@ -91,11 +91,15 @@ def test_final_validation_aggregates_successful_runs(tmp_path: Path, monkeypatch
     assert payload["safety"]["updates_current_best"] is False
     assert payload["diagnostics"]["summary"] == "All repeated validation runs completed successfully."
     assert run_counts == {"configure": 2, "build": 2, "benchmark": 10}
-    assert (experiment_dir / "final_validation" / "baseline" / "source" / "cpp" / "source.cc").is_file()
-    assert (experiment_dir / "final_validation" / "baseline" / "build").is_dir()
-    assert (experiment_dir / "final_validation" / "baseline" / "runs" / "run_01.json").is_file()
-    assert (experiment_dir / "final_validation" / "baseline" / "logs" / "run_01.log").is_file()
-    assert not (experiment_dir / "final_validation" / "baseline_runs").exists()
+    assert report_path == experiment_dir / "validation" / "final_validation_report.json"
+    for group in ("baseline", "final"):
+        assert (experiment_dir / "validation" / group / "cpp" / "source.cc").is_file()
+        assert (experiment_dir / "validation" / group / "build").is_dir()
+        assert (experiment_dir / "validation" / group / "runs" / "run_01.json").is_file()
+        assert (experiment_dir / "validation" / group / "logs" / "run_01.log").is_file()
+        assert not (experiment_dir / "validation" / group / "source" / "cpp").exists()
+    assert not (experiment_dir / "final_validation").exists()
+    assert not (experiment_dir / "validation" / "baseline_runs").exists()
 
 
 def test_final_validation_records_failed_repetitions(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
