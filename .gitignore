@@ -69,8 +69,8 @@ temp/
 .vscode/
 
 # Agent / AI config files
-AGENTS.MD
-CLAUDE.MD
+AGENTS.md
+CLAUDE.md
 .claude/
 opencode.json
 
