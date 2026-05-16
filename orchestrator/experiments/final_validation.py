@@ -1,7 +1,7 @@
 """Final repeated benchmark validation for closed-loop experiments.
 
-This module is final-evaluation only. It creates isolated candidate-like run
-directories and reuses the existing verifier entry point without changing
+This module is final-evaluation only. It creates one isolated source/build tree
+per validation group and repeats only benchmark execution. It does not change
 promotion decisions, current_best_source, or the main cpp/ tree.
 """
 
@@ -9,14 +9,22 @@ from __future__ import annotations
 
 import fnmatch
 import json
+import os
+import platform
 import shutil
 import statistics
 import subprocess
-import sys
 import time
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable, Sequence
+
+from orchestrator.benchmarking import parse_absolute_pose_benchmark_output
+from orchestrator.execution.candidate_benchmark_verification import (
+    BENCHMARK_CORRECTNESS_CHECK_STEP,
+    FAMILY_BENCHMARK_TARGET,
+    PARSE_FAMILY_BENCHMARK_STEP,
+)
 
 
 SOURCE_TREE_IGNORE_NAMES = {
@@ -79,11 +87,13 @@ def run_final_validation(
             "final": _empty_group(final_source_dir),
             "comparison": _empty_comparison(),
             "safety": _safety_block(),
+            "statistics_note": "Runtime standard deviation uses population std (statistics.pstdev).",
         }
+        payload["diagnostics"] = _diagnostics(payload)
         _write_json(report_path, payload)
         return report_path
 
-    runner = command_runner or _run_verifier_command
+    runner = command_runner or _run_subprocess_command
     baseline_runs = _run_group(
         validation_dir=validation_dir,
         group_name="baseline",
@@ -107,22 +117,16 @@ def run_final_validation(
     payload = {
         "schema_version": "final_validation.v1",
         "enabled": True,
-        "status": _validation_status(
-            baseline_summary,
-            final_summary,
-            comparison,
-            benchmark_repetitions,
-        ),
         "benchmark_repetitions": benchmark_repetitions,
         "started_at": started_at,
         "finished_at": _now_iso(),
         "baseline": {
-            "source_dir": _display_path(baseline_source_dir, repo_root),
+            "source_dir": _display_path(validation_dir / "baseline" / "source", repo_root),
             "runs": baseline_runs,
             "summary": baseline_summary,
         },
         "final": {
-            "source_dir": _display_path(final_source_dir, repo_root),
+            "source_dir": _display_path(validation_dir / "final" / "source", repo_root),
             "runs": final_runs,
             "summary": final_summary,
         },
@@ -130,6 +134,13 @@ def run_final_validation(
         "safety": _safety_block(),
         "statistics_note": "Runtime standard deviation uses population std (statistics.pstdev).",
     }
+    payload["status"] = _validation_status(
+        baseline_summary,
+        final_summary,
+        comparison,
+        benchmark_repetitions,
+    )
+    payload["diagnostics"] = _diagnostics(payload)
     _write_json(report_path, payload)
     return report_path
 
@@ -143,49 +154,152 @@ def _run_group(
     repo_root: Path,
     runner: CommandRunner,
 ) -> list[dict[str, Any]]:
+    group_dir = validation_dir / group_name
+    if group_dir.exists():
+        shutil.rmtree(group_dir)
+    source_cpp = group_dir / "source" / "cpp"
+    build_dir = group_dir / "build"
+    runs_dir = group_dir / "runs"
+    logs_dir = group_dir / "logs"
+    runs_dir.mkdir(parents=True, exist_ok=True)
+    logs_dir.mkdir(parents=True, exist_ok=True)
+
+    try:
+        _copy_source_tree(source_dir / "cpp", source_cpp)
+        setup_failure = _configure_and_build_group(
+            group_dir=group_dir,
+            source_cpp=source_cpp,
+            build_dir=build_dir,
+            logs_dir=logs_dir,
+            repo_root=repo_root,
+            runner=runner,
+        )
+    except Exception as exc:
+        setup_failure = {
+            "failed_step": "prepare_source",
+            "error_message": str(exc),
+            "log_path": None,
+        }
+
+    if setup_failure is not None:
+        return [
+            _failed_run(
+                run_index=index,
+                group_name=group_name,
+                group_dir=group_dir,
+                log_path=setup_failure.get("log_path"),
+                failed_step=_string_or_none(setup_failure.get("failed_step")) or "configure_cmake",
+                error_message=_string_or_none(setup_failure.get("error_message")),
+                repo_root=repo_root,
+            )
+            for index in range(1, repetitions + 1)
+        ]
+
+    try:
+        benchmark_executable = _find_executable(build_dir, FAMILY_BENCHMARK_TARGET)
+    except OSError as exc:
+        return [
+            _failed_run(
+                run_index=index,
+                group_name=group_name,
+                group_dir=group_dir,
+                log_path=None,
+                failed_step="run_absolute_pose_lambdatwist_benchmark",
+                error_message=str(exc),
+                repo_root=repo_root,
+            )
+            for index in range(1, repetitions + 1)
+        ]
     runs: list[dict[str, Any]] = []
-    parent = validation_dir / f"{group_name}_runs"
-    parent.mkdir(parents=True, exist_ok=True)
     for index in range(1, repetitions + 1):
-        run_dir = parent / f"run_{index:02d}"
-        candidate_run_id = f"final_validation_{group_name}_{index:02d}"
-        workspace_path = run_dir / "workspace"
-        try:
-            _prepare_run_dir(run_dir, workspace_path, source_dir, candidate_run_id, repo_root)
-            command = _verification_command(run_dir)
-            stage = runner(command, repo_root)
-        except Exception as exc:  # keep collecting repetitions if one setup/run fails
-            stage = {
-                "exit_code": None,
-                "duration_seconds": None,
-                "error_message": str(exc),
-            }
-        runs.append(_extract_run(index, candidate_run_id, run_dir, stage, repo_root))
+        runs.append(
+            _run_benchmark_repetition(
+                run_index=index,
+                group_name=group_name,
+                group_dir=group_dir,
+                runs_dir=runs_dir,
+                logs_dir=logs_dir,
+                benchmark_executable=benchmark_executable,
+                repo_root=repo_root,
+                runner=runner,
+            )
+        )
     return runs
 
 
-def _prepare_run_dir(
-    run_dir: Path,
-    workspace_path: Path,
-    source_dir: Path,
-    candidate_run_id: str,
+def _configure_and_build_group(
+    *,
+    group_dir: Path,
+    source_cpp: Path,
+    build_dir: Path,
+    logs_dir: Path,
     repo_root: Path,
-) -> None:
-    if run_dir.exists():
-        shutil.rmtree(run_dir)
-    workspace_cpp = workspace_path / "cpp"
-    workspace_cpp.parent.mkdir(parents=True, exist_ok=True)
-    _copy_source_tree(source_dir / "cpp", workspace_cpp)
-    _write_json(
-        run_dir / "materialization.json",
-        {
-            "overall_status": "success",
-            "candidate_run_id": candidate_run_id,
-            "workspace_path": _display_path(workspace_path, repo_root),
-            "source_dir": _display_path(workspace_cpp, repo_root),
-            "changed_files": [],
-        },
+    runner: CommandRunner,
+) -> dict[str, Any] | None:
+    cmake_exe = os.environ.get("CMAKE_EXE", "cmake")
+    cmake_generator = os.environ.get("CMAKE_GENERATOR")
+    cmake_cxx_compiler = os.environ.get("CMAKE_CXX_COMPILER")
+    cmake_make_program = os.environ.get("CMAKE_MAKE_PROGRAM")
+    eigen_include_dir = os.environ.get("EIGEN3_INCLUDE_DIR")
+    cmake_build_type = os.environ.get(
+        "BENCHMARK_CMAKE_BUILD_TYPE",
+        os.environ.get("CMAKE_BUILD_TYPE", "Release"),
     )
+
+    if not eigen_include_dir:
+        return {
+            "failed_step": "environment",
+            "error_message": "EIGEN3_INCLUDE_DIR is not set.",
+            "log_path": None,
+        }
+
+    configure_command = [
+        cmake_exe,
+        "-S",
+        str(source_cpp),
+        "-B",
+        str(build_dir),
+        f"-DEIGEN3_INCLUDE_DIR={eigen_include_dir}",
+    ]
+    if cmake_generator:
+        configure_command.extend(["-G", cmake_generator])
+    if cmake_cxx_compiler:
+        configure_command.append(f"-DCMAKE_CXX_COMPILER={cmake_cxx_compiler}")
+    if cmake_make_program:
+        configure_command.append(f"-DCMAKE_MAKE_PROGRAM={cmake_make_program}")
+    configure_command.append(f"-DCMAKE_BUILD_TYPE={cmake_build_type}")
+
+    configure_stage = _run_command(
+        configure_command,
+        group_dir,
+        logs_dir / "configure_cmake.log",
+        runner,
+    )
+    if configure_stage.get("exit_code") != 0:
+        return _setup_failure("configure_cmake", configure_stage, logs_dir / "configure_cmake.log")
+
+    build_command = [
+        cmake_exe,
+        "--build",
+        str(build_dir),
+        "--target",
+        FAMILY_BENCHMARK_TARGET,
+        "--config",
+        cmake_build_type,
+    ]
+    build_stage = _run_command(
+        build_command,
+        group_dir,
+        logs_dir / "build_absolute_pose_lambdatwist_benchmark.log",
+        runner,
+    )
+    if build_stage.get("exit_code") != 0:
+        return _setup_failure(
+            "build_absolute_pose_lambdatwist_benchmark",
+            build_stage,
+            logs_dir / "build_absolute_pose_lambdatwist_benchmark.log",
+        )
+    return None
 
 
 def _copy_source_tree(source: Path, destination: Path) -> None:
@@ -204,11 +318,7 @@ def _source_tree_ignore(_directory: str, names: list[str]) -> set[str]:
     return ignored
 
 
-def _verification_command(run_dir: Path) -> list[str]:
-    return [sys.executable, "-m", "orchestrator.execution.verify_candidate", "--candidate-run", str(run_dir)]
-
-
-def _run_verifier_command(command: Sequence[str], cwd: Path) -> dict[str, Any]:
+def _run_subprocess_command(command: Sequence[str], cwd: Path) -> dict[str, Any]:
     started = time.perf_counter()
     try:
         result = subprocess.run(
@@ -234,38 +344,321 @@ def _run_verifier_command(command: Sequence[str], cwd: Path) -> dict[str, Any]:
         }
 
 
-def _extract_run(
+def _run_command(
+    command: Sequence[str],
+    cwd: Path,
+    log_path: Path,
+    runner: CommandRunner,
+) -> dict[str, Any]:
+    started = time.perf_counter()
+    try:
+        stage = runner(command, cwd)
+    except Exception as exc:
+        stage = {"exit_code": None, "stdout": "", "stderr": str(exc), "error_message": str(exc)}
+    duration = stage.get("duration_seconds")
+    if not isinstance(duration, (int, float)) or isinstance(duration, bool):
+        stage["duration_seconds"] = round(time.perf_counter() - started, 3)
+    _write_command_log(log_path, command, cwd, stage)
+    return stage
+
+
+def _write_command_log(
+    path: Path,
+    command: Sequence[str] | str,
+    cwd: Path,
+    stage: dict[str, Any],
+) -> None:
+    command_text = command if isinstance(command, str) else _format_command(command)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        "\n".join(
+            [
+                f"COMMAND: {command_text}",
+                f"CWD: {cwd}",
+                f"EXIT_CODE: {stage.get('exit_code')}",
+                "",
+                "STDOUT:",
+                str(stage.get("stdout") or ""),
+                "",
+                "STDERR:",
+                str(stage.get("stderr") or stage.get("error_message") or ""),
+                "",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+
+def _setup_failure(step: str, stage: dict[str, Any], log_path: Path) -> dict[str, Any]:
+    return {
+        "failed_step": step,
+        "error_message": _stage_error(stage),
+        "log_path": log_path,
+    }
+
+
+def _run_benchmark_repetition(
+    *,
     run_index: int,
-    candidate_run_id: str,
-    run_dir: Path,
+    group_name: str,
+    group_dir: Path,
+    runs_dir: Path,
+    logs_dir: Path,
+    benchmark_executable: Path,
+    repo_root: Path,
+    runner: CommandRunner,
+) -> dict[str, Any]:
+    validation_run_id = f"final_validation_{group_name}_{run_index:02d}"
+    log_path = logs_dir / f"run_{run_index:02d}.log"
+    stage = _run_command([str(benchmark_executable)], group_dir, log_path, runner)
+    run = _run_from_benchmark_stage(
+        run_index=run_index,
+        validation_run_id=validation_run_id,
+        group_name=group_name,
+        group_dir=group_dir,
+        log_path=log_path,
+        stage=stage,
+        repo_root=repo_root,
+    )
+    _write_json(runs_dir / f"run_{run_index:02d}.json", run)
+    return run
+
+
+def _run_from_benchmark_stage(
+    *,
+    run_index: int,
+    validation_run_id: str,
+    group_name: str,
+    group_dir: Path,
+    log_path: Path | None,
     stage: dict[str, Any],
     repo_root: Path,
 ) -> dict[str, Any]:
-    verification = _safe_read_json(run_dir / "verification.json") or {}
-    benchmark_value = verification.get("benchmark")
-    benchmark = benchmark_value if isinstance(benchmark_value, dict) else {}
-    steps = verification.get("steps") if isinstance(verification.get("steps"), list) else []
-    failed_step = _string_or_none(verification.get("failed_step"))
-    error_message = _string_or_none(verification.get("error_message"))
-    if error_message is None:
-        error_message = _string_or_none(stage.get("error_message")) or _string_or_none(stage.get("stderr"))
+    failed_step: str | None = None
+    error_message: str | None = None
+    benchmark = _empty_benchmark(raw_output_available=bool(stage.get("stdout")))
+    parse_status = "not_run"
+
+    if stage.get("exit_code") != 0:
+        failed_step = "run_absolute_pose_lambdatwist_benchmark"
+        error_message = _stage_error(stage)
+    else:
+        parse_result = parse_absolute_pose_benchmark_output(str(stage.get("stdout") or ""))
+        benchmark = _benchmark_from_parse(str(stage.get("stdout") or ""), parse_result)
+        parse_status = "success" if parse_result["parse_success"] else "failed"
+        if not parse_result["parse_success"]:
+            failed_step = PARSE_FAMILY_BENCHMARK_STEP
+            error_message = (
+                "Could not parse family benchmark output. "
+                f"Missing fields: {parse_result['missing_fields']}; "
+                f"parse errors: {parse_result['parse_errors']}"
+            )
+        elif benchmark.get("parsed_correctness_passed") is not True:
+            failed_step = BENCHMARK_CORRECTNESS_CHECK_STEP
+            error_message = _build_benchmark_correctness_error_message(benchmark)
+
+    verification_status = "failed" if failed_step else "success"
     return {
         "run_index": run_index,
-        "candidate_run_id": _string_or_none(verification.get("candidate_run_id")) or candidate_run_id,
-        "validation_run_id": candidate_run_id,
-        "run_dir": _display_path(run_dir, repo_root),
-        "verification_status": _string_or_none(verification.get("overall_status")) or "failed",
-        "correctness_passed": _bool_or_none(_first_value(benchmark, verification, "parsed_correctness_passed", "correctness_passed")),
-        "runtime_ns_per_case_median": _number_or_none(_first_value(benchmark, verification, "parsed_runtime_ns_per_case_median", "runtime_ns_per_case_median")),
-        "success_rate": _number_or_none(_first_value(benchmark, verification, "parsed_success_rate", "success_rate")),
-        "mean_best_reprojection_error": _number_or_none(_first_value(benchmark, verification, "parsed_mean_best_reprojection_error", "mean_best_reprojection_error")),
-        "max_best_reprojection_error": _number_or_none(_first_value(benchmark, verification, "parsed_max_best_reprojection_error", "max_best_reprojection_error")),
-        "total_solutions": _int_or_none(_first_value(benchmark, verification, "parsed_total_solutions", "total_solutions")),
-        "valid_cases": _int_or_none(_first_value(benchmark, verification, "parsed_valid_cases", "valid_cases")),
-        "verification_duration_seconds": _verification_duration(steps, stage),
+        "validation_run_id": validation_run_id,
+        "group": group_name,
+        "group_dir": _display_path(group_dir, repo_root),
+        "run_dir": _display_path(group_dir, repo_root),
+        "benchmark_log_path": None if log_path is None else _display_path(log_path, repo_root),
+        "benchmark_parse_status": parse_status,
+        "verification_status": verification_status,
+        "correctness_passed": _bool_or_none(benchmark.get("parsed_correctness_passed")),
+        "runtime_ns_per_case_median": _number_or_none(benchmark.get("parsed_runtime_ns_per_case_median")),
+        "success_rate": _number_or_none(benchmark.get("parsed_success_rate")),
+        "mean_best_reprojection_error": _number_or_none(benchmark.get("parsed_mean_best_reprojection_error")),
+        "max_best_reprojection_error": _number_or_none(benchmark.get("parsed_max_best_reprojection_error")),
+        "total_solutions": _int_or_none(benchmark.get("parsed_total_solutions")),
+        "valid_cases": _int_or_none(benchmark.get("parsed_valid_cases")),
         "failed_step": failed_step,
         "error_message": error_message,
     }
+
+
+def _failed_run(
+    *,
+    run_index: int,
+    group_name: str,
+    group_dir: Path,
+    log_path: Any,
+    failed_step: str,
+    error_message: str | None,
+    repo_root: Path,
+) -> dict[str, Any]:
+    validation_run_id = f"final_validation_{group_name}_{run_index:02d}"
+    run = {
+        "run_index": run_index,
+        "validation_run_id": validation_run_id,
+        "group": group_name,
+        "group_dir": _display_path(group_dir, repo_root),
+        "run_dir": _display_path(group_dir, repo_root),
+        "benchmark_log_path": _display_path(log_path, repo_root) if isinstance(log_path, Path) else None,
+        "benchmark_parse_status": "not_run",
+        "verification_status": "failed",
+        "correctness_passed": None,
+        "runtime_ns_per_case_median": None,
+        "success_rate": None,
+        "mean_best_reprojection_error": None,
+        "max_best_reprojection_error": None,
+        "total_solutions": None,
+        "valid_cases": None,
+        "failed_step": failed_step,
+        "error_message": error_message,
+    }
+    _write_json(group_dir / "runs" / f"run_{run_index:02d}.json", run)
+    return run
+
+
+def _find_executable(build_dir: Path, executable_name: str) -> Path:
+    expected_name = f"{executable_name}.exe" if platform.system() == "Windows" else executable_name
+    candidates = sorted(build_dir.rglob(expected_name))
+    if not candidates and expected_name.endswith(".exe"):
+        candidates = sorted(build_dir.rglob(executable_name))
+    if not candidates:
+        raise FileNotFoundError(
+            f"Could not find {executable_name} executable under build directory: {build_dir}"
+        )
+    return max(candidates, key=lambda path: path.stat().st_mtime)
+
+
+def _format_command(command: Sequence[str]) -> str:
+    return " ".join(f'"{part}"' if " " in str(part) else str(part) for part in command)
+
+
+def _stage_error(stage: dict[str, Any]) -> str:
+    return (
+        _string_or_none(stage.get("error_message"))
+        or _string_or_none(stage.get("stderr"))
+        or f"Command exited with code {stage.get('exit_code')}"
+    )
+
+
+def _empty_benchmark(raw_output_available: bool = False) -> dict[str, Any]:
+    return {
+        "family": "absolute_pose_solvers",
+        "solver": "lambdatwist_p3p",
+        "runtime_unit": "ns",
+        "raw_output_available": raw_output_available,
+        "parse_success": False,
+        "missing_fields": [
+            "solver_name",
+            "num_cases",
+            "success_rate",
+            "mean_best_reprojection_error",
+            "max_best_reprojection_error",
+            "runtime_ns_total_median",
+            "runtime_ns_per_case_median",
+            "correctness_passed",
+        ],
+        "parse_errors": [],
+        "parsed_solver_name": None,
+        "parsed_num_cases": None,
+        "parsed_success_rate": None,
+        "parsed_mean_best_reprojection_error": None,
+        "parsed_max_best_reprojection_error": None,
+        "parsed_runtime_ns_total_median": None,
+        "parsed_runtime_ns_per_case_median": None,
+        "parsed_correctness_passed": None,
+        "parsed_valid_cases": None,
+        "parsed_total_solutions": None,
+        "benchmark_options": None,
+    }
+
+
+def _benchmark_from_parse(stdout: str, parse_result: dict[str, Any]) -> dict[str, Any]:
+    parsed_metrics = parse_result["metrics"]
+    benchmark = _empty_benchmark(raw_output_available=bool(stdout))
+    benchmark.update(
+        {
+            "parse_success": parse_result["parse_success"],
+            "missing_fields": parse_result["missing_fields"],
+            "parse_errors": parse_result["parse_errors"],
+            "parsed_solver_name": parsed_metrics.get("solver_name"),
+            "parsed_num_cases": parsed_metrics.get("num_cases"),
+            "parsed_success_rate": parsed_metrics.get("success_rate"),
+            "parsed_mean_best_reprojection_error": parsed_metrics.get("mean_best_reprojection_error"),
+            "parsed_max_best_reprojection_error": parsed_metrics.get("max_best_reprojection_error"),
+            "parsed_runtime_ns_total_median": parsed_metrics.get("runtime_ns_total_median"),
+            "parsed_runtime_ns_per_case_median": parsed_metrics.get("runtime_ns_per_case_median"),
+            "parsed_correctness_passed": parsed_metrics.get("correctness_passed"),
+            "parsed_valid_cases": parsed_metrics.get("valid_cases"),
+            "parsed_total_solutions": parsed_metrics.get("total_solutions"),
+        }
+    )
+    return benchmark
+
+
+def _build_benchmark_correctness_error_message(benchmark: dict[str, Any]) -> str:
+    return (
+        "Family benchmark parsed successfully, but correctness_passed=false. "
+        f"success_rate={benchmark.get('parsed_success_rate')!r}, "
+        "mean_best_reprojection_error="
+        f"{benchmark.get('parsed_mean_best_reprojection_error')!r}, "
+        "max_best_reprojection_error="
+        f"{benchmark.get('parsed_max_best_reprojection_error')!r}."
+    )
+
+
+def _diagnostics(payload: dict[str, Any]) -> dict[str, Any]:
+    status = _string_or_none(payload.get("status")) or "skipped"
+    baseline_runs = _group_runs(payload, "baseline")
+    final_runs = _group_runs(payload, "final")
+    failed_runs = [
+        run for run in [*baseline_runs, *final_runs]
+        if run.get("verification_status") != "success" or run.get("correctness_passed") is not True
+    ]
+    failed_steps = [
+        str(run.get("failed_step"))
+        for run in failed_runs
+        if isinstance(run.get("failed_step"), str) and run.get("failed_step")
+    ]
+    dominant_failed_step = None
+    if failed_steps:
+        dominant_failed_step = max(sorted(set(failed_steps)), key=failed_steps.count)
+
+    if status == "completed":
+        summary = "All repeated validation runs completed successfully."
+    elif status == "completed_partial":
+        summary = "Repeated validation comparison is available, but some runs failed or failed correctness."
+    elif status == "incomplete":
+        summary = "Repeated validation could not produce comparison metrics."
+    elif status == "skipped":
+        summary = "Repeated validation was skipped."
+    else:
+        summary = "Repeated validation status is unavailable."
+
+    suggested_logs = []
+    for run in failed_runs or [*baseline_runs[:1], *final_runs[:1]]:
+        log_path = run.get("benchmark_log_path")
+        if isinstance(log_path, str) and log_path and log_path not in suggested_logs:
+            suggested_logs.append(log_path)
+        if len(suggested_logs) >= 4:
+            break
+
+    return {
+        "summary": summary,
+        "dominant_failed_step": dominant_failed_step,
+        "baseline_failed_runs": len([
+            run for run in baseline_runs
+            if run.get("verification_status") != "success" or run.get("correctness_passed") is not True
+        ]),
+        "final_failed_runs": len([
+            run for run in final_runs
+            if run.get("verification_status") != "success" or run.get("correctness_passed") is not True
+        ]),
+        "suggested_log_paths": suggested_logs,
+    }
+
+
+def _group_runs(payload: dict[str, Any], group_name: str) -> list[dict[str, Any]]:
+    group = payload.get(group_name)
+    if not isinstance(group, dict) or not isinstance(group.get("runs"), list):
+        return []
+    return [run for run in group["runs"] if isinstance(run, dict)]
 
 
 def _summarize_runs(runs: list[dict[str, Any]]) -> dict[str, Any]:
@@ -366,37 +759,6 @@ def _reduction_percent(baseline: float | None, final: float | None) -> float | N
     if baseline is None or final is None or baseline == 0:
         return None
     return ((baseline - final) / baseline) * 100.0
-
-
-def _verification_duration(steps: Any, stage: dict[str, Any]) -> float | None:
-    if isinstance(steps, list):
-        durations = [
-            float(step["duration_seconds"])
-            for step in steps
-            if isinstance(step, dict)
-            and isinstance(step.get("duration_seconds"), (int, float))
-            and not isinstance(step.get("duration_seconds"), bool)
-        ]
-        if durations:
-            return sum(durations)
-    return _number_or_none(stage.get("duration_seconds"))
-
-
-def _first_value(first: dict[str, Any], second: dict[str, Any], *keys: str) -> Any:
-    for key in keys:
-        if key in first:
-            return first.get(key)
-        if key in second:
-            return second.get(key)
-    return None
-
-
-def _safe_read_json(path: Path) -> dict[str, Any] | None:
-    try:
-        payload = json.loads(path.read_text(encoding="utf-8-sig"))
-    except (OSError, json.JSONDecodeError):
-        return None
-    return payload if isinstance(payload, dict) else None
 
 
 def _write_json(path: Path, payload: dict[str, Any]) -> None:

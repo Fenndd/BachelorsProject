@@ -19,6 +19,7 @@ from orchestrator.reporting.report_data import (
     ReportFinalBestCandidate,
     ReportFinalValidation,
     ReportFinalValidationComparison,
+    ReportFinalValidationDiagnostics,
     ReportFinalResult,
     ReportDiffStats,
     ReportIterationSummary,
@@ -559,9 +560,11 @@ def _build_final_validation(experiment_path: Path) -> ReportFinalValidation:
     baseline_raw = payload.get("baseline")
     final_raw = payload.get("final")
     comparison_raw = payload.get("comparison")
+    diagnostics_raw = payload.get("diagnostics")
     baseline = baseline_raw if isinstance(baseline_raw, dict) else {}
     final = final_raw if isinstance(final_raw, dict) else {}
     comparison = comparison_raw if isinstance(comparison_raw, dict) else {}
+    diagnostics = diagnostics_raw if isinstance(diagnostics_raw, dict) else {}
     return ReportFinalValidation(
         enabled=_bool_or_none(payload.get("enabled")),
         status=_string_or_none(payload.get("status")),
@@ -582,6 +585,16 @@ def _build_final_validation(experiment_path: Path) -> ReportFinalValidation:
             ),
             baseline_reference=_string_or_none(comparison.get("baseline_reference")),
             final_reference=_string_or_none(comparison.get("final_reference")),
+        ),
+        diagnostics=ReportFinalValidationDiagnostics(
+            summary=_string_or_none(diagnostics.get("summary")),
+            dominant_failed_step=_string_or_none(diagnostics.get("dominant_failed_step")),
+            baseline_failed_runs=_int_or_default(diagnostics.get("baseline_failed_runs")),
+            final_failed_runs=_int_or_default(diagnostics.get("final_failed_runs")),
+            suggested_log_paths=[
+                item for item in diagnostics.get("suggested_log_paths", [])
+                if isinstance(item, str) and item
+            ] if isinstance(diagnostics.get("suggested_log_paths"), list) else [],
         ),
     )
 

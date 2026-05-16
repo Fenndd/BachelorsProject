@@ -141,6 +141,29 @@ def test_generate_basic_report_html_only_does_not_require_pdf_exporter(
     _assert_inputs_unchanged(experiment_dir, before)
 
 
+def test_refresh_report_artifact_map_updates_final_status_and_summary(tmp_path: Path) -> None:
+    experiment_dir = _experiment_dir(tmp_path)
+    generate_basic_report(experiment_dir, formats=("html",))
+    report_data_path = experiment_dir / "report" / "report_data.json"
+    payload = json.loads(report_data_path.read_text(encoding="utf-8"))
+    assert payload["artifacts"]["experiment_status"] is None
+    assert payload["artifacts"]["summary_txt"] is None
+
+    _write_json(experiment_dir / "experiment_status.json", {"overall_status": "completed"})
+    (experiment_dir / "summary.txt").write_text("summary\n", encoding="utf-8")
+
+    html_path = generate_report.refresh_report_artifact_map(experiment_dir)
+
+    assert html_path == experiment_dir / "report" / "report.html"
+    assert html_path is not None
+    payload = json.loads(report_data_path.read_text(encoding="utf-8"))
+    assert payload["artifacts"]["experiment_status"].endswith("experiment_status.json")
+    assert payload["artifacts"]["summary_txt"].endswith("summary.txt")
+    html = html_path.read_text(encoding="utf-8")
+    assert "experiment_status.json" in html
+    assert "summary.txt" in html
+
+
 def test_generate_basic_report_pdf_calls_exporter(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

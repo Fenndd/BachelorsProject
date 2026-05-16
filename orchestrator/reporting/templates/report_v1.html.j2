@@ -216,6 +216,15 @@
 
   <section id="final-validation">
     <h2>Final Repeated Benchmark Validation</h2>
+    {% if report.final_validation.diagnostics.summary %}
+    <p class="muted">{{ report.final_validation.diagnostics.summary }}</p>
+    {% if report.final_validation.diagnostics.dominant_failed_step %}
+    <p><strong>Dominant failed step:</strong> <code>{{ report.final_validation.diagnostics.dominant_failed_step }}</code></p>
+    {% endif %}
+    {% if report.final_validation.diagnostics.suggested_log_paths %}
+    <p><strong>Suggested logs:</strong> <code>{{ report.final_validation.diagnostics.suggested_log_paths|display }}</code></p>
+    {% endif %}
+    {% endif %}
     {% if report.final_validation.enabled is true %}
     <p class="muted">Final repeated validation compares the original baseline source with the final optimized source. It is reporting/evaluation only and does not affect candidate promotion or current_best_source.</p>
     <div class="metric-grid">

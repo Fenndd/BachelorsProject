@@ -17,6 +17,7 @@ from orchestrator.reporting.report_data import (
     ReportFinalBestCandidate,
     ReportFinalValidation,
     ReportFinalValidationComparison,
+    ReportFinalValidationDiagnostics,
     ReportFinalResult,
     ReportIterationSummary,
     ReportLlmInfo,
@@ -43,6 +44,7 @@ from orchestrator.reporting.figure_builder import build_report_figures
 from orchestrator.reporting.generate_report import (
     generate_basic_html_report,
     generate_basic_report,
+    refresh_report_artifact_map,
 )
 from orchestrator.reporting.html_renderer import render_report_html
 from orchestrator.reporting.pdf_exporter import PdfExportError, export_pdf_from_html
@@ -65,6 +67,7 @@ __all__ = [
     "ReportFinalBestCandidate",
     "ReportFinalValidation",
     "ReportFinalValidationComparison",
+    "ReportFinalValidationDiagnostics",
     "ReportFinalResult",
     "ReportIterationSummary",
     "ReportLlmInfo",
@@ -85,6 +88,7 @@ __all__ = [
     "default_status_counts",
     "generate_basic_html_report",
     "generate_basic_report",
+    "refresh_report_artifact_map",
     "inspect_report",
     "make_empty_report_data",
     "render_report_html",

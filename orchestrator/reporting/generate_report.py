@@ -7,7 +7,7 @@ import json
 import sys
 from pathlib import Path
 
-from orchestrator.reporting.figure_builder import build_report_figures
+from orchestrator.reporting.figure_builder import PLOT_FILENAMES, build_report_figures
 from orchestrator.reporting.html_renderer import render_report_html
 from orchestrator.reporting.pdf_exporter import export_pdf_from_html
 from orchestrator.reporting.report_data_collector import collect_and_write_report_data
@@ -102,6 +102,51 @@ def generate_basic_html_report(experiment_dir: Path | str) -> Path:
     """Generate report_data.json, SVG plots, and report.html for an experiment."""
 
     return generate_basic_report(experiment_dir, formats=("html",))["html"]
+
+
+def refresh_report_artifact_map(experiment_dir: Path | str) -> Path | None:
+    """Refresh final status/summary artifact links and re-render HTML only."""
+
+    experiment_path = Path(experiment_dir)
+    report_dir = experiment_path / "report"
+    report_data_path = report_dir / "report_data.json"
+    html_path = report_dir / "report.html"
+    if not report_data_path.is_file() or not html_path.exists():
+        return None
+
+    payload = json.loads(report_data_path.read_text(encoding="utf-8"))
+    if not isinstance(payload, dict):
+        raise ValueError("report_data.json must contain a JSON object")
+
+    artifacts = payload.get("artifacts")
+    if not isinstance(artifacts, dict):
+        artifacts = {}
+    changed = False
+
+    status_path = experiment_path / "experiment_status.json"
+    if status_path.is_file():
+        artifacts["experiment_status"] = _display_path(status_path)
+        changed = True
+
+    summary_path = experiment_path / "summary.txt"
+    if summary_path.is_file():
+        artifacts["summary_txt"] = _display_path(summary_path)
+        changed = True
+
+    if not changed:
+        return html_path
+
+    payload["artifacts"] = artifacts
+    report_data_path.write_text(
+        json.dumps(payload, indent=2, ensure_ascii=False) + "\n",
+        encoding="utf-8",
+    )
+    plot_paths = {
+        key: str(Path("plots") / filename).replace("\\", "/")
+        for key, filename in PLOT_FILENAMES.items()
+    }
+    render_report_html(payload, plot_paths, html_path)
+    return html_path
 
 
 def _normalize_formats(formats: tuple[str, ...]) -> list[str]:

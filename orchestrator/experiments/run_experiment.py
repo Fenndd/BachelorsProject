@@ -72,7 +72,7 @@ from orchestrator.benchmarking.candidate_decision import (
     write_candidate_decision,
 )
 from orchestrator.patching.diff_stats import parse_unified_diff_stats
-from orchestrator.reporting.generate_report import generate_basic_report
+from orchestrator.reporting.generate_report import generate_basic_report, refresh_report_artifact_map
 
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -221,7 +221,7 @@ def _sanitize_name(value: str) -> str:
 
 
 def _build_experiment_id(config: ExperimentConfig, started_at: datetime) -> str:
-    timestamp = started_at.strftime("%Y-%m-%d_%H-%M-%S")
+    timestamp = started_at.strftime("%Y-%m-%d_%H-%M")
     return f"{timestamp}_{_sanitize_name(config.experiment_name)}"
 
 
@@ -232,8 +232,8 @@ def _create_experiment_dir(experiment_id: str) -> Path:
         (experiment_dir / "logs").mkdir(parents=True)
         return experiment_dir
 
-    for suffix in range(1, 1000):
-        candidate_dir = EXPERIMENTS_ROOT / f"{experiment_id}_{suffix:03d}"
+    for suffix in range(1, 100):
+        candidate_dir = EXPERIMENTS_ROOT / f"{experiment_id}_{suffix:02d}"
         if not candidate_dir.exists():
             (candidate_dir / "logs").mkdir(parents=True)
             return candidate_dir
@@ -2925,6 +2925,7 @@ def _run_closed_loop_experiment(
         ),
         encoding="utf-8",
     )
+    refresh_report_artifact_map(experiment_dir)
     return final_status
 
 

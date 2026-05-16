@@ -15,6 +15,7 @@ from orchestrator.reporting import (
     ReportFinalBestCandidate,
     ReportFinalValidation,
     ReportFinalValidationComparison,
+    ReportFinalValidationDiagnostics,
     ReportFinalResult,
     ReportIterationSummary,
     ReportLlmInfo,
@@ -733,6 +734,11 @@ def test_html_contains_final_validation_section_and_llm_kpis(tmp_path: Path) -> 
             median_speedup=1.25,
             median_runtime_reduction_percent=20.0,
         ),
+        diagnostics=ReportFinalValidationDiagnostics(
+            summary="All repeated validation runs completed successfully.",
+            dominant_failed_step="benchmark_correctness_check",
+            suggested_log_paths=["results/experiments/exp_001/final_validation/final/logs/run_01.log"],
+        ),
     )
 
     plot_paths = build_report_figures(report_data, tmp_path / "plots")
@@ -744,6 +750,10 @@ def test_html_contains_final_validation_section_and_llm_kpis(tmp_path: Path) -> 
     assert "Median Speedup" in html
     assert "Most Expensive Iteration" in html
     assert "Highest Latency Iteration" in html
+    assert "All repeated validation runs completed successfully." in html
+    assert "Dominant failed step" in html
+    assert "benchmark_correctness_check" in html
+    assert "final_validation/final/logs/run_01.log" in html
 
 
 def test_executive_summary_uses_final_best_baseline_runtime(tmp_path: Path) -> None:

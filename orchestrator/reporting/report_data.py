@@ -331,6 +331,15 @@ class ReportFinalValidationComparison:
 
 
 @dataclass
+class ReportFinalValidationDiagnostics:
+    summary: str | None = None
+    dominant_failed_step: str | None = None
+    baseline_failed_runs: int = 0
+    final_failed_runs: int = 0
+    suggested_log_paths: list[str] = field(default_factory=list)
+
+
+@dataclass
 class ReportFinalValidation:
     enabled: bool | None = None
     status: str | None = None
@@ -346,6 +355,9 @@ class ReportFinalValidation:
     final_runs: list[dict[str, Any]] = field(default_factory=list)
     comparison: ReportFinalValidationComparison = field(
         default_factory=ReportFinalValidationComparison
+    )
+    diagnostics: ReportFinalValidationDiagnostics = field(
+        default_factory=ReportFinalValidationDiagnostics
     )
 
 
@@ -483,6 +495,7 @@ __all__ = [
     "ReportFinalBestCandidate",
     "ReportFinalValidation",
     "ReportFinalValidationComparison",
+    "ReportFinalValidationDiagnostics",
     "ReportFinalResult",
     "ReportRepeatedValidationGroupSummary",
     "ReportDiffStats",
