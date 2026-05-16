@@ -154,6 +154,9 @@
       <div class="metric"><strong>Runtime Improvement ns/case</strong>{{ report.final_best_candidate.absolute_runtime_difference_ns_per_case|display }}</div>
       <div class="metric"><strong>PDF Report</strong>{{ report.reporting_status.pdf_display|display }}</div>
     </div>
+    {% if not (report.final_validation.status in ['completed', 'completed_partial'] and report.final_validation.comparison.median_speedup is not none and report.final_validation.comparison.median_runtime_reduction_percent is not none) %}
+    <div class="metric"><strong>Final Validation Warning</strong>Final repeated validation did not produce final comparison metrics. Headline performance metrics are unavailable.</div>
+    {% endif %}
   </section>
 
   <section id="experiment-configuration">
@@ -226,7 +229,10 @@
     {% endif %}
     {% endif %}
     {% if report.final_validation.enabled is true %}
-    <p class="muted">Final repeated validation compares the original baseline source with the final optimized source. It is reporting/evaluation only and does not affect candidate promotion or current_best_source.</p>
+    <p class="muted">Final repeated validation repeats benchmark execution after one configure/build per source. It does not rerun the full per-candidate verifier.</p>
+    {% if not (report.final_validation.status in ['completed', 'completed_partial'] and report.final_validation.comparison.median_speedup is not none and report.final_validation.comparison.median_runtime_reduction_percent is not none) %}
+    <div class="metric"><strong>Headline Metrics</strong>Final repeated validation did not produce final comparison metrics. Headline performance metrics are unavailable.</div>
+    {% endif %}
     <div class="metric-grid">
       <div class="metric"><strong>Enabled</strong>{{ report.final_validation.enabled|yes_no }}</div>
       <div class="metric"><strong>Status</strong>{{ report.final_validation.status|display }}</div>
@@ -237,8 +243,8 @@
       <div class="metric"><strong>Final Median Runtime</strong>{{ report.final_validation.final.median_runtime_ns_per_case|display }}</div>
       <div class="metric"><strong>Median Speedup</strong>{{ report.final_validation.comparison.median_speedup|display }}</div>
       <div class="metric"><strong>Median Runtime Reduction %</strong>{{ report.final_validation.comparison.median_runtime_reduction_percent|display }}</div>
-      <div class="metric"><strong>Baseline Correctness Passed</strong>{{ report.final_validation.baseline.all_correctness_passed|yes_no }}</div>
-      <div class="metric"><strong>Final Correctness Passed</strong>{{ report.final_validation.final.all_correctness_passed|yes_no }}</div>
+      <div class="metric"><strong>Baseline Correctness Passed</strong>{% if report.final_validation.baseline.successful_runs > 0 %}{{ report.final_validation.baseline.all_correctness_passed|yes_no }}{% else %}Not available{% endif %}</div>
+      <div class="metric"><strong>Final Correctness Passed</strong>{% if report.final_validation.final.successful_runs > 0 %}{{ report.final_validation.final.all_correctness_passed|yes_no }}{% else %}Not available{% endif %}</div>
     </div>
     <figure><img src="{{ plots.final_validation_runtime_distribution }}" alt="Final validation runtime distribution plot"></figure>
     <table class="compact">

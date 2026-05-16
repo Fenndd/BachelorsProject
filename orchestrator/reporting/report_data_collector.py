@@ -95,24 +95,16 @@ def collect_report_data(
     # Build iteration summaries first (needed for correctness_preserved and final_best)
     iterations = [_iteration_summary(record, experiment_path) for record in records]
 
-    # Derive correctness_preserved from iterations
     final_best_iter = _int_or_default(summary.get("final_best_iteration"))
-    correctness_preserved = _derive_correctness_preserved(
-        final_best_iter, iterations, baseline_metrics
-    )
 
     llm_info = _build_llm_info(config_snapshot, variant_llm_config)
 
     final_result = ReportFinalResult(
         final_best_iteration=final_best_iter,
-        final_speedup_vs_baseline=_number_or_none(
-            summary.get("final_speedup_vs_original_baseline")
-        ),
-        final_runtime_reduction_percent=_number_or_none(
-            summary.get("final_runtime_reduction_percent")
-        ),
+        final_speedup_vs_baseline=None,
+        final_runtime_reduction_percent=None,
         accepted_improvements=status_counts["accepted_improvement"],
-        correctness_preserved=correctness_preserved,
+        correctness_preserved=None,
     )
     final_best_candidate = _build_final_best_candidate(
         summary, iterations, baseline_metrics, records, experiment_path
@@ -589,6 +581,13 @@ def _build_final_validation(experiment_path: Path) -> ReportFinalValidation:
         diagnostics=ReportFinalValidationDiagnostics(
             summary=_string_or_none(diagnostics.get("summary")),
             dominant_failed_step=_string_or_none(diagnostics.get("dominant_failed_step")),
+            dominant_error_excerpt=_string_or_none(diagnostics.get("dominant_error_excerpt")),
+            path_length_warning_detected=_bool_or_none(
+                diagnostics.get("path_length_warning_detected")
+            ),
+            max_observed_path_length=_int_or_none(
+                diagnostics.get("max_observed_path_length")
+            ),
             baseline_failed_runs=_int_or_default(diagnostics.get("baseline_failed_runs")),
             final_failed_runs=_int_or_default(diagnostics.get("final_failed_runs")),
             suggested_log_paths=[
@@ -626,6 +625,8 @@ def _apply_final_validation_overrides(
     final_best_candidate: ReportFinalBestCandidate,
     final_validation: ReportFinalValidation,
 ) -> None:
+    if final_validation.status not in {"completed", "completed_partial"}:
+        return
     median_speedup = final_validation.comparison.median_speedup
     median_reduction = final_validation.comparison.median_runtime_reduction_percent
     baseline_runtime = final_validation.baseline.median_runtime_ns_per_case
@@ -635,10 +636,11 @@ def _apply_final_validation_overrides(
 
     final_result.final_speedup_vs_baseline = median_speedup
     final_result.final_runtime_reduction_percent = median_reduction
-    final_result.correctness_preserved = (
-        final_validation.baseline.all_correctness_passed is True
-        and final_validation.final.all_correctness_passed is True
-    )
+    if final_validation.baseline.successful_runs > 0 and final_validation.final.successful_runs > 0:
+        final_result.correctness_preserved = (
+            final_validation.baseline.all_correctness_passed is True
+            and final_validation.final.all_correctness_passed is True
+        )
     final_best_candidate.runtime_ns_per_case_median = final_runtime
     final_best_candidate.baseline_runtime_ns_per_case_median = baseline_runtime
     final_best_candidate.absolute_runtime_difference_ns_per_case = (
@@ -648,7 +650,11 @@ def _apply_final_validation_overrides(
     )
     final_best_candidate.speedup_vs_baseline = median_speedup
     final_best_candidate.runtime_reduction_percent = median_reduction
-    final_best_candidate.correctness_passed = final_validation.final.all_correctness_passed
+    final_best_candidate.correctness_passed = (
+        final_validation.final.all_correctness_passed
+        if final_validation.final.successful_runs > 0
+        else None
+    )
 
 
 def _build_experiment_metadata(
@@ -733,16 +739,12 @@ def _build_final_best_candidate(
     return ReportFinalBestCandidate(
         iteration=final_best_iter,
         candidate_run_dir=candidate_run_dir_display if final_best_iter > 0 else None,
-        runtime_ns_per_case_median=final_rt,
-        baseline_runtime_ns_per_case_median=baseline_rt,
-        absolute_runtime_difference_ns_per_case=abs_diff,
-        speedup_vs_baseline=_number_or_none(
-            summary.get("final_speedup_vs_original_baseline")
-        ),
-        runtime_reduction_percent=_number_or_none(
-            summary.get("final_runtime_reduction_percent")
-        ),
-        correctness_passed=correctness,
+        runtime_ns_per_case_median=None,
+        baseline_runtime_ns_per_case_median=None,
+        absolute_runtime_difference_ns_per_case=None,
+        speedup_vs_baseline=None,
+        runtime_reduction_percent=None,
+        correctness_passed=None,
         candidate_summary=candidate_summary,
         expected_effect=expected_effect,
         risk_level=risk_level,

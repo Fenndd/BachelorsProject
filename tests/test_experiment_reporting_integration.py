@@ -116,11 +116,11 @@ def _fake_final_validation(**kwargs: Any) -> Path:
             "enabled": kwargs.get("enabled", True),
             "status": "completed",
             "benchmark_repetitions": kwargs.get("benchmark_repetitions", 5),
-            "baseline": {"runs": [], "summary": {"successful_runs": 0, "failed_runs": 0}},
-            "final": {"runs": [], "summary": {"successful_runs": 0, "failed_runs": 0}},
+            "baseline": {"runs": [], "summary": {"successful_runs": 1, "failed_runs": 0, "median_runtime_ns_per_case": 100.0, "all_correctness_passed": True}},
+            "final": {"runs": [], "summary": {"successful_runs": 1, "failed_runs": 0, "median_runtime_ns_per_case": 100.0, "all_correctness_passed": True}},
             "comparison": {
-                "median_speedup": None,
-                "median_runtime_reduction_percent": None,
+                "median_speedup": 1.0,
+                "median_runtime_reduction_percent": 0.0,
             },
         },
     )
@@ -249,6 +249,47 @@ def test_final_validation_runs_after_finalization_before_reporting(
     assert status["closed_loop"]["final_validation_report_path"].endswith(
         "validation/final_validation_report.json"
     )
+
+
+def test_closed_loop_status_warns_when_final_validation_incomplete(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    root = tmp_path / "repo"
+    _create_repo_layout(root)
+    _patch_runner_roots(monkeypatch, root)
+    _patch_noop_closed_loop_stage(monkeypatch, root)
+
+    def incomplete_validation(**kwargs: Any) -> Path:
+        experiment_dir = Path(kwargs["experiment_dir"])
+        report_path = experiment_dir / "validation" / "final_validation_report.json"
+        _write_json(
+            report_path,
+            {
+                "schema_version": "final_validation.v1",
+                "enabled": True,
+                "status": "incomplete",
+                "benchmark_repetitions": 5,
+                "baseline": {"runs": [], "summary": {"successful_runs": 0, "failed_runs": 0}},
+                "final": {"runs": [], "summary": {"successful_runs": 0, "failed_runs": 0}},
+                "comparison": {
+                    "median_speedup": None,
+                    "median_runtime_reduction_percent": None,
+                },
+            },
+        )
+        return report_path
+
+    monkeypatch.setattr(run_experiment, "run_final_validation", incomplete_validation)
+    payload = _base_config_payload(root, reporting=None)
+    config = load_experiment_config(_write_config(root, payload))
+
+    exit_code = run_experiment._run_experiment(config, payload)
+
+    assert exit_code == 0
+    experiment_dir = next((root / "results" / "experiments").iterdir())
+    status = json.loads((experiment_dir / "experiment_status.json").read_text(encoding="utf-8"))
+    assert status["overall_status"] == "completed_with_warnings"
 
 
 def test_valid_reporting_config_loads_and_deduplicates_formats(tmp_path: Path) -> None:

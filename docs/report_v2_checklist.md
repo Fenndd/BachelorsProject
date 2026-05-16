@@ -69,6 +69,7 @@ results/experiments/<experiment_id>/report/
 - The user-facing report focuses on closed-loop mode. Legacy `selection_enabled` and `history_policy` fields are not shown as main report concepts.
 - Closed-loop promotion policy is `decision_vs_current_best.accepted_improvement_only`.
 - Final repeated benchmark validation runs automatically after closed-loop completion and before report generation. It compares original baseline source vs final optimized source, defaults to 5 repetitions, does not affect candidate promotion, and does not change `current_best_source`.
+- Executive Summary headline speedup, runtime reduction, baseline runtime, final runtime, and correctness preserved come only from `validation/final_validation_report.json`. If final validation is incomplete, skipped, missing, or has null comparison metrics, those headline fields show `Not available`.
 - If PDF was requested, `report.pdf` was exported from final completed `report.html`, not from pending-status HTML.
 - Tables show `Not available` for missing optional values instead of crashing or showing raw template placeholders.
 
@@ -110,7 +111,9 @@ results/experiments/<experiment_id>/report/
 - Successful baseline/final run counts match `final_validation_report.json`.
 - Baseline and final median/mean/std/min/max runtime values match `final_validation_report.json`.
 - Median speedup and median runtime reduction percent match `final_validation_report.json`.
-- Baseline and final all-correctness-passed values are shown.
+- Baseline and final all-correctness-passed values are shown only when at least one relevant successful validation run exists; otherwise they show `Not available`.
+- Setup failures are represented in each group's `setup` block, with `runs: []` and `benchmark_runs_attempted: 0`, not as fake failed benchmark repetitions.
+- Run records use benchmark-only repeated validation (`validation_mode: benchmark_only`, `benchmark_run_status`) after one configure/build per source, not the full per-candidate verifier.
 - Aggregates and plots include only successful correctness-passing repetitions.
 - If final validation is skipped, the report clearly states that it was disabled/skipped and does not show the full empty metrics table.
 - If final validation is missing, the report clearly states that final repeated benchmark validation was not available.

@@ -21,7 +21,6 @@ from orchestrator.storage import RunStorage
 
 
 TARGET_FILE = "cpp/external/lambdatwist/p3p.cc"
-MOCK_CONFIG = REPO_ROOT / "configs" / "llm_mock_line_range_p3p.json"
 DISTINCTIVE_SOURCE = "int distinctive_current_best_source = 42;\n"
 
 
@@ -127,13 +126,14 @@ class GenerateCandidateSourceRootTests(unittest.TestCase):
         expected_exit_code: int = 0,
     ) -> Path:
         results_root = tmp_root / "results"
+        mock_config = _write_mock_llm_config(tmp_root)
 
         def storage_factory(_results_root: Path) -> RunStorage:
             return RunStorage(results_root)
 
         argv = [
             "--config",
-            str(MOCK_CONFIG),
+            str(mock_config),
             "--source",
             TARGET_FILE,
             "--candidate-type",
@@ -151,6 +151,40 @@ class GenerateCandidateSourceRootTests(unittest.TestCase):
         run_dirs = sorted((results_root / "runs").iterdir())
         self.assertEqual(len(run_dirs), 1)
         return run_dirs[0]
+
+
+def _write_mock_llm_config(root: Path) -> Path:
+    response_file = root / "mock_response.json"
+    response_file.write_text(
+        json.dumps(
+            {
+                "schema_version": "1.1",
+                "candidate_type": "line_range_edits",
+                "summary": "no-op",
+                "rationale": "source-root test",
+                "risk_level": "low",
+                "expected_effect": "none",
+                "target_files": [TARGET_FILE],
+                "correctness_notes": "not applicable",
+                "unified_diff": "",
+                "edits": [],
+                "requires_manual_review": False,
+            }
+        ),
+        encoding="utf-8",
+    )
+    config_path = root / "llm_mock.json"
+    config_path.write_text(
+        json.dumps(
+            {
+                "provider": "mock",
+                "model": "mock-source-root-test",
+                "mock_response_file": str(response_file),
+            }
+        ),
+        encoding="utf-8",
+    )
+    return config_path
 
 
 if __name__ == "__main__":

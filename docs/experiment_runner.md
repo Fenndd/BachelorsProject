@@ -274,10 +274,14 @@ Final repeated benchmark validation writes:
 results/experiments/<experiment_id>/validation/final_validation_report.json
 ```
 
-The report stores all baseline/final validation repetitions, aggregates using
-successful correctness-passing runs, and comparison metrics. Population standard
-deviation is used. If validation is disabled, a skipped report is still written
-so the final report can show that final validation was unavailable/skipped.
+The report stores one setup block per source, all baseline/final benchmark
+repetitions that actually ran, aggregates using successful correctness-passing
+runs, and comparison metrics. Population standard deviation is used. If
+validation is disabled, a skipped report is still written so the final report can
+show that final validation was unavailable/skipped. Final headline performance
+metrics in reports/status summaries require completed final repeated validation
+comparison metrics; single-run closed-loop selection metrics are iteration
+analytics only.
 
 The normalized `report/report_data.json` artifact uses `schema_version:
 "report.v2"`. It includes per-iteration `outcome_reason` and top-level
@@ -298,9 +302,11 @@ If parsing succeeds but `correctness_passed=false`, verification fails at `bench
 
 Candidate verification builds default to **Release** for accurate runtime metrics. Set `CMAKE_BUILD_TYPE=Debug` in the environment to override. The build type is recorded in `verification.json` and is surfaced as reproducibility metadata. Build type is metadata in the report only; reporting does not change build behavior.
 
-Final repeated validation uses the same verifier path and environment conventions
-as candidate verification. Verification time includes benchmark execution;
-`benchmark_seconds` is not separately shown in the main report.
+Final repeated validation uses the same CMake environment conventions as
+candidate verification, but it is benchmark-only repeated validation after one
+configure/build per source. It does not rerun the full per-candidate verifier.
+Verification time includes benchmark execution; `benchmark_seconds` is not
+separately shown in the main report.
 
 Pairwise candidate decisions and multi-candidate best-result selection consume verified artifacts and audit comparability. The reference-vs-candidate decision path supports:
 
@@ -381,7 +387,7 @@ results/experiments/<experiment_id>/current_best_state.json
 
 `closed_loop_summary.json` records the experiment id, target file, total and completed iterations, original baseline paths, final best iteration, final best candidate run directory when applicable, final optimized source paths, final speedup/runtime reduction versus the original baseline when available, final validation path/median metrics when available, iterations after the final best, all closed-loop status counts including zero values, and timestamps.
 
-`experiment_status.json` includes a `closed_loop` block with final artifact paths, accepted improvement count, final best iteration, final speedup/runtime reduction, final validation path/median metrics, and status counts. The human-readable `summary.txt` includes a concise closed-loop section with the same final artifact locations.
+`experiment_status.json` includes a `closed_loop` block with final artifact paths, accepted improvement count, final best iteration, closed-loop analytics metrics, final validation path/median metrics, and status counts. If final validation is enabled but does not produce final comparison metrics, the overall status is `completed_with_warnings`. The human-readable `summary.txt` includes final headline speedup/runtime only when final repeated validation metrics are available; otherwise it states that final repeated validation metrics are unavailable and that single-run selection metrics are analytics only.
 
 Closed-loop reports can be enabled with a top-level `reporting` block:
 

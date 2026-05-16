@@ -2195,6 +2195,14 @@ def _update_closed_loop_summary_with_final_validation(
     report = _read_json_object(report_path)
     comparison_raw = report.get("comparison")
     comparison = comparison_raw if isinstance(comparison_raw, dict) else {}
+    baseline_raw = report.get("baseline")
+    baseline = baseline_raw if isinstance(baseline_raw, dict) else {}
+    baseline_summary_raw = baseline.get("summary")
+    baseline_summary = baseline_summary_raw if isinstance(baseline_summary_raw, dict) else {}
+    final_raw = report.get("final")
+    final = final_raw if isinstance(final_raw, dict) else {}
+    final_summary_raw = final.get("summary")
+    final_summary = final_summary_raw if isinstance(final_summary_raw, dict) else {}
     median_speedup = _numeric_or_none(comparison.get("median_speedup"))
     median_reduction = _numeric_or_none(
         comparison.get("median_runtime_reduction_percent")
@@ -2210,7 +2218,33 @@ def _update_closed_loop_summary_with_final_validation(
         "report_path": _display_path(report_path),
         "median_speedup": median_speedup,
         "median_runtime_reduction_percent": median_reduction,
+        "baseline_median_runtime_ns_per_case": _numeric_or_none(
+            baseline_summary.get("median_runtime_ns_per_case")
+        ),
+        "final_median_runtime_ns_per_case": _numeric_or_none(
+            final_summary.get("median_runtime_ns_per_case")
+        ),
     }
+
+
+def _final_validation_has_comparison_metrics(status: dict[str, Any] | None) -> bool:
+    if not isinstance(status, dict):
+        return False
+    return (
+        status.get("status") in {"completed", "completed_partial"}
+        and _numeric_or_none(status.get("median_speedup")) is not None
+        and _numeric_or_none(status.get("median_runtime_reduction_percent")) is not None
+    )
+
+
+def _closed_loop_overall_status(
+    *,
+    final_validation_enabled: bool,
+    final_validation_status: dict[str, Any] | None,
+) -> str:
+    if final_validation_enabled and not _final_validation_has_comparison_metrics(final_validation_status):
+        return "completed_with_warnings"
+    return "completed"
 
 
 def write_closed_loop_selection_report(
@@ -2467,14 +2501,6 @@ def _build_closed_loop_summary_text(
         f"Completed iterations: {summary.completed_iterations}",
         f"Accepted improvements: {accepted_improvements}",
         f"Final best iteration: {summary.final_best_iteration}",
-        (
-            "Final speedup ratio vs original baseline: "
-            f"{_format_optional_float(summary.final_speedup_vs_original_baseline)}"
-        ),
-        (
-            "Final runtime reduction percent vs original baseline: "
-            f"{_format_optional_float(summary.final_runtime_reduction_percent)}"
-        ),
         "Status counts:",
     ]
     for status, count in summary.status_counts.items():
@@ -2522,13 +2548,35 @@ def _build_closed_loop_summary_text(
             "  report: "
             f"{final_validation_status.get('report_path') or 'none'}"
         )
+        if _final_validation_has_comparison_metrics(final_validation_status):
+            lines.append(
+                "  final repeated validation median speedup: "
+                f"{_format_optional_float(final_validation_status.get('median_speedup'))}"
+            )
+            lines.append(
+                "  final repeated validation median runtime reduction percent: "
+                f"{_format_optional_float(final_validation_status.get('median_runtime_reduction_percent'))}"
+            )
+            lines.append(
+                "  baseline median runtime ns/case: "
+                f"{_format_optional_float(final_validation_status.get('baseline_median_runtime_ns_per_case'))}"
+            )
+            lines.append(
+                "  final median runtime ns/case: "
+                f"{_format_optional_float(final_validation_status.get('final_median_runtime_ns_per_case'))}"
+            )
+        else:
+            lines.append("  Final repeated validation metrics: unavailable")
+            lines.append(
+                "  Single-run selection metrics are available only as iteration analytics "
+                "and are not used as final headline metrics."
+            )
+        lines.append("")
+    else:
+        lines.append("Final repeated validation metrics: unavailable")
         lines.append(
-            "  median speedup: "
-            f"{_format_optional_float(final_validation_status.get('median_speedup'))}"
-        )
-        lines.append(
-            "  median runtime reduction percent: "
-            f"{_format_optional_float(final_validation_status.get('median_runtime_reduction_percent'))}"
+            "Single-run selection metrics are available only as iteration analytics "
+            "and are not used as final headline metrics."
         )
         lines.append("")
     return "\n".join(lines)
@@ -2873,7 +2921,10 @@ def _run_closed_loop_experiment(
     final_status = {
         "experiment_id": experiment_id,
         "experiment_name": config.experiment_name,
-        "overall_status": "completed",
+        "overall_status": _closed_loop_overall_status(
+            final_validation_enabled=config.final_validation.enabled,
+            final_validation_status=final_validation_status,
+        ),
         "closed_loop": _closed_loop_status_block(
             closed_loop_paths,
             summary,

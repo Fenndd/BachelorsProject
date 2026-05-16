@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+import json
+import tempfile
 import unittest
+from pathlib import Path
 
 from orchestrator.patching.scope_validation import (
     normalize_repo_path,
@@ -156,9 +159,10 @@ class ExperimentConfigOptimizationScopeTests(unittest.TestCase):
     """Tests for optimization scope loading from config JSON."""
 
     def test_missing_scope_defaults_to_target_file(self) -> None:
-        config = load_experiment_config(
-            "configs/experiments/mock_p3p_basic.json"
-        )
+        with tempfile.TemporaryDirectory() as tmpdir:
+            config = load_experiment_config(
+                _write_experiment_config(Path(tmpdir), optimization_scope=None)
+            )
         self.assertIsInstance(config.optimization_scope, OptimizationScopeConfig)
         self.assertIn(
             "cpp/external/lambdatwist/p3p.cc",
@@ -166,13 +170,38 @@ class ExperimentConfigOptimizationScopeTests(unittest.TestCase):
         )
 
     def test_scope_with_explicit_allowed_files(self) -> None:
-        config = load_experiment_config(
-            "configs/experiments/deepseek_flash_p3p_basic.json"
-        )
+        with tempfile.TemporaryDirectory() as tmpdir:
+            config = load_experiment_config(
+                _write_experiment_config(
+                    Path(tmpdir),
+                    optimization_scope={"allowed_files": ["cpp/external/lambdatwist/p3p.cc"]},
+                )
+            )
         self.assertEqual(
             config.optimization_scope.allowed_files,
             ["cpp/external/lambdatwist/p3p.cc"],
         )
+
+
+def _write_experiment_config(root: Path, *, optimization_scope: dict | None) -> Path:
+    payload = {
+        "experiment_name": "scope_test",
+        "description": "Temporary scope test config",
+        "llm_config": "configs/llm_test.json",
+        "target_file": "cpp/external/lambdatwist/p3p.cc",
+        "iterations": 1,
+        "pipeline": {
+            "generate_candidate": True,
+            "materialize_candidate": False,
+            "verify_candidate": False,
+        },
+        "candidate_generation": {"max_source_chars": 120000},
+    }
+    if optimization_scope is not None:
+        payload["optimization_scope"] = optimization_scope
+    path = root / "experiment.json"
+    path.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
+    return path
 
 
 if __name__ == "__main__":

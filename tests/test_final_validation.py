@@ -6,6 +6,7 @@ from typing import Any, Sequence
 
 import pytest
 
+from orchestrator.experiments import final_validation
 from orchestrator.experiments.final_validation import run_final_validation
 
 
@@ -37,6 +38,11 @@ def _fake_executable(build_dir: Path) -> None:
     build_dir.mkdir(parents=True, exist_ok=True)
     for name in ("absolute_pose_lambdatwist_benchmark", "absolute_pose_lambdatwist_benchmark.exe"):
         (build_dir / name).write_text("exe\n", encoding="utf-8")
+
+
+@pytest.fixture(autouse=True)
+def _disable_path_length_preflight_by_default(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(final_validation, "WINDOWS_FINAL_VALIDATION_PATH_LENGTH_THRESHOLD", 10000)
 
 
 def test_final_validation_aggregates_successful_runs(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -93,10 +99,16 @@ def test_final_validation_aggregates_successful_runs(tmp_path: Path, monkeypatch
     assert run_counts == {"configure": 2, "build": 2, "benchmark": 10}
     assert report_path == experiment_dir / "validation" / "final_validation_report.json"
     for group in ("baseline", "final"):
+        assert payload[group]["setup"]["configure_status"] == "success"
+        assert payload[group]["setup"]["build_status"] == "success"
+        assert payload[group]["summary"]["benchmark_runs_attempted"] == 5
         assert (experiment_dir / "validation" / group / "cpp" / "source.cc").is_file()
         assert (experiment_dir / "validation" / group / "build").is_dir()
         assert (experiment_dir / "validation" / group / "runs" / "run_01.json").is_file()
         assert (experiment_dir / "validation" / group / "logs" / "run_01.log").is_file()
+        run = json.loads((experiment_dir / "validation" / group / "runs" / "run_01.json").read_text(encoding="utf-8"))
+        assert run["validation_mode"] == "benchmark_only"
+        assert run["benchmark_run_status"] == "success"
         assert not (experiment_dir / "validation" / group / "source" / "cpp").exists()
     assert not (experiment_dir / "final_validation").exists()
     assert not (experiment_dir / "validation" / "baseline_runs").exists()
@@ -199,3 +211,79 @@ def test_final_validation_disabled_is_skipped(tmp_path: Path) -> None:
     payload = json.loads(report_path.read_text(encoding="utf-8"))
     assert payload["enabled"] is False
     assert payload["status"] == "skipped"
+
+
+def test_final_validation_setup_failure_does_not_create_fake_runs(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    repo_root = tmp_path / "repo"
+    experiment_dir = repo_root / "results" / "experiments" / "exp"
+    baseline_source = repo_root
+    final_source = experiment_dir / "final_optimized_source"
+    _write_source(baseline_source)
+    _write_source(final_source)
+    monkeypatch.setenv("EIGEN3_INCLUDE_DIR", str(repo_root / "eigen"))
+
+    def runner(command: Sequence[str], _cwd: Path) -> dict[str, Any]:
+        if "--build" in command:
+            return {
+                "exit_code": 1,
+                "duration_seconds": 0.2,
+                "stdout": "",
+                "stderr": "fatal error: object path is too long\nCMake Warning: maximum full path exceeded",
+            }
+        return {"exit_code": 0, "duration_seconds": 0.1, "stdout": "", "stderr": ""}
+
+    report_path = run_final_validation(
+        experiment_dir=experiment_dir,
+        experiment_id="exp",
+        repo_root=repo_root,
+        baseline_source_dir=baseline_source,
+        final_source_dir=final_source,
+        benchmark_repetitions=5,
+        command_runner=runner,
+    )
+
+    payload = json.loads(report_path.read_text(encoding="utf-8"))
+    assert payload["status"] == "incomplete"
+    for group in ("baseline", "final"):
+        assert payload[group]["setup"]["build_status"] == "failed"
+        assert payload[group]["setup"]["failed_step"] == "build_absolute_pose_lambdatwist_benchmark"
+        assert payload[group]["runs"] == []
+        assert payload[group]["summary"]["benchmark_runs_attempted"] == 0
+        assert payload[group]["summary"]["failed_runs"] == 0
+        assert not (experiment_dir / "validation" / group / "runs" / "run_01.json").exists()
+    assert payload["diagnostics"]["dominant_failed_step"] == "build_absolute_pose_lambdatwist_benchmark"
+    assert "fatal error" in payload["diagnostics"]["dominant_error_excerpt"]
+    assert payload["diagnostics"]["path_length_warning_detected"] is True
+    assert payload["diagnostics"]["max_observed_path_length"] > 0
+
+
+def test_final_validation_path_length_preflight_skips_setup(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    repo_root = tmp_path / "repo"
+    experiment_dir = repo_root / "results" / "experiments" / "exp"
+    baseline_source = repo_root
+    final_source = experiment_dir / "final_optimized_source"
+    _write_source(baseline_source)
+    _write_source(final_source)
+    monkeypatch.setenv("EIGEN3_INCLUDE_DIR", str(repo_root / "eigen"))
+    monkeypatch.setattr(final_validation.platform, "system", lambda: "Windows")
+    monkeypatch.setattr(final_validation, "WINDOWS_FINAL_VALIDATION_PATH_LENGTH_THRESHOLD", 10)
+
+    def runner(command: Sequence[str], _cwd: Path) -> dict[str, Any]:
+        raise AssertionError("path-length preflight should skip CMake")
+
+    report_path = run_final_validation(
+        experiment_dir=experiment_dir,
+        experiment_id="exp",
+        repo_root=repo_root,
+        baseline_source_dir=baseline_source,
+        final_source_dir=final_source,
+        benchmark_repetitions=5,
+        command_runner=runner,
+    )
+
+    payload = json.loads(report_path.read_text(encoding="utf-8"))
+    assert payload["status"] == "incomplete"
+    assert payload["baseline"]["setup"]["failed_step"] == "path_length_preflight"
+    assert payload["baseline"]["runs"] == []
+    assert payload["baseline"]["summary"]["benchmark_runs_attempted"] == 0
+    assert payload["diagnostics"]["dominant_failed_step"] == "path_length_preflight"

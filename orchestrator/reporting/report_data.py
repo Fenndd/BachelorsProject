@@ -334,6 +334,9 @@ class ReportFinalValidationComparison:
 class ReportFinalValidationDiagnostics:
     summary: str | None = None
     dominant_failed_step: str | None = None
+    dominant_error_excerpt: str | None = None
+    path_length_warning_detected: bool | None = None
+    max_observed_path_length: int | None = None
     baseline_failed_runs: int = 0
     final_failed_runs: int = 0
     suggested_log_paths: list[str] = field(default_factory=list)

@@ -68,9 +68,38 @@ def test_collect_report_data_maps_minimal_closed_loop_summary(tmp_path: Path) ->
     assert report_data.experiment.total_iterations == 2
     assert report_data.experiment.completed_iterations == 2
     assert report_data.experiment.closed_loop_enabled is True
-    assert report_data.final_result.final_speedup_vs_baseline == 1.25
-    assert report_data.final_result.final_runtime_reduction_percent == 20.0
+    assert report_data.final_result.final_speedup_vs_baseline is None
+    assert report_data.final_result.final_runtime_reduction_percent is None
     assert report_data.final_result.accepted_improvements == 1
+
+
+def test_collect_report_data_does_not_fallback_when_final_validation_incomplete(tmp_path: Path) -> None:
+    experiment_dir = _experiment_dir(tmp_path)
+    _write_json(experiment_dir / "closed_loop_summary.json", _summary())
+    _write_jsonl(experiment_dir / "closed_loop_iterations.jsonl", [])
+    _write_json(
+        experiment_dir / "validation" / "final_validation_report.json",
+        {
+            "schema_version": "final_validation.v1",
+            "enabled": True,
+            "status": "incomplete",
+            "benchmark_repetitions": 5,
+            "baseline": {"runs": [], "summary": {"successful_runs": 0, "failed_runs": 0}},
+            "final": {"runs": [], "summary": {"successful_runs": 0, "failed_runs": 0}},
+            "comparison": {
+                "median_speedup": None,
+                "median_runtime_reduction_percent": None,
+            },
+        },
+    )
+
+    report_data = collect_report_data(experiment_dir)
+
+    assert report_data.final_result.final_speedup_vs_baseline is None
+    assert report_data.final_result.final_runtime_reduction_percent is None
+    assert report_data.final_best_candidate.speedup_vs_baseline is None
+    assert report_data.final_best_candidate.runtime_reduction_percent is None
+    assert report_data.final_result.correctness_preserved is None
 
 
 def test_collect_report_data_uses_final_validation_metrics_when_available(tmp_path: Path) -> None:
@@ -870,8 +899,8 @@ def test_benchmark_config_build_type_falls_back_to_release(tmp_path: Path) -> No
     assert report_data.benchmark_config.build_type == "Release"
 
 
-def test_c_correctness_preserved_from_promoted_iteration(tmp_path: Path) -> None:
-    """correctness_preserved is inferred from the promoted iteration with final_best_iteration."""
+def test_c_correctness_preserved_not_inferred_from_promoted_iteration(tmp_path: Path) -> None:
+    """headline correctness_preserved comes only from final validation."""
 
     experiment_dir = _experiment_dir(tmp_path)
     _write_json(
@@ -898,7 +927,7 @@ def test_c_correctness_preserved_from_promoted_iteration(tmp_path: Path) -> None
 
     report_data = collect_report_data(experiment_dir)
 
-    assert report_data.final_result.correctness_preserved is True
+    assert report_data.final_result.correctness_preserved is None
 
 
 def test_d_pdf_display_when_html_only_formats(tmp_path: Path) -> None:
@@ -1164,8 +1193,8 @@ def test_reporting_pdf_pending_when_pdf_absent_but_requested(tmp_path: Path) -> 
 # ---------------------------------------------------------------------------
 
 
-def test_runtime_difference_sign_positive_for_improvement(tmp_path: Path) -> None:
-    """absolute_runtime_difference_ns_per_case is positive when final is faster."""
+def test_runtime_difference_unavailable_without_final_validation(tmp_path: Path) -> None:
+    """headline runtime difference does not fall back to single-run selection metrics."""
 
     experiment_dir = _experiment_dir(tmp_path)
     metrics_path = tmp_path / "results" / "runs" / "baseline" / "metrics.json"
@@ -1200,7 +1229,7 @@ def test_runtime_difference_sign_positive_for_improvement(tmp_path: Path) -> Non
     report_data = collect_report_data(experiment_dir)
 
     diff = report_data.final_best_candidate.absolute_runtime_difference_ns_per_case
-    assert diff == 20.0  # 100.0 - 80.0
+    assert diff is None
 
 
 # ---------------------------------------------------------------------------

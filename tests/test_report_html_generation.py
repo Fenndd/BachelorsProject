@@ -756,12 +756,10 @@ def test_html_contains_final_validation_section_and_llm_kpis(tmp_path: Path) -> 
     assert "validation/final/logs/run_01.log" in html
 
 
-def test_executive_summary_uses_final_best_baseline_runtime(tmp_path: Path) -> None:
+def test_executive_summary_uses_final_validation_baseline_runtime(tmp_path: Path) -> None:
     report_data = _report_data()
-    report_data.baseline_metrics = ReportBaselineMetrics(
-        runtime_ns_per_case_median=1000.0,
-        correctness_passed=True,
-    )
+    report_data.final_result.final_speedup_vs_baseline = 1.25
+    report_data.final_result.final_runtime_reduction_percent = 20.0
     report_data.final_best_candidate = ReportFinalBestCandidate(
         baseline_runtime_ns_per_case_median=900.0,
         runtime_ns_per_case_median=700.0,
@@ -775,6 +773,33 @@ def test_executive_summary_uses_final_best_baseline_runtime(tmp_path: Path) -> N
     assert "Baseline Runtime ns/case</strong>900" in executive
     assert "Final Best Runtime ns/case</strong>700" in executive
     assert "Baseline Runtime ns/case</strong>1000" not in executive
+
+
+def test_executive_summary_not_available_when_final_validation_metrics_null(tmp_path: Path) -> None:
+    report_data = _report_data()
+    report_data.final_result.final_speedup_vs_baseline = None
+    report_data.final_result.final_runtime_reduction_percent = None
+    report_data.final_result.correctness_preserved = None
+    report_data.final_best_candidate = ReportFinalBestCandidate()
+    report_data.final_validation = ReportFinalValidation(
+        enabled=True,
+        status="incomplete",
+        benchmark_repetitions=5,
+        comparison=ReportFinalValidationComparison(
+            median_speedup=None,
+            median_runtime_reduction_percent=None,
+        ),
+    )
+
+    plot_paths = build_report_figures(report_data, tmp_path / "plots")
+    html_path = render_report_html(report_data, plot_paths, tmp_path / "report.html")
+    html = html_path.read_text(encoding="utf-8")
+    executive = html.split('id="experiment-configuration"', 1)[0]
+
+    assert "Final Speedup vs Baseline</strong>Not available" in executive
+    assert "Final Runtime Reduction %</strong>Not available" in executive
+    assert "Correctness Preserved</strong>Not available" in executive
+    assert "Headline performance metrics are unavailable" in executive
 
 
 def test_final_validation_html_skipped_message_without_empty_table(tmp_path: Path) -> None:

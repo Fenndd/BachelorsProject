@@ -340,10 +340,9 @@ to the candidate workspace.
 - `final_validation_median_speedup`
 - `final_validation_median_runtime_reduction_percent`
 
-If the final best remains the baseline, speedup is `1.0` and runtime reduction is
-`0.0`. If the final best is an accepted candidate, these values are read from the
-candidate's `decision_vs_original_baseline.json` comparison when available;
-otherwise they are `null`.
+These single-run closed-loop values are retained as closed-loop selection
+analytics only. Final headline report metrics are not allowed to fall back to
+these fields; they require final repeated validation comparison metrics.
 
 The results-side `current_best_state.json` is a final metadata copy of the
 workspace current-best state. The workspace state file is kept.
@@ -394,18 +393,24 @@ results/experiments/<experiment_id>/validation/
 └── final_validation_report.json
 ```
 
-Each group contains one copied `cpp/` source tree and one build directory. The
-runner configures/builds once per group, then writes repeated benchmark run JSON
-and logs under that group. Failed repetitions are recorded and remaining
-repetitions continue when possible.
+Each group contains one copied `cpp/` source tree, one build directory, and a
+first-class `setup` block recording configure/build status, durations, log paths,
+failed step, and error message. The runner configures/builds once per group, then
+writes repeated benchmark run JSON and logs under that group. Failed benchmark
+repetitions are recorded and remaining repetitions continue when possible. If
+source preparation, path-length preflight, configure, build, or executable lookup
+fails, `runs` is empty, `benchmark_runs_attempted` is `0`, and no fake
+`run_01.json` ... records are created.
 
 `final_validation_report.json` uses `schema_version: "final_validation.v1"` and
-contains per-run records, aggregate median/mean/min/max/population-std runtime
-statistics, correctness summaries, comparison speedups, and safety flags stating
-that validation does not update current-best state, promotion decisions, or the
-main `cpp/` tree. Runtime aggregates use only successful runs whose correctness
-passed. Final validation runtime plots use the same filter. If baseline or final
-has no successful correct run, comparison metrics are `null`.
+contains setup records, per-run benchmark-only records, aggregate
+median/mean/min/max/population-std runtime statistics, correctness summaries,
+comparison speedups, and safety flags stating that validation does not update
+current-best state, promotion decisions, or the main `cpp/` tree. Run records use
+`validation_mode: "benchmark_only"` and `benchmark_run_status`; `verification_status`
+may remain for compatibility. Runtime aggregates use only successful runs whose
+correctness passed. Final validation runtime plots use the same filter. If
+baseline or final has no successful correct run, comparison metrics are `null`.
 
 The final validation `status` field is one of:
 
@@ -456,9 +461,12 @@ report does not promote candidates, update `current_best_source`, update
 
 `summary.txt` includes a concise closed-loop section listing the experiment id,
 target file, total/completed iterations, final best iteration, accepted
-improvements, final speedup/runtime reduction, status counts, paths to the final
-optimized source, final diff, summary JSON, iteration JSONL, final current-best
-metadata, and final repeated benchmark validation status/path/median metrics.
+improvements, status counts, paths to the final optimized source, final diff,
+summary JSON, iteration JSONL, final current-best metadata, and final repeated
+benchmark validation status/path/median metrics. If final validation metrics are
+unavailable, it explicitly says final repeated validation metrics are unavailable
+and that single-run selection metrics are iteration analytics only, not final
+headline metrics.
 
 Closed-loop history is deliberately separate from the non-closed-loop
 `history_policy` variant-local sliding-window history. It includes all
