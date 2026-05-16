@@ -21,6 +21,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
+from orchestrator.patching.diff_stats import parse_unified_diff_stats
 from orchestrator.patching.scope_validation import (
     normalize_repo_path,
     validate_allowed_files_list,
@@ -1007,6 +1008,7 @@ def _build_materialization(
     candidate_type: str = CANDIDATE_TYPE_UNIFIED_DIFF,
     **extra_metadata: Any,
 ) -> dict[str, Any]:
+    diff_stats = _materialization_diff_stats(patch_path, candidate_type, extra_metadata)
     materialization = {
         "overall_status": overall_status,
         "failed_step": failed_step,
@@ -1038,9 +1040,33 @@ def _build_materialization(
         "started_at": started_at.isoformat(timespec="seconds"),
         "finished_at": datetime.now().astimezone().isoformat(timespec="seconds"),
         "steps": steps,
+        "diff_stats": diff_stats,
     }
     materialization.update(extra_metadata)
     return materialization
+
+
+def _materialization_diff_stats(
+    patch_path: Path,
+    candidate_type: str,
+    metadata: dict[str, Any],
+) -> dict[str, Any]:
+    try:
+        diff_text = patch_path.read_text(encoding="utf-8") if patch_path.exists() else ""
+    except OSError:
+        diff_text = ""
+    stats = parse_unified_diff_stats(diff_text)
+    stats["edit_count"] = (
+        metadata.get("line_range_edit_count")
+        if candidate_type == CANDIDATE_TYPE_LINE_RANGE_EDITS
+        else None
+    )
+    if candidate_type == CANDIDATE_TYPE_LINE_RANGE_EDITS:
+        stats["fallback_used"] = bool(metadata.get("line_range_fallback_used"))
+    else:
+        fallback_used = metadata.get("git_apply_recount_used")
+        stats["fallback_used"] = fallback_used if isinstance(fallback_used, bool) else None
+    return stats
 
 
 def _format_command(command: list[str]) -> str:

@@ -19,6 +19,8 @@ Implemented now:
 - Closed-loop iterative optimization in the experiment runner with experiment-local `current_best_source`.
 - Compact benchmark-aware closed-loop history for later generations.
 - Final closed-loop artifacts and analysis-only selector/reporting.
+- Automatic final repeated benchmark validation after closed-loop completion and before report generation.
+- Single unified current single-experiment HTML/PDF report with runtime, correctness, final repeated validation, failure analysis, phase timing, LLM usage, reproducibility metadata, diff statistics, iteration appendix sections, and a read-only report inspector.
 
 Not implemented yet:
 
@@ -26,7 +28,7 @@ Not implemented yet:
 - Multi-variant closed-loop optimization strategy.
 - Additional solver families/adapters beyond the current minimal Lambda Twist P3P path.
 - JSON metrics output directly from C++ benchmarks.
-- Advanced plots and broader statistical dashboards or aggregate reports.
+- Broader statistical dashboards or aggregate reports across multiple experiments.
 - Memory measurement; the current prototype focuses on runtime and correctness/reprojection metrics.
 
 ## Repository Structure
@@ -75,6 +77,7 @@ Key closed-loop artifacts are written under `results/experiments/<experiment_id>
 - `closed_loop_summary.json`
 - `closed_loop_iterations.jsonl`
 - `closed_loop_selection_report.json`
+- `final_validation/final_validation_report.json`
 - `current_best_state.json`
 
 See `docs/architecture.md`, `docs/experiment_runner.md`, `docs/closed_loop_optimization.md`, `docs/result_storage_format.md`, `docs/candidate_edit_formats.md`, and `docs/best_result_selection_policy.md`.
@@ -88,7 +91,9 @@ $env:EIGEN3_INCLUDE_DIR="C:\path\to\eigen"
 py orchestrator/cli/main.py
 ```
 
-The flow configures CMake, builds/runs `baseline_smoke_test`, `baseline_runner`, `absolute_pose_lambdatwist_adapter_validator`, and `absolute_pose_lambdatwist_benchmark`, parses metrics, and checks `correctness_passed`. Benchmark and evaluation builds default to **Release**.
+The flow configures CMake, builds/runs `baseline_smoke_test`, `baseline_runner`, `absolute_pose_lambdatwist_adapter_validator`, and `absolute_pose_lambdatwist_benchmark`, parses metrics, and checks `correctness_passed`. Benchmark and evaluation builds default to **Release**. Build type is recorded as reproducibility metadata in reports.
+
+The user-facing report is a single unified current report, not separate v1/v2 modes. It focuses on closed-loop mode. Legacy `selection_enabled` and `history_policy` fields are not shown as main report concepts; closed-loop promotion policy is `decision_vs_current_best.accepted_improvement_only`. Verification time includes benchmark execution, so `benchmark_seconds` is not separately shown in the main report. Missing PDF is valid for HTML-only reports; when PDF is requested, it is exported from the final completed HTML. Final repeated benchmark validation runs automatically after closed-loop completion and before report generation. It compares the original baseline source against the final optimized source, defaults to 5 benchmark repetitions, does not affect candidate promotion, and does not change `current_best_source`. When available, report headline baseline/final runtimes and final metrics use repeated validation median metrics. Build type is reproducibility metadata; `Release` is the default benchmark build type.
 
 ## Experimental Terminal Control Layer
 
@@ -153,6 +158,16 @@ Verification configures/builds/runs inside the isolated candidate workspace and 
 Pairwise candidate decision and multi-candidate best-result selection consume verified benchmark artifacts and explicit references. The closed-loop runner uses reference-vs-candidate decisions against the current best for promotion and against the original baseline for reporting.
 
 Selection and final reporting do not promote, merge, copy, or commit candidates into the main source tree.
+
+Generated reports are read-only visualizations under `results/experiments/<experiment_id>/report/`. The single-experiment report uses `schema_version: "report.v2"` and extends the original report with Outcome and Failure Analysis, Phase Timings, LLM Usage, Diff Statistics, Final Repeated Benchmark Validation, and an Iteration Appendix. Final validation aggregates and plots use only successful correctness-passing repetitions. Older or incomplete artifacts are handled through graceful degradation where possible, with missing fields or plots marked as unavailable.
+
+Completed reports can be checked without regenerating anything:
+
+```powershell
+python -m orchestrator.reporting.report_inspector --experiment-dir results/experiments/<experiment_id>
+```
+
+See `docs/report_v2_checklist.md` for the manual current-report verification checklist.
 
 ## External Baseline Code
 

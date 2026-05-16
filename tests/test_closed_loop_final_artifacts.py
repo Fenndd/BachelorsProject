@@ -327,6 +327,20 @@ def test_final_diff_and_summary_use_accepted_candidate_decision(
     assert payload["iterations_after_final_best"] == 2
     assert payload["status_counts"]["accepted_improvement"] == 1
     assert payload["status_counts"]["verification_failed"] == 0
+    final_diff_stats_path = paths.final_optimized_source_diff_path.parent / "final_diff_stats.json"
+    assert final_diff_stats_path.exists()
+    assert json.loads(final_diff_stats_path.read_text(encoding="utf-8")) == {
+        "files_changed": 1,
+        "lines_added": 1,
+        "lines_removed": 1,
+        "changed_blocks": 1,
+    }
+    assert payload["final_diff_stats"] == {
+        "files_changed": 1,
+        "lines_added": 1,
+        "lines_removed": 1,
+        "changed_blocks": 1,
+    }
     assert summary.final_speedup_vs_original_baseline == 1.25
 
     status_block = run_experiment._closed_loop_status_block(

@@ -103,6 +103,28 @@ def _patch_runner_roots(monkeypatch: pytest.MonkeyPatch, root: Path) -> None:
         "_resolve_variant_llm_config",
         lambda variant: {"provider": "mock", "model": "mock"},
     )
+    monkeypatch.setattr(run_experiment, "run_final_validation", _fake_final_validation)
+
+
+def _fake_final_validation(**kwargs: Any) -> Path:
+    experiment_dir = Path(kwargs["experiment_dir"])
+    report_path = experiment_dir / "final_validation" / "final_validation_report.json"
+    _write_json(
+        report_path,
+        {
+            "schema_version": "final_validation.v1",
+            "enabled": kwargs.get("enabled", True),
+            "status": "completed",
+            "benchmark_repetitions": kwargs.get("benchmark_repetitions", 5),
+            "baseline": {"runs": [], "summary": {"successful_runs": 0, "failed_runs": 0}},
+            "final": {"runs": [], "summary": {"successful_runs": 0, "failed_runs": 0}},
+            "comparison": {
+                "median_speedup": None,
+                "median_runtime_reduction_percent": None,
+            },
+        },
+    )
+    return report_path
 
 
 def _patch_noop_closed_loop_stage(monkeypatch: pytest.MonkeyPatch, root: Path) -> None:
@@ -168,6 +190,65 @@ def test_reporting_config_defaults_when_block_absent(tmp_path: Path) -> None:
     assert config.reporting.formats == ["html", "pdf"]
     assert config.reporting.renderer == "auto"
     assert config.reporting.fail_on_error is False
+
+
+def test_final_validation_runs_after_finalization_before_reporting(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    root = tmp_path / "repo"
+    _create_repo_layout(root)
+    _patch_runner_roots(monkeypatch, root)
+    _patch_noop_closed_loop_stage(monkeypatch, root)
+    payload = _base_config_payload(root, reporting=None)
+    config = load_experiment_config(_write_config(root, payload))
+    call_order: list[str] = []
+    metadata_final_order: list[list[str]] = []
+    original_finalize = run_experiment.finalize_closed_loop_artifacts
+    original_reporting = run_experiment._run_final_reporting
+    original_write_metadata = run_experiment._write_experiment_metadata
+
+    def wrapped_finalize(*args: Any, **kwargs: Any):
+        call_order.append("finalize")
+        return original_finalize(*args, **kwargs)
+
+    def wrapped_validation(**kwargs: Any) -> Path:
+        call_order.append("validation")
+        return _fake_final_validation(**kwargs)
+
+    def wrapped_reporting(*args: Any, **kwargs: Any) -> dict[str, Any]:
+        call_order.append("reporting")
+        return original_reporting(*args, **kwargs)
+
+    def wrapped_write_metadata(*args: Any, **kwargs: Any) -> Path:
+        finished_at = kwargs.get("finished_at") if kwargs else None
+        if finished_at is None and len(args) >= 3:
+            finished_at = args[2]
+        if finished_at is not None:
+            metadata_final_order.append(list(call_order))
+        return original_write_metadata(*args, **kwargs)
+
+    monkeypatch.setattr(run_experiment, "finalize_closed_loop_artifacts", wrapped_finalize)
+    monkeypatch.setattr(run_experiment, "run_final_validation", wrapped_validation)
+    monkeypatch.setattr(run_experiment, "_run_final_reporting", wrapped_reporting)
+    monkeypatch.setattr(run_experiment, "_write_experiment_metadata", wrapped_write_metadata)
+
+    exit_code = run_experiment._run_experiment(config, payload)
+
+    assert exit_code == 0
+    assert call_order == ["finalize", "validation", "reporting", "reporting"]
+    assert metadata_final_order == [["finalize", "validation", "reporting"]]
+    experiment_dir = next((root / "results" / "experiments").iterdir())
+    status = json.loads((experiment_dir / "experiment_status.json").read_text(encoding="utf-8"))
+    metadata = json.loads((experiment_dir / "experiment_metadata.json").read_text(encoding="utf-8"))
+    assert metadata["finished_at"] == status["finished_at"]
+    assert metadata["total_duration_seconds"] is not None
+    assert f"Finished at: {status['finished_at']}" in (experiment_dir / "summary.txt").read_text(
+        encoding="utf-8"
+    )
+    assert status["closed_loop"]["final_validation_report_path"].endswith(
+        "final_validation/final_validation_report.json"
+    )
 
 
 def test_valid_reporting_config_loads_and_deduplicates_formats(tmp_path: Path) -> None:
@@ -283,7 +364,10 @@ def test_enabled_reporting_runs_after_final_closed_loop_artifacts_exist(
         },
     )
 
-    assert calls == [(experiment_dir, ("html",), "auto")]
+    assert calls == [
+        (experiment_dir, ("html",), "auto"),
+        (experiment_dir, ("html",), "auto"),
+    ]
     status = json.loads((experiment_dir / "experiment_status.json").read_text(encoding="utf-8"))
     assert status["reporting"]["status"] == "completed"
     assert status["reporting"]["report_data_path"].endswith("report/report_data.json")
@@ -292,6 +376,32 @@ def test_enabled_reporting_runs_after_final_closed_loop_artifacts_exist(
     summary = (experiment_dir / "summary.txt").read_text(encoding="utf-8")
     assert "Reporting:" in summary
     assert "status: completed" in summary
+
+
+def test_final_report_includes_final_experiment_metadata(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    experiment_dir = _run_noop_closed_loop_experiment(
+        tmp_path,
+        monkeypatch,
+        reporting={
+            "enabled": True,
+            "formats": ["html"],
+            "renderer": "auto",
+            "fail_on_error": False,
+        },
+    )
+
+    status = json.loads((experiment_dir / "experiment_status.json").read_text(encoding="utf-8"))
+    report_data = json.loads(
+        (experiment_dir / "report" / "report_data.json").read_text(encoding="utf-8")
+    )
+    html = (experiment_dir / "report" / "report.html").read_text(encoding="utf-8")
+
+    assert report_data["experiment_metadata"]["finished_at"] == status["finished_at"]
+    assert report_data["experiment_metadata"]["total_duration_seconds"] is not None
+    assert status["finished_at"] in html
 
 
 def test_disabled_reporting_does_not_call_generator(

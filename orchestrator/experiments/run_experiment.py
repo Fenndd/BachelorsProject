@@ -29,6 +29,8 @@ import copy
 import difflib
 import fnmatch
 import json
+import os
+import platform
 import re
 import shutil
 import subprocess
@@ -63,11 +65,14 @@ from .closed_loop_history import (
     build_history_guidance,
     should_include_in_closed_loop_history,
 )
+from .final_validation import run_final_validation
+from .outcome_reason import build_outcome_reason, outcome_reason_to_dict
 from orchestrator.benchmarking.candidate_decision import (
     evaluate_candidate_against_reference,
     write_candidate_decision,
 )
-from orchestrator.reporting.generate_report import generate_basic_report
+from orchestrator.patching.diff_stats import parse_unified_diff_stats
+from orchestrator.reporting.generate_report import generate_basic_report, refresh_report_artifact_map
 
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -132,6 +137,70 @@ def _read_json_object(path: Path) -> dict[str, Any]:
     return payload
 
 
+def _run_git_command(args: list[str]) -> str | None:
+    try:
+        result = subprocess.run(
+            ["git", *args],
+            cwd=str(REPO_ROOT),
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+    except FileNotFoundError:
+        return None
+    if result.returncode != 0:
+        return None
+    return result.stdout.strip()
+
+
+def _experiment_repository_info() -> dict[str, Any]:
+    git_commit = _run_git_command(["rev-parse", "HEAD"])
+    git_branch = _run_git_command(["rev-parse", "--abbrev-ref", "HEAD"])
+    git_status = _run_git_command(["status", "--porcelain"])
+    return {
+        "git_commit": git_commit or "unknown",
+        "git_branch": git_branch or "unknown",
+        "dirty_worktree": None if git_status is None else bool(git_status),
+    }
+
+
+def _experiment_environment_info() -> dict[str, Any]:
+    return {
+        "os": os.name,
+        "platform": platform.platform(),
+        "python_version": platform.python_version(),
+        "cmake_build_type": os.environ.get("CMAKE_BUILD_TYPE") or "Release",
+        "cmake_exe": os.environ.get("CMAKE_EXE"),
+        "cmake_generator": os.environ.get("CMAKE_GENERATOR"),
+        "cxx_compiler": os.environ.get("CMAKE_CXX_COMPILER"),
+    }
+
+
+def _write_experiment_metadata(
+    experiment_dir: Path,
+    started_at: datetime,
+    finished_at: str | None = None,
+) -> Path:
+    total_duration: float | None = None
+    if finished_at is not None:
+        try:
+            finished_dt = datetime.fromisoformat(finished_at)
+            total_duration = round((finished_dt - started_at).total_seconds(), 3)
+        except ValueError:
+            total_duration = None
+    payload = {
+        "schema_version": "experiment_metadata.v1",
+        "started_at": started_at.isoformat(timespec="seconds"),
+        "finished_at": finished_at,
+        "total_duration_seconds": total_duration,
+        "repository": _experiment_repository_info(),
+        "environment": _experiment_environment_info(),
+    }
+    path = experiment_dir / "experiment_metadata.json"
+    _write_json(path, _portable_plain_dict(payload))
+    return path
+
+
 def _read_json_file_object(path: Path, label: str) -> dict[str, Any]:
     try:
         return _read_json_object(path)
@@ -152,7 +221,7 @@ def _sanitize_name(value: str) -> str:
 
 
 def _build_experiment_id(config: ExperimentConfig, started_at: datetime) -> str:
-    timestamp = started_at.strftime("%Y-%m-%d_%H-%M-%S")
+    timestamp = started_at.strftime("%Y-%m-%d_%H-%M")
     return f"{timestamp}_{_sanitize_name(config.experiment_name)}"
 
 
@@ -163,8 +232,8 @@ def _create_experiment_dir(experiment_id: str) -> Path:
         (experiment_dir / "logs").mkdir(parents=True)
         return experiment_dir
 
-    for suffix in range(1, 1000):
-        candidate_dir = EXPERIMENTS_ROOT / f"{experiment_id}_{suffix:03d}"
+    for suffix in range(1, 100):
+        candidate_dir = EXPERIMENTS_ROOT / f"{experiment_id}_{suffix:02d}"
         if not candidate_dir.exists():
             (candidate_dir / "logs").mkdir(parents=True)
             return candidate_dir
@@ -1546,6 +1615,12 @@ def _write_final_artifacts(
         selection_summary,
         started_at,
     )
+    status_finished_at = status.get("finished_at")
+    _write_experiment_metadata(
+        experiment_dir,
+        started_at,
+        status_finished_at if isinstance(status_finished_at, str) else None,
+    )
     _write_json(experiment_dir / "experiment_status.json", status)
     (experiment_dir / "summary.txt").write_text(
         _build_summary(experiment_id, config, status, records),
@@ -1609,6 +1684,12 @@ def _write_early_failure_artifacts(
     }
     if config.selection.enabled:
         status["selection"] = _compact_selection_summary(True, None, None)
+    status_finished_at = status.get("finished_at")
+    _write_experiment_metadata(
+        experiment_dir,
+        started_at,
+        status_finished_at if isinstance(status_finished_at, str) else None,
+    )
     _write_json(experiment_dir / "experiment_status.json", status)
     lines = [
         f"Experiment id: {experiment_id}",
@@ -1847,6 +1928,81 @@ def _decision_speedup(decision: dict[str, Any] | None) -> float | None:
     return float(speedup) if isinstance(speedup, (int, float)) and not isinstance(speedup, bool) else None
 
 
+def _closed_loop_phase_timings(
+    iteration_started: float,
+    generation_result: dict[str, Any] | None = None,
+    materialization_result: dict[str, Any] | None = None,
+    verification_result: dict[str, Any] | None = None,
+) -> dict[str, float | None]:
+    return {
+        "generation_seconds": _stage_duration_or_none(generation_result),
+        "materialization_seconds": _stage_duration_or_none(materialization_result),
+        "verification_seconds": _stage_duration_or_none(verification_result),
+        "benchmark_seconds": None,
+        "total_iteration_seconds": round(time.perf_counter() - iteration_started, 3),
+    }
+
+
+def _stage_duration_or_none(stage_result: dict[str, Any] | None) -> float | None:
+    if not isinstance(stage_result, dict):
+        return None
+    duration = stage_result.get("duration_seconds")
+    return float(duration) if isinstance(duration, (int, float)) and not isinstance(duration, bool) else None
+
+
+def _candidate_source_artifacts(candidate_run_dir: Path | None) -> dict[str, str | None]:
+    if candidate_run_dir is None:
+        return {}
+    return {
+        "status": _display_path(candidate_run_dir / "status.json"),
+        "candidate": _display_path(candidate_run_dir / "candidate.json"),
+        "materialization": _display_path(candidate_run_dir / "materialization.json"),
+        "verification": _display_path(candidate_run_dir / "verification.json"),
+        "decision_vs_current_best": _display_path(candidate_run_dir / "decision_vs_current_best.json"),
+        "decision_vs_original_baseline": _display_path(candidate_run_dir / "decision_vs_original_baseline.json"),
+    }
+
+
+def _read_optional_candidate_artifact(candidate_run_dir: Path | None, name: str) -> dict[str, Any] | None:
+    if candidate_run_dir is None:
+        return None
+    try:
+        return _read_json_object(candidate_run_dir / name)
+    except (OSError, ValueError, json.JSONDecodeError):
+        return None
+
+
+def _closed_loop_outcome_reason(
+    *,
+    status: IterationStatus,
+    record_fields: dict[str, Any] | None = None,
+    candidate_run_dir: Path | None = None,
+    candidate: dict[str, Any] | None = None,
+    generation: dict[str, Any] | None = None,
+    materialization: dict[str, Any] | None = None,
+    verification: dict[str, Any] | None = None,
+    decision_vs_current_best: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    if materialization is None:
+        materialization = _read_optional_candidate_artifact(candidate_run_dir, "materialization.json")
+    if verification is None:
+        verification = _read_optional_candidate_artifact(candidate_run_dir, "verification.json")
+    if decision_vs_current_best is None:
+        decision_vs_current_best = _read_optional_candidate_artifact(candidate_run_dir, "decision_vs_current_best.json")
+    reason = build_outcome_reason(
+        status=status.value,
+        record=record_fields,
+        candidate_run_dir=candidate_run_dir,
+        candidate=candidate,
+        generation=generation,
+        materialization=materialization,
+        verification=verification,
+        decision_vs_current_best=decision_vs_current_best,
+        source_artifacts=_candidate_source_artifacts(candidate_run_dir),
+    )
+    return outcome_reason_to_dict(reason) or {}
+
+
 def _build_closed_loop_iteration_record(
     *,
     experiment_id: str,
@@ -1864,6 +2020,8 @@ def _build_closed_loop_iteration_record(
     failure_stage: str | None = None,
     failure_reason: str | None = None,
     materialization_match_summary: dict[str, Any] | None = None,
+    phase_timings: dict[str, float | None] | None = None,
+    outcome_reason: dict[str, Any] | None = None,
 ) -> ClosedLoopIterationRecord:
     record = ClosedLoopIterationRecord(
         experiment_id=experiment_id,
@@ -1886,6 +2044,8 @@ def _build_closed_loop_iteration_record(
         failure_stage=failure_stage,
         failure_reason=failure_reason,
         materialization_match_summary=materialization_match_summary,
+        phase_timings=phase_timings,
+        outcome_reason=outcome_reason,
         history_included=False,
         history_guidance=None,
         created_at=_now_iso(),
@@ -1961,6 +2121,14 @@ def write_final_optimized_source_diff(paths: ClosedLoopPaths, config: Experiment
     return paths.final_optimized_source_diff_path
 
 
+def write_final_diff_stats(paths: ClosedLoopPaths) -> dict[str, Any]:
+    diff_text = paths.final_optimized_source_diff_path.read_text(encoding="utf-8")
+    stats = parse_unified_diff_stats(diff_text)
+    output_path = paths.final_optimized_source_diff_path.parent / "final_diff_stats.json"
+    _write_json(output_path, stats)
+    return stats
+
+
 def copy_results_current_best_state(paths: ClosedLoopPaths) -> Path:
     """Copy workspace current-best metadata into the experiment results directory."""
 
@@ -2012,6 +2180,7 @@ def finalize_closed_loop_artifacts(
 
     copy_final_optimized_source(paths, config)
     write_final_optimized_source_diff(paths, config)
+    final_diff_stats = write_final_diff_stats(paths)
     results_state_path = copy_results_current_best_state(paths)
     final_speedup, final_runtime_reduction = _final_speedup_vs_original_baseline(state)
     status_counts = count_iteration_statuses(records)
@@ -2032,9 +2201,36 @@ def finalize_closed_loop_artifacts(
         status_counts=status_counts,
         created_at=started_at.isoformat(timespec="seconds"),
         finished_at=finished_at,
+        final_diff_stats=final_diff_stats,
     )
     _write_json(paths.closed_loop_summary_path, _portable_plain_dict(summary))
     return summary, results_state_path
+
+
+def _update_closed_loop_summary_with_final_validation(
+    paths: ClosedLoopPaths,
+    summary: ClosedLoopSummary,
+    report_path: Path,
+) -> dict[str, Any]:
+    report = _read_json_object(report_path)
+    comparison_raw = report.get("comparison")
+    comparison = comparison_raw if isinstance(comparison_raw, dict) else {}
+    median_speedup = _numeric_or_none(comparison.get("median_speedup"))
+    median_reduction = _numeric_or_none(
+        comparison.get("median_runtime_reduction_percent")
+    )
+    summary.final_validation_report_path = report_path
+    summary.final_validation_median_speedup = median_speedup
+    summary.final_validation_median_runtime_reduction_percent = median_reduction
+    _write_json(paths.closed_loop_summary_path, _portable_plain_dict(summary))
+    return {
+        "enabled": report.get("enabled"),
+        "status": report.get("status"),
+        "benchmark_repetitions": report.get("benchmark_repetitions"),
+        "report_path": _display_path(report_path),
+        "median_speedup": median_speedup,
+        "median_runtime_reduction_percent": median_reduction,
+    }
 
 
 def write_closed_loop_selection_report(
@@ -2173,8 +2369,9 @@ def _closed_loop_status_block(
     summary: ClosedLoopSummary,
     results_state_path: Path,
     accepted_improvements: int,
+    final_validation_status: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    return {
+    payload = {
         "enabled": True,
         "final_best_iteration": summary.final_best_iteration,
         "accepted_improvements": accepted_improvements,
@@ -2189,6 +2386,12 @@ def _closed_loop_status_block(
         "final_runtime_reduction_percent": summary.final_runtime_reduction_percent,
         "status_counts": summary.status_counts,
     }
+    if final_validation_status is not None:
+        payload["final_validation"] = final_validation_status
+        payload["final_validation_report_path"] = final_validation_status.get("report_path")
+        payload["final_validation_median_speedup"] = final_validation_status.get("median_speedup")
+        payload["final_validation_median_runtime_reduction_percent"] = final_validation_status.get("median_runtime_reduction_percent")
+    return payload
 
 
 def _reporting_status_disabled(config: ExperimentConfig) -> dict[str, Any]:
@@ -2271,11 +2474,14 @@ def _build_closed_loop_summary_text(
     results_state_path: Path,
     accepted_improvements: int,
     reporting_status: dict[str, Any] | None = None,
+    final_validation_status: dict[str, Any] | None = None,
+    finished_at: str | None = None,
 ) -> str:
     lines = [
         f"Experiment id: {experiment_id}",
         f"Experiment name: {config.experiment_name}",
         "Closed-loop mode: enabled",
+        f"Finished at: {finished_at or 'none'}",
         f"Target file: {config.target_file}",
         f"Total planned iterations: {summary.total_iterations}",
         f"Completed iterations: {summary.completed_iterations}",
@@ -2324,6 +2530,27 @@ def _build_closed_loop_summary_text(
             elif reporting_status.get("status") == "failed":
                 lines.append(f"  error: {reporting_status.get('error') or 'none'}")
         lines.append("")
+    if final_validation_status is not None:
+        lines.append("Final repeated benchmark validation:")
+        lines.append(f"  enabled: {str(final_validation_status.get('enabled')).lower()}")
+        lines.append(f"  status: {final_validation_status.get('status') or 'none'}")
+        lines.append(
+            "  benchmark repetitions: "
+            f"{final_validation_status.get('benchmark_repetitions') or 'none'}"
+        )
+        lines.append(
+            "  report: "
+            f"{final_validation_status.get('report_path') or 'none'}"
+        )
+        lines.append(
+            "  median speedup: "
+            f"{_format_optional_float(final_validation_status.get('median_speedup'))}"
+        )
+        lines.append(
+            "  median runtime reduction percent: "
+            f"{_format_optional_float(final_validation_status.get('median_runtime_reduction_percent'))}"
+        )
+        lines.append("")
     return "\n".join(lines)
 
 
@@ -2358,6 +2585,7 @@ def _run_closed_loop_experiment(
     print(f"Current best source: {_display_path(closed_loop_paths.current_best_source_dir)}")
 
     for iteration in range(1, variant.iterations + 1):
+        iteration_started = time.perf_counter()
         print(f"\nClosed-loop iteration {iteration}/{variant.iterations}")
         reference_best_iteration_before = state.current_best_iteration
         reference_run_dir_before = state.current_best_run_dir
@@ -2411,6 +2639,13 @@ def _run_closed_loop_experiment(
                 current_best_iteration_after=state.current_best_iteration,
                 failure_stage="generation",
                 failure_reason=generation_record.get("error_message") or generation_record.get("failed_step"),
+                phase_timings=_closed_loop_phase_timings(iteration_started, generation_result),
+                outcome_reason=_closed_loop_outcome_reason(
+                    status=IterationStatus.GENERATION_FAILED,
+                    record_fields=generation_record,
+                    candidate_run_dir=candidate_run_dir,
+                    generation=generation_record,
+                ),
             )
             records.append(record)
             _append_closed_loop_record_and_state(closed_loop_paths, state, record)
@@ -2435,6 +2670,13 @@ def _run_closed_loop_experiment(
                 current_best_iteration_after=state.current_best_iteration,
                 failure_stage="generation",
                 failure_reason=f"Could not read usable candidate.json: {exc}",
+                phase_timings=_closed_loop_phase_timings(iteration_started, generation_result),
+                outcome_reason=_closed_loop_outcome_reason(
+                    status=IterationStatus.GENERATION_FAILED,
+                    record_fields={"failed_step": "read_candidate_json", "failure_reason": str(exc)},
+                    candidate_run_dir=candidate_run_dir,
+                    generation={"failed_step": "candidate_json_invalid", "error_message": str(exc)},
+                ),
             )
             records.append(record)
             _append_closed_loop_record_and_state(closed_loop_paths, state, record)
@@ -2455,6 +2697,12 @@ def _run_closed_loop_experiment(
                 decision_vs_original_baseline=None,
                 current_best_updated=False,
                 current_best_iteration_after=state.current_best_iteration,
+                phase_timings=_closed_loop_phase_timings(iteration_started, generation_result),
+                outcome_reason=_closed_loop_outcome_reason(
+                    status=IterationStatus.NO_OP,
+                    candidate_run_dir=candidate_run_dir,
+                    candidate=candidate,
+                ),
             )
             records.append(record)
             _append_closed_loop_record_and_state(closed_loop_paths, state, record)
@@ -2491,6 +2739,17 @@ def _run_closed_loop_experiment(
                 failure_stage="materialization",
                 failure_reason=materialization_record.get("error_message") or materialization_record.get("failed_step"),
                 materialization_match_summary=materialization_record.get("materialization_match_summary"),
+                phase_timings=_closed_loop_phase_timings(
+                    iteration_started,
+                    generation_result,
+                    materialization_result,
+                ),
+                outcome_reason=_closed_loop_outcome_reason(
+                    status=IterationStatus.MATERIALIZATION_FAILED,
+                    record_fields=materialization_record,
+                    candidate_run_dir=candidate_run_dir,
+                    candidate=candidate,
+                ),
             )
             records.append(record)
             _append_closed_loop_record_and_state(closed_loop_paths, state, record)
@@ -2523,6 +2782,18 @@ def _run_closed_loop_experiment(
                 failure_stage="verification",
                 failure_reason=verification_record.get("error_message") or verification_record.get("failed_step"),
                 materialization_match_summary=materialization_record.get("materialization_match_summary"),
+                phase_timings=_closed_loop_phase_timings(
+                    iteration_started,
+                    generation_result,
+                    materialization_result,
+                    verification_result,
+                ),
+                outcome_reason=_closed_loop_outcome_reason(
+                    status=IterationStatus.VERIFICATION_FAILED,
+                    record_fields=verification_record,
+                    candidate_run_dir=candidate_run_dir,
+                    candidate=candidate,
+                ),
             )
             records.append(record)
             _append_closed_loop_record_and_state(closed_loop_paths, state, record)
@@ -2573,12 +2844,24 @@ def _run_closed_loop_experiment(
             current_best_updated=current_best_updated,
             current_best_iteration_after=state.current_best_iteration,
             materialization_match_summary=materialization_record.get("materialization_match_summary"),
+            phase_timings=_closed_loop_phase_timings(
+                iteration_started,
+                generation_result,
+                materialization_result,
+                verification_result,
+            ),
+            outcome_reason=_closed_loop_outcome_reason(
+                status=iteration_status,
+                candidate_run_dir=candidate_run_dir,
+                candidate=candidate,
+                decision_vs_current_best=decision_vs_current_best,
+            ),
         )
         records.append(record)
         _append_closed_loop_record_and_state(closed_loop_paths, state, record)
         print(f"- iteration: {iteration_status.value}")
 
-    finished_at = _now_iso()
+    closed_loop_finished_at = _now_iso()
     summary, results_state_path = finalize_closed_loop_artifacts(
         paths=closed_loop_paths,
         experiment_id=experiment_id,
@@ -2586,9 +2869,26 @@ def _run_closed_loop_experiment(
         state=state,
         records=records,
         started_at=started_at,
-        finished_at=finished_at,
+        finished_at=closed_loop_finished_at,
     )
     selection_report_path = write_closed_loop_selection_report(experiment_dir, state, summary, records)
+    final_validation_report_path = run_final_validation(
+        experiment_dir=experiment_dir,
+        experiment_id=experiment_id,
+        repo_root=REPO_ROOT,
+        baseline_source_dir=REPO_ROOT,
+        final_source_dir=closed_loop_paths.final_optimized_source_dir,
+        enabled=config.final_validation.enabled,
+        benchmark_repetitions=config.final_validation.benchmark_repetitions,
+    )
+    final_validation_status = _update_closed_loop_summary_with_final_validation(
+        closed_loop_paths,
+        summary,
+        final_validation_report_path,
+    )
+    reporting_status = _run_final_reporting(experiment_dir, config)
+    finished_at = _now_iso()
+    _write_experiment_metadata(experiment_dir, started_at, finished_at)
     reporting_status = _run_final_reporting(experiment_dir, config)
     final_status = {
         "experiment_id": experiment_id,
@@ -2599,6 +2899,7 @@ def _run_closed_loop_experiment(
             summary,
             results_state_path,
             state.accepted_improvements,
+            final_validation_status,
         ),
         "started_at": started_at.isoformat(timespec="seconds"),
         "finished_at": finished_at,
@@ -2619,9 +2920,12 @@ def _run_closed_loop_experiment(
             results_state_path=results_state_path,
             accepted_improvements=state.accepted_improvements,
             reporting_status=reporting_status,
+            final_validation_status=final_validation_status,
+            finished_at=finished_at,
         ),
         encoding="utf-8",
     )
+    refresh_report_artifact_map(experiment_dir)
     return final_status
 
 
@@ -2645,6 +2949,7 @@ def _run_experiment(
     iterations_path = experiment_dir / "iterations.jsonl"
 
     _write_json(experiment_dir / "experiment_config_snapshot.json", config_snapshot)
+    _write_experiment_metadata(experiment_dir, started_at)
     try:
         llm_metadata_by_variant = _write_resolved_variant_llm_configs(
             experiment_dir,

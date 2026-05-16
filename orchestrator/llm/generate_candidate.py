@@ -11,6 +11,7 @@ import argparse
 import json
 import subprocess
 import sys
+import time
 from dataclasses import asdict
 from datetime import datetime
 from pathlib import Path
@@ -394,6 +395,40 @@ def _save_candidate_artifacts(run_dir: Path, candidate: OptimizationCandidate) -
         raise ValueError(f"Unsupported candidate_type: {candidate.candidate_type}")
 
 
+def _llm_usage_metadata(response: Any, api_latency_seconds: float | None) -> dict[str, Any]:
+    raw_response = response.raw_response if response is not None else {}
+    raw_response = raw_response if isinstance(raw_response, dict) else {}
+    usage = raw_response.get("usage")
+    usage = usage if isinstance(usage, dict) else {}
+    choices = raw_response.get("choices")
+    first_choice = choices[0] if isinstance(choices, list) and choices else {}
+    first_choice = first_choice if isinstance(first_choice, dict) else {}
+    model = raw_response.get("model") if isinstance(raw_response.get("model"), str) else None
+    return {
+        "prompt_tokens": _int_or_none(usage.get("prompt_tokens")),
+        "completion_tokens": _int_or_none(usage.get("completion_tokens")),
+        "total_tokens": _int_or_none(usage.get("total_tokens")),
+        "api_latency_seconds": api_latency_seconds,
+        "finish_reason": first_choice.get("finish_reason")
+        if isinstance(first_choice.get("finish_reason"), str)
+        else None,
+        "model": model or (response.model if response is not None else None),
+        "model_version": raw_response.get("model_version")
+        if isinstance(raw_response.get("model_version"), str)
+        else None,
+    }
+
+
+def _int_or_none(value: Any) -> int | None:
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, int):
+        return value
+    if isinstance(value, float) and value == int(value):
+        return int(value)
+    return None
+
+
 def _print_final_summary(
     status: dict[str, Any],
     run_dir: Path | None,
@@ -610,11 +645,14 @@ def main(argv: list[str] | None = None) -> int:
         except OSError as exc:
             raise CandidateGenerationFailure("save_artifacts", str(exc)) from exc
 
+        api_latency_seconds: float | None = None
         try:
+            llm_started = time.perf_counter()
             response = client.complete(
                 system_prompt=system_prompt,
                 user_prompt=user_prompt,
             )
+            api_latency_seconds = round(time.perf_counter() - llm_started, 3)
         except (DeepSeekClientError, MockLLMClientError) as exc:
             failed_step = _classify_client_response_error(str(exc))
             raise CandidateGenerationFailure(failed_step, str(exc)) from exc
@@ -628,6 +666,7 @@ def main(argv: list[str] | None = None) -> int:
                     "content": response.content,
                     "reasoning_content": response.reasoning_content,
                     "raw_response": response.raw_response,
+                    "llm_usage": _llm_usage_metadata(response, api_latency_seconds),
                 },
             )
         except OSError as exc:

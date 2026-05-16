@@ -7,7 +7,7 @@ import json
 import sys
 from pathlib import Path
 
-from orchestrator.reporting.figure_builder import build_report_figures
+from orchestrator.reporting.figure_builder import PLOT_FILENAMES, build_report_figures
 from orchestrator.reporting.html_renderer import render_report_html
 from orchestrator.reporting.pdf_exporter import export_pdf_from_html
 from orchestrator.reporting.report_data_collector import collect_and_write_report_data
@@ -29,21 +29,72 @@ def generate_basic_report(
     report_dir = experiment_path / "report"
     requested_formats = _normalize_formats(formats)
 
-    report_data_path = collect_and_write_report_data(experiment_path)
+    report_data_path = collect_and_write_report_data(
+        experiment_path,
+        reporting_formats_override=tuple(requested_formats),
+        reporting_renderer_override=renderer,
+    )
     report_data = json.loads(report_data_path.read_text(encoding="utf-8"))
     plot_paths = build_report_figures(report_data, report_dir / "plots")
-    html_path = render_report_html(report_data, plot_paths, report_dir / "report.html")
+    html_path = report_dir / "report.html"
 
     artifacts = {
         "report_data": report_data_path,
         "html": html_path,
     }
     if "pdf" in requested_formats:
-        artifacts["pdf"] = export_pdf_from_html(
-            html_path,
-            report_dir / "report.pdf",
+        pdf_path = report_dir / "report.pdf"
+        report_data = _finalize_reporting_status(
+            report_data_path,
+            requested_formats=requested_formats,
             renderer=renderer,
+            html_path=html_path,
+            pdf_path=pdf_path,
+            status="completed",
+            assume_pdf_generated=True,
         )
+        render_report_html(report_data, plot_paths, html_path)
+        try:
+            artifacts["pdf"] = export_pdf_from_html(
+                html_path,
+                pdf_path,
+                renderer=renderer,
+            )
+        except Exception as exc:
+            failed_data = _finalize_reporting_status(
+                report_data_path,
+                requested_formats=requested_formats,
+                renderer=renderer,
+                html_path=html_path,
+                pdf_path=None,
+                status="failed",
+                error=str(exc),
+            )
+            try:
+                render_report_html(failed_data, plot_paths, html_path)
+            except Exception:
+                pass
+            raise
+        report_data = _finalize_reporting_status(
+            report_data_path,
+            requested_formats=requested_formats,
+            renderer=renderer,
+            html_path=html_path,
+            pdf_path=artifacts.get("pdf"),
+            status="completed",
+        )
+        render_report_html(report_data, plot_paths, html_path)
+        return artifacts
+
+    report_data = _finalize_reporting_status(
+        report_data_path,
+        requested_formats=requested_formats,
+        renderer=renderer,
+        html_path=html_path,
+        pdf_path=None,
+        status="completed",
+    )
+    render_report_html(report_data, plot_paths, html_path)
     return artifacts
 
 
@@ -53,15 +104,129 @@ def generate_basic_html_report(experiment_dir: Path | str) -> Path:
     return generate_basic_report(experiment_dir, formats=("html",))["html"]
 
 
-def _normalize_formats(formats: tuple[str, ...]) -> set[str]:
-    normalized = {format_name.strip().lower() for format_name in formats}
-    unknown = normalized - SUPPORTED_FORMATS
+def refresh_report_artifact_map(experiment_dir: Path | str) -> Path | None:
+    """Refresh final status/summary artifact links and re-render HTML only."""
+
+    experiment_path = Path(experiment_dir)
+    report_dir = experiment_path / "report"
+    report_data_path = report_dir / "report_data.json"
+    html_path = report_dir / "report.html"
+    if not report_data_path.is_file() or not html_path.exists():
+        return None
+
+    payload = json.loads(report_data_path.read_text(encoding="utf-8"))
+    if not isinstance(payload, dict):
+        raise ValueError("report_data.json must contain a JSON object")
+
+    artifacts = payload.get("artifacts")
+    if not isinstance(artifacts, dict):
+        artifacts = {}
+    changed = False
+
+    status_path = experiment_path / "experiment_status.json"
+    if status_path.is_file():
+        artifacts["experiment_status"] = _display_path(status_path)
+        changed = True
+
+    summary_path = experiment_path / "summary.txt"
+    if summary_path.is_file():
+        artifacts["summary_txt"] = _display_path(summary_path)
+        changed = True
+
+    if not changed:
+        return html_path
+
+    payload["artifacts"] = artifacts
+    report_data_path.write_text(
+        json.dumps(payload, indent=2, ensure_ascii=False) + "\n",
+        encoding="utf-8",
+    )
+    plot_paths = {
+        key: str(Path("plots") / filename).replace("\\", "/")
+        for key, filename in PLOT_FILENAMES.items()
+    }
+    render_report_html(payload, plot_paths, html_path)
+    return html_path
+
+
+def _normalize_formats(formats: tuple[str, ...]) -> list[str]:
+    normalized: list[str] = []
+    seen: set[str] = set()
+    for format_name in formats:
+        value = format_name.strip().lower()
+        if value and value not in seen:
+            normalized.append(value)
+            seen.add(value)
+    unknown = set(normalized) - SUPPORTED_FORMATS
     if unknown:
         raise ValueError(
             "Unsupported report format(s): "
             f"{', '.join(sorted(unknown))}. Expected one or both of: html, pdf."
         )
     return normalized
+
+
+def _finalize_reporting_status(
+    report_data_path: Path,
+    *,
+    requested_formats: list[str],
+    renderer: str,
+    html_path: Path,
+    pdf_path: Path | None,
+    status: str = "completed",
+    error: str | None = None,
+    assume_pdf_generated: bool = False,
+) -> dict:
+    payload = json.loads(report_data_path.read_text(encoding="utf-8"))
+    if not isinstance(payload, dict):
+        raise ValueError("report_data.json must contain a JSON object")
+
+    pdf_generated = (
+        pdf_path is not None and (assume_pdf_generated or pdf_path.is_file())
+    )
+    report_pdf_path = _display_path(pdf_path) if pdf_generated and pdf_path is not None else None
+    if pdf_generated:
+        pdf_display = report_pdf_path
+    elif "pdf" not in requested_formats:
+        formats_json = json.dumps(requested_formats)
+        pdf_display = f"Not generated. Current reporting formats: {formats_json}"
+    elif status == "failed":
+        pdf_display = f"PDF generation failed: {error or 'unknown error'}"
+    else:
+        pdf_display = "PDF requested; generation pending or file missing"
+
+    existing_status = payload.get("reporting_status")
+    if not isinstance(existing_status, dict):
+        existing_status = {}
+    existing_status.update(
+        {
+            "enabled": True,
+            "status": status,
+            "formats": requested_formats,
+            "renderer": renderer,
+            "report_data_path": _display_path(report_data_path),
+            "report_html_path": _display_path(html_path),
+            "report_pdf_path": report_pdf_path,
+            "pdf_generated": pdf_generated,
+            "pdf_display": pdf_display,
+            "error": error,
+        }
+    )
+    payload["reporting_status"] = existing_status
+    report_data_path.write_text(
+        json.dumps(payload, indent=2, ensure_ascii=False) + "\n",
+        encoding="utf-8",
+    )
+    return payload
+
+
+def _display_path(path: Path | None) -> str | None:
+    if path is None:
+        return None
+    try:
+        return path.resolve().relative_to(REPO_ROOT).as_posix()
+    except ValueError:
+        return str(path)
 
 
 def _parse_args(argv: list[str]) -> argparse.Namespace:

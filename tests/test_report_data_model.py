@@ -7,6 +7,7 @@ from orchestrator.experiments.closed_loop_state import IterationStatus
 from orchestrator.reporting import (
     ReportArtifactMap,
     ReportIterationSummary,
+    ReportReasonSummaryItem,
     default_status_counts,
     make_empty_report_data,
     to_report_dict,
@@ -17,10 +18,11 @@ from orchestrator.reporting import (
 TARGET_FILE = "cpp/external/lambdatwist/p3p.cc"
 
 
-def test_make_empty_report_data_uses_report_v1_schema() -> None:
+def test_make_empty_report_data_uses_current_report_schema() -> None:
     report_data = make_empty_report_data("exp_001", TARGET_FILE)
 
-    assert report_data.schema_version == "report.v1"
+    assert report_data.schema_version == "report.v2"
+    assert report_data.report_metadata.report_profile == "single_experiment"
 
 
 def test_default_status_counts_includes_every_closed_loop_status() -> None:
@@ -54,8 +56,20 @@ def test_json_output_contains_required_top_level_sections(tmp_path: Path) -> Non
         "iterations",
         "status_counts",
         "artifacts",
+        "llm",
+        "llm_usage_summary",
+        "experiment_config_details",
+        "benchmark_config",
+        "closed_loop_selection",
+        "final_best_candidate",
+        "reporting_status",
+        "final_validation",
+        "reason_summary",
+        "reason_code_counts",
+        "experiment_metadata",
     ]
-    assert payload["schema_version"] == "report.v1"
+    assert payload["schema_version"] == "report.v2"
+    assert payload["report_metadata"]["report_profile"] == "single_experiment"
     assert payload["experiment"]["experiment_id"] == "exp_001"
     assert payload["experiment"]["target_file"] == TARGET_FILE
     assert payload["final_result"]["final_best_iteration"] == 0
@@ -104,6 +118,32 @@ def test_optional_runtime_and_correctness_fields_can_be_none() -> None:
     assert payload["final_result"]["correctness_preserved"] is None
     assert payload["iterations"][0]["runtime_ns_per_case_median"] is None
     assert payload["iterations"][0]["correctness_passed"] is None
+
+
+def test_reason_summary_defaults_to_empty_list() -> None:
+    report_data = make_empty_report_data("exp_001", TARGET_FILE)
+
+    payload = to_report_dict(report_data)
+
+    assert payload["reason_summary"] == []
+
+
+def test_reason_summary_item_round_trips_through_to_report_dict() -> None:
+    report_data = make_empty_report_data("exp_001", TARGET_FILE)
+    report_data.reason_summary = [
+        ReportReasonSummaryItem(reason="runtime_not_improved", count=2, iterations=[1, 3]),
+        ReportReasonSummaryItem(reason="no_op", count=1, iterations=[2]),
+    ]
+
+    payload = to_report_dict(report_data)
+
+    assert len(payload["reason_summary"]) == 2
+    assert payload["reason_summary"][0] == {
+        "reason": "runtime_not_improved",
+        "count": 2,
+        "iterations": [1, 3],
+    }
+    assert payload["reason_summary"][1]["reason"] == "no_op"
 
 
 def test_materialization_failed_iteration_with_no_runtime_serializes() -> None:

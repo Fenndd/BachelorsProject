@@ -180,6 +180,27 @@ candidate format. The prompt schema and candidate JSON schema are unchanged; the
 LLM still sees the logical repo-relative target file, not the temporary
 workspace path.
 
+`llm_response.json` includes a structured `llm_usage` block for reporting and
+auditability. Fields are nullable when a provider or mock response does not
+report them:
+
+```json
+{
+  "llm_usage": {
+    "prompt_tokens": 1234,
+    "completion_tokens": 567,
+    "total_tokens": 1801,
+    "api_latency_seconds": 2.345,
+    "finish_reason": "stop",
+    "model": "deepseek-chat",
+    "model_version": null
+  }
+}
+```
+
+The response artifact records usage metadata and raw provider response data, but
+does not include API keys or environment secrets.
+
 Generation and materialization both have configurable physical source roots for
 closed-loop runs. Generation uses `--source-root` to read the source shown to the
 LLM while keeping candidate paths logical and repo-relative. Materialization uses
@@ -262,8 +283,12 @@ closed-loop artifacts under the experiment result directory:
 ```text
 results/experiments/<experiment_id>/final_optimized_source/
 results/experiments/<experiment_id>/final_optimized_source.diff
+results/experiments/<experiment_id>/final_diff_stats.json
 results/experiments/<experiment_id>/closed_loop_summary.json
 results/experiments/<experiment_id>/closed_loop_selection_report.json
+results/experiments/<experiment_id>/final_validation/
+results/experiments/<experiment_id>/final_validation/final_validation_report.json
+results/experiments/<experiment_id>/experiment_metadata.json
 results/experiments/<experiment_id>/current_best_state.json
 ```
 
@@ -310,6 +335,10 @@ to the candidate workspace.
 - `status_counts` for every closed-loop iteration status, including zero counts
 - `created_at`
 - `finished_at`
+- `final_diff_stats`
+- `final_validation_report_path`
+- `final_validation_median_speedup`
+- `final_validation_median_runtime_reduction_percent`
 
 If the final best remains the baseline, speedup is `1.0` and runtime reduction is
 `0.0`. If the final best is an accepted candidate, these values are read from the
@@ -321,7 +350,98 @@ workspace current-best state. The workspace state file is kept.
 
 `experiment_status.json` includes a `closed_loop` block when closed-loop mode is
 enabled. The block contains final best iteration, accepted improvement count,
-final artifact paths, final speedup/runtime reduction, and status counts.
+final artifact paths, final speedup/runtime reduction, status counts, and the
+final validation report path/median comparison metrics when final validation has
+run.
+
+## Final Repeated Benchmark Validation
+
+Final repeated benchmark validation runs automatically after closed-loop
+completion and final artifact creation, and before report generation. It compares
+the original baseline source against `final_optimized_source/`. It does not rerun
+the LLM, does not rerun every candidate, does not affect candidate promotion, and
+does not change `current_best_source`.
+
+The optional config block is:
+
+```json
+{
+  "final_validation": {
+    "enabled": true,
+    "benchmark_repetitions": 5
+  }
+}
+```
+
+If `final_validation` is missing, validation defaults to enabled. If
+`final_validation.benchmark_repetitions` is missing, default 5 is used. The value
+must be a positive integer.
+
+The validation directory layout is:
+
+```text
+results/experiments/<experiment_id>/final_validation/
+├── baseline_runs/
+│   ├── run_01/
+│   └── ...
+├── final_runs/
+│   ├── run_01/
+│   └── ...
+└── final_validation_report.json
+```
+
+Each run directory is candidate-like: it contains an isolated copied workspace,
+a minimal successful `materialization.json`, and the normal verifier output
+`verification.json` when verification reaches artifact writing. Failed
+repetitions are recorded and remaining repetitions continue when possible.
+
+`final_validation_report.json` uses `schema_version: "final_validation.v1"` and
+contains per-run records, aggregate median/mean/min/max/population-std runtime
+statistics, correctness summaries, comparison speedups, and safety flags stating
+that validation does not update current-best state, promotion decisions, or the
+main `cpp/` tree. Runtime aggregates use only successful runs whose correctness
+passed. Final validation runtime plots use the same filter. If baseline or final
+has no successful correct run, comparison metrics are `null`.
+
+The final validation `status` field is one of:
+
+- `skipped`: validation was disabled.
+- `completed`: comparison metrics are available and every baseline/final repetition was successful and correctness-passing.
+- `completed_partial`: comparison metrics are available but at least one repetition failed or failed correctness.
+- `incomplete`: validation ran but comparison metrics are unavailable.
+
+`experiment_metadata.json` records process metadata for experiment runs. For
+closed-loop runs, `finished_at` and `total_duration_seconds` cover the full
+experiment cycle: closed-loop iterations, final artifact creation, final
+validation, report generation or recorded reporting failure, and final
+status/summary output. This is distinct from `closed_loop_summary.finished_at`,
+which marks closed-loop optimization completion before final validation.
+
+```json
+{
+  "schema_version": "experiment_metadata.v1",
+  "started_at": "...",
+  "finished_at": "...",
+  "total_duration_seconds": 60.0,
+  "repository": {
+    "git_commit": "...",
+    "git_branch": "...",
+    "dirty_worktree": false
+  },
+  "environment": {
+    "os": "...",
+    "platform": "...",
+    "python_version": "...",
+    "cmake_build_type": "Release",
+    "cmake_exe": "...",
+    "cmake_generator": "...",
+    "cxx_compiler": "..."
+  }
+}
+```
+
+Only selected safe environment fields are persisted; API keys and other secrets
+are not written.
 
 `closed_loop_selection_report.json` is reporting-only. It records a
 `control_decision` section describing the promotion policy and final best run,
@@ -332,9 +452,9 @@ report does not promote candidates, update `current_best_source`, update
 
 `summary.txt` includes a concise closed-loop section listing the experiment id,
 target file, total/completed iterations, final best iteration, accepted
-improvements, final speedup/runtime reduction, status counts, and paths to the
-final optimized source, final diff, summary JSON, iteration JSONL, and final
-current-best metadata.
+improvements, final speedup/runtime reduction, status counts, paths to the final
+optimized source, final diff, summary JSON, iteration JSONL, final current-best
+metadata, and final repeated benchmark validation status/path/median metrics.
 
 Closed-loop history is deliberately separate from the non-closed-loop
 `history_policy` variant-local sliding-window history. It includes all
@@ -372,6 +492,47 @@ Each `closed_loop_iterations.jsonl` record contains:
   closed-loop history
 - `history_guidance`: deterministic future guidance for included records, or
   `null` for excluded records
+- `phase_timings`: optional per-phase durations with `generation_seconds`,
+  `materialization_seconds`, `verification_seconds`, `benchmark_seconds`, and
+  `total_iteration_seconds`. `benchmark_seconds` may be `null` until a separate
+  benchmark duration is available. Verification time includes benchmark
+  execution; `benchmark_seconds` is not separately shown in the main report.
+- `outcome_reason`: optional normalized reason object explaining why the status
+  occurred. New closed-loop runs write it directly; report collection
+  reconstructs a best-effort value for older artifacts.
+
+Example `outcome_reason`:
+
+```json
+{
+  "category": "verification",
+  "code": "benchmark_correctness_failed",
+  "severity": "error",
+  "message": "Candidate failed benchmark correctness check.",
+  "source_artifact": "results/runs/<candidate_run_id>/verification.json"
+}
+```
+
+Stable categories are `generation`, `no_op`, `materialization`, `verification`,
+`decision`, and `unknown`. Stable severities are `info`, `warning`, and `error`.
+Reason codes are compact and intentionally do not encode raw exception text.
+Common codes include:
+
+- Generation: `generation_failed`, `llm_request_failed`,
+  `llm_response_parse_failed`, `candidate_json_invalid`,
+  `candidate_artifacts_missing`, `candidate_run_dir_parse_failed`
+- No-op: `no_op_candidate`, `empty_edit_payload`
+- Materialization: `materialization_failed`, `scope_violation`,
+  `diff_apply_failed`, `line_range_mismatch`,
+  `line_range_fallback_ambiguous`, `target_file_missing`, `no_files_changed`
+- Verification: `verification_failed`, `configure_failed`, `build_failed`,
+  `smoke_test_failed`, `adapter_validation_failed`,
+  `benchmark_execution_failed`, `benchmark_parse_failed`,
+  `benchmark_correctness_failed`, `metrics_missing`
+- Decision: `accepted_improvement`, `valid_not_improved`,
+  `rejected_correctness`, `rejected_not_comparable`, `rejected_no_speedup`,
+  `rejected_benchmark_audit_failed`, `decision_artifact_missing`
+- Fallback: `unknown_reason`
 
 The main `cpp/` source tree is never modified automatically.
 
@@ -383,6 +544,70 @@ Deterministic tests validate these storage and safety contracts with fixtures an
 monkeypatched closed-loop runners. They include a controlled mock scenario where
 one accepted candidate is promoted, a later slower candidate is not promoted, and
 a no-op is recorded but excluded from future compact history.
+
+The report is a single unified current report, not separate v1/v2 modes.
+`report/report_data.json` uses `schema_version: "report.v2"` and includes each
+iteration's normalized `outcome_reason` and a top-level `reason_code_counts`
+array grouped by `category` and `code`. This complements the older
+human-readable `reason_summary`, which remains available for backward
+compatibility with incomplete artifacts.
+
+The generated `report/report.html` and optional `report/report.pdf` use these
+enriched fields in the unified single-experiment report:
+
+- Outcome and Failure Analysis, backed by `reason_code_counts`
+- Phase Timings, backed by per-iteration `phase_timings`
+- LLM Usage, backed by per-iteration `llm_usage`
+- Reproducibility and Environment, backed by `experiment_metadata`
+- Diff Statistics, backed by per-iteration `diff_stats` and final
+  `final_best_candidate.diff_stats`
+- Iteration Appendix, a compact per-iteration summary combining status,
+  candidate metadata, outcome reason, runtime, correctness, timings, LLM usage,
+  diff stats, and candidate run directory
+
+For HTML-only output, report data, plots, and final completed HTML are written.
+For HTML+PDF output, final completed HTML is rendered once with the expected
+`report/report.pdf` path and the PDF is exported from that final HTML. If PDF
+export fails, reporting status is updated to `failed`, HTML is re-rendered with
+that failed status when possible, and the exception is propagated to the runner's
+existing reporting error policy.
+
+When final repeated validation metrics are available, the Executive Summary
+headline baseline runtime and final runtime use the same repeated-validation
+comparison basis. The separate Baseline Metrics section may still show the
+original single-run baseline artifact.
+
+The user-facing report focuses on closed-loop mode. Legacy `selection_enabled`
+and `history_policy` fields are not shown as main report concepts. Closed-loop
+promotion policy is `decision_vs_current_best.accepted_improvement_only`.
+Build type is reproducibility metadata; `Release` is the default benchmark build
+type.
+
+These sections are presentation-only. They do not promote candidates, rerun
+benchmarks, recompute verification, materialize source, or modify `cpp/`. Older
+or incomplete report data is handled through graceful degradation where possible:
+if enriched metadata is missing, report generation still succeeds and the
+corresponding tables or SVG plots state that the data is unavailable.
+
+`orchestrator.reporting.report_inspector` can inspect an existing report directory
+without regenerating anything:
+
+```powershell
+python -m orchestrator.reporting.report_inspector --experiment-dir results/experiments/<experiment_id>
+```
+
+It validates the presence and object shape of `report_data.json`, `report.html`,
+optional `report.pdf`, expected plot files, and important HTML section ids.
+Missing PDF is valid for HTML-only reports. If PDF was requested and missing, the
+inspector reports a warning. Invalid or missing `report_data.json` and missing
+`report.html` are failures. The manual checklist for real-cycle current-report review is
+`docs/report_v2_checklist.md`.
+
+Final repeated benchmark validation is a final evaluation step, not
+per-candidate repeated benchmarking. It compares N repeated baseline runs against
+N repeated final optimized source runs, reports median/mean/std/min/max for
+successful correctness-passing repetitions, writes `final_validation_report.json`,
+and displays a Final Validation section.
 
 ## Candidate Materialization Artifacts
 
@@ -400,6 +625,28 @@ a no-op is recorded but excluded from future compact history.
 - `scope_enforcement`
 - `allowed_files`
 - `patch_apply_strategy`
+- `diff_stats`
+
+`diff_stats` summarizes the candidate unified diff source used by the
+materializer. For `unified_diff`, this is `candidate.diff`; for
+`line_range_edits`, this is the generated `candidate.generated.diff` when it is
+available. The object contains:
+
+```json
+{
+  "files_changed": 1,
+  "lines_added": 2,
+  "lines_removed": 1,
+  "changed_blocks": 1,
+  "edit_count": 1,
+  "fallback_used": false
+}
+```
+
+`edit_count` is populated for `line_range_edits` from
+`line_range_edit_count`; it is `null` for legacy unified diffs unless a clear
+structured count exists. `fallback_used` maps to `line_range_fallback_used` for
+line-range candidates and to `git_apply_recount_used` for unified diffs.
 
 `source_root` remains for backward compatibility. `base_source_root` is the
 explicit field for the source tree copied from. `source_root_mode` describes how

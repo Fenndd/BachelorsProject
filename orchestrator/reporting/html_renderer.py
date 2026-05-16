@@ -5,7 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from jinja2 import Environment, FileSystemLoader, select_autoescape
+from jinja2 import ChainableUndefined, Environment, FileSystemLoader, Undefined, select_autoescape
 
 from orchestrator.reporting.report_data import ReportData, to_report_dict
 
@@ -26,10 +26,13 @@ def render_report_html(
         autoescape=select_autoescape(("html", "xml", "j2")),
         trim_blocks=True,
         lstrip_blocks=True,
+        undefined=ChainableUndefined,
     )
     env.filters["display"] = _display_value
     env.filters["yes_no"] = _yes_no
 
+    # The historical template filename is kept for compatibility. It renders the
+    # current single-experiment report, including enriched sections.
     template = env.get_template("report_v1.html.j2")
     html = template.render(
         report=data,
@@ -67,16 +70,27 @@ def _status_items(data: dict[str, Any]) -> list[tuple[str, int]]:
 
 
 def _display_value(value: Any) -> str:
+    if isinstance(value, Undefined):
+        return "Not available"
     if value is None or value == "":
         return "Not available"
     if isinstance(value, bool):
         return "Yes" if value else "No"
     if isinstance(value, float):
         return f"{value:.6g}"
+    if isinstance(value, (list, tuple)):
+        if not value:
+            return "Not available"
+        return ", ".join(str(item) for item in value)
+    if isinstance(value, dict):
+        import json
+        return json.dumps(value, ensure_ascii=False)
     return str(value)
 
 
 def _yes_no(value: Any) -> str:
+    if isinstance(value, Undefined):
+        return "Not available"
     if value is None:
         return "Not available"
     return "Yes" if value is True else "No"

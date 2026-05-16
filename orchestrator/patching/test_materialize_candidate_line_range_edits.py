@@ -172,6 +172,17 @@ class MaterializeCandidateLineRangeEditsTests(unittest.TestCase):
             self.assertEqual((REPO_ROOT / P3P_TARGET_FILE).read_text(encoding="utf-8"), repo_text_before)
             self.assertTrue((run_dir / "candidate.generated.diff").exists())
             self.assertFalse((run_dir / "candidate.diff").exists())
+            self.assertEqual(
+                materialization["diff_stats"],
+                {
+                    "files_changed": 1,
+                    "lines_added": 1,
+                    "lines_removed": 1,
+                    "changed_blocks": 1,
+                    "edit_count": 1,
+                    "fallback_used": False,
+                },
+            )
 
     def test_source_copy_excludes_build_cache_and_generated_artifacts(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:

@@ -9,6 +9,7 @@ import unittest
 from datetime import datetime
 from pathlib import Path
 
+from orchestrator.llm import generate_candidate as generate_candidate_module
 from orchestrator.llm.generate_candidate import (
     _build_index_record,
     _build_metadata,
@@ -16,8 +17,10 @@ from orchestrator.llm.generate_candidate import (
     _build_summary,
     _parse_args,
     _print_final_summary,
+    _llm_usage_metadata,
     _save_candidate_artifacts,
 )
+from orchestrator.llm.base import LLMResponse
 from orchestrator.llm.response_parser import LineRangeEdit, OptimizationCandidate
 
 
@@ -224,6 +227,94 @@ class GenerateCandidateCandidateFormatTests(unittest.TestCase):
         self.assertIn("Structured edits count: 0", output)
         self.assertIn("Candidate edits present: False", output)
         self.assertNotIn("Unified diff present", output)
+
+    def test_llm_usage_metadata_extracts_openai_compatible_fields(self) -> None:
+        response = LLMResponse(
+            provider="deepseek",
+            model="config-model",
+            content="{}",
+            reasoning_content=None,
+            raw_response={
+                "model": "response-model",
+                "choices": [{"finish_reason": "stop"}],
+                "usage": {
+                    "prompt_tokens": 11,
+                    "completion_tokens": 22,
+                    "total_tokens": 33,
+                },
+            },
+        )
+
+        usage = _llm_usage_metadata(response, 0.123)
+
+        self.assertEqual(usage["prompt_tokens"], 11)
+        self.assertEqual(usage["completion_tokens"], 22)
+        self.assertEqual(usage["total_tokens"], 33)
+        self.assertEqual(usage["api_latency_seconds"], 0.123)
+        self.assertEqual(usage["finish_reason"], "stop")
+        self.assertEqual(usage["model"], "response-model")
+
+    def test_generate_candidate_writes_llm_usage_for_mock_response(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            source_path = root / TARGET_FILE
+            source_path.parent.mkdir(parents=True, exist_ok=True)
+            source_path.write_text("double value = 1.0;\n", encoding="utf-8")
+            response_file = root / "mock_response.json"
+            response_file.write_text(
+                json.dumps(
+                    {
+                        "schema_version": "1.1",
+                        "candidate_type": "line_range_edits",
+                        "summary": "no-op",
+                        "rationale": "safe",
+                        "risk_level": "low",
+                        "expected_effect": "none",
+                        "target_files": [TARGET_FILE],
+                        "correctness_notes": "none",
+                        "unified_diff": "",
+                        "edits": [],
+                        "requires_manual_review": False,
+                    }
+                ),
+                encoding="utf-8",
+            )
+            config_path = root / "llm_mock.json"
+            config_path.write_text(
+                json.dumps(
+                    {
+                        "provider": "mock",
+                        "model": "mock-model",
+                        "mock_response_file": str(response_file),
+                    }
+                ),
+                encoding="utf-8",
+            )
+            original_root = generate_candidate_module.REPO_ROOT
+            try:
+                generate_candidate_module.REPO_ROOT = root
+                exit_code = generate_candidate_module.main(
+                    [
+                        "--config",
+                        str(config_path),
+                        "--source",
+                        TARGET_FILE,
+                        "--candidate-type",
+                        "line_range_edits",
+                        "--source-presentation",
+                        "line_numbered",
+                    ]
+                )
+            finally:
+                generate_candidate_module.REPO_ROOT = original_root
+
+            self.assertEqual(exit_code, 0)
+            run_dir = next((root / "results" / "runs").iterdir())
+            payload = json.loads((run_dir / "llm_response.json").read_text(encoding="utf-8"))
+            self.assertEqual(payload["llm_usage"]["model"], "mock-model")
+            self.assertEqual(payload["llm_usage"]["finish_reason"], "stop")
+            self.assertIsNone(payload["llm_usage"]["prompt_tokens"])
+            self.assertIsInstance(payload["llm_usage"]["api_latency_seconds"], float)
 
 
 if __name__ == "__main__":
