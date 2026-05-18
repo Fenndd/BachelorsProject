@@ -31,7 +31,7 @@
 
   "selection": {
     "enabled": false,
-    "baseline_run_dir": "results/runs/2026-05-18_18-21-48_baseline",
+    "baseline_run_dir": "results/runs/2026-05-18_18-46-46_baseline",
     "write_candidate_decisions": true
   },
 
