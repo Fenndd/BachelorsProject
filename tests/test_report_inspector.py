@@ -168,6 +168,28 @@ def test_inspect_report_warns_when_schema_version_missing(tmp_path: Path) -> Non
     assert any("schema_version" in warning for warning in result["warnings"])
 
 
+def test_inspect_report_warns_when_final_validation_metrics_unavailable(tmp_path: Path) -> None:
+    experiment_dir = tmp_path / "results" / "experiments" / "exp_001"
+    payload = _minimal_report_data()
+    payload["reporting_status"] = {"formats": ["html"]}
+    payload["final_validation"] = {
+        "enabled": True,
+        "status": "incomplete",
+        "comparison": {
+            "median_speedup": None,
+            "median_runtime_reduction_percent": None,
+        },
+    }
+    _write_report_data(experiment_dir, payload)
+    _write_html(experiment_dir)
+    _write_plots(experiment_dir)
+
+    result = inspect_report(experiment_dir)
+
+    assert result["status"] == "warning"
+    assert any("final_validation" in warning for warning in result["warnings"])
+
+
 def test_inspect_report_warns_when_important_top_level_keys_missing(tmp_path: Path) -> None:
     experiment_dir = tmp_path / "results" / "experiments" / "exp_001"
     _write_report_data(experiment_dir, {"schema_version": "report.v2"})

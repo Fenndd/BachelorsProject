@@ -153,8 +153,6 @@ class ClosedLoopSummary:
     final_best_candidate_run_dir: Path | None
     final_optimized_source_dir: Path
     final_optimized_source_diff_path: Path
-    final_speedup_vs_original_baseline: float | None
-    final_runtime_reduction_percent: float | None
     iterations_after_final_best: int
     status_counts: dict[str, int]
     created_at: str

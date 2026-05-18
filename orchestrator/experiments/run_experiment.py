@@ -73,6 +73,7 @@ from orchestrator.benchmarking.candidate_decision import (
 )
 from orchestrator.patching.diff_stats import parse_unified_diff_stats
 from orchestrator.reporting.generate_report import generate_basic_report, refresh_report_artifact_map
+from orchestrator.storage.experiment_registry import allocate_next_experiment_run
 
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -212,33 +213,12 @@ def _read_json_file_object(path: Path, label: str) -> dict[str, Any]:
         raise ExperimentConfigError(str(exc)) from exc
 
 
-def _sanitize_name(value: str) -> str:
+def _safe_artifact_name(value: str) -> str:
     lowered = value.lower()
     separated = re.sub(r"[\s/\\]+", "_", lowered)
     safe = re.sub(r"[^a-z0-9_-]+", "_", separated)
     compacted = re.sub(r"_+", "_", safe).strip("_-")
     return compacted or "experiment"
-
-
-def _build_experiment_id(config: ExperimentConfig, started_at: datetime) -> str:
-    timestamp = started_at.strftime("%Y-%m-%d_%H-%M")
-    return f"{timestamp}_{_sanitize_name(config.experiment_name)}"
-
-
-def _create_experiment_dir(experiment_id: str) -> Path:
-    EXPERIMENTS_ROOT.mkdir(parents=True, exist_ok=True)
-    experiment_dir = EXPERIMENTS_ROOT / experiment_id
-    if not experiment_dir.exists():
-        (experiment_dir / "logs").mkdir(parents=True)
-        return experiment_dir
-
-    for suffix in range(1, 100):
-        candidate_dir = EXPERIMENTS_ROOT / f"{experiment_id}_{suffix:02d}"
-        if not candidate_dir.exists():
-            (candidate_dir / "logs").mkdir(parents=True)
-            return candidate_dir
-
-    raise OSError(f"Could not create unique experiment directory for {experiment_id}")
 
 
 def _total_iterations(config: ExperimentConfig) -> int:
@@ -296,7 +276,7 @@ def _variant_llm_config_path(experiment_dir: Path, variant_id: str) -> Path:
     return (
         experiment_dir
         / "variant_configs"
-        / f"{_sanitize_name(variant_id)}_llm_config.json"
+        / f"{_safe_artifact_name(variant_id)}_llm_config.json"
     )
 
 
@@ -768,7 +748,7 @@ def _history_context_log_path(
     return (
         experiment_dir
         / "logs"
-        / f"iteration_{global_iteration:03d}_{_sanitize_name(variant_id)}_history_context.txt"
+        / f"iteration_{global_iteration:03d}_{_safe_artifact_name(variant_id)}_history_context.txt"
     )
 
 
@@ -1251,7 +1231,7 @@ def _error_message(record: dict[str, Any]) -> str | None:
 
 
 def _variant_dir(experiment_dir: Path, variant_id: str) -> Path:
-    return experiment_dir / "variants" / _sanitize_name(variant_id)
+    return experiment_dir / "variants" / _safe_artifact_name(variant_id)
 
 
 def _variant_history_path(experiment_dir: Path, variant_id: str) -> Path:
@@ -2182,7 +2162,6 @@ def finalize_closed_loop_artifacts(
     write_final_optimized_source_diff(paths, config)
     final_diff_stats = write_final_diff_stats(paths)
     results_state_path = copy_results_current_best_state(paths)
-    final_speedup, final_runtime_reduction = _final_speedup_vs_original_baseline(state)
     status_counts = count_iteration_statuses(records)
     summary = ClosedLoopSummary(
         experiment_id=experiment_id,
@@ -2195,8 +2174,6 @@ def finalize_closed_loop_artifacts(
         final_best_candidate_run_dir=None if state.current_best_is_baseline else state.current_best_run_dir,
         final_optimized_source_dir=paths.final_optimized_source_dir,
         final_optimized_source_diff_path=paths.final_optimized_source_diff_path,
-        final_speedup_vs_original_baseline=final_speedup,
-        final_runtime_reduction_percent=final_runtime_reduction,
         iterations_after_final_best=len(records) - state.current_best_iteration,
         status_counts=status_counts,
         created_at=started_at.isoformat(timespec="seconds"),
@@ -2215,6 +2192,14 @@ def _update_closed_loop_summary_with_final_validation(
     report = _read_json_object(report_path)
     comparison_raw = report.get("comparison")
     comparison = comparison_raw if isinstance(comparison_raw, dict) else {}
+    baseline_raw = report.get("baseline")
+    baseline = baseline_raw if isinstance(baseline_raw, dict) else {}
+    baseline_summary_raw = baseline.get("summary")
+    baseline_summary = baseline_summary_raw if isinstance(baseline_summary_raw, dict) else {}
+    final_raw = report.get("final")
+    final = final_raw if isinstance(final_raw, dict) else {}
+    final_summary_raw = final.get("summary")
+    final_summary = final_summary_raw if isinstance(final_summary_raw, dict) else {}
     median_speedup = _numeric_or_none(comparison.get("median_speedup"))
     median_reduction = _numeric_or_none(
         comparison.get("median_runtime_reduction_percent")
@@ -2230,7 +2215,39 @@ def _update_closed_loop_summary_with_final_validation(
         "report_path": _display_path(report_path),
         "median_speedup": median_speedup,
         "median_runtime_reduction_percent": median_reduction,
+        "baseline_median_runtime_ns_per_case": _numeric_or_none(
+            baseline_summary.get("median_runtime_ns_per_case")
+        ),
+        "final_median_runtime_ns_per_case": _numeric_or_none(
+            final_summary.get("median_runtime_ns_per_case")
+        ),
     }
+
+
+def _final_validation_has_comparison_metrics(status: dict[str, Any] | None) -> bool:
+    if not isinstance(status, dict):
+        return False
+    return (
+        status.get("status") in {"completed", "completed_partial"}
+        and _numeric_or_none(status.get("median_speedup")) is not None
+        and _numeric_or_none(status.get("median_runtime_reduction_percent")) is not None
+    )
+
+
+def _write_effective_experiment_config(experiment_dir: Path, config: ExperimentConfig) -> Path:
+    path = experiment_dir / "experiment_config_effective.json"
+    _write_json(path, _portable_plain_dict(asdict(config)))
+    return path
+
+
+def _closed_loop_overall_status(
+    *,
+    final_validation_enabled: bool,
+    final_validation_status: dict[str, Any] | None,
+) -> str:
+    if final_validation_enabled and not _final_validation_has_comparison_metrics(final_validation_status):
+        return "completed_with_warnings"
+    return "completed"
 
 
 def write_closed_loop_selection_report(
@@ -2249,6 +2266,7 @@ def write_closed_loop_selection_report(
     report_path = experiment_dir / "closed_loop_selection_report.json"
     candidate_attempts = [_compact_candidate_attempt(record) for record in (records or [])]
     final_current_best_run_dir = _display_path(state.current_best_run_dir)
+    selection_speedup, selection_runtime_reduction = _final_speedup_vs_original_baseline(state)
     payload = {
         "report_type": "closed_loop_final_selection_report",
         "experiment_id": summary.experiment_id,
@@ -2273,13 +2291,14 @@ def write_closed_loop_selection_report(
             "final_best_run_dir": final_current_best_run_dir,
             "accepted_improvements": state.accepted_improvements,
         },
-        "final_analysis": {
+        "single_run_selection_analytics": {
+            "metric_source": "single_run_closed_loop_selection_analytics",
             "target_file": summary.target_file,
             "final_optimized_source_dir": _display_path(summary.final_optimized_source_dir),
             "final_optimized_source_diff_path": _display_path(summary.final_optimized_source_diff_path),
             "performance_reference": "original_baseline",
-            "final_speedup_vs_original_baseline": summary.final_speedup_vs_original_baseline,
-            "final_runtime_reduction_percent": summary.final_runtime_reduction_percent,
+            "final_speedup_vs_original_baseline": selection_speedup,
+            "final_runtime_reduction_percent": selection_runtime_reduction,
             "status_counts": summary.status_counts,
         },
         "safety": {
@@ -2382,8 +2401,6 @@ def _closed_loop_status_block(
         "current_best_state_path": _display_path(results_state_path),
         "workspace_current_best_source_dir": _display_path(paths.current_best_source_dir),
         "workspace_current_best_state_path": _display_path(paths.current_best_state_path),
-        "final_speedup_vs_original_baseline": summary.final_speedup_vs_original_baseline,
-        "final_runtime_reduction_percent": summary.final_runtime_reduction_percent,
         "status_counts": summary.status_counts,
     }
     if final_validation_status is not None:
@@ -2487,14 +2504,6 @@ def _build_closed_loop_summary_text(
         f"Completed iterations: {summary.completed_iterations}",
         f"Accepted improvements: {accepted_improvements}",
         f"Final best iteration: {summary.final_best_iteration}",
-        (
-            "Final speedup ratio vs original baseline: "
-            f"{_format_optional_float(summary.final_speedup_vs_original_baseline)}"
-        ),
-        (
-            "Final runtime reduction percent vs original baseline: "
-            f"{_format_optional_float(summary.final_runtime_reduction_percent)}"
-        ),
         "Status counts:",
     ]
     for status, count in summary.status_counts.items():
@@ -2542,13 +2551,35 @@ def _build_closed_loop_summary_text(
             "  report: "
             f"{final_validation_status.get('report_path') or 'none'}"
         )
+        if _final_validation_has_comparison_metrics(final_validation_status):
+            lines.append(
+                "  final repeated validation median speedup: "
+                f"{_format_optional_float(final_validation_status.get('median_speedup'))}"
+            )
+            lines.append(
+                "  final repeated validation median runtime reduction percent: "
+                f"{_format_optional_float(final_validation_status.get('median_runtime_reduction_percent'))}"
+            )
+            lines.append(
+                "  baseline median runtime ns/case: "
+                f"{_format_optional_float(final_validation_status.get('baseline_median_runtime_ns_per_case'))}"
+            )
+            lines.append(
+                "  final median runtime ns/case: "
+                f"{_format_optional_float(final_validation_status.get('final_median_runtime_ns_per_case'))}"
+            )
+        else:
+            lines.append("  Final repeated validation metrics: unavailable")
+            lines.append(
+                "  Single-run selection metrics are available only as iteration analytics "
+                "and are not used as final headline metrics."
+            )
+        lines.append("")
+    else:
+        lines.append("Final repeated validation metrics: unavailable")
         lines.append(
-            "  median speedup: "
-            f"{_format_optional_float(final_validation_status.get('median_speedup'))}"
-        )
-        lines.append(
-            "  median runtime reduction percent: "
-            f"{_format_optional_float(final_validation_status.get('median_runtime_reduction_percent'))}"
+            "Single-run selection metrics are available only as iteration analytics "
+            "and are not used as final headline metrics."
         )
         lines.append("")
     return "\n".join(lines)
@@ -2893,7 +2924,10 @@ def _run_closed_loop_experiment(
     final_status = {
         "experiment_id": experiment_id,
         "experiment_name": config.experiment_name,
-        "overall_status": "completed",
+        "overall_status": _closed_loop_overall_status(
+            final_validation_enabled=config.final_validation.enabled,
+            final_validation_status=final_validation_status,
+        ),
         "closed_loop": _closed_loop_status_block(
             closed_loop_paths,
             summary,
@@ -2939,16 +2973,17 @@ def _run_experiment(
         return 1
 
     started_at = datetime.now().astimezone()
-    experiment_id = _build_experiment_id(config, started_at)
     try:
-        experiment_dir = _create_experiment_dir(experiment_id)
+        allocation = allocate_next_experiment_run(EXPERIMENTS_ROOT)
     except OSError as exc:
         print(f"ERROR: Could not create experiment directory: {exc}", file=sys.stderr)
         return 1
-    experiment_id = experiment_dir.name
+    experiment_id = allocation.experiment_id
+    experiment_dir = allocation.experiment_dir
     iterations_path = experiment_dir / "iterations.jsonl"
 
     _write_json(experiment_dir / "experiment_config_snapshot.json", config_snapshot)
+    _write_effective_experiment_config(experiment_dir, config)
     _write_experiment_metadata(experiment_dir, started_at)
     try:
         llm_metadata_by_variant = _write_resolved_variant_llm_configs(

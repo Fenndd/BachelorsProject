@@ -134,7 +134,35 @@ def _inspect_report_data(
             "report_data.json is missing important top-level key(s): "
             + ", ".join(missing_keys)
         )
+    _inspect_final_validation_semantics(payload, warnings)
     return payload
+
+
+def _inspect_final_validation_semantics(
+    payload: dict[str, Any],
+    warnings: list[str],
+) -> None:
+    final_validation = payload.get("final_validation")
+    if not isinstance(final_validation, dict):
+        return
+    if final_validation.get("enabled") is not True:
+        return
+    comparison = final_validation.get("comparison")
+    comparison = comparison if isinstance(comparison, dict) else {}
+    status = final_validation.get("status")
+    has_metrics = (
+        status in {"completed", "completed_partial"}
+        and _is_number(comparison.get("median_speedup"))
+        and _is_number(comparison.get("median_runtime_reduction_percent"))
+    )
+    if not has_metrics:
+        warnings.append(
+            "final_validation is enabled but final comparison metrics are unavailable"
+        )
+
+
+def _is_number(value: Any) -> bool:
+    return isinstance(value, (int, float)) and not isinstance(value, bool)
 
 
 def _inspect_html(

@@ -13,7 +13,7 @@ The report is a single unified current report, not separate v1/v2 modes. The his
 - `results/experiments/<experiment_id>/final_optimized_source/` exists.
 - `results/experiments/<experiment_id>/final_optimized_source.diff` exists.
 - `results/experiments/<experiment_id>/final_diff_stats.json` exists for new runs.
-- `results/experiments/<experiment_id>/final_validation/final_validation_report.json` exists for new closed-loop runs unless final validation failed before artifact creation.
+- `results/experiments/<experiment_id>/val/final_validation_report.json` exists for new closed-loop runs unless final validation failed before artifact creation.
 
 ## Expected Report Directory Structure
 
@@ -69,6 +69,7 @@ results/experiments/<experiment_id>/report/
 - The user-facing report focuses on closed-loop mode. Legacy `selection_enabled` and `history_policy` fields are not shown as main report concepts.
 - Closed-loop promotion policy is `decision_vs_current_best.accepted_improvement_only`.
 - Final repeated benchmark validation runs automatically after closed-loop completion and before report generation. It compares original baseline source vs final optimized source, defaults to 5 repetitions, does not affect candidate promotion, and does not change `current_best_source`.
+- Executive Summary headline speedup, runtime reduction, baseline runtime, final runtime, and correctness preserved come only from `val/final_validation_report.json`. If final validation is incomplete, skipped, missing, or has null comparison metrics, those headline fields show `Not available`.
 - If PDF was requested, `report.pdf` was exported from final completed `report.html`, not from pending-status HTML.
 - Tables show `Not available` for missing optional values instead of crashing or showing raw template placeholders.
 
@@ -105,13 +106,23 @@ results/experiments/<experiment_id>/report/
 ## Final Validation Checks
 
 - The Final Repeated Benchmark Validation section shows enabled/skipped status and benchmark repetitions.
+- The artifact map lists both the raw `experiment_config_snapshot.json` and effective `experiment_config_effective.json` when present.
+- Final validation artifacts are under `val/`; `b` is the baseline group and `f` is the final group.
+- Final validation uses a minimal shortened `cpp/` build tree, not a full copy of the repository `cpp/` tree; the original repository layout remains unchanged.
+- `final_validation_report.json` includes `source_layout` metadata describing how the shortened tree maps to the original `cpp/` layout.
 - Status is one of `skipped`, `completed`, `completed_partial`, or `incomplete`.
 - If `final_validation.benchmark_repetitions` was missing in the config, the report shows default 5 repetitions.
 - Successful baseline/final run counts match `final_validation_report.json`.
+- Baseline/final benchmark runs attempted match `final_validation_report.json`.
 - Baseline and final median/mean/std/min/max runtime values match `final_validation_report.json`.
 - Median speedup and median runtime reduction percent match `final_validation_report.json`.
-- Baseline and final all-correctness-passed values are shown.
-- Aggregates and plots include only successful correctness-passing repetitions.
+- Baseline and final all-correctness-passed values are shown only when at least one relevant successful validation run exists; otherwise they show `Not available`.
+- Setup failures are represented in each group's `setup` block, with `runs: []` and `benchmark_runs_attempted: 0`, not as fake failed benchmark repetitions.
+- Run records use benchmark-only repeated validation (`validation_mode: benchmark_only`, `benchmark_run_status`) after one configure/build per source, not the full per-candidate verifier, and do not include `verification_status`.
+- Final validation profile metadata identifies the current `absolute_pose_lambdatwist_p3p` benchmark-only profile while preserving the existing minimal validation source layout.
+- Aggregates and plots include only successful correctness-passing repetitions; plots filter on `benchmark_run_status`, not per-iteration verification status.
+- If final validation is `completed_partial` with comparison metrics, the report still shows normal metric cards/tables and also shows a warning diagnostics panel with dominant failure, suggested logs, setup failure flags, group status fields, and attempted benchmark runs.
+- If final validation is incomplete, the report shows compact diagnostics with setup statuses, group statuses, setup failure flags, dominant failure, path-length warning state, max observed path length, and suggested logs instead of a mostly empty full metrics table.
 - If final validation is skipped, the report clearly states that it was disabled/skipped and does not show the full empty metrics table.
 - If final validation is missing, the report clearly states that final repeated benchmark validation was not available.
 

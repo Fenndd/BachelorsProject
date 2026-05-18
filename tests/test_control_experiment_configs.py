@@ -52,14 +52,14 @@ def test_listing_existing_configs_does_not_crash() -> None:
     assert summaries
 
 
-def test_existing_valid_config_summary_can_be_read() -> None:
-    config = REPO_ROOT / "configs" / "experiments" / "mock_p3p_basic.json"
+def test_valid_config_summary_can_be_read_from_path(tmp_path: Path) -> None:
+    config = _write_valid_experiment(tmp_path, provider="mock", model="mock-model")
 
     summary = read_experiment_config_summary(config)
 
     assert summary.status == "ok"
-    assert summary.name == "mock_p3p_basic"
-    assert summary.total_iterations == 1
+    assert summary.name == "test_exp"
+    assert summary.total_iterations == 2
 
 
 def test_invalid_json_config_is_reported_without_crashing(tmp_path: Path) -> None:

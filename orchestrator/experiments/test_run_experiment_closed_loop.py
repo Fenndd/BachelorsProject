@@ -29,7 +29,7 @@ def _write_json(path: Path, payload: dict[str, Any]) -> None:
 
 def _fake_final_validation(**kwargs: Any) -> Path:
     experiment_dir = Path(kwargs["experiment_dir"])
-    report_path = experiment_dir / "final_validation" / "final_validation_report.json"
+    report_path = experiment_dir / "val" / "final_validation_report.json"
     _write_json(
         report_path,
         {
@@ -645,7 +645,8 @@ class RunExperimentClosedLoopTests(unittest.TestCase):
         selection_report = json.loads((experiment_dir / "closed_loop_selection_report.json").read_text(encoding="utf-8"))
         self.assertEqual(selection_report["control_decision"]["promotion_policy"], "decision_vs_current_best.accepted_improvement_only")
         self.assertEqual(selection_report["control_decision"]["final_best_iteration"], 1)
-        self.assertEqual(selection_report["final_analysis"]["status_counts"]["valid_not_improved"], 1)
+        self.assertEqual(selection_report["single_run_selection_analytics"]["metric_source"], "single_run_closed_loop_selection_analytics")
+        self.assertEqual(selection_report["single_run_selection_analytics"]["status_counts"]["valid_not_improved"], 1)
         self.assertFalse(selection_report["safety"]["report_promotes_candidates"])
         self.assertFalse(selection_report["safety"]["report_updates_current_best_source"])
         self.assertFalse(selection_report["safety"]["report_updates_final_optimized_source"])

@@ -1,54 +1,61 @@
 from __future__ import annotations
 
-from datetime import datetime
 from pathlib import Path
 
-from orchestrator.experiments import run_experiment
-from orchestrator.experiments.experiment_config import load_experiment_config
+from orchestrator.storage.experiment_registry import allocate_next_experiment_run
 
 
-def _config(tmp_path: Path):
-    path = tmp_path / "config.json"
-    path.write_text(
-        """
-{
-  "experiment_name": "closed loop deepseek flash p3p 10iter report html",
-  "target_file": "cpp/external/lambdatwist/p3p.cc",
-  "pipeline": {"generate_candidate": true, "materialize_candidate": true, "verify_candidate": true},
-  "candidate_generation": {"max_source_chars": 1000},
-  "candidate_format": {"type": "line_range_edits", "source_presentation": "line_numbered", "require_original_verification": true, "allow_exact_search_fallback": true},
-  "closed_loop": {"enabled": true},
-  "selection": {"enabled": false, "baseline_run_dir": "results/runs/baseline"},
-  "llm_config": "configs/llm_mock_candidate.json",
-  "iterations": 1
-}
-""".strip(),
-        encoding="utf-8",
-    )
-    return load_experiment_config(path)
+def test_allocate_next_experiment_run_creates_one_when_empty(tmp_path: Path) -> None:
+    root = tmp_path / "results" / "experiments"
+
+    allocation = allocate_next_experiment_run(root)
+
+    assert allocation.experiment_id == "1"
+    assert allocation.experiment_dir == root / "1"
+    assert allocation.experiment_dir.is_dir()
+    assert (allocation.experiment_dir / "logs").is_dir()
 
 
-def test_experiment_id_omits_seconds(tmp_path: Path) -> None:
-    config = _config(tmp_path)
+def test_allocate_next_experiment_run_creates_four_after_existing_ids(tmp_path: Path) -> None:
+    root = tmp_path / "results" / "experiments"
+    for experiment_id in ("1", "2", "3"):
+        (root / experiment_id).mkdir(parents=True)
 
-    experiment_id = run_experiment._build_experiment_id(
-        config,
-        datetime(2026, 5, 15, 20, 34, 59),
-    )
+    allocation = allocate_next_experiment_run(root)
 
-    assert experiment_id == "2026-05-15_20-34_closed_loop_deepseek_flash_p3p_10iter_report_html"
+    assert allocation.experiment_id == "4"
+    assert (root / "4" / "logs").is_dir()
 
 
-def test_create_experiment_dir_appends_two_digit_suffix_on_collision(
+def test_allocate_next_experiment_run_ignores_timestamp_directories(tmp_path: Path) -> None:
+    root = tmp_path / "results" / "experiments"
+    (root / "2026-05-16_15-16_basic_deepseek_flash").mkdir(parents=True)
+    (root / "2").mkdir()
+
+    allocation = allocate_next_experiment_run(root)
+
+    assert allocation.experiment_id == "3"
+    assert (root / "3" / "logs").is_dir()
+
+
+def test_allocate_next_experiment_run_skips_race_collision(
     tmp_path: Path,
     monkeypatch,
 ) -> None:
     root = tmp_path / "results" / "experiments"
-    monkeypatch.setattr(run_experiment, "EXPERIMENTS_ROOT", root)
-    base = "2026-05-15_20-34_example"
-    (root / base / "logs").mkdir(parents=True)
+    (root / "1").mkdir(parents=True)
+    original_mkdir = Path.mkdir
 
-    created = run_experiment._create_experiment_dir(base)
+    def racing_mkdir(self: Path, *args, **kwargs):  # type: ignore[no-untyped-def]
+        if self == root / "2":
+            original_mkdir(self, parents=False, exist_ok=False)
+            raise FileExistsError(str(self))
+        return original_mkdir(self, *args, **kwargs)
 
-    assert created.name == "2026-05-15_20-34_example_01"
-    assert (created / "logs").is_dir()
+    monkeypatch.setattr(Path, "mkdir", racing_mkdir)
+
+    allocation = allocate_next_experiment_run(root)
+
+    assert allocation.experiment_id == "3"
+    assert (root / "2").is_dir()
+    assert (root / "3" / "logs").is_dir()

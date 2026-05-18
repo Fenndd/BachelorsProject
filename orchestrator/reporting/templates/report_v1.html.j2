@@ -11,6 +11,8 @@
       --line: #d8dee6;
       --panel: #f6f8fa;
       --accent: #246b8f;
+      --warning-bg: #fff7ed;
+      --warning-line: #f59e0b;
     }
     body {
       margin: 0;
@@ -59,6 +61,17 @@
       font-size: 13px;
       color: var(--muted);
       margin-bottom: 4px;
+    }
+    .warning-panel {
+      background: var(--warning-bg);
+      border: 1px solid var(--warning-line);
+      border-radius: 6px;
+      margin: 14px 0;
+      padding: 12px;
+    }
+    .warning-panel h3 {
+      font-size: 16px;
+      margin: 0 0 10px;
     }
     figure {
       margin: 18px 0;
@@ -145,8 +158,8 @@
     <h2>Executive Summary</h2>
     <div class="metric-grid">
       <div class="metric"><strong>Final Best Iteration</strong>{{ report.final_result.final_best_iteration|display }}</div>
-      <div class="metric"><strong>Final Speedup vs Baseline</strong>{{ report.final_result.final_speedup_vs_baseline|display }}</div>
-      <div class="metric"><strong>Final Runtime Reduction %</strong>{{ report.final_result.final_runtime_reduction_percent|display }}</div>
+      <div class="metric"><strong>Final Validation Speedup</strong>{{ report.final_result.final_speedup_vs_baseline|display }}</div>
+      <div class="metric"><strong>Final Validation Runtime Reduction %</strong>{{ report.final_result.final_runtime_reduction_percent|display }}</div>
       <div class="metric"><strong>Accepted Improvements</strong>{{ report.final_result.accepted_improvements|display }}</div>
       <div class="metric"><strong>Correctness Preserved</strong>{{ report.final_result.correctness_preserved|yes_no }}</div>
       <div class="metric"><strong>Baseline Runtime ns/case</strong>{{ report.final_best_candidate.baseline_runtime_ns_per_case_median|display }}</div>
@@ -154,6 +167,9 @@
       <div class="metric"><strong>Runtime Improvement ns/case</strong>{{ report.final_best_candidate.absolute_runtime_difference_ns_per_case|display }}</div>
       <div class="metric"><strong>PDF Report</strong>{{ report.reporting_status.pdf_display|display }}</div>
     </div>
+    {% if not (report.final_validation.status in ['completed', 'completed_partial'] and report.final_validation.comparison.median_speedup is not none and report.final_validation.comparison.median_runtime_reduction_percent is not none) %}
+    <div class="metric"><strong>Final Validation Warning</strong>Final repeated validation did not produce final comparison metrics. Headline performance metrics are unavailable.</div>
+    {% endif %}
   </section>
 
   <section id="experiment-configuration">
@@ -216,29 +232,26 @@
 
   <section id="final-validation">
     <h2>Final Repeated Benchmark Validation</h2>
+    {% set final_validation_has_metrics = report.final_validation.status in ['completed', 'completed_partial'] and report.final_validation.comparison.median_speedup is not none and report.final_validation.comparison.median_runtime_reduction_percent is not none %}
     {% if report.final_validation.diagnostics.summary %}
     <p class="muted">{{ report.final_validation.diagnostics.summary }}</p>
-    {% if report.final_validation.diagnostics.dominant_failed_step %}
-    <p><strong>Dominant failed step:</strong> <code>{{ report.final_validation.diagnostics.dominant_failed_step }}</code></p>
     {% endif %}
-    {% if report.final_validation.diagnostics.suggested_log_paths %}
-    <p><strong>Suggested logs:</strong> <code>{{ report.final_validation.diagnostics.suggested_log_paths|display }}</code></p>
-    {% endif %}
-    {% endif %}
-    {% if report.final_validation.enabled is true %}
-    <p class="muted">Final repeated validation compares the original baseline source with the final optimized source. It is reporting/evaluation only and does not affect candidate promotion or current_best_source.</p>
+    {% if report.final_validation.enabled is true and final_validation_has_metrics %}
+    <p class="muted">Final repeated validation repeats benchmark execution after one configure/build per source. It does not rerun the full per-candidate verifier.</p>
     <div class="metric-grid">
       <div class="metric"><strong>Enabled</strong>{{ report.final_validation.enabled|yes_no }}</div>
       <div class="metric"><strong>Status</strong>{{ report.final_validation.status|display }}</div>
       <div class="metric"><strong>Benchmark Repetitions</strong>{{ report.final_validation.benchmark_repetitions|display }}</div>
+      <div class="metric"><strong>Baseline Benchmark Runs Attempted</strong>{{ report.final_validation.baseline.benchmark_runs_attempted|display }}</div>
+      <div class="metric"><strong>Final Benchmark Runs Attempted</strong>{{ report.final_validation.final.benchmark_runs_attempted|display }}</div>
       <div class="metric"><strong>Successful Baseline Runs</strong>{{ report.final_validation.baseline.successful_runs|display }}</div>
       <div class="metric"><strong>Successful Final Runs</strong>{{ report.final_validation.final.successful_runs|display }}</div>
       <div class="metric"><strong>Baseline Median Runtime</strong>{{ report.final_validation.baseline.median_runtime_ns_per_case|display }}</div>
       <div class="metric"><strong>Final Median Runtime</strong>{{ report.final_validation.final.median_runtime_ns_per_case|display }}</div>
       <div class="metric"><strong>Median Speedup</strong>{{ report.final_validation.comparison.median_speedup|display }}</div>
       <div class="metric"><strong>Median Runtime Reduction %</strong>{{ report.final_validation.comparison.median_runtime_reduction_percent|display }}</div>
-      <div class="metric"><strong>Baseline Correctness Passed</strong>{{ report.final_validation.baseline.all_correctness_passed|yes_no }}</div>
-      <div class="metric"><strong>Final Correctness Passed</strong>{{ report.final_validation.final.all_correctness_passed|yes_no }}</div>
+      <div class="metric"><strong>Baseline Correctness Passed</strong>{% if report.final_validation.baseline.successful_runs > 0 %}{{ report.final_validation.baseline.all_correctness_passed|yes_no }}{% else %}Not available{% endif %}</div>
+      <div class="metric"><strong>Final Correctness Passed</strong>{% if report.final_validation.final.successful_runs > 0 %}{{ report.final_validation.final.all_correctness_passed|yes_no }}{% else %}Not available{% endif %}</div>
     </div>
     <figure><img src="{{ plots.final_validation_runtime_distribution }}" alt="Final validation runtime distribution plot"></figure>
     <table class="compact">
@@ -248,6 +261,42 @@
         <tr><td>Final</td><td>{{ report.final_validation.final.mean_runtime_ns_per_case|display }}</td><td>{{ report.final_validation.final.std_runtime_ns_per_case|display }}</td><td>{{ report.final_validation.final.min_runtime_ns_per_case|display }}</td><td>{{ report.final_validation.final.max_runtime_ns_per_case|display }}</td><td>{{ report.final_validation.final.success_rate_mean|display }}</td><td>{{ report.final_validation.final.success_rate_min|display }}</td></tr>
       </tbody>
     </table>
+    {% if report.final_validation.status == 'completed_partial' %}
+    <div class="warning-panel">
+      <h3>Partial Validation Diagnostics</h3>
+      <div class="metric-grid">
+        <div class="metric"><strong>Dominant Failed Step</strong><code>{{ report.final_validation.diagnostics.dominant_failed_step|display }}</code></div>
+        <div class="metric"><strong>Dominant Error Excerpt</strong>{{ report.final_validation.diagnostics.dominant_error_excerpt|display }}</div>
+        <div class="metric"><strong>Suggested Logs</strong><code>{{ report.final_validation.diagnostics.suggested_log_paths|display }}</code></div>
+        <div class="metric"><strong>Baseline Group Status</strong>{{ report.final_validation.diagnostics.baseline_group_status|display }}</div>
+        <div class="metric"><strong>Final Group Status</strong>{{ report.final_validation.diagnostics.final_group_status|display }}</div>
+        <div class="metric"><strong>Baseline Setup Failed</strong>{{ report.final_validation.diagnostics.baseline_setup_failed|yes_no }}</div>
+        <div class="metric"><strong>Final Setup Failed</strong>{{ report.final_validation.diagnostics.final_setup_failed|yes_no }}</div>
+        <div class="metric"><strong>Benchmark Runs Attempted</strong>{{ report.final_validation.baseline.benchmark_runs_attempted + report.final_validation.final.benchmark_runs_attempted }}</div>
+      </div>
+    </div>
+    {% endif %}
+    {% elif report.final_validation.enabled is true and report.final_validation.status == 'incomplete' %}
+    <p class="muted">Final repeated validation repeats benchmark execution after one configure/build per source. It did not produce comparison metrics, so headline performance metrics are unavailable.</p>
+    <div class="metric-grid">
+      <div class="metric"><strong>Status</strong>{{ report.final_validation.status|display }}</div>
+      <div class="metric"><strong>Benchmark Repetitions</strong>{{ report.final_validation.benchmark_repetitions|display }}</div>
+      <div class="metric"><strong>Baseline Benchmark Runs Attempted</strong>{{ report.final_validation.baseline.benchmark_runs_attempted|display }}</div>
+      <div class="metric"><strong>Final Benchmark Runs Attempted</strong>{{ report.final_validation.final.benchmark_runs_attempted|display }}</div>
+      <div class="metric"><strong>Baseline Configure Status</strong>{{ report.final_validation.baseline_setup.configure_status|display }}</div>
+      <div class="metric"><strong>Baseline Build Status</strong>{{ report.final_validation.baseline_setup.build_status|display }}</div>
+      <div class="metric"><strong>Final Configure Status</strong>{{ report.final_validation.final_setup.configure_status|display }}</div>
+      <div class="metric"><strong>Final Build Status</strong>{{ report.final_validation.final_setup.build_status|display }}</div>
+      <div class="metric"><strong>Dominant Failed Step</strong><code>{{ report.final_validation.diagnostics.dominant_failed_step|display }}</code></div>
+      <div class="metric"><strong>Dominant Error Excerpt</strong>{{ report.final_validation.diagnostics.dominant_error_excerpt|display }}</div>
+      <div class="metric"><strong>Baseline Group Status</strong>{{ report.final_validation.diagnostics.baseline_group_status|display }}</div>
+      <div class="metric"><strong>Final Group Status</strong>{{ report.final_validation.diagnostics.final_group_status|display }}</div>
+      <div class="metric"><strong>Baseline Setup Failed</strong>{{ report.final_validation.diagnostics.baseline_setup_failed|yes_no }}</div>
+      <div class="metric"><strong>Final Setup Failed</strong>{{ report.final_validation.diagnostics.final_setup_failed|yes_no }}</div>
+      <div class="metric"><strong>Path-Length Warning Detected</strong>{{ report.final_validation.diagnostics.path_length_warning_detected|yes_no }}</div>
+      <div class="metric"><strong>Max Observed Path Length</strong>{{ report.final_validation.diagnostics.max_observed_path_length|display }}</div>
+      <div class="metric"><strong>Suggested Logs</strong><code>{{ report.final_validation.diagnostics.suggested_log_paths|display }}</code></div>
+    </div>
     {% elif report.final_validation.enabled is false %}
     <p class="muted">Final repeated benchmark validation was disabled/skipped for this experiment.</p>
     <div class="metric-grid">
@@ -487,6 +536,7 @@
 
   <section id="closed-loop-selection">
     <h2>Closed-Loop Selection</h2>
+    <p class="muted">This section shows single-run selection analytics from per-iteration candidate verification. Final performance metrics come only from Final Repeated Benchmark Validation.</p>
     <table>
       <tbody>
         <tr><th>Promotion Policy</th><td>{{ report.closed_loop_selection.promotion_policy|display }}</td></tr>
@@ -497,8 +547,8 @@
         <tr><th>Final Current Best Metrics Path</th><td><code>{{ report.closed_loop_selection.final_current_best_metrics_path|display }}</code></td></tr>
         <tr><th>Best Verified Candidate Iteration</th><td>{{ report.closed_loop_selection.best_verified_candidate_iteration|display }}</td></tr>
         <tr><th>Best Verified Candidate Run Dir</th><td><code>{{ report.closed_loop_selection.best_verified_candidate_run_dir|display }}</code></td></tr>
-        <tr><th>Best Verified Candidate Speedup vs Baseline</th><td>{{ report.closed_loop_selection.best_verified_candidate_speedup_vs_baseline|display }}</td></tr>
-        <tr><th>Best Verified Candidate Runtime Reduction %</th><td>{{ report.closed_loop_selection.best_verified_candidate_runtime_reduction_percent|display }}</td></tr>
+        <tr><th>Best Verified Candidate Single-Run Speedup vs Baseline</th><td>{{ report.closed_loop_selection.best_verified_candidate_speedup_vs_baseline|display }}</td></tr>
+        <tr><th>Best Verified Candidate Single-Run Runtime Reduction %</th><td>{{ report.closed_loop_selection.best_verified_candidate_runtime_reduction_percent|display }}</td></tr>
         <tr><th>Matches Final Current Best</th><td>{{ report.closed_loop_selection.matches_final_current_best|yes_no }}</td></tr>
       </tbody>
     </table>
@@ -550,6 +600,7 @@
 
   <section id="final-best-candidate-summary">
     <h2>Final Best Candidate Summary</h2>
+    <p class="muted">Candidate runtime fields in this section are not used as final headline performance metrics. Final headline metrics come from Final Repeated Benchmark Validation.</p>
     <table>
       <tbody>
         <tr><th>Final Best Iteration</th><td>{{ report.final_best_candidate.iteration|display }}</td></tr>

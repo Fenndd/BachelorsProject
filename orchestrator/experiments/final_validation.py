@@ -7,7 +7,6 @@ promotion decisions, current_best_source, or the main cpp/ tree.
 
 from __future__ import annotations
 
-import fnmatch
 import json
 import os
 import platform
@@ -15,6 +14,7 @@ import shutil
 import statistics
 import subprocess
 import time
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable, Sequence
@@ -27,31 +27,55 @@ from orchestrator.execution.candidate_benchmark_verification import (
 )
 
 
-SOURCE_TREE_IGNORE_NAMES = {
-    "build",
-    "build-codex",
-    "build-pre-step-11-cleanup",
-    "cmake-build-debug",
-    "cmake-build-release",
-    "CMakeFiles",
-    "Testing",
+SOURCE_FILE_SUFFIXES_FOR_PATH_PREFLIGHT = {".cpp", ".cc", ".cxx", ".h", ".hpp", ".hh"}
+
+WINDOWS_FINAL_VALIDATION_PATH_LENGTH_THRESHOLD = 240
+
+VALIDATION_DIR_NAME = "val"
+GROUP_DIR_NAMES = {
+    "baseline": "b",
+    "final": "f",
 }
-SOURCE_TREE_IGNORE_PATTERNS = {
-    "CMakeCache.txt",
-    "build.ninja",
-    ".ninja_*",
-    "*.exe",
-    "*.dll",
-    "*.lib",
-    "*.a",
-    "*.obj",
-    "*.o",
-    "*.pdb",
-    "*.ilk",
-}
+ORIGINAL_ABSOLUTE_POSE_ROOT = Path("bench/families/geometric_pose_solvers/absolute_pose_solvers")
 
 
 CommandRunner = Callable[[Sequence[str], Path], dict[str, Any]]
+BenchmarkParser = Callable[[str], dict[str, Any]]
+
+
+@dataclass(frozen=True)
+class FinalValidationProfile:
+    profile_id: str
+    family: str
+    solver: str
+    benchmark_target: str
+    parser: BenchmarkParser
+    original_benchmark_root: Path
+    validation_benchmark_root: Path
+    components_to_copy: tuple[tuple[Path, Path], ...]
+    runner_source: Path
+    minimal_cmake_generator: Callable[[], str]
+
+
+DEFAULT_FINAL_VALIDATION_PROFILE = FinalValidationProfile(
+    profile_id="absolute_pose_lambdatwist_p3p",
+    family="absolute_pose_solvers",
+    solver="lambdatwist_p3p",
+    benchmark_target=FAMILY_BENCHMARK_TARGET,
+    parser=parse_absolute_pose_benchmark_output,
+    original_benchmark_root=ORIGINAL_ABSOLUTE_POSE_ROOT,
+    validation_benchmark_root=Path("bench"),
+    components_to_copy=(
+        (Path("external/lambdatwist"), Path("external/lambdatwist")),
+        (ORIGINAL_ABSOLUTE_POSE_ROOT / "core", Path("bench/core")),
+        (
+            ORIGINAL_ABSOLUTE_POSE_ROOT / "adapters/lambdatwist_p3p",
+            Path("bench/adapters/lambdatwist_p3p"),
+        ),
+    ),
+    runner_source=ORIGINAL_ABSOLUTE_POSE_ROOT / "runners/lambdatwist_p3p_benchmark.cpp",
+    minimal_cmake_generator=lambda: _minimal_final_validation_cmake(),
+)
 
 
 def run_final_validation(
@@ -64,13 +88,14 @@ def run_final_validation(
     enabled: bool = True,
     benchmark_repetitions: int = 5,
     command_runner: CommandRunner | None = None,
+    profile: FinalValidationProfile = DEFAULT_FINAL_VALIDATION_PROFILE,
 ) -> Path:
     """Run repeated final validation and write final_validation_report.json."""
 
     if benchmark_repetitions <= 0:
         raise ValueError("benchmark_repetitions must be a positive integer")
 
-    validation_dir = experiment_dir / "final_validation"
+    validation_dir = experiment_dir / VALIDATION_DIR_NAME
     report_path = validation_dir / "final_validation_report.json"
     validation_dir.mkdir(parents=True, exist_ok=True)
     started_at = _now_iso()
@@ -83,8 +108,9 @@ def run_final_validation(
             "benchmark_repetitions": benchmark_repetitions,
             "started_at": started_at,
             "finished_at": _now_iso(),
-            "baseline": _empty_group(baseline_source_dir),
-            "final": _empty_group(final_source_dir),
+            "source_layout": _source_layout_metadata(profile),
+            "baseline": _empty_group(_group_dir(validation_dir, "baseline") / "cpp", repo_root),
+            "final": _empty_group(_group_dir(validation_dir, "final") / "cpp", repo_root),
             "comparison": _empty_comparison(),
             "safety": _safety_block(),
             "statistics_note": "Runtime standard deviation uses population std (statistics.pstdev).",
@@ -94,25 +120,27 @@ def run_final_validation(
         return report_path
 
     runner = command_runner or _run_subprocess_command
-    baseline_runs = _run_group(
+    baseline_group = _run_group(
         validation_dir=validation_dir,
         group_name="baseline",
         source_dir=baseline_source_dir,
         repetitions=benchmark_repetitions,
         repo_root=repo_root,
         runner=runner,
+        profile=profile,
     )
-    final_runs = _run_group(
+    final_group = _run_group(
         validation_dir=validation_dir,
         group_name="final",
         source_dir=final_source_dir,
         repetitions=benchmark_repetitions,
         repo_root=repo_root,
         runner=runner,
+        profile=profile,
     )
 
-    baseline_summary = _summarize_runs(baseline_runs)
-    final_summary = _summarize_runs(final_runs)
+    baseline_summary = baseline_group["summary"]
+    final_summary = final_group["summary"]
     comparison = _comparison(baseline_summary, final_summary)
     payload = {
         "schema_version": "final_validation.v1",
@@ -120,16 +148,9 @@ def run_final_validation(
         "benchmark_repetitions": benchmark_repetitions,
         "started_at": started_at,
         "finished_at": _now_iso(),
-        "baseline": {
-            "source_dir": _display_path(validation_dir / "baseline" / "source", repo_root),
-            "runs": baseline_runs,
-            "summary": baseline_summary,
-        },
-        "final": {
-            "source_dir": _display_path(validation_dir / "final" / "source", repo_root),
-            "runs": final_runs,
-            "summary": final_summary,
-        },
+        "source_layout": _source_layout_metadata(profile),
+        "baseline": baseline_group,
+        "final": final_group,
         "comparison": comparison,
         "safety": _safety_block(),
         "statistics_note": "Runtime standard deviation uses population std (statistics.pstdev).",
@@ -153,11 +174,12 @@ def _run_group(
     repetitions: int,
     repo_root: Path,
     runner: CommandRunner,
-) -> list[dict[str, Any]]:
-    group_dir = validation_dir / group_name
+    profile: FinalValidationProfile,
+) -> dict[str, Any]:
+    group_dir = _group_dir(validation_dir, group_name)
     if group_dir.exists():
         shutil.rmtree(group_dir)
-    source_cpp = group_dir / "source" / "cpp"
+    source_cpp = group_dir / "cpp"
     build_dir = group_dir / "build"
     runs_dir = group_dir / "runs"
     logs_dir = group_dir / "logs"
@@ -165,51 +187,44 @@ def _run_group(
     logs_dir.mkdir(parents=True, exist_ok=True)
 
     try:
-        _copy_source_tree(source_dir / "cpp", source_cpp)
-        setup_failure = _configure_and_build_group(
-            group_dir=group_dir,
+        _prepare_minimal_final_validation_cpp_tree(source_dir / "cpp", source_cpp, profile)
+        setup = _empty_setup()
+        preflight_failure = _path_length_preflight(
             source_cpp=source_cpp,
             build_dir=build_dir,
             logs_dir=logs_dir,
             repo_root=repo_root,
-            runner=runner,
+            profile=profile,
         )
+        if preflight_failure is not None:
+            setup.update(preflight_failure)
+        else:
+            setup = _configure_and_build_group(
+                group_dir=group_dir,
+                source_cpp=source_cpp,
+                build_dir=build_dir,
+                logs_dir=logs_dir,
+                repo_root=repo_root,
+                runner=runner,
+            )
     except Exception as exc:
-        setup_failure = {
+        setup = _empty_setup()
+        setup.update({
             "failed_step": "prepare_source",
             "error_message": str(exc),
-            "log_path": None,
-        }
+        })
 
-    if setup_failure is not None:
-        return [
-            _failed_run(
-                run_index=index,
-                group_name=group_name,
-                group_dir=group_dir,
-                log_path=setup_failure.get("log_path"),
-                failed_step=_string_or_none(setup_failure.get("failed_step")) or "configure_cmake",
-                error_message=_string_or_none(setup_failure.get("error_message")),
-                repo_root=repo_root,
-            )
-            for index in range(1, repetitions + 1)
-        ]
+    if setup.get("failed_step"):
+        return _group_payload(source_cpp, repo_root, setup, [])
 
     try:
-        benchmark_executable = _find_executable(build_dir, FAMILY_BENCHMARK_TARGET)
+        benchmark_executable = _find_executable(build_dir, profile.benchmark_target)
     except OSError as exc:
-        return [
-            _failed_run(
-                run_index=index,
-                group_name=group_name,
-                group_dir=group_dir,
-                log_path=None,
-                failed_step="run_absolute_pose_lambdatwist_benchmark",
-                error_message=str(exc),
-                repo_root=repo_root,
-            )
-            for index in range(1, repetitions + 1)
-        ]
+        setup.update({
+            "failed_step": "find_benchmark_executable",
+            "error_message": str(exc),
+        })
+        return _group_payload(source_cpp, repo_root, setup, [])
     runs: list[dict[str, Any]] = []
     for index in range(1, repetitions + 1):
         runs.append(
@@ -222,9 +237,10 @@ def _run_group(
                 benchmark_executable=benchmark_executable,
                 repo_root=repo_root,
                 runner=runner,
+                profile=profile,
             )
         )
-    return runs
+    return _group_payload(source_cpp, repo_root, setup, runs)
 
 
 def _configure_and_build_group(
@@ -235,7 +251,9 @@ def _configure_and_build_group(
     logs_dir: Path,
     repo_root: Path,
     runner: CommandRunner,
-) -> dict[str, Any] | None:
+    profile: FinalValidationProfile = DEFAULT_FINAL_VALIDATION_PROFILE,
+) -> dict[str, Any]:
+    setup = _empty_setup()
     cmake_exe = os.environ.get("CMAKE_EXE", "cmake")
     cmake_generator = os.environ.get("CMAKE_GENERATOR")
     cmake_cxx_compiler = os.environ.get("CMAKE_CXX_COMPILER")
@@ -247,11 +265,11 @@ def _configure_and_build_group(
     )
 
     if not eigen_include_dir:
-        return {
+        setup.update({
             "failed_step": "environment",
             "error_message": "EIGEN3_INCLUDE_DIR is not set.",
-            "log_path": None,
-        }
+        })
+        return setup
 
     configure_command = [
         cmake_exe,
@@ -275,15 +293,19 @@ def _configure_and_build_group(
         logs_dir / "configure_cmake.log",
         runner,
     )
+    setup["configure_status"] = _stage_status(configure_stage)
+    setup["configure_duration_seconds"] = _number_or_none(configure_stage.get("duration_seconds"))
+    setup["configure_log_path"] = _display_path(logs_dir / "configure_cmake.log", repo_root)
     if configure_stage.get("exit_code") != 0:
-        return _setup_failure("configure_cmake", configure_stage, logs_dir / "configure_cmake.log")
+        setup.update(_setup_failure("configure_cmake", configure_stage))
+        return setup
 
     build_command = [
         cmake_exe,
         "--build",
         str(build_dir),
         "--target",
-        FAMILY_BENCHMARK_TARGET,
+        profile.benchmark_target,
         "--config",
         cmake_build_type,
     ]
@@ -293,29 +315,139 @@ def _configure_and_build_group(
         logs_dir / "build_absolute_pose_lambdatwist_benchmark.log",
         runner,
     )
+    setup["build_status"] = _stage_status(build_stage)
+    setup["build_duration_seconds"] = _number_or_none(build_stage.get("duration_seconds"))
+    setup["build_log_path"] = _display_path(logs_dir / "build_absolute_pose_lambdatwist_benchmark.log", repo_root)
     if build_stage.get("exit_code") != 0:
-        return _setup_failure(
-            "build_absolute_pose_lambdatwist_benchmark",
-            build_stage,
-            logs_dir / "build_absolute_pose_lambdatwist_benchmark.log",
-        )
-    return None
+        setup.update(_setup_failure("build_absolute_pose_lambdatwist_benchmark", build_stage))
+        return setup
+    return setup
 
 
-def _copy_source_tree(source: Path, destination: Path) -> None:
-    if not source.is_dir():
-        raise FileNotFoundError(f"Source cpp directory not found: {source}")
-    shutil.copytree(source, destination, ignore=_source_tree_ignore)
+def _group_dir(validation_dir: Path, group_name: str) -> Path:
+    return validation_dir / GROUP_DIR_NAMES.get(group_name, group_name)
 
 
-def _source_tree_ignore(_directory: str, names: list[str]) -> set[str]:
-    ignored: set[str] = set()
-    for name in names:
-        if name in SOURCE_TREE_IGNORE_NAMES:
-            ignored.add(name)
-        elif any(fnmatch.fnmatch(name, pattern) for pattern in SOURCE_TREE_IGNORE_PATTERNS):
-            ignored.add(name)
-    return ignored
+def _source_layout_metadata(profile: FinalValidationProfile = DEFAULT_FINAL_VALIDATION_PROFILE) -> dict[str, Any]:
+    return {
+        "type": "minimal_final_validation_cpp_layout",
+        "profile_id": profile.profile_id,
+        "family": profile.family,
+        "solver": profile.solver,
+        "benchmark_target": profile.benchmark_target,
+        "original_cpp_root": "cpp",
+        "validation_cpp_root": "cpp",
+        "original_absolute_pose_root": profile.original_benchmark_root.as_posix(),
+        "validation_absolute_pose_root": profile.validation_benchmark_root.as_posix(),
+        "copied_components": [
+            destination.as_posix() for _source, destination in profile.components_to_copy
+        ] + [profile.validation_benchmark_root.joinpath("runners/lambdatwist_p3p_benchmark.cpp").as_posix()],
+        "excluded_components": [
+            "src",
+            "include",
+            "tests",
+            "bench/baseline_benchmark.cpp",
+            "bench/families/geometric_pose_solvers/absolute_pose_solvers/runners/lambdatwist_p3p_adapter_validator.cpp",
+        ],
+    }
+
+
+def _prepare_minimal_final_validation_cpp_tree(
+    source_cpp: Path,
+    destination_cpp: Path,
+    profile: FinalValidationProfile = DEFAULT_FINAL_VALIDATION_PROFILE,
+) -> dict[str, Any]:
+    if not source_cpp.is_dir():
+        raise FileNotFoundError(f"Source cpp directory not found: {source_cpp}")
+    if destination_cpp.exists():
+        shutil.rmtree(destination_cpp)
+
+    for source_relative, destination_relative in profile.components_to_copy:
+        source = source_cpp / source_relative
+        destination = destination_cpp / destination_relative
+        if not source.is_dir():
+            raise FileNotFoundError(f"Required final validation source directory not found: {source}")
+        shutil.copytree(source, destination)
+
+    runner_source = source_cpp / profile.runner_source
+    if not runner_source.is_file():
+        raise FileNotFoundError(f"Required final validation benchmark runner not found: {runner_source}")
+    runner_destination = destination_cpp / profile.validation_benchmark_root / "runners" / runner_source.name
+    runner_destination.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(runner_source, runner_destination)
+
+    (destination_cpp / "CMakeLists.txt").write_text(profile.minimal_cmake_generator(), encoding="utf-8")
+    return _source_layout_metadata(profile)
+
+
+def _minimal_final_validation_cmake() -> str:
+    return """cmake_minimum_required(VERSION 3.20)
+
+project(P3POptimizationScaffoldFinalValidation LANGUAGES CXX)
+
+set(CMAKE_CXX_STANDARD 20)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+set(CMAKE_CXX_EXTENSIONS OFF)
+
+set(EIGEN3_INCLUDE_DIR "" CACHE PATH "Path to Eigen include directory (folder containing Eigen/)")
+if(NOT EIGEN3_INCLUDE_DIR)
+    message(FATAL_ERROR "EIGEN3_INCLUDE_DIR is not set. Please provide the Eigen include path.")
+endif()
+if(NOT EXISTS "${EIGEN3_INCLUDE_DIR}/Eigen/Core")
+    message(FATAL_ERROR "EIGEN3_INCLUDE_DIR is invalid. Expected to find Eigen/Core under: ${EIGEN3_INCLUDE_DIR}")
+endif()
+
+set(LAMBDATWIST_DIR "${CMAKE_CURRENT_SOURCE_DIR}/external/lambdatwist")
+set(ABSOLUTE_POSE_SOLVERS_DIR "${CMAKE_CURRENT_SOURCE_DIR}/bench")
+
+add_library(lambdatwist_baseline STATIC
+    "${LAMBDATWIST_DIR}/p3p.cc"
+)
+
+target_include_directories(lambdatwist_baseline
+    PUBLIC
+        "${LAMBDATWIST_DIR}"
+        "${EIGEN3_INCLUDE_DIR}"
+)
+
+add_library(absolute_pose_core STATIC
+    "${ABSOLUTE_POSE_SOLVERS_DIR}/core/absolute_pose_benchmark.cpp"
+)
+
+target_include_directories(absolute_pose_core
+    PUBLIC
+        "${ABSOLUTE_POSE_SOLVERS_DIR}/core"
+        "${EIGEN3_INCLUDE_DIR}"
+)
+
+add_library(absolute_pose_lambdatwist_adapter STATIC
+    "${ABSOLUTE_POSE_SOLVERS_DIR}/adapters/lambdatwist_p3p/lambdatwist_p3p_adapter.cpp"
+)
+
+target_include_directories(absolute_pose_lambdatwist_adapter
+    PUBLIC
+        "${ABSOLUTE_POSE_SOLVERS_DIR}/core"
+        "${ABSOLUTE_POSE_SOLVERS_DIR}/adapters/lambdatwist_p3p"
+        "${EIGEN3_INCLUDE_DIR}"
+)
+
+target_link_libraries(absolute_pose_lambdatwist_adapter
+    PUBLIC
+        absolute_pose_core
+    PRIVATE
+        lambdatwist_baseline
+)
+
+add_executable(absolute_pose_lambdatwist_benchmark
+    "${ABSOLUTE_POSE_SOLVERS_DIR}/runners/lambdatwist_p3p_benchmark.cpp"
+)
+
+target_link_libraries(absolute_pose_lambdatwist_benchmark
+    PRIVATE
+        absolute_pose_core
+        absolute_pose_lambdatwist_adapter
+)
+"""
 
 
 def _run_subprocess_command(command: Sequence[str], cwd: Path) -> dict[str, Any]:
@@ -389,12 +521,105 @@ def _write_command_log(
     )
 
 
-def _setup_failure(step: str, stage: dict[str, Any], log_path: Path) -> dict[str, Any]:
+def _empty_setup() -> dict[str, Any]:
+    return {
+        "configure_status": "not_run",
+        "configure_duration_seconds": None,
+        "configure_log_path": None,
+        "build_status": "not_run",
+        "build_duration_seconds": None,
+        "build_log_path": None,
+        "failed_step": None,
+        "error_message": None,
+    }
+
+
+def _stage_status(stage: dict[str, Any]) -> str:
+    return "success" if stage.get("exit_code") == 0 else "failed"
+
+
+def _setup_failure(step: str, stage: dict[str, Any]) -> dict[str, Any]:
     return {
         "failed_step": step,
         "error_message": _stage_error(stage),
-        "log_path": log_path,
     }
+
+
+def _group_payload(
+    source_cpp: Path,
+    repo_root: Path,
+    setup: dict[str, Any],
+    runs: list[dict[str, Any]],
+) -> dict[str, Any]:
+    summary = _summarize_runs(runs)
+    summary["benchmark_runs_attempted"] = len(runs)
+    group_dir = source_cpp.parent
+    return {
+        "source_dir": _display_path(source_cpp, repo_root),
+        "build_dir": _display_path(group_dir / "build", repo_root),
+        "runs_dir": _display_path(group_dir / "runs", repo_root),
+        "logs_dir": _display_path(group_dir / "logs", repo_root),
+        "setup": setup,
+        "runs": runs,
+        "summary": summary,
+    }
+
+
+def _path_length_preflight(
+    *,
+    source_cpp: Path,
+    build_dir: Path,
+    logs_dir: Path,
+    repo_root: Path,
+    profile: FinalValidationProfile = DEFAULT_FINAL_VALIDATION_PROFILE,
+) -> dict[str, Any] | None:
+    critical_paths = _critical_validation_paths(source_cpp, build_dir, logs_dir, profile)
+    max_length = max((len(str(path)) for path in critical_paths), default=0)
+    if platform.system() != "Windows" or max_length <= WINDOWS_FINAL_VALIDATION_PATH_LENGTH_THRESHOLD:
+        return None
+    message = (
+        "Final validation path is too long for Windows/MinGW/CMake. "
+        f"Maximum observed critical path length is {max_length}, safe threshold is "
+        f"{WINDOWS_FINAL_VALIDATION_PATH_LENGTH_THRESHOLD}. Move the repository or results "
+        "directory to a shorter path and rerun final validation."
+    )
+    diagnostics_path = logs_dir / "path_length_preflight.log"
+    diagnostics_path.parent.mkdir(parents=True, exist_ok=True)
+    diagnostics_path.write_text(message + "\n", encoding="utf-8")
+    return {
+        "configure_status": "skipped",
+        "configure_log_path": _display_path(diagnostics_path, repo_root),
+        "build_status": "not_run",
+        "failed_step": "path_length_preflight",
+        "error_message": message,
+    }
+
+
+def _critical_validation_paths(
+    source_cpp: Path,
+    build_dir: Path,
+    logs_dir: Path,
+    profile: FinalValidationProfile = DEFAULT_FINAL_VALIDATION_PROFILE,
+) -> list[Path]:
+    paths = [
+        source_cpp,
+        build_dir,
+        logs_dir / "configure_cmake.log",
+        logs_dir / "build_absolute_pose_lambdatwist_benchmark.log",
+    ]
+    object_root = build_dir / "CMakeFiles" / f"{profile.benchmark_target}.dir"
+    if not source_cpp.is_dir():
+        return paths
+    for source_file in sorted(source_cpp.rglob("*")):
+        if not source_file.is_file() or source_file.suffix.lower() not in SOURCE_FILE_SUFFIXES_FOR_PATH_PREFLIGHT:
+            continue
+        try:
+            relative_source = source_file.relative_to(source_cpp)
+        except ValueError:
+            continue
+        object_path = object_root / Path(str(relative_source) + ".obj")
+        paths.extend([source_file, object_path, Path(str(object_path) + ".d")])
+    return paths
 
 
 def _run_benchmark_repetition(
@@ -407,6 +632,7 @@ def _run_benchmark_repetition(
     benchmark_executable: Path,
     repo_root: Path,
     runner: CommandRunner,
+    profile: FinalValidationProfile,
 ) -> dict[str, Any]:
     validation_run_id = f"final_validation_{group_name}_{run_index:02d}"
     log_path = logs_dir / f"run_{run_index:02d}.log"
@@ -419,6 +645,7 @@ def _run_benchmark_repetition(
         log_path=log_path,
         stage=stage,
         repo_root=repo_root,
+        profile=profile,
     )
     _write_json(runs_dir / f"run_{run_index:02d}.json", run)
     return run
@@ -433,6 +660,7 @@ def _run_from_benchmark_stage(
     log_path: Path | None,
     stage: dict[str, Any],
     repo_root: Path,
+    profile: FinalValidationProfile = DEFAULT_FINAL_VALIDATION_PROFILE,
 ) -> dict[str, Any]:
     failed_step: str | None = None
     error_message: str | None = None
@@ -443,7 +671,7 @@ def _run_from_benchmark_stage(
         failed_step = "run_absolute_pose_lambdatwist_benchmark"
         error_message = _stage_error(stage)
     else:
-        parse_result = parse_absolute_pose_benchmark_output(str(stage.get("stdout") or ""))
+        parse_result = profile.parser(str(stage.get("stdout") or ""))
         benchmark = _benchmark_from_parse(str(stage.get("stdout") or ""), parse_result)
         parse_status = "success" if parse_result["parse_success"] else "failed"
         if not parse_result["parse_success"]:
@@ -457,16 +685,17 @@ def _run_from_benchmark_stage(
             failed_step = BENCHMARK_CORRECTNESS_CHECK_STEP
             error_message = _build_benchmark_correctness_error_message(benchmark)
 
-    verification_status = "failed" if failed_step else "success"
+    benchmark_run_status = "failed" if failed_step else "success"
     return {
         "run_index": run_index,
         "validation_run_id": validation_run_id,
+        "validation_mode": "benchmark_only",
         "group": group_name,
         "group_dir": _display_path(group_dir, repo_root),
         "run_dir": _display_path(group_dir, repo_root),
         "benchmark_log_path": None if log_path is None else _display_path(log_path, repo_root),
+        "benchmark_run_status": benchmark_run_status,
         "benchmark_parse_status": parse_status,
-        "verification_status": verification_status,
         "correctness_passed": _bool_or_none(benchmark.get("parsed_correctness_passed")),
         "runtime_ns_per_case_median": _number_or_none(benchmark.get("parsed_runtime_ns_per_case_median")),
         "success_rate": _number_or_none(benchmark.get("parsed_success_rate")),
@@ -477,40 +706,6 @@ def _run_from_benchmark_stage(
         "failed_step": failed_step,
         "error_message": error_message,
     }
-
-
-def _failed_run(
-    *,
-    run_index: int,
-    group_name: str,
-    group_dir: Path,
-    log_path: Any,
-    failed_step: str,
-    error_message: str | None,
-    repo_root: Path,
-) -> dict[str, Any]:
-    validation_run_id = f"final_validation_{group_name}_{run_index:02d}"
-    run = {
-        "run_index": run_index,
-        "validation_run_id": validation_run_id,
-        "group": group_name,
-        "group_dir": _display_path(group_dir, repo_root),
-        "run_dir": _display_path(group_dir, repo_root),
-        "benchmark_log_path": _display_path(log_path, repo_root) if isinstance(log_path, Path) else None,
-        "benchmark_parse_status": "not_run",
-        "verification_status": "failed",
-        "correctness_passed": None,
-        "runtime_ns_per_case_median": None,
-        "success_rate": None,
-        "mean_best_reprojection_error": None,
-        "max_best_reprojection_error": None,
-        "total_solutions": None,
-        "valid_cases": None,
-        "failed_step": failed_step,
-        "error_message": error_message,
-    }
-    _write_json(group_dir / "runs" / f"run_{run_index:02d}.json", run)
-    return run
 
 
 def _find_executable(build_dir: Path, executable_name: str) -> Path:
@@ -607,15 +802,28 @@ def _diagnostics(payload: dict[str, Any]) -> dict[str, Any]:
     status = _string_or_none(payload.get("status")) or "skipped"
     baseline_runs = _group_runs(payload, "baseline")
     final_runs = _group_runs(payload, "final")
+    setup_blocks = _group_setups(payload)
+    baseline_setup = _group_setup(payload, "baseline")
+    final_setup = _group_setup(payload, "final")
+    baseline_setup_failed = _setup_failed(baseline_setup)
+    final_setup_failed = _setup_failed(final_setup)
+    baseline_group_status = _group_status(baseline_setup, baseline_runs)
+    final_group_status = _group_status(final_setup, final_runs)
     failed_runs = [
         run for run in [*baseline_runs, *final_runs]
-        if run.get("verification_status") != "success" or run.get("correctness_passed") is not True
+        if run.get("benchmark_run_status") != "success"
+        or run.get("correctness_passed") is not True
     ]
     failed_steps = [
         str(run.get("failed_step"))
         for run in failed_runs
         if isinstance(run.get("failed_step"), str) and run.get("failed_step")
     ]
+    failed_steps.extend(
+        str(setup.get("failed_step"))
+        for setup in setup_blocks
+        if isinstance(setup.get("failed_step"), str) and setup.get("failed_step")
+    )
     dominant_failed_step = None
     if failed_steps:
         dominant_failed_step = max(sorted(set(failed_steps)), key=failed_steps.count)
@@ -631,24 +839,56 @@ def _diagnostics(payload: dict[str, Any]) -> dict[str, Any]:
     else:
         summary = "Repeated validation status is unavailable."
 
+    should_suggest_logs = status in {"incomplete", "completed_partial"} or bool(failed_steps)
     suggested_logs = []
-    for run in failed_runs or [*baseline_runs[:1], *final_runs[:1]]:
+    diagnostic_texts: list[str] = []
+    observed_paths: list[str] = []
+    for setup in setup_blocks:
+        for key in ("configure_log_path", "build_log_path"):
+            log_path = setup.get(key)
+            if isinstance(log_path, str) and log_path:
+                observed_paths.append(log_path)
+                if should_suggest_logs and log_path not in suggested_logs and setup.get("failed_step"):
+                    suggested_logs.append(log_path)
+                diagnostic_texts.append(_read_text_if_available(log_path))
+        if isinstance(setup.get("error_message"), str):
+            diagnostic_texts.append(str(setup["error_message"]))
+    runs_for_suggestions = failed_runs if should_suggest_logs else []
+    for run in runs_for_suggestions:
         log_path = run.get("benchmark_log_path")
         if isinstance(log_path, str) and log_path and log_path not in suggested_logs:
             suggested_logs.append(log_path)
+        if isinstance(log_path, str) and log_path:
+            observed_paths.append(log_path)
+            diagnostic_texts.append(_read_text_if_available(log_path))
+        if isinstance(run.get("error_message"), str):
+            diagnostic_texts.append(str(run["error_message"]))
         if len(suggested_logs) >= 4:
             break
+    observed_paths.extend(_collect_path_strings(payload))
+    combined_diagnostics = "\n".join(text for text in diagnostic_texts if text)
+    observed_max = max((len(path) for path in observed_paths), default=0)
+    diagnostic_max = _max_path_length_from_text(combined_diagnostics)
 
     return {
         "summary": summary,
         "dominant_failed_step": dominant_failed_step,
+        "dominant_error_excerpt": _dominant_error_excerpt(combined_diagnostics),
+        "path_length_warning_detected": _path_length_warning_detected(combined_diagnostics),
+        "max_observed_path_length": max(observed_max, diagnostic_max or 0),
+        "baseline_setup_failed": baseline_setup_failed,
+        "final_setup_failed": final_setup_failed,
+        "baseline_group_status": baseline_group_status,
+        "final_group_status": final_group_status,
         "baseline_failed_runs": len([
             run for run in baseline_runs
-            if run.get("verification_status") != "success" or run.get("correctness_passed") is not True
+            if run.get("benchmark_run_status") != "success"
+            or run.get("correctness_passed") is not True
         ]),
         "final_failed_runs": len([
             run for run in final_runs
-            if run.get("verification_status") != "success" or run.get("correctness_passed") is not True
+            if run.get("benchmark_run_status") != "success"
+            or run.get("correctness_passed") is not True
         ]),
         "suggested_log_paths": suggested_logs,
     }
@@ -661,10 +901,99 @@ def _group_runs(payload: dict[str, Any], group_name: str) -> list[dict[str, Any]
     return [run for run in group["runs"] if isinstance(run, dict)]
 
 
+def _group_setups(payload: dict[str, Any]) -> list[dict[str, Any]]:
+    setups: list[dict[str, Any]] = []
+    for group_name in ("baseline", "final"):
+        group = payload.get(group_name)
+        if isinstance(group, dict) and isinstance(group.get("setup"), dict):
+            setups.append(group["setup"])
+    return setups
+
+
+def _group_setup(payload: dict[str, Any], group_name: str) -> dict[str, Any]:
+    group = payload.get(group_name)
+    if isinstance(group, dict) and isinstance(group.get("setup"), dict):
+        return group["setup"]
+    return {}
+
+
+def _setup_failed(setup: dict[str, Any]) -> bool:
+    return setup.get("failed_step") is not None
+
+
+def _run_failed(run: dict[str, Any]) -> bool:
+    return run.get("benchmark_run_status") != "success" or run.get("correctness_passed") is not True
+
+
+def _group_status(setup: dict[str, Any], runs: list[dict[str, Any]]) -> str:
+    if setup.get("failed_step") is not None:
+        return "setup_failed"
+    if not runs:
+        return "not_run"
+    if any(_run_failed(run) for run in runs):
+        return "benchmark_failed"
+    return "completed"
+
+
+def _read_text_if_available(path_text: str) -> str:
+    path = Path(path_text)
+    if not path.is_file():
+        path = Path.cwd() / path_text
+    if not path.is_file():
+        return ""
+    try:
+        return path.read_text(encoding="utf-8", errors="replace")[:12000]
+    except OSError:
+        return ""
+
+
+def _dominant_error_excerpt(text: str) -> str | None:
+    if not text:
+        return None
+    interesting = (
+        "fatal error", "error:", "undefined reference", "cmake error", "mingw32-make",
+        "ninja: build stopped", "path is too long", "maximum full path",
+    )
+    lines = [line.strip() for line in text.splitlines() if line.strip()]
+    for line in lines:
+        lower = line.lower()
+        if any(token in lower for token in interesting):
+            return line[:500]
+    return lines[0][:500] if lines else None
+
+
+def _path_length_warning_detected(text: str) -> bool:
+    lower = text.lower()
+    return "maximum full path" in lower or "object file directory" in lower or "path is too long" in lower
+
+
+def _max_path_length_from_text(text: str) -> int | None:
+    import re
+
+    matches = [
+        int(match.group(1))
+        for match in re.finditer(r"maximum observed critical path length is (\d+)", text, flags=re.IGNORECASE)
+    ]
+    return max(matches) if matches else None
+
+
+def _collect_path_strings(value: Any) -> list[str]:
+    paths: list[str] = []
+    if isinstance(value, dict):
+        for item in value.values():
+            paths.extend(_collect_path_strings(item))
+    elif isinstance(value, list):
+        for item in value:
+            paths.extend(_collect_path_strings(item))
+    elif isinstance(value, str) and ("/" in value or "\\" in value):
+        paths.append(value)
+    return paths
+
+
 def _summarize_runs(runs: list[dict[str, Any]]) -> dict[str, Any]:
     correct = [
         run for run in runs
-        if run.get("verification_status") == "success"
+        if run.get("benchmark_run_status") == "success"
         and run.get("correctness_passed") is True
         and isinstance(run.get("runtime_ns_per_case_median"), (int, float))
         and not isinstance(run.get("runtime_ns_per_case_median"), bool)
@@ -678,12 +1007,13 @@ def _summarize_runs(runs: list[dict[str, Any]]) -> dict[str, Any]:
     return {
         "successful_runs": len(correct),
         "failed_runs": len(runs) - len(correct),
+        "benchmark_runs_attempted": len(runs),
         "median_runtime_ns_per_case": statistics.median(runtimes) if runtimes else None,
         "mean_runtime_ns_per_case": statistics.fmean(runtimes) if runtimes else None,
         "min_runtime_ns_per_case": min(runtimes) if runtimes else None,
         "max_runtime_ns_per_case": max(runtimes) if runtimes else None,
         "std_runtime_ns_per_case": statistics.pstdev(runtimes) if len(runtimes) > 1 else (0.0 if runtimes else None),
-        "all_correctness_passed": bool(runs) and all(run.get("correctness_passed") is True for run in runs),
+        "all_correctness_passed": None if not runs else all(run.get("correctness_passed") is True for run in runs),
         "success_rate_min": min(success_rates) if success_rates else None,
         "success_rate_mean": statistics.fmean(success_rates) if success_rates else None,
     }
@@ -726,8 +1056,17 @@ def _validation_status(
     return "completed_partial"
 
 
-def _empty_group(source_dir: Path) -> dict[str, Any]:
-    return {"source_dir": str(source_dir), "runs": [], "summary": _summarize_runs([])}
+def _empty_group(source_dir: Path, repo_root: Path) -> dict[str, Any]:
+    group_dir = source_dir.parent
+    return {
+        "source_dir": _display_path(source_dir, repo_root),
+        "build_dir": _display_path(group_dir / "build", repo_root),
+        "runs_dir": _display_path(group_dir / "runs", repo_root),
+        "logs_dir": _display_path(group_dir / "logs", repo_root),
+        "setup": _empty_setup(),
+        "runs": [],
+        "summary": _summarize_runs([]),
+    }
 
 
 def _empty_comparison() -> dict[str, Any]:
@@ -799,4 +1138,4 @@ def _bool_or_none(value: Any) -> bool | None:
     return value if isinstance(value, bool) else None
 
 
-__all__ = ["run_final_validation"]
+__all__ = ["DEFAULT_FINAL_VALIDATION_PROFILE", "FinalValidationProfile", "run_final_validation"]

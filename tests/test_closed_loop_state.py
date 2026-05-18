@@ -215,8 +215,6 @@ def test_closed_loop_summary_serializes_correctly(tmp_path: Path) -> None:
         / "experiments"
         / "exp_001"
         / "final_optimized_source.diff",
-        final_speedup_vs_original_baseline=1.12,
-        final_runtime_reduction_percent=10.7,
         iterations_after_final_best=3,
         status_counts={status.value: 0 for status in IterationStatus},
         created_at="2026-05-09T23:31:00+02:00",
@@ -229,7 +227,8 @@ def test_closed_loop_summary_serializes_correctly(tmp_path: Path) -> None:
 
     output_path = write_closed_loop_summary(tmp_path / "summary.json", summary)
     saved = json.loads(output_path.read_text(encoding="utf-8"))
-    assert saved["final_speedup_vs_original_baseline"] == 1.12
+    assert "final_speedup_vs_original_baseline" not in saved
+    assert "final_runtime_reduction_percent" not in saved
 
 
 def test_status_counting_includes_all_statuses_with_zero_counts() -> None:
