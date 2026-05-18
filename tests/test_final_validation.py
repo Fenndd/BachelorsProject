@@ -121,6 +121,10 @@ def test_final_validation_aggregates_successful_runs(tmp_path: Path, monkeypatch
     assert payload["safety"]["updates_current_best"] is False
     assert payload["diagnostics"]["summary"] == "All repeated validation runs completed successfully."
     assert payload["diagnostics"]["suggested_log_paths"] == []
+    assert payload["diagnostics"]["baseline_setup_failed"] is False
+    assert payload["diagnostics"]["final_setup_failed"] is False
+    assert payload["diagnostics"]["baseline_group_status"] == "completed"
+    assert payload["diagnostics"]["final_group_status"] == "completed"
     assert run_counts == {"configure": 2, "build": 2, "benchmark": 10}
     assert report_path == experiment_dir / "val" / "final_validation_report.json"
     assert not (experiment_dir / "validation").exists()
@@ -157,6 +161,7 @@ def test_final_validation_aggregates_successful_runs(tmp_path: Path, monkeypatch
         run = json.loads((group_dir / "runs" / "run_01.json").read_text(encoding="utf-8"))
         assert run["validation_mode"] == "benchmark_only"
         assert run["benchmark_run_status"] == "success"
+        assert "verification_status" not in run
         assert not (group_dir / "source" / "cpp").exists()
     assert not (experiment_dir / "final_validation").exists()
     assert not (experiment_dir / "val" / "baseline_runs").exists()
@@ -222,6 +227,8 @@ def test_final_validation_records_failed_repetitions(tmp_path: Path, monkeypatch
     assert payload["baseline"]["summary"]["failed_runs"] == 1
     assert payload["final"]["summary"]["successful_runs"] == 1
     assert payload["diagnostics"]["dominant_failed_step"] == "benchmark_correctness_check"
+    assert payload["diagnostics"]["baseline_group_status"] == "benchmark_failed"
+    assert payload["diagnostics"]["final_group_status"] == "benchmark_failed"
     assert payload["diagnostics"]["suggested_log_paths"]
 
 
@@ -256,6 +263,8 @@ def test_final_validation_comparison_null_without_correct_runs(tmp_path: Path, m
     assert payload["comparison"]["median_speedup"] is None
     assert payload["comparison"]["median_runtime_reduction_percent"] is None
     assert payload["diagnostics"]["dominant_failed_step"] == "run_absolute_pose_lambdatwist_benchmark"
+    assert payload["diagnostics"]["baseline_failed_runs"] == 1
+    assert payload["diagnostics"]["final_failed_runs"] == 1
     assert payload["diagnostics"]["suggested_log_paths"]
 
 
@@ -325,6 +334,12 @@ def test_final_validation_setup_failure_does_not_create_fake_runs(tmp_path: Path
         assert payload[group]["summary"]["failed_runs"] == 0
         group_dir_name = "b" if group == "baseline" else "f"
         assert not (experiment_dir / "val" / group_dir_name / "runs" / "run_01.json").exists()
+    assert payload["diagnostics"]["baseline_setup_failed"] is True
+    assert payload["diagnostics"]["final_setup_failed"] is True
+    assert payload["diagnostics"]["baseline_group_status"] == "setup_failed"
+    assert payload["diagnostics"]["final_group_status"] == "setup_failed"
+    assert payload["diagnostics"]["baseline_failed_runs"] == 0
+    assert payload["diagnostics"]["final_failed_runs"] == 0
     assert payload["diagnostics"]["dominant_failed_step"] == "build_absolute_pose_lambdatwist_benchmark"
     assert "fatal error" in payload["diagnostics"]["dominant_error_excerpt"]
     assert payload["diagnostics"]["path_length_warning_detected"] is True
@@ -364,3 +379,50 @@ def test_final_validation_path_length_preflight_skips_setup(tmp_path: Path, monk
     assert not (experiment_dir / "val" / "b" / "runs" / "run_01.json").exists()
     assert (experiment_dir / "val" / "b" / "logs" / "path_length_preflight.log").is_file()
     assert payload["diagnostics"]["dominant_failed_step"] == "path_length_preflight"
+    assert payload["diagnostics"]["baseline_setup_failed"] is True
+    assert payload["diagnostics"]["baseline_group_status"] == "setup_failed"
+
+
+def test_final_validation_ignores_legacy_verification_status() -> None:
+    runs = [
+        {
+            "verification_status": "success",
+            "correctness_passed": True,
+            "runtime_ns_per_case_median": 10.0,
+        },
+        {
+            "benchmark_run_status": "success",
+            "verification_status": "failed",
+            "correctness_passed": True,
+            "runtime_ns_per_case_median": 20.0,
+        },
+    ]
+
+    summary = final_validation._summarize_runs(runs)
+
+    assert summary["successful_runs"] == 1
+    assert summary["failed_runs"] == 1
+    assert summary["median_runtime_ns_per_case"] == 20.0
+
+
+def test_final_validation_diagnostics_do_not_fallback_to_verification_status() -> None:
+    diagnostics = final_validation._diagnostics(
+        {
+            "status": "completed_partial",
+            "baseline": {
+                "setup": {},
+                "runs": [
+                    {
+                        "verification_status": "success",
+                        "correctness_passed": True,
+                        "runtime_ns_per_case_median": 100.0,
+                    }
+                ],
+            },
+            "final": {"setup": {}, "runs": []},
+        }
+    )
+
+    assert diagnostics["baseline_failed_runs"] == 1
+    assert diagnostics["baseline_group_status"] == "benchmark_failed"
+    assert diagnostics["final_group_status"] == "not_run"

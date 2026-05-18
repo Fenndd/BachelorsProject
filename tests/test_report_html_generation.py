@@ -258,8 +258,6 @@ def _summary() -> dict:
         "final_best_iteration": 1,
         "final_optimized_source_dir": "results/experiments/exp_001/final_optimized_source",
         "final_optimized_source_diff_path": "results/experiments/exp_001/final_optimized_source.diff",
-        "final_speedup_vs_original_baseline": 1.25,
-        "final_runtime_reduction_percent": 20.0,
         "status_counts": {
             "accepted_improvement": 1,
             "valid_not_improved": 1,
@@ -797,8 +795,8 @@ def test_executive_summary_not_available_when_final_validation_metrics_null(tmp_
     html = html_path.read_text(encoding="utf-8")
     executive = html.split('id="experiment-configuration"', 1)[0]
 
-    assert "Final Speedup vs Baseline</strong>Not available" in executive
-    assert "Final Runtime Reduction %</strong>Not available" in executive
+    assert "Final Validation Speedup</strong>Not available" in executive
+    assert "Final Validation Runtime Reduction %</strong>Not available" in executive
     assert "Correctness Preserved</strong>Not available" in executive
     assert "Headline performance metrics are unavailable" in executive
 
@@ -866,6 +864,10 @@ def test_final_validation_html_incomplete_shows_compact_diagnostics(tmp_path: Pa
             dominant_error_excerpt="Maximum observed critical path length is 320",
             path_length_warning_detected=True,
             max_observed_path_length=320,
+            baseline_setup_failed=True,
+            final_setup_failed=True,
+            baseline_group_status="setup_failed",
+            final_group_status="setup_failed",
             suggested_log_paths=["val/b/logs/path_length_preflight.log"],
         ),
     )
@@ -884,10 +886,102 @@ def test_final_validation_html_incomplete_shows_compact_diagnostics(tmp_path: Pa
     assert "Final Build Status" in final_validation
     assert "Dominant Failed Step" in final_validation
     assert "path_length_preflight" in final_validation
+    assert "Baseline Group Status" in final_validation
+    assert "Final Group Status" in final_validation
+    assert "Baseline Setup Failed" in final_validation
+    assert "Final Setup Failed" in final_validation
     assert "Path-Length Warning Detected" in final_validation
     assert "Max Observed Path Length" in final_validation
     assert "Suggested Logs" in final_validation
     assert "Success Rate Mean" not in final_validation
+
+
+def test_completed_partial_final_validation_shows_metrics_and_warning_panel(tmp_path: Path) -> None:
+    report_data = _report_data()
+    report_data.final_validation = ReportFinalValidation(
+        enabled=True,
+        status="completed_partial",
+        benchmark_repetitions=5,
+        baseline=ReportRepeatedValidationGroupSummary(
+            benchmark_runs_attempted=5,
+            successful_runs=4,
+            median_runtime_ns_per_case=100.0,
+            all_correctness_passed=False,
+        ),
+        final=ReportRepeatedValidationGroupSummary(
+            benchmark_runs_attempted=5,
+            successful_runs=5,
+            median_runtime_ns_per_case=80.0,
+            all_correctness_passed=True,
+        ),
+        comparison=ReportFinalValidationComparison(
+            median_speedup=1.25,
+            median_runtime_reduction_percent=20.0,
+        ),
+        diagnostics=ReportFinalValidationDiagnostics(
+            summary="Repeated validation comparison is available, but some runs failed or failed correctness.",
+            dominant_failed_step="benchmark_correctness_check",
+            dominant_error_excerpt="correctness_passed=false",
+            suggested_log_paths=["val/b/logs/run_02.log"],
+            baseline_group_status="benchmark_failed",
+            final_group_status="completed",
+            baseline_setup_failed=False,
+            final_setup_failed=False,
+        ),
+    )
+
+    plot_paths = build_report_figures(report_data, tmp_path / "plots")
+    html_path = render_report_html(report_data, plot_paths, tmp_path / "report.html")
+    html = html_path.read_text(encoding="utf-8")
+    final_validation = html.split('id="final-validation"', 1)[1].split(
+        'id="baseline-metrics"', 1
+    )[0]
+
+    assert "Median Speedup" in final_validation
+    assert "Median Runtime Reduction %" in final_validation
+    assert "Partial Validation Diagnostics" in final_validation
+    assert "benchmark_correctness_check" in final_validation
+    assert "Suggested Logs" in final_validation
+    assert "Benchmark Runs Attempted" in final_validation
+
+
+def test_completed_final_validation_does_not_show_suggested_logs(tmp_path: Path) -> None:
+    report_data = _report_data()
+    report_data.final_validation = ReportFinalValidation(
+        enabled=True,
+        status="completed",
+        benchmark_repetitions=5,
+        baseline=ReportRepeatedValidationGroupSummary(
+            benchmark_runs_attempted=5,
+            successful_runs=5,
+            median_runtime_ns_per_case=100.0,
+            all_correctness_passed=True,
+        ),
+        final=ReportRepeatedValidationGroupSummary(
+            benchmark_runs_attempted=5,
+            successful_runs=5,
+            median_runtime_ns_per_case=80.0,
+            all_correctness_passed=True,
+        ),
+        comparison=ReportFinalValidationComparison(
+            median_speedup=1.25,
+            median_runtime_reduction_percent=20.0,
+        ),
+        diagnostics=ReportFinalValidationDiagnostics(
+            summary="All repeated validation runs completed successfully.",
+            suggested_log_paths=["val/b/logs/run_01.log"],
+        ),
+    )
+
+    plot_paths = build_report_figures(report_data, tmp_path / "plots")
+    html_path = render_report_html(report_data, plot_paths, tmp_path / "report.html")
+    html = html_path.read_text(encoding="utf-8")
+    final_validation = html.split('id="final-validation"', 1)[1].split(
+        'id="baseline-metrics"', 1
+    )[0]
+
+    assert "Median Speedup" in final_validation
+    assert "Suggested Logs" not in final_validation
 
 
 def test_final_validation_plot_generated_when_missing_data(tmp_path: Path) -> None:

@@ -85,6 +85,13 @@ def _float_value(payload: dict[str, Any] | None, key: str) -> float | None:
     return None
 
 
+def _first_float(*values: float | None) -> float | None:
+    for value in values:
+        if value is not None:
+            return value
+    return None
+
+
 def _int_value(payload: dict[str, Any] | None, key: str) -> int | None:
     if payload is None:
         return None
@@ -203,13 +210,13 @@ def _read_experiment_item(path: Path) -> ResultItem:
         started_at=_str_value(experiment_status, "started_at") or _str_value(closed_loop_summary, "created_at"),
         finished_at=_str_value(experiment_status, "finished_at") or _str_value(closed_loop_summary, "finished_at"),
         summary_text=_read_text(path / "summary.txt", read_errors),
-        final_speedup_vs_baseline=(
-            _float_value(closed_loop_summary, "final_speedup_vs_original_baseline")
-            or _float_value(closed_loop, "final_speedup_vs_original_baseline")
+        final_speedup_vs_baseline=_first_float(
+            _float_value(closed_loop_summary, "final_validation_median_speedup"),
+            _float_value(closed_loop, "final_validation_median_speedup"),
         ),
-        final_runtime_reduction_percent=(
-            _float_value(closed_loop_summary, "final_runtime_reduction_percent")
-            or _float_value(closed_loop, "final_runtime_reduction_percent")
+        final_runtime_reduction_percent=_first_float(
+            _float_value(closed_loop_summary, "final_validation_median_runtime_reduction_percent"),
+            _float_value(closed_loop, "final_validation_median_runtime_reduction_percent"),
         ),
         final_best_iteration=(
             _int_value(closed_loop_summary, "final_best_iteration")

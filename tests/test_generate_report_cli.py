@@ -52,8 +52,6 @@ def _summary() -> dict:
         "final_best_iteration": 1,
         "final_optimized_source_dir": "results/experiments/exp_001/final_optimized_source",
         "final_optimized_source_diff_path": "results/experiments/exp_001/final_optimized_source.diff",
-        "final_speedup_vs_original_baseline": 1.25,
-        "final_runtime_reduction_percent": 20.0,
         "status_counts": {
             "accepted_improvement": 1,
             "valid_not_improved": 1,

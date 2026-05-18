@@ -638,7 +638,6 @@ def _run_from_benchmark_stage(
             failed_step = BENCHMARK_CORRECTNESS_CHECK_STEP
             error_message = _build_benchmark_correctness_error_message(benchmark)
 
-    verification_status = "failed" if failed_step else "success"
     benchmark_run_status = "failed" if failed_step else "success"
     return {
         "run_index": run_index,
@@ -650,7 +649,6 @@ def _run_from_benchmark_stage(
         "benchmark_log_path": None if log_path is None else _display_path(log_path, repo_root),
         "benchmark_run_status": benchmark_run_status,
         "benchmark_parse_status": parse_status,
-        "verification_status": verification_status,
         "correctness_passed": _bool_or_none(benchmark.get("parsed_correctness_passed")),
         "runtime_ns_per_case_median": _number_or_none(benchmark.get("parsed_runtime_ns_per_case_median")),
         "success_rate": _number_or_none(benchmark.get("parsed_success_rate")),
@@ -661,42 +659,6 @@ def _run_from_benchmark_stage(
         "failed_step": failed_step,
         "error_message": error_message,
     }
-
-
-def _failed_run(
-    *,
-    run_index: int,
-    group_name: str,
-    group_dir: Path,
-    log_path: Any,
-    failed_step: str,
-    error_message: str | None,
-    repo_root: Path,
-) -> dict[str, Any]:
-    validation_run_id = f"final_validation_{group_name}_{run_index:02d}"
-    run = {
-        "run_index": run_index,
-        "validation_run_id": validation_run_id,
-        "validation_mode": "benchmark_only",
-        "group": group_name,
-        "group_dir": _display_path(group_dir, repo_root),
-        "run_dir": _display_path(group_dir, repo_root),
-        "benchmark_log_path": _display_path(log_path, repo_root) if isinstance(log_path, Path) else None,
-        "benchmark_run_status": "failed",
-        "benchmark_parse_status": "not_run",
-        "verification_status": "failed",
-        "correctness_passed": None,
-        "runtime_ns_per_case_median": None,
-        "success_rate": None,
-        "mean_best_reprojection_error": None,
-        "max_best_reprojection_error": None,
-        "total_solutions": None,
-        "valid_cases": None,
-        "failed_step": failed_step,
-        "error_message": error_message,
-    }
-    _write_json(group_dir / "runs" / f"run_{run_index:02d}.json", run)
-    return run
 
 
 def _find_executable(build_dir: Path, executable_name: str) -> Path:
@@ -794,9 +756,15 @@ def _diagnostics(payload: dict[str, Any]) -> dict[str, Any]:
     baseline_runs = _group_runs(payload, "baseline")
     final_runs = _group_runs(payload, "final")
     setup_blocks = _group_setups(payload)
+    baseline_setup = _group_setup(payload, "baseline")
+    final_setup = _group_setup(payload, "final")
+    baseline_setup_failed = _setup_failed(baseline_setup)
+    final_setup_failed = _setup_failed(final_setup)
+    baseline_group_status = _group_status(baseline_setup, baseline_runs)
+    final_group_status = _group_status(final_setup, final_runs)
     failed_runs = [
         run for run in [*baseline_runs, *final_runs]
-        if run.get("benchmark_run_status", run.get("verification_status")) != "success"
+        if run.get("benchmark_run_status") != "success"
         or run.get("correctness_passed") is not True
     ]
     failed_steps = [
@@ -861,14 +829,18 @@ def _diagnostics(payload: dict[str, Any]) -> dict[str, Any]:
         "dominant_error_excerpt": _dominant_error_excerpt(combined_diagnostics),
         "path_length_warning_detected": _path_length_warning_detected(combined_diagnostics),
         "max_observed_path_length": max(observed_max, diagnostic_max or 0),
+        "baseline_setup_failed": baseline_setup_failed,
+        "final_setup_failed": final_setup_failed,
+        "baseline_group_status": baseline_group_status,
+        "final_group_status": final_group_status,
         "baseline_failed_runs": len([
             run for run in baseline_runs
-            if run.get("benchmark_run_status", run.get("verification_status")) != "success"
+            if run.get("benchmark_run_status") != "success"
             or run.get("correctness_passed") is not True
         ]),
         "final_failed_runs": len([
             run for run in final_runs
-            if run.get("benchmark_run_status", run.get("verification_status")) != "success"
+            if run.get("benchmark_run_status") != "success"
             or run.get("correctness_passed") is not True
         ]),
         "suggested_log_paths": suggested_logs,
@@ -889,6 +861,31 @@ def _group_setups(payload: dict[str, Any]) -> list[dict[str, Any]]:
         if isinstance(group, dict) and isinstance(group.get("setup"), dict):
             setups.append(group["setup"])
     return setups
+
+
+def _group_setup(payload: dict[str, Any], group_name: str) -> dict[str, Any]:
+    group = payload.get(group_name)
+    if isinstance(group, dict) and isinstance(group.get("setup"), dict):
+        return group["setup"]
+    return {}
+
+
+def _setup_failed(setup: dict[str, Any]) -> bool:
+    return setup.get("failed_step") is not None
+
+
+def _run_failed(run: dict[str, Any]) -> bool:
+    return run.get("benchmark_run_status") != "success" or run.get("correctness_passed") is not True
+
+
+def _group_status(setup: dict[str, Any], runs: list[dict[str, Any]]) -> str:
+    if setup.get("failed_step") is not None:
+        return "setup_failed"
+    if not runs:
+        return "not_run"
+    if any(_run_failed(run) for run in runs):
+        return "benchmark_failed"
+    return "completed"
 
 
 def _read_text_if_available(path_text: str) -> str:
@@ -949,7 +946,7 @@ def _collect_path_strings(value: Any) -> list[str]:
 def _summarize_runs(runs: list[dict[str, Any]]) -> dict[str, Any]:
     correct = [
         run for run in runs
-        if run.get("verification_status") == "success"
+        if run.get("benchmark_run_status") == "success"
         and run.get("correctness_passed") is True
         and isinstance(run.get("runtime_ns_per_case_median"), (int, float))
         and not isinstance(run.get("runtime_ns_per_case_median"), bool)

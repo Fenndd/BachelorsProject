@@ -11,6 +11,8 @@
       --line: #d8dee6;
       --panel: #f6f8fa;
       --accent: #246b8f;
+      --warning-bg: #fff7ed;
+      --warning-line: #f59e0b;
     }
     body {
       margin: 0;
@@ -59,6 +61,17 @@
       font-size: 13px;
       color: var(--muted);
       margin-bottom: 4px;
+    }
+    .warning-panel {
+      background: var(--warning-bg);
+      border: 1px solid var(--warning-line);
+      border-radius: 6px;
+      margin: 14px 0;
+      padding: 12px;
+    }
+    .warning-panel h3 {
+      font-size: 16px;
+      margin: 0 0 10px;
     }
     figure {
       margin: 18px 0;
@@ -145,8 +158,8 @@
     <h2>Executive Summary</h2>
     <div class="metric-grid">
       <div class="metric"><strong>Final Best Iteration</strong>{{ report.final_result.final_best_iteration|display }}</div>
-      <div class="metric"><strong>Final Speedup vs Baseline</strong>{{ report.final_result.final_speedup_vs_baseline|display }}</div>
-      <div class="metric"><strong>Final Runtime Reduction %</strong>{{ report.final_result.final_runtime_reduction_percent|display }}</div>
+      <div class="metric"><strong>Final Validation Speedup</strong>{{ report.final_result.final_speedup_vs_baseline|display }}</div>
+      <div class="metric"><strong>Final Validation Runtime Reduction %</strong>{{ report.final_result.final_runtime_reduction_percent|display }}</div>
       <div class="metric"><strong>Accepted Improvements</strong>{{ report.final_result.accepted_improvements|display }}</div>
       <div class="metric"><strong>Correctness Preserved</strong>{{ report.final_result.correctness_preserved|yes_no }}</div>
       <div class="metric"><strong>Baseline Runtime ns/case</strong>{{ report.final_best_candidate.baseline_runtime_ns_per_case_median|display }}</div>
@@ -248,6 +261,21 @@
         <tr><td>Final</td><td>{{ report.final_validation.final.mean_runtime_ns_per_case|display }}</td><td>{{ report.final_validation.final.std_runtime_ns_per_case|display }}</td><td>{{ report.final_validation.final.min_runtime_ns_per_case|display }}</td><td>{{ report.final_validation.final.max_runtime_ns_per_case|display }}</td><td>{{ report.final_validation.final.success_rate_mean|display }}</td><td>{{ report.final_validation.final.success_rate_min|display }}</td></tr>
       </tbody>
     </table>
+    {% if report.final_validation.status == 'completed_partial' %}
+    <div class="warning-panel">
+      <h3>Partial Validation Diagnostics</h3>
+      <div class="metric-grid">
+        <div class="metric"><strong>Dominant Failed Step</strong><code>{{ report.final_validation.diagnostics.dominant_failed_step|display }}</code></div>
+        <div class="metric"><strong>Dominant Error Excerpt</strong>{{ report.final_validation.diagnostics.dominant_error_excerpt|display }}</div>
+        <div class="metric"><strong>Suggested Logs</strong><code>{{ report.final_validation.diagnostics.suggested_log_paths|display }}</code></div>
+        <div class="metric"><strong>Baseline Group Status</strong>{{ report.final_validation.diagnostics.baseline_group_status|display }}</div>
+        <div class="metric"><strong>Final Group Status</strong>{{ report.final_validation.diagnostics.final_group_status|display }}</div>
+        <div class="metric"><strong>Baseline Setup Failed</strong>{{ report.final_validation.diagnostics.baseline_setup_failed|yes_no }}</div>
+        <div class="metric"><strong>Final Setup Failed</strong>{{ report.final_validation.diagnostics.final_setup_failed|yes_no }}</div>
+        <div class="metric"><strong>Benchmark Runs Attempted</strong>{{ report.final_validation.baseline.benchmark_runs_attempted + report.final_validation.final.benchmark_runs_attempted }}</div>
+      </div>
+    </div>
+    {% endif %}
     {% elif report.final_validation.enabled is true and report.final_validation.status == 'incomplete' %}
     <p class="muted">Final repeated validation repeats benchmark execution after one configure/build per source. It did not produce comparison metrics, so headline performance metrics are unavailable.</p>
     <div class="metric-grid">
@@ -261,6 +289,10 @@
       <div class="metric"><strong>Final Build Status</strong>{{ report.final_validation.final_setup.build_status|display }}</div>
       <div class="metric"><strong>Dominant Failed Step</strong><code>{{ report.final_validation.diagnostics.dominant_failed_step|display }}</code></div>
       <div class="metric"><strong>Dominant Error Excerpt</strong>{{ report.final_validation.diagnostics.dominant_error_excerpt|display }}</div>
+      <div class="metric"><strong>Baseline Group Status</strong>{{ report.final_validation.diagnostics.baseline_group_status|display }}</div>
+      <div class="metric"><strong>Final Group Status</strong>{{ report.final_validation.diagnostics.final_group_status|display }}</div>
+      <div class="metric"><strong>Baseline Setup Failed</strong>{{ report.final_validation.diagnostics.baseline_setup_failed|yes_no }}</div>
+      <div class="metric"><strong>Final Setup Failed</strong>{{ report.final_validation.diagnostics.final_setup_failed|yes_no }}</div>
       <div class="metric"><strong>Path-Length Warning Detected</strong>{{ report.final_validation.diagnostics.path_length_warning_detected|yes_no }}</div>
       <div class="metric"><strong>Max Observed Path Length</strong>{{ report.final_validation.diagnostics.max_observed_path_length|display }}</div>
       <div class="metric"><strong>Suggested Logs</strong><code>{{ report.final_validation.diagnostics.suggested_log_paths|display }}</code></div>

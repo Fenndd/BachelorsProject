@@ -41,7 +41,7 @@ def _write_experiment(root: Path, name: str) -> Path:
         encoding="utf-8",
     )
     (exp_dir / "closed_loop_summary.json").write_text(
-        '{"final_speedup_vs_original_baseline": 1.2, "final_runtime_reduction_percent": 16.7, "final_best_iteration": 3, "status_counts": {"accepted_improvement": 2}}\n',
+        '{"final_validation_median_speedup": 1.2, "final_validation_median_runtime_reduction_percent": 16.7, "final_best_iteration": 3, "status_counts": {"accepted_improvement": 2}}\n',
         encoding="utf-8",
     )
     (exp_dir / "summary.txt").write_text("Experiment summary\n", encoding="utf-8")
@@ -78,10 +78,25 @@ def test_synthetic_experiment_is_listed(tmp_path: Path) -> None:
     assert item.kind == "experiment"
     assert item.status == "completed"
     assert item.final_speedup_vs_baseline == 1.2
+    assert item.final_runtime_reduction_percent == 16.7
     assert item.final_best_iteration == 3
     assert item.accepted_improvements == 2
     assert item.artifacts.final_optimized_source_dir is not None
     assert item.artifacts.final_optimized_source_diff is not None
+
+
+def test_experiment_does_not_fallback_to_single_run_closed_loop_metrics(tmp_path: Path) -> None:
+    root = _repo_root(tmp_path)
+    exp_dir = _write_experiment(root, "exp_old")
+    (exp_dir / "closed_loop_summary.json").write_text(
+        '{"final_speedup_vs_original_baseline": 9.9, "final_runtime_reduction_percent": 89.9, "final_best_iteration": 3}\n',
+        encoding="utf-8",
+    )
+
+    item = list_result_items(root)[0]
+
+    assert item.final_speedup_vs_baseline is None
+    assert item.final_runtime_reduction_percent is None
 
 
 def test_invalid_json_is_captured_in_read_errors(tmp_path: Path) -> None:

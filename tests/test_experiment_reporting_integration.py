@@ -249,6 +249,13 @@ def test_final_validation_runs_after_finalization_before_reporting(
     assert status["closed_loop"]["final_validation_report_path"].endswith(
         "val/final_validation_report.json"
     )
+    assert status["closed_loop"]["final_validation_median_speedup"] == 1.0
+    assert status["closed_loop"]["final_validation_median_runtime_reduction_percent"] == 0.0
+    assert "final_speedup_vs_original_baseline" not in status["closed_loop"]
+    assert "final_runtime_reduction_percent" not in status["closed_loop"]
+    closed_loop_summary = json.loads((experiment_dir / "closed_loop_summary.json").read_text(encoding="utf-8"))
+    assert "final_speedup_vs_original_baseline" not in closed_loop_summary
+    assert "final_runtime_reduction_percent" not in closed_loop_summary
 
 
 def test_closed_loop_status_warns_when_final_validation_incomplete(

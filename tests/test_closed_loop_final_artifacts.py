@@ -243,8 +243,8 @@ def test_final_source_copy_diff_summary_and_state_for_baseline_only(
     assert payload["final_best_candidate_run_dir"] is None
     assert payload["final_optimized_source_dir"] == "results/experiments/exp_001/final_optimized_source"
     assert payload["final_optimized_source_diff_path"] == "results/experiments/exp_001/final_optimized_source.diff"
-    assert payload["final_speedup_vs_original_baseline"] == 1.0
-    assert payload["final_runtime_reduction_percent"] == 0.0
+    assert "final_speedup_vs_original_baseline" not in payload
+    assert "final_runtime_reduction_percent" not in payload
     assert payload["iterations_after_final_best"] == 2
     assert payload["created_at"] == "2026-05-10T05:00:00+02:00"
     assert payload["finished_at"] == "2026-05-10T05:10:00+02:00"
@@ -257,7 +257,6 @@ def test_final_source_copy_diff_summary_and_state_for_baseline_only(
         "no_op": 1,
         "generation_failed": 1,
     }
-    assert summary.final_speedup_vs_original_baseline == 1.0
     assert results_state_path == repo_root / "results" / "experiments" / "exp_001" / "current_best_state.json"
     results_state = json.loads(results_state_path.read_text(encoding="utf-8"))
     assert results_state["original_baseline_run_dir"] == "results/runs/baseline"
@@ -322,8 +321,8 @@ def test_final_diff_and_summary_use_accepted_candidate_decision(
     payload = json.loads(paths.closed_loop_summary_path.read_text(encoding="utf-8"))
     assert payload["final_best_iteration"] == 1
     assert payload["final_best_candidate_run_dir"] == "results/runs/candidate_001"
-    assert payload["final_speedup_vs_original_baseline"] == 1.25
-    assert payload["final_runtime_reduction_percent"] == 20.0
+    assert "final_speedup_vs_original_baseline" not in payload
+    assert "final_runtime_reduction_percent" not in payload
     assert payload["iterations_after_final_best"] == 2
     assert payload["status_counts"]["accepted_improvement"] == 1
     assert payload["status_counts"]["verification_failed"] == 0
@@ -341,8 +340,6 @@ def test_final_diff_and_summary_use_accepted_candidate_decision(
         "lines_removed": 1,
         "changed_blocks": 1,
     }
-    assert summary.final_speedup_vs_original_baseline == 1.25
-
     status_block = run_experiment._closed_loop_status_block(
         paths,
         summary,
@@ -355,6 +352,8 @@ def test_final_diff_and_summary_use_accepted_candidate_decision(
     assert status_block["closed_loop_summary_path"].endswith("closed_loop_summary.json")
     assert status_block["closed_loop_iterations_path"].endswith("closed_loop_iterations.jsonl")
     assert status_block["current_best_state_path"].endswith("current_best_state.json")
+    assert "final_speedup_vs_original_baseline" not in status_block
+    assert "final_runtime_reduction_percent" not in status_block
 
     text = run_experiment._build_closed_loop_summary_text(
         experiment_id="exp_001",
@@ -426,6 +425,20 @@ def test_closed_loop_selection_report_is_reporting_only(
         current_best_run_dir=repo_root / "results" / "runs" / "candidate_001",
         accepted_improvements=1,
     )
+    state.current_best_run_dir.mkdir(parents=True, exist_ok=True)
+    (state.current_best_run_dir / "decision_vs_original_baseline.json").write_text(
+        json.dumps(
+            {
+                "status": "accepted_improvement",
+                "comparison": {
+                    "speedup": 1.25,
+                    "runtime_reduction_percent": 20.0,
+                },
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
     summary = ClosedLoopSummary(
         experiment_id="exp_001",
         target_file=TARGET_FILE,
@@ -437,8 +450,6 @@ def test_closed_loop_selection_report_is_reporting_only(
         final_best_candidate_run_dir=state.current_best_run_dir,
         final_optimized_source_dir=paths.final_optimized_source_dir,
         final_optimized_source_diff_path=paths.final_optimized_source_diff_path,
-        final_speedup_vs_original_baseline=1.25,
-        final_runtime_reduction_percent=20.0,
         iterations_after_final_best=1,
         status_counts={status.value: 0 for status in IterationStatus},
         created_at="2026-05-10T05:00:00+02:00",
@@ -527,8 +538,6 @@ def test_selection_report_best_verified_match_false_and_none(tmp_path: Path, mon
         final_best_candidate_run_dir=state.current_best_run_dir,
         final_optimized_source_dir=paths.final_optimized_source_dir,
         final_optimized_source_diff_path=paths.final_optimized_source_diff_path,
-        final_speedup_vs_original_baseline=1.1,
-        final_runtime_reduction_percent=9.0,
         iterations_after_final_best=1,
         status_counts={status.value: 0 for status in IterationStatus},
         created_at="2026-05-10T05:00:00+02:00",

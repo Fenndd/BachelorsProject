@@ -41,8 +41,6 @@ def _summary(**overrides: object) -> dict:
         "final_best_iteration": 1,
         "final_optimized_source_dir": "results/experiments/exp_001/final_optimized_source",
         "final_optimized_source_diff_path": "results/experiments/exp_001/final_optimized_source.diff",
-        "final_speedup_vs_original_baseline": 1.25,
-        "final_runtime_reduction_percent": 20.0,
         "status_counts": {
             "accepted_improvement": 1,
             "materialization_failed": 1,
@@ -169,6 +167,12 @@ def test_collect_report_data_uses_final_validation_metrics_when_available(tmp_pa
                 "median_speedup": 1.25,
                 "median_runtime_reduction_percent": 20.0,
             },
+            "diagnostics": {
+                "baseline_setup_failed": False,
+                "final_setup_failed": False,
+                "baseline_group_status": "completed",
+                "final_group_status": "completed",
+            },
         },
     )
 
@@ -182,6 +186,10 @@ def test_collect_report_data_uses_final_validation_metrics_when_available(tmp_pa
     assert report_data.final_validation.baseline_setup.configure_log_path == "val/b/logs/configure_cmake.log"
     assert report_data.final_validation.final_setup.build_status == "success"
     assert report_data.final_validation.final_setup.build_duration_seconds == 0.4
+    assert report_data.final_validation.diagnostics.baseline_setup_failed is False
+    assert report_data.final_validation.diagnostics.final_setup_failed is False
+    assert report_data.final_validation.diagnostics.baseline_group_status == "completed"
+    assert report_data.final_validation.diagnostics.final_group_status == "completed"
     assert str(report_data.final_validation.report_path).endswith(
         "val/final_validation_report.json"
     )

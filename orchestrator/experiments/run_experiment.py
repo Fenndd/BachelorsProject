@@ -2162,7 +2162,6 @@ def finalize_closed_loop_artifacts(
     write_final_optimized_source_diff(paths, config)
     final_diff_stats = write_final_diff_stats(paths)
     results_state_path = copy_results_current_best_state(paths)
-    final_speedup, final_runtime_reduction = _final_speedup_vs_original_baseline(state)
     status_counts = count_iteration_statuses(records)
     summary = ClosedLoopSummary(
         experiment_id=experiment_id,
@@ -2175,8 +2174,6 @@ def finalize_closed_loop_artifacts(
         final_best_candidate_run_dir=None if state.current_best_is_baseline else state.current_best_run_dir,
         final_optimized_source_dir=paths.final_optimized_source_dir,
         final_optimized_source_diff_path=paths.final_optimized_source_diff_path,
-        final_speedup_vs_original_baseline=final_speedup,
-        final_runtime_reduction_percent=final_runtime_reduction,
         iterations_after_final_best=len(records) - state.current_best_iteration,
         status_counts=status_counts,
         created_at=started_at.isoformat(timespec="seconds"),
@@ -2263,6 +2260,7 @@ def write_closed_loop_selection_report(
     report_path = experiment_dir / "closed_loop_selection_report.json"
     candidate_attempts = [_compact_candidate_attempt(record) for record in (records or [])]
     final_current_best_run_dir = _display_path(state.current_best_run_dir)
+    selection_speedup, selection_runtime_reduction = _final_speedup_vs_original_baseline(state)
     payload = {
         "report_type": "closed_loop_final_selection_report",
         "experiment_id": summary.experiment_id,
@@ -2293,8 +2291,8 @@ def write_closed_loop_selection_report(
             "final_optimized_source_dir": _display_path(summary.final_optimized_source_dir),
             "final_optimized_source_diff_path": _display_path(summary.final_optimized_source_diff_path),
             "performance_reference": "original_baseline",
-            "final_speedup_vs_original_baseline": summary.final_speedup_vs_original_baseline,
-            "final_runtime_reduction_percent": summary.final_runtime_reduction_percent,
+            "final_speedup_vs_original_baseline": selection_speedup,
+            "final_runtime_reduction_percent": selection_runtime_reduction,
             "status_counts": summary.status_counts,
         },
         "safety": {
@@ -2397,8 +2395,6 @@ def _closed_loop_status_block(
         "current_best_state_path": _display_path(results_state_path),
         "workspace_current_best_source_dir": _display_path(paths.current_best_source_dir),
         "workspace_current_best_state_path": _display_path(paths.current_best_state_path),
-        "final_speedup_vs_original_baseline": summary.final_speedup_vs_original_baseline,
-        "final_runtime_reduction_percent": summary.final_runtime_reduction_percent,
         "status_counts": summary.status_counts,
     }
     if final_validation_status is not None:

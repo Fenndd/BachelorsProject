@@ -591,6 +591,16 @@ def _build_final_validation(experiment_path: Path) -> ReportFinalValidation:
             max_observed_path_length=_int_or_none(
                 diagnostics.get("max_observed_path_length")
             ),
+            baseline_setup_failed=_bool_or_default(
+                diagnostics.get("baseline_setup_failed"),
+                False,
+            ),
+            final_setup_failed=_bool_or_default(
+                diagnostics.get("final_setup_failed"),
+                False,
+            ),
+            baseline_group_status=_string_or_none(diagnostics.get("baseline_group_status")),
+            final_group_status=_string_or_none(diagnostics.get("final_group_status")),
             baseline_failed_runs=_int_or_default(diagnostics.get("baseline_failed_runs")),
             final_failed_runs=_int_or_default(diagnostics.get("final_failed_runs")),
             suggested_log_paths=[
