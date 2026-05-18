@@ -28,6 +28,8 @@ from orchestrator.benchmarking import parse_absolute_pose_benchmark_output
 
 
 DEFAULT_BUILD_DIR_NAME = "build"
+PATH_LENGTH_WARNING_THRESHOLD = 240
+SOURCE_FILE_SUFFIXES_FOR_PATH_DIAGNOSTICS = {".cpp", ".cc", ".cxx", ".h", ".hpp", ".hh"}
 ADAPTER_VALIDATOR_TARGET = "absolute_pose_lambdatwist_adapter_validator"
 FAMILY_BENCHMARK_TARGET = "absolute_pose_lambdatwist_benchmark"
 
@@ -374,6 +376,7 @@ def _build_verification(
     steps: list[dict[str, Any]],
     adapter_validation: dict[str, Any],
     benchmark: dict[str, Any],
+    diagnostics: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     return {
         "overall_status": overall_status,
@@ -390,6 +393,7 @@ def _build_verification(
         "steps": steps,
         "adapter_validation": adapter_validation,
         "benchmark": benchmark,
+        "diagnostics": diagnostics or {},
     }
 
 
@@ -423,6 +427,13 @@ def _build_summary(verification: dict[str, Any], logs_dir: Path) -> str:
             f"- {step['name']}: {step['status']} "
             f"({_format_duration(step['duration_seconds'])})"
         )
+    path_length = verification.get("diagnostics", {}).get("path_length")
+    if isinstance(path_length, dict) and path_length.get("warning") is True:
+        lines.extend([
+            "",
+            "Diagnostics:",
+            f"- path length warning: {path_length.get('message') or 'warning'}",
+        ])
 
     lines.extend(
         [
@@ -490,6 +501,7 @@ def _finalize(
     failed_step: str | None,
     error_message: str | None,
     benchmark: dict[str, Any],
+    diagnostics: dict[str, Any] | None = None,
 ) -> int:
     completed_steps = _complete_steps(step_statuses)
     adapter_validation = {
@@ -514,6 +526,7 @@ def _finalize(
         completed_steps,
         adapter_validation,
         benchmark,
+        diagnostics,
     )
     _save_artifacts(candidate_run_dir, verification, logs_dir)
 
@@ -556,6 +569,7 @@ def _fail_before_commands(
             failed_step,
             error_message,
             _empty_benchmark(build_type=cmake_build_type),
+            None,
         )
     except (OSError, ValueError) as exc:
         print("Final status: failed")
@@ -579,6 +593,59 @@ def _build_command(
         "--config",
         cmake_build_type,
     ]
+
+
+def _path_length_diagnostics(source_dir: Path | None, build_dir: Path | None) -> dict[str, Any]:
+    if source_dir is None or build_dir is None:
+        return {
+            "path_length": {
+                "max_observed_path_length": 0,
+                "threshold": PATH_LENGTH_WARNING_THRESHOLD,
+                "warning": False,
+                "message": None,
+            }
+        }
+    max_length = max((len(str(path)) for path in _critical_candidate_paths(source_dir, build_dir)), default=0)
+    warning = max_length > PATH_LENGTH_WARNING_THRESHOLD
+    return {
+        "path_length": {
+            "max_observed_path_length": max_length,
+            "threshold": PATH_LENGTH_WARNING_THRESHOLD,
+            "warning": warning,
+            "message": (
+                "Candidate verification paths may exceed Windows/MinGW/CMake path limits. "
+                f"Maximum observed path length is {max_length}, threshold is {PATH_LENGTH_WARNING_THRESHOLD}."
+                if warning
+                else None
+            ),
+        }
+    }
+
+
+def _critical_candidate_paths(source_dir: Path, build_dir: Path) -> list[Path]:
+    paths = [source_dir, build_dir]
+    object_roots = [
+        build_dir / "CMakeFiles" / f"{target}.dir"
+        for target in (
+            "baseline_smoke_test",
+            ADAPTER_VALIDATOR_TARGET,
+            FAMILY_BENCHMARK_TARGET,
+        )
+    ]
+    if not source_dir.is_dir():
+        return paths
+    for source_file in sorted(source_dir.rglob("*")):
+        if not source_file.is_file() or source_file.suffix.lower() not in SOURCE_FILE_SUFFIXES_FOR_PATH_DIAGNOSTICS:
+            continue
+        try:
+            relative_source = source_file.relative_to(source_dir)
+        except ValueError:
+            continue
+        paths.append(source_file)
+        for object_root in object_roots:
+            object_path = object_root / Path(str(relative_source) + ".obj")
+            paths.extend([object_path, Path(str(object_path) + ".d")])
+    return paths
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -714,6 +781,7 @@ def main(argv: list[str] | None = None) -> int:
     failed_step: str | None = None
     error_message: str | None = None
     benchmark = _empty_benchmark(False, build_type=args.cmake_build_type)
+    diagnostics = _path_length_diagnostics(source_dir, build_dir)
 
     command_steps: list[tuple[str, str, Sequence[str], Path, Path]] = [
         (
@@ -883,6 +951,7 @@ def main(argv: list[str] | None = None) -> int:
             failed_step,
             error_message,
             benchmark,
+            diagnostics,
         )
     except OSError as exc:
         print("Final status: failed")

@@ -58,6 +58,8 @@ def test_collect_report_data_maps_minimal_closed_loop_summary(tmp_path: Path) ->
     experiment_dir = _experiment_dir(tmp_path)
     _write_json(experiment_dir / "closed_loop_summary.json", _summary())
     _write_jsonl(experiment_dir / "closed_loop_iterations.jsonl", [])
+    _write_json(experiment_dir / "experiment_config_snapshot.json", {"raw": True})
+    _write_json(experiment_dir / "experiment_config_effective.json", {"effective": True})
 
     report_data = collect_report_data(experiment_dir)
 
@@ -69,6 +71,12 @@ def test_collect_report_data_maps_minimal_closed_loop_summary(tmp_path: Path) ->
     assert report_data.final_result.final_speedup_vs_baseline is None
     assert report_data.final_result.final_runtime_reduction_percent is None
     assert report_data.final_result.accepted_improvements == 1
+    assert str(report_data.artifacts.experiment_config_snapshot).replace("\\", "/").endswith(
+        "results/experiments/exp_001/experiment_config_snapshot.json"
+    )
+    assert str(report_data.artifacts.experiment_config_effective).replace("\\", "/").endswith(
+        "results/experiments/exp_001/experiment_config_effective.json"
+    )
 
 
 def test_collect_report_data_does_not_fallback_when_final_validation_incomplete(tmp_path: Path) -> None:

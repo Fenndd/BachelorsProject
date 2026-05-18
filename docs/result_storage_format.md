@@ -130,6 +130,12 @@ Materialized candidate runs write `verification.json`, `verification_summary.txt
 
 If benchmark parsing fails, candidate verification fails because later comparison cannot use unstructured benchmark output. If parsing succeeds but `parsed_correctness_passed=false`, candidate verification fails at `benchmark_correctness_check` while preserving parsed benchmark metrics in `verification.json`. This matches the baseline policy.
 
+Candidate verification also records non-blocking path-length diagnostics under
+`verification.json.diagnostics.path_length`. This includes the maximum estimated
+CMake source/object/dependency path length, the warning threshold, and a warning
+message when the estimate is high. This diagnostic is warning-only; configure,
+build, run, parse, and correctness results still determine verification status.
+
 Verification itself does not compare against baseline. Pairwise candidate
 decision and multi-candidate selection are separate stages that consume verified
 artifacts.
@@ -288,9 +294,16 @@ results/experiments/<experiment_id>/closed_loop_summary.json
 results/experiments/<experiment_id>/closed_loop_selection_report.json
 results/experiments/<experiment_id>/val/
 results/experiments/<experiment_id>/val/final_validation_report.json
+results/experiments/<experiment_id>/experiment_config_snapshot.json
+results/experiments/<experiment_id>/experiment_config_effective.json
 results/experiments/<experiment_id>/experiment_metadata.json
 results/experiments/<experiment_id>/current_best_state.json
 ```
+
+`experiment_config_snapshot.json` is the raw input config. The separate
+`experiment_config_effective.json` serializes the loaded config after defaults and
+validation. It always includes an explicit `final_validation` block, defaulting to
+`enabled: true` and `benchmark_repetitions: 5` when omitted from the input.
 
 `final_optimized_source/` is a copy of the final workspace
 `current_best_source/` tree and preserves repo-relative structure, for example:
@@ -420,6 +433,13 @@ write `verification_status`. Runtime aggregates use only runs with
 values. Final validation runtime plots use the same criteria. If baseline or final
 has no successful correct run, comparison metrics are `null`.
 
+The current final validation implementation is represented internally by the
+`absolute_pose_lambdatwist_p3p` profile. The profile records the benchmark target,
+parser, original benchmark root, shortened validation root, copied components,
+runner source, and minimal CMake generator. It preserves the existing Lambda Twist
+P3P behavior and `val/b` plus `val/f` layout while making future benchmark profiles
+easier to add.
+
 Diagnostics include setup/group fields: `baseline_setup_failed`,
 `final_setup_failed`, `baseline_group_status`, and `final_group_status`. Group
 status is `setup_failed`, `benchmark_failed`, `completed`, or `not_run`.
@@ -487,6 +507,13 @@ benchmark validation status/path/median metrics. If final validation metrics are
 unavailable, it explicitly says final repeated validation metrics are unavailable
 and that single-run selection metrics are iteration analytics only, not final
 headline metrics.
+
+Final repeated validation can be rerun for an existing closed-loop experiment with
+`py -m orchestrator.cli.app experiment rerun-final-validation <experiment-selector>`.
+This reruns only final validation against `final_optimized_source/`, refreshes the
+final validation fields in `closed_loop_summary.json` and `experiment_status.json`,
+and refreshes HTML report data. It does not rerun candidate generation,
+materialization, per-iteration verification, promotion, or closed-loop iterations.
 
 Closed-loop history is deliberately separate from the non-closed-loop
 `history_policy` variant-local sliding-window history. It includes all

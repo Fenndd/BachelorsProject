@@ -1421,6 +1421,8 @@ def _artifact_map(
         closed_loop_iterations=_display_path(
             experiment_dir / "closed_loop_iterations.jsonl"
         ),
+        experiment_config_snapshot=existing("experiment_config_snapshot.json"),
+        experiment_config_effective=existing("experiment_config_effective.json"),
         experiment_metadata=existing("experiment_metadata.json"),
         final_diff_stats=existing("final_diff_stats.json"),
         current_best_state=existing("current_best_state.json"),

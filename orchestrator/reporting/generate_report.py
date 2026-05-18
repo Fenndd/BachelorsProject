@@ -133,6 +133,16 @@ def refresh_report_artifact_map(experiment_dir: Path | str) -> Path | None:
         artifacts["summary_txt"] = _display_path(summary_path)
         changed = True
 
+    snapshot_path = experiment_path / "experiment_config_snapshot.json"
+    if snapshot_path.is_file():
+        artifacts["experiment_config_snapshot"] = _display_path(snapshot_path)
+        changed = True
+
+    effective_path = experiment_path / "experiment_config_effective.json"
+    if effective_path.is_file():
+        artifacts["experiment_config_effective"] = _display_path(effective_path)
+        changed = True
+
     if not changed:
         return html_path
 

@@ -241,6 +241,8 @@ def test_final_validation_runs_after_finalization_before_reporting(
     experiment_dir = next((root / "results" / "experiments").iterdir())
     status = json.loads((experiment_dir / "experiment_status.json").read_text(encoding="utf-8"))
     metadata = json.loads((experiment_dir / "experiment_metadata.json").read_text(encoding="utf-8"))
+    raw_config = json.loads((experiment_dir / "experiment_config_snapshot.json").read_text(encoding="utf-8"))
+    effective_config = json.loads((experiment_dir / "experiment_config_effective.json").read_text(encoding="utf-8"))
     assert metadata["finished_at"] == status["finished_at"]
     assert metadata["total_duration_seconds"] is not None
     assert f"Finished at: {status['finished_at']}" in (experiment_dir / "summary.txt").read_text(
@@ -249,6 +251,11 @@ def test_final_validation_runs_after_finalization_before_reporting(
     assert status["closed_loop"]["final_validation_report_path"].endswith(
         "val/final_validation_report.json"
     )
+    assert "final_validation" not in raw_config
+    assert effective_config["final_validation"] == {
+        "enabled": True,
+        "benchmark_repetitions": 5,
+    }
     assert status["closed_loop"]["final_validation_median_speedup"] == 1.0
     assert status["closed_loop"]["final_validation_median_runtime_reduction_percent"] == 0.0
     assert "final_speedup_vs_original_baseline" not in status["closed_loop"]

@@ -192,6 +192,23 @@ def test_critical_validation_paths_scan_real_source_files(tmp_path: Path) -> Non
     assert not any("absolute_pose_lambdatwist_benchmark_adapter.cc" in text for text in path_texts)
 
 
+def test_default_final_validation_profile_preserves_layout_metadata() -> None:
+    profile = final_validation.DEFAULT_FINAL_VALIDATION_PROFILE
+    layout = final_validation._source_layout_metadata(profile)
+
+    assert profile.profile_id == "absolute_pose_lambdatwist_p3p"
+    assert profile.benchmark_target == "absolute_pose_lambdatwist_benchmark"
+    assert layout["type"] == "minimal_final_validation_cpp_layout"
+    assert layout["original_absolute_pose_root"] == "bench/families/geometric_pose_solvers/absolute_pose_solvers"
+    assert layout["validation_absolute_pose_root"] == "bench"
+    assert layout["copied_components"] == [
+        "external/lambdatwist",
+        "bench/core",
+        "bench/adapters/lambdatwist_p3p",
+        "bench/runners/lambdatwist_p3p_benchmark.cpp",
+    ]
+
+
 def test_final_validation_records_failed_repetitions(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     repo_root = tmp_path / "repo"
     experiment_dir = repo_root / "results" / "experiments" / "exp"

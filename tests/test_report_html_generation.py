@@ -540,12 +540,16 @@ def test_f_html_contains_enriched_fields(tmp_path: Path) -> None:
     assert "lambdatwist_p3p" in html
     assert "Speedup vs Current Best" in html
     assert "Closed-Loop Selection" in html
+    assert "single-run selection analytics from per-iteration candidate verification" in html
+    assert "Best Verified Candidate Single-Run Speedup vs Baseline" in html
+    assert "Best Verified Candidate Single-Run Runtime Reduction %" in html
     assert "Promotion Policy" in html
     assert "decision_vs_current_best.accepted_improvement_only" in html
     assert "Closed-loop History Context" in html
     assert "Selection Enabled" not in html
     assert "History Policy Enabled" not in html
     assert "Final Best Candidate" in html
+    assert "Candidate runtime fields in this section are not used as final headline performance metrics" in html
     assert "Not generated" in html
     # correctness_preserved rendered as Yes/No
     assert "Yes" in html

@@ -194,6 +194,8 @@ class ReportArtifactMap:
     final_diff: Path | str | None = None
     closed_loop_summary: Path | str | None = None
     closed_loop_iterations: Path | str | None = None
+    experiment_config_snapshot: Path | str | None = None
+    experiment_config_effective: Path | str | None = None
     experiment_metadata: Path | str | None = None
     final_diff_stats: Path | str | None = None
     current_best_state: Path | str | None = None

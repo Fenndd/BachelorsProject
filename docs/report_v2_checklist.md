@@ -106,6 +106,7 @@ results/experiments/<experiment_id>/report/
 ## Final Validation Checks
 
 - The Final Repeated Benchmark Validation section shows enabled/skipped status and benchmark repetitions.
+- The artifact map lists both the raw `experiment_config_snapshot.json` and effective `experiment_config_effective.json` when present.
 - Final validation artifacts are under `val/`; `b` is the baseline group and `f` is the final group.
 - Final validation uses a minimal shortened `cpp/` build tree, not a full copy of the repository `cpp/` tree; the original repository layout remains unchanged.
 - `final_validation_report.json` includes `source_layout` metadata describing how the shortened tree maps to the original `cpp/` layout.
@@ -118,6 +119,7 @@ results/experiments/<experiment_id>/report/
 - Baseline and final all-correctness-passed values are shown only when at least one relevant successful validation run exists; otherwise they show `Not available`.
 - Setup failures are represented in each group's `setup` block, with `runs: []` and `benchmark_runs_attempted: 0`, not as fake failed benchmark repetitions.
 - Run records use benchmark-only repeated validation (`validation_mode: benchmark_only`, `benchmark_run_status`) after one configure/build per source, not the full per-candidate verifier, and do not include `verification_status`.
+- Final validation profile metadata identifies the current `absolute_pose_lambdatwist_p3p` benchmark-only profile while preserving the existing minimal validation source layout.
 - Aggregates and plots include only successful correctness-passing repetitions; plots filter on `benchmark_run_status`, not per-iteration verification status.
 - If final validation is `completed_partial` with comparison metrics, the report still shows normal metric cards/tables and also shows a warning diagnostics panel with dominant failure, suggested logs, setup failure flags, group status fields, and attempted benchmark runs.
 - If final validation is incomplete, the report shows compact diagnostics with setup statuses, group statuses, setup failure flags, dominant failure, path-length warning state, max observed path length, and suggested logs instead of a mostly empty full metrics table.

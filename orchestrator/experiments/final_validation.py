@@ -14,6 +14,7 @@ import shutil
 import statistics
 import subprocess
 import time
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable, Sequence
@@ -36,29 +37,45 @@ GROUP_DIR_NAMES = {
     "final": "f",
 }
 ORIGINAL_ABSOLUTE_POSE_ROOT = Path("bench/families/geometric_pose_solvers/absolute_pose_solvers")
-VALIDATION_SOURCE_LAYOUT = {
-    "type": "minimal_final_validation_cpp_layout",
-    "original_cpp_root": "cpp",
-    "validation_cpp_root": "cpp",
-    "original_absolute_pose_root": ORIGINAL_ABSOLUTE_POSE_ROOT.as_posix(),
-    "validation_absolute_pose_root": "bench",
-    "copied_components": [
-        "external/lambdatwist",
-        "bench/core",
-        "bench/adapters/lambdatwist_p3p",
-        "bench/runners/lambdatwist_p3p_benchmark.cpp",
-    ],
-    "excluded_components": [
-        "src",
-        "include",
-        "tests",
-        "bench/baseline_benchmark.cpp",
-        "bench/families/geometric_pose_solvers/absolute_pose_solvers/runners/lambdatwist_p3p_adapter_validator.cpp",
-    ],
-}
 
 
 CommandRunner = Callable[[Sequence[str], Path], dict[str, Any]]
+BenchmarkParser = Callable[[str], dict[str, Any]]
+
+
+@dataclass(frozen=True)
+class FinalValidationProfile:
+    profile_id: str
+    family: str
+    solver: str
+    benchmark_target: str
+    parser: BenchmarkParser
+    original_benchmark_root: Path
+    validation_benchmark_root: Path
+    components_to_copy: tuple[tuple[Path, Path], ...]
+    runner_source: Path
+    minimal_cmake_generator: Callable[[], str]
+
+
+DEFAULT_FINAL_VALIDATION_PROFILE = FinalValidationProfile(
+    profile_id="absolute_pose_lambdatwist_p3p",
+    family="absolute_pose_solvers",
+    solver="lambdatwist_p3p",
+    benchmark_target=FAMILY_BENCHMARK_TARGET,
+    parser=parse_absolute_pose_benchmark_output,
+    original_benchmark_root=ORIGINAL_ABSOLUTE_POSE_ROOT,
+    validation_benchmark_root=Path("bench"),
+    components_to_copy=(
+        (Path("external/lambdatwist"), Path("external/lambdatwist")),
+        (ORIGINAL_ABSOLUTE_POSE_ROOT / "core", Path("bench/core")),
+        (
+            ORIGINAL_ABSOLUTE_POSE_ROOT / "adapters/lambdatwist_p3p",
+            Path("bench/adapters/lambdatwist_p3p"),
+        ),
+    ),
+    runner_source=ORIGINAL_ABSOLUTE_POSE_ROOT / "runners/lambdatwist_p3p_benchmark.cpp",
+    minimal_cmake_generator=lambda: _minimal_final_validation_cmake(),
+)
 
 
 def run_final_validation(
@@ -71,6 +88,7 @@ def run_final_validation(
     enabled: bool = True,
     benchmark_repetitions: int = 5,
     command_runner: CommandRunner | None = None,
+    profile: FinalValidationProfile = DEFAULT_FINAL_VALIDATION_PROFILE,
 ) -> Path:
     """Run repeated final validation and write final_validation_report.json."""
 
@@ -90,7 +108,7 @@ def run_final_validation(
             "benchmark_repetitions": benchmark_repetitions,
             "started_at": started_at,
             "finished_at": _now_iso(),
-            "source_layout": _source_layout_metadata(),
+            "source_layout": _source_layout_metadata(profile),
             "baseline": _empty_group(_group_dir(validation_dir, "baseline") / "cpp", repo_root),
             "final": _empty_group(_group_dir(validation_dir, "final") / "cpp", repo_root),
             "comparison": _empty_comparison(),
@@ -109,6 +127,7 @@ def run_final_validation(
         repetitions=benchmark_repetitions,
         repo_root=repo_root,
         runner=runner,
+        profile=profile,
     )
     final_group = _run_group(
         validation_dir=validation_dir,
@@ -117,6 +136,7 @@ def run_final_validation(
         repetitions=benchmark_repetitions,
         repo_root=repo_root,
         runner=runner,
+        profile=profile,
     )
 
     baseline_summary = baseline_group["summary"]
@@ -128,7 +148,7 @@ def run_final_validation(
         "benchmark_repetitions": benchmark_repetitions,
         "started_at": started_at,
         "finished_at": _now_iso(),
-        "source_layout": _source_layout_metadata(),
+        "source_layout": _source_layout_metadata(profile),
         "baseline": baseline_group,
         "final": final_group,
         "comparison": comparison,
@@ -154,6 +174,7 @@ def _run_group(
     repetitions: int,
     repo_root: Path,
     runner: CommandRunner,
+    profile: FinalValidationProfile,
 ) -> dict[str, Any]:
     group_dir = _group_dir(validation_dir, group_name)
     if group_dir.exists():
@@ -166,13 +187,14 @@ def _run_group(
     logs_dir.mkdir(parents=True, exist_ok=True)
 
     try:
-        _prepare_minimal_final_validation_cpp_tree(source_dir / "cpp", source_cpp)
+        _prepare_minimal_final_validation_cpp_tree(source_dir / "cpp", source_cpp, profile)
         setup = _empty_setup()
         preflight_failure = _path_length_preflight(
             source_cpp=source_cpp,
             build_dir=build_dir,
             logs_dir=logs_dir,
             repo_root=repo_root,
+            profile=profile,
         )
         if preflight_failure is not None:
             setup.update(preflight_failure)
@@ -196,7 +218,7 @@ def _run_group(
         return _group_payload(source_cpp, repo_root, setup, [])
 
     try:
-        benchmark_executable = _find_executable(build_dir, FAMILY_BENCHMARK_TARGET)
+        benchmark_executable = _find_executable(build_dir, profile.benchmark_target)
     except OSError as exc:
         setup.update({
             "failed_step": "find_benchmark_executable",
@@ -215,6 +237,7 @@ def _run_group(
                 benchmark_executable=benchmark_executable,
                 repo_root=repo_root,
                 runner=runner,
+                profile=profile,
             )
         )
     return _group_payload(source_cpp, repo_root, setup, runs)
@@ -228,6 +251,7 @@ def _configure_and_build_group(
     logs_dir: Path,
     repo_root: Path,
     runner: CommandRunner,
+    profile: FinalValidationProfile = DEFAULT_FINAL_VALIDATION_PROFILE,
 ) -> dict[str, Any]:
     setup = _empty_setup()
     cmake_exe = os.environ.get("CMAKE_EXE", "cmake")
@@ -281,7 +305,7 @@ def _configure_and_build_group(
         "--build",
         str(build_dir),
         "--target",
-        FAMILY_BENCHMARK_TARGET,
+        profile.benchmark_target,
         "--config",
         cmake_build_type,
     ]
@@ -304,42 +328,56 @@ def _group_dir(validation_dir: Path, group_name: str) -> Path:
     return validation_dir / GROUP_DIR_NAMES.get(group_name, group_name)
 
 
-def _source_layout_metadata() -> dict[str, Any]:
+def _source_layout_metadata(profile: FinalValidationProfile = DEFAULT_FINAL_VALIDATION_PROFILE) -> dict[str, Any]:
     return {
-        key: list(value) if isinstance(value, list) else value
-        for key, value in VALIDATION_SOURCE_LAYOUT.items()
+        "type": "minimal_final_validation_cpp_layout",
+        "profile_id": profile.profile_id,
+        "family": profile.family,
+        "solver": profile.solver,
+        "benchmark_target": profile.benchmark_target,
+        "original_cpp_root": "cpp",
+        "validation_cpp_root": "cpp",
+        "original_absolute_pose_root": profile.original_benchmark_root.as_posix(),
+        "validation_absolute_pose_root": profile.validation_benchmark_root.as_posix(),
+        "copied_components": [
+            destination.as_posix() for _source, destination in profile.components_to_copy
+        ] + [profile.validation_benchmark_root.joinpath("runners/lambdatwist_p3p_benchmark.cpp").as_posix()],
+        "excluded_components": [
+            "src",
+            "include",
+            "tests",
+            "bench/baseline_benchmark.cpp",
+            "bench/families/geometric_pose_solvers/absolute_pose_solvers/runners/lambdatwist_p3p_adapter_validator.cpp",
+        ],
     }
 
 
-def _prepare_minimal_final_validation_cpp_tree(source_cpp: Path, destination_cpp: Path) -> dict[str, Any]:
+def _prepare_minimal_final_validation_cpp_tree(
+    source_cpp: Path,
+    destination_cpp: Path,
+    profile: FinalValidationProfile = DEFAULT_FINAL_VALIDATION_PROFILE,
+) -> dict[str, Any]:
     if not source_cpp.is_dir():
         raise FileNotFoundError(f"Source cpp directory not found: {source_cpp}")
     if destination_cpp.exists():
         shutil.rmtree(destination_cpp)
 
-    absolute_pose_root = source_cpp / ORIGINAL_ABSOLUTE_POSE_ROOT
-    copies = [
-        (source_cpp / "external" / "lambdatwist", destination_cpp / "external" / "lambdatwist"),
-        (absolute_pose_root / "core", destination_cpp / "bench" / "core"),
-        (
-            absolute_pose_root / "adapters" / "lambdatwist_p3p",
-            destination_cpp / "bench" / "adapters" / "lambdatwist_p3p",
-        ),
-    ]
-    for source, destination in copies:
+    for source_relative, destination_relative in profile.components_to_copy:
+        source = source_cpp / source_relative
+        destination = destination_cpp / destination_relative
         if not source.is_dir():
             raise FileNotFoundError(f"Required final validation source directory not found: {source}")
         shutil.copytree(source, destination)
 
-    runner_source = absolute_pose_root / "runners" / "lambdatwist_p3p_benchmark.cpp"
+    runner_source = source_cpp / profile.runner_source
     if not runner_source.is_file():
         raise FileNotFoundError(f"Required final validation benchmark runner not found: {runner_source}")
-    runner_destination = destination_cpp / "bench" / "runners" / "lambdatwist_p3p_benchmark.cpp"
+    runner_destination = destination_cpp / profile.validation_benchmark_root / "runners" / runner_source.name
     runner_destination.parent.mkdir(parents=True, exist_ok=True)
     shutil.copy2(runner_source, runner_destination)
 
-    (destination_cpp / "CMakeLists.txt").write_text(_minimal_final_validation_cmake(), encoding="utf-8")
-    return _source_layout_metadata()
+    (destination_cpp / "CMakeLists.txt").write_text(profile.minimal_cmake_generator(), encoding="utf-8")
+    return _source_layout_metadata(profile)
 
 
 def _minimal_final_validation_cmake() -> str:
@@ -533,8 +571,9 @@ def _path_length_preflight(
     build_dir: Path,
     logs_dir: Path,
     repo_root: Path,
+    profile: FinalValidationProfile = DEFAULT_FINAL_VALIDATION_PROFILE,
 ) -> dict[str, Any] | None:
-    critical_paths = _critical_validation_paths(source_cpp, build_dir, logs_dir)
+    critical_paths = _critical_validation_paths(source_cpp, build_dir, logs_dir, profile)
     max_length = max((len(str(path)) for path in critical_paths), default=0)
     if platform.system() != "Windows" or max_length <= WINDOWS_FINAL_VALIDATION_PATH_LENGTH_THRESHOLD:
         return None
@@ -556,14 +595,19 @@ def _path_length_preflight(
     }
 
 
-def _critical_validation_paths(source_cpp: Path, build_dir: Path, logs_dir: Path) -> list[Path]:
+def _critical_validation_paths(
+    source_cpp: Path,
+    build_dir: Path,
+    logs_dir: Path,
+    profile: FinalValidationProfile = DEFAULT_FINAL_VALIDATION_PROFILE,
+) -> list[Path]:
     paths = [
         source_cpp,
         build_dir,
         logs_dir / "configure_cmake.log",
         logs_dir / "build_absolute_pose_lambdatwist_benchmark.log",
     ]
-    object_root = build_dir / "CMakeFiles" / f"{FAMILY_BENCHMARK_TARGET}.dir"
+    object_root = build_dir / "CMakeFiles" / f"{profile.benchmark_target}.dir"
     if not source_cpp.is_dir():
         return paths
     for source_file in sorted(source_cpp.rglob("*")):
@@ -588,6 +632,7 @@ def _run_benchmark_repetition(
     benchmark_executable: Path,
     repo_root: Path,
     runner: CommandRunner,
+    profile: FinalValidationProfile,
 ) -> dict[str, Any]:
     validation_run_id = f"final_validation_{group_name}_{run_index:02d}"
     log_path = logs_dir / f"run_{run_index:02d}.log"
@@ -600,6 +645,7 @@ def _run_benchmark_repetition(
         log_path=log_path,
         stage=stage,
         repo_root=repo_root,
+        profile=profile,
     )
     _write_json(runs_dir / f"run_{run_index:02d}.json", run)
     return run
@@ -614,6 +660,7 @@ def _run_from_benchmark_stage(
     log_path: Path | None,
     stage: dict[str, Any],
     repo_root: Path,
+    profile: FinalValidationProfile = DEFAULT_FINAL_VALIDATION_PROFILE,
 ) -> dict[str, Any]:
     failed_step: str | None = None
     error_message: str | None = None
@@ -624,7 +671,7 @@ def _run_from_benchmark_stage(
         failed_step = "run_absolute_pose_lambdatwist_benchmark"
         error_message = _stage_error(stage)
     else:
-        parse_result = parse_absolute_pose_benchmark_output(str(stage.get("stdout") or ""))
+        parse_result = profile.parser(str(stage.get("stdout") or ""))
         benchmark = _benchmark_from_parse(str(stage.get("stdout") or ""), parse_result)
         parse_status = "success" if parse_result["parse_success"] else "failed"
         if not parse_result["parse_success"]:
@@ -1091,4 +1138,4 @@ def _bool_or_none(value: Any) -> bool | None:
     return value if isinstance(value, bool) else None
 
 
-__all__ = ["run_final_validation"]
+__all__ = ["DEFAULT_FINAL_VALIDATION_PROFILE", "FinalValidationProfile", "run_final_validation"]

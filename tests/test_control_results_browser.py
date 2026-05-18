@@ -45,6 +45,8 @@ def _write_experiment(root: Path, name: str) -> Path:
         encoding="utf-8",
     )
     (exp_dir / "summary.txt").write_text("Experiment summary\n", encoding="utf-8")
+    (exp_dir / "experiment_config_snapshot.json").write_text("{}\n", encoding="utf-8")
+    (exp_dir / "experiment_config_effective.json").write_text("{}\n", encoding="utf-8")
     (exp_dir / "final_optimized_source").mkdir()
     (exp_dir / "final_optimized_source.diff").write_text("diff\n", encoding="utf-8")
     return exp_dir
@@ -83,6 +85,8 @@ def test_synthetic_experiment_is_listed(tmp_path: Path) -> None:
     assert item.accepted_improvements == 2
     assert item.artifacts.final_optimized_source_dir is not None
     assert item.artifacts.final_optimized_source_diff is not None
+    assert item.artifacts.experiment_config_snapshot_json is not None
+    assert item.artifacts.experiment_config_effective_json is not None
 
 
 def test_experiment_does_not_fallback_to_single_run_closed_loop_metrics(tmp_path: Path) -> None:

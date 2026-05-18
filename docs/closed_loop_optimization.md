@@ -134,10 +134,10 @@ Key artifacts are:
 - `final_optimized_source/`: copy of the final `current_best_source/` tree.
 - `final_optimized_source.diff`: unified diff from the original clean baseline to the final optimized source.
 - `closed_loop_iterations.jsonl`: compact per-iteration JSONL records.
-- `closed_loop_summary.json`: summary of final best iteration, accepted improvements, status counts, final speedup/runtime reduction when available, and final artifact paths.
+- `closed_loop_summary.json`: summary of final best iteration, accepted improvements, status counts, final repeated-validation metrics when available, and final artifact paths.
 - `closed_loop_selection_report.json`: analysis-only final report that separates promotion decisions from final analysis.
 - `summary.txt`: human-readable experiment summary with a closed-loop section.
-- `experiment_status.json`: includes a `closed_loop` block with final artifact paths, final best metadata, accepted improvement count, final speedup/runtime reduction, and status counts.
+- `experiment_status.json`: includes a `closed_loop` block with final artifact paths, final best metadata, accepted improvement count, final repeated-validation metrics, and status counts.
 
 `candidate.generated.diff` and `final_optimized_source.diff` have different meanings:
 

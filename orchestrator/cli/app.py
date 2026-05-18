@@ -24,6 +24,7 @@ from orchestrator.control import (
     resolve_result_selector,
     run_baseline,
     run_experiment_control,
+    rerun_final_validation_for_experiment,
     summarize_environment,
     clean_workspace_all,
     clean_workspace_candidates,
@@ -160,6 +161,8 @@ def _artifact_rows(item: ResultItem) -> list[tuple[str, str]]:
         ("status", artifacts.status_json),
         ("metrics", artifacts.metrics_json),
         ("experiment_status", artifacts.experiment_status_json),
+        ("experiment_config_snapshot", artifacts.experiment_config_snapshot_json),
+        ("experiment_config_effective", artifacts.experiment_config_effective_json),
         ("closed_loop_summary", artifacts.closed_loop_summary_json),
         ("closed_loop_iterations", artifacts.closed_loop_iterations_jsonl),
         ("final_source", artifacts.final_optimized_source_dir),
@@ -490,6 +493,27 @@ def experiment_run(
             f"Message: {result.message}\n\n"
             "Hint: use `python -m orchestrator.cli.app results latest` to inspect recent runs.",
             title="Experiment Result",
+            border_style="green" if result.status == "success" else "red",
+        )
+    )
+    if result.status != "success":
+        raise typer.Exit(1)
+
+
+@experiment_app.command("rerun-final-validation")
+def experiment_rerun_final_validation(selector: str) -> None:
+    """Rerun final repeated validation for an existing closed-loop experiment."""
+
+    result = rerun_final_validation_for_experiment(selector)
+    experiment_dir = "-" if result.experiment_dir is None else _display_path(result.experiment_dir)
+    report_path = "-" if result.report_path is None else _display_path(result.report_path)
+    console.print(
+        Panel(
+            f"Status: {result.status}\n"
+            f"Experiment directory: {experiment_dir}\n"
+            f"Final validation report: {report_path}\n"
+            f"Message: {result.message}",
+            title="Final Validation Rerun",
             border_style="green" if result.status == "success" else "red",
         )
     )

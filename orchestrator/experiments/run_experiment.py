@@ -2234,6 +2234,12 @@ def _final_validation_has_comparison_metrics(status: dict[str, Any] | None) -> b
     )
 
 
+def _write_effective_experiment_config(experiment_dir: Path, config: ExperimentConfig) -> Path:
+    path = experiment_dir / "experiment_config_effective.json"
+    _write_json(path, _portable_plain_dict(asdict(config)))
+    return path
+
+
 def _closed_loop_overall_status(
     *,
     final_validation_enabled: bool,
@@ -2977,6 +2983,7 @@ def _run_experiment(
     iterations_path = experiment_dir / "iterations.jsonl"
 
     _write_json(experiment_dir / "experiment_config_snapshot.json", config_snapshot)
+    _write_effective_experiment_config(experiment_dir, config)
     _write_experiment_metadata(experiment_dir, started_at)
     try:
         llm_metadata_by_variant = _write_resolved_variant_llm_configs(

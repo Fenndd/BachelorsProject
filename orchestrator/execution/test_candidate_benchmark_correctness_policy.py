@@ -12,7 +12,9 @@ from orchestrator.execution.candidate_benchmark_verification import (
     _benchmark_from_parse,
     _build_benchmark_correctness_error_message,
     _complete_steps,
+    _empty_benchmark,
     _finalize,
+    _path_length_diagnostics,
     _step_status,
 )
 
@@ -95,6 +97,45 @@ class CandidateBenchmarkCorrectnessPolicyTests(unittest.TestCase):
             self.assertEqual(
                 verification["benchmark"]["parsed_runtime_ns_per_case_median"], 1000.0
             )
+
+    def test_path_length_diagnostics_are_warning_only(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            source_dir = root / ("s" * 80)
+            nested = source_dir / ("nested" * 20)
+            nested.mkdir(parents=True)
+            (nested / ("candidate" * 20 + ".cpp")).write_text("int main() { return 0; }\n", encoding="utf-8")
+            build_dir = source_dir / "build"
+            candidate_run_dir = root / "candidate"
+            logs_dir = candidate_run_dir / "verification_logs"
+            candidate_run_dir.mkdir()
+            logs_dir.mkdir()
+
+            diagnostics = _path_length_diagnostics(source_dir, build_dir)
+            exit_code = _finalize(
+                candidate_run_dir,
+                "candidate",
+                root,
+                source_dir,
+                build_dir,
+                None,
+                "Release",
+                logs_dir,
+                [],
+                None,
+                None,
+                _empty_benchmark(build_type="Release"),
+                diagnostics,
+            )
+
+            self.assertEqual(exit_code, 0)
+            verification = __import__("json").loads(
+                (candidate_run_dir / "verification.json").read_text(encoding="utf-8")
+            )
+            self.assertIs(verification["diagnostics"]["path_length"]["warning"], True)
+            self.assertEqual(verification["overall_status"], "success")
+            summary = (candidate_run_dir / "verification_summary.txt").read_text(encoding="utf-8")
+            self.assertIn("path length warning", summary)
 
 
 if __name__ == "__main__":

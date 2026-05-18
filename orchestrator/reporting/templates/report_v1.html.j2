@@ -536,6 +536,7 @@
 
   <section id="closed-loop-selection">
     <h2>Closed-Loop Selection</h2>
+    <p class="muted">This section shows single-run selection analytics from per-iteration candidate verification. Final performance metrics come only from Final Repeated Benchmark Validation.</p>
     <table>
       <tbody>
         <tr><th>Promotion Policy</th><td>{{ report.closed_loop_selection.promotion_policy|display }}</td></tr>
@@ -546,8 +547,8 @@
         <tr><th>Final Current Best Metrics Path</th><td><code>{{ report.closed_loop_selection.final_current_best_metrics_path|display }}</code></td></tr>
         <tr><th>Best Verified Candidate Iteration</th><td>{{ report.closed_loop_selection.best_verified_candidate_iteration|display }}</td></tr>
         <tr><th>Best Verified Candidate Run Dir</th><td><code>{{ report.closed_loop_selection.best_verified_candidate_run_dir|display }}</code></td></tr>
-        <tr><th>Best Verified Candidate Speedup vs Baseline</th><td>{{ report.closed_loop_selection.best_verified_candidate_speedup_vs_baseline|display }}</td></tr>
-        <tr><th>Best Verified Candidate Runtime Reduction %</th><td>{{ report.closed_loop_selection.best_verified_candidate_runtime_reduction_percent|display }}</td></tr>
+        <tr><th>Best Verified Candidate Single-Run Speedup vs Baseline</th><td>{{ report.closed_loop_selection.best_verified_candidate_speedup_vs_baseline|display }}</td></tr>
+        <tr><th>Best Verified Candidate Single-Run Runtime Reduction %</th><td>{{ report.closed_loop_selection.best_verified_candidate_runtime_reduction_percent|display }}</td></tr>
         <tr><th>Matches Final Current Best</th><td>{{ report.closed_loop_selection.matches_final_current_best|yes_no }}</td></tr>
       </tbody>
     </table>
@@ -599,6 +600,7 @@
 
   <section id="final-best-candidate-summary">
     <h2>Final Best Candidate Summary</h2>
+    <p class="muted">Candidate runtime fields in this section are not used as final headline performance metrics. Final headline metrics come from Final Repeated Benchmark Validation.</p>
     <table>
       <tbody>
         <tr><th>Final Best Iteration</th><td>{{ report.final_best_candidate.iteration|display }}</td></tr>

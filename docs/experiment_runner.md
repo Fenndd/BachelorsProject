@@ -359,6 +359,7 @@ A normal experiment writes:
 ```text
 results/experiments/<experiment_id>/
 |- experiment_config_snapshot.json
+|- experiment_config_effective.json
 |- experiment_status.json
 |- iterations.jsonl
 |- summary.txt
@@ -371,6 +372,8 @@ results/experiments/<experiment_id>/
 `- variant_configs/
    `- <variant_id>_llm_config.json
 ```
+
+`experiment_config_snapshot.json` is the raw input config. `experiment_config_effective.json` is the loaded `ExperimentConfig` after defaults and validation, including an explicit `final_validation` block. If the input omitted final validation, the effective artifact records `enabled: true` and `benchmark_repetitions: 5`.
 
 Closed-loop mode additionally writes:
 
@@ -405,6 +408,8 @@ Closed-loop reports can be enabled with a top-level `reporting` block:
 ```
 
 Automatic reporting runs only after closed-loop final artifacts and final repeated benchmark validation are written. It creates files under `results/experiments/<experiment_id>/report/`, including `report_data.json`, `report.html`, `plots/*.svg`, and optionally `report.pdf` when `pdf` is requested. Reporting is read-only post-processing: it does not run LLM generation, candidate verification, benchmarking, candidate promotion, source copying, or selection recomputation.
+
+To rerun only final repeated validation for an existing closed-loop experiment, use `py -m orchestrator.cli.app experiment rerun-final-validation <experiment-selector>`. The command uses `experiment_config_effective.json` when present, falling back to the raw snapshot and then defaults. It rewrites `val/final_validation_report.json`, refreshes final validation fields in `closed_loop_summary.json` and `experiment_status.json`, and refreshes HTML report data. It does not rerun LLM generation, materialization, per-iteration verification, promotion, `closed_loop_iterations.jsonl`, `current_best_source`, or `final_optimized_source`.
 
 The report is a single unified current report, not separate v1/v2 modes. The single-experiment HTML/PDF report focuses on closed-loop mode and includes runtime, correctness, status, candidate funnel, configuration, selection, final-best, reporting-status, and artifact sections. Legacy `selection_enabled` and `history_policy` fields are not shown as main report concepts. The closed-loop promotion policy is `decision_vs_current_best.accepted_improvement_only`. The same unified report also surfaces enriched process metadata when present:
 

@@ -21,6 +21,8 @@ class ResultArtifactMap:
     status_json: Path | None
     metrics_json: Path | None
     experiment_status_json: Path | None
+    experiment_config_snapshot_json: Path | None
+    experiment_config_effective_json: Path | None
     closed_loop_summary_json: Path | None
     closed_loop_iterations_jsonl: Path | None
     final_optimized_source_dir: Path | None
@@ -138,6 +140,8 @@ def _run_artifacts(path: Path) -> ResultArtifactMap:
         status_json=_existing(path / "status.json"),
         metrics_json=_existing(path / "metrics.json"),
         experiment_status_json=None,
+        experiment_config_snapshot_json=None,
+        experiment_config_effective_json=None,
         closed_loop_summary_json=None,
         closed_loop_iterations_jsonl=None,
         final_optimized_source_dir=None,
@@ -157,6 +161,8 @@ def _experiment_artifacts(path: Path) -> ResultArtifactMap:
         status_json=None,
         metrics_json=None,
         experiment_status_json=_existing(path / "experiment_status.json"),
+        experiment_config_snapshot_json=_existing(path / "experiment_config_snapshot.json"),
+        experiment_config_effective_json=_existing(path / "experiment_config_effective.json"),
         closed_loop_summary_json=_existing(path / "closed_loop_summary.json"),
         closed_loop_iterations_jsonl=_existing(path / "closed_loop_iterations.jsonl"),
         final_optimized_source_dir=_existing(path / "final_optimized_source"),
