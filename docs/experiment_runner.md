@@ -271,12 +271,16 @@ The same final diff summary is embedded as `final_diff_stats` in
 Final repeated benchmark validation writes:
 
 ```text
-results/experiments/<experiment_id>/validation/final_validation_report.json
+results/experiments/<experiment_id>/val/final_validation_report.json
 ```
 
 The report stores one setup block per source, all baseline/final benchmark
 repetitions that actually ran, aggregates using successful correctness-passing
-runs, and comparison metrics. Population standard deviation is used. If
+runs, and comparison metrics. Final validation artifacts are stored under
+`val/`, where `b` means baseline and `f` means final. Each group uses a minimal
+shortened `cpp/` build tree for path-length safety; the original repository
+`cpp/` layout is unchanged. The report's `source_layout` metadata records how
+the shortened tree maps to the original layout. Population standard deviation is used. If
 validation is disabled, a skipped report is still written so the final report can
 show that final validation was unavailable/skipped. Final headline performance
 metrics in reports/status summaries require completed final repeated validation

@@ -546,7 +546,7 @@ def _build_closed_loop_selection(
 
 
 def _build_final_validation(experiment_path: Path) -> ReportFinalValidation:
-    report_path = experiment_path / "validation" / "final_validation_report.json"
+    report_path = experiment_path / "val" / "final_validation_report.json"
     payload = _safe_read_json_object(report_path)
     if not isinstance(payload, dict):
         return ReportFinalValidation()
@@ -1417,8 +1417,8 @@ def _artifact_map(
         closed_loop_selection_report=existing("closed_loop_selection_report.json"),
         experiment_status=existing("experiment_status.json"),
         summary_txt=existing("summary.txt"),
-        final_validation_dir=existing("validation"),
-        final_validation_report=existing("validation/final_validation_report.json"),
+        final_validation_dir=existing("val"),
+        final_validation_report=existing("val/final_validation_report.json"),
     )
 
 

@@ -866,7 +866,7 @@ def test_final_validation_html_incomplete_shows_compact_diagnostics(tmp_path: Pa
             dominant_error_excerpt="Maximum observed critical path length is 320",
             path_length_warning_detected=True,
             max_observed_path_length=320,
-            suggested_log_paths=["validation/baseline/logs/path_length_preflight.log"],
+            suggested_log_paths=["val/b/logs/path_length_preflight.log"],
         ),
     )
 

@@ -11,9 +11,33 @@ from orchestrator.experiments.final_validation import run_final_validation
 
 
 def _write_source(root: Path) -> None:
-    path = root / "cpp" / "source.cc"
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text("int x = 1;\n", encoding="utf-8")
+    cpp = root / "cpp"
+    lambdatwist = cpp / "external" / "lambdatwist"
+    core = cpp / "bench" / "families" / "geometric_pose_solvers" / "absolute_pose_solvers" / "core"
+    adapter = (
+        cpp
+        / "bench"
+        / "families"
+        / "geometric_pose_solvers"
+        / "absolute_pose_solvers"
+        / "adapters"
+        / "lambdatwist_p3p"
+    )
+    runners = cpp / "bench" / "families" / "geometric_pose_solvers" / "absolute_pose_solvers" / "runners"
+    for directory in (lambdatwist, core, adapter, runners):
+        directory.mkdir(parents=True, exist_ok=True)
+    (lambdatwist / "p3p.cc").write_text("void p3p() {}\n", encoding="utf-8")
+    (lambdatwist / "p3p.h").write_text("#pragma once\n", encoding="utf-8")
+    (core / "absolute_pose_benchmark.cpp").write_text("void benchmark() {}\n", encoding="utf-8")
+    (core / "absolute_pose_benchmark.hpp").write_text("#pragma once\n", encoding="utf-8")
+    (adapter / "lambdatwist_p3p_adapter.cpp").write_text("void adapter() {}\n", encoding="utf-8")
+    (adapter / "lambdatwist_p3p_adapter.hpp").write_text("#pragma once\n", encoding="utf-8")
+    (runners / "lambdatwist_p3p_benchmark.cpp").write_text("int main() { return 0; }\n", encoding="utf-8")
+    (runners / "lambdatwist_p3p_adapter_validator.cpp").write_text("int main() { return 0; }\n", encoding="utf-8")
+    (cpp / "src").mkdir(parents=True, exist_ok=True)
+    (cpp / "include").mkdir(parents=True, exist_ok=True)
+    (cpp / "tests").mkdir(parents=True, exist_ok=True)
+    (cpp / "bench" / "baseline_benchmark.cpp").write_text("int main() { return 0; }\n", encoding="utf-8")
 
 
 def _benchmark_output(runtime: float, *, correct: bool = True) -> str:
@@ -69,7 +93,7 @@ def test_final_validation_aggregates_successful_runs(tmp_path: Path, monkeypatch
             run_counts["build"] += 1
             _fake_executable(Path(command[2]))
             return {"exit_code": 0, "duration_seconds": 0.1, "stdout": "", "stderr": ""}
-        group = "baseline" if "baseline" in _cwd.parts else "final"
+        group = "baseline" if "b" in _cwd.parts else "final"
         index = benchmark_counts[group]
         benchmark_counts[group] += 1
         run_counts["benchmark"] += 1
@@ -98,21 +122,44 @@ def test_final_validation_aggregates_successful_runs(tmp_path: Path, monkeypatch
     assert payload["diagnostics"]["summary"] == "All repeated validation runs completed successfully."
     assert payload["diagnostics"]["suggested_log_paths"] == []
     assert run_counts == {"configure": 2, "build": 2, "benchmark": 10}
-    assert report_path == experiment_dir / "validation" / "final_validation_report.json"
-    for group in ("baseline", "final"):
+    assert report_path == experiment_dir / "val" / "final_validation_report.json"
+    assert not (experiment_dir / "validation").exists()
+    assert payload["source_layout"]["type"] == "minimal_final_validation_cpp_layout"
+    for group, group_dir_name in (("baseline", "b"), ("final", "f")):
         assert payload[group]["setup"]["configure_status"] == "success"
         assert payload[group]["setup"]["build_status"] == "success"
         assert payload[group]["summary"]["benchmark_runs_attempted"] == 5
-        assert (experiment_dir / "validation" / group / "cpp" / "source.cc").is_file()
-        assert (experiment_dir / "validation" / group / "build").is_dir()
-        assert (experiment_dir / "validation" / group / "runs" / "run_01.json").is_file()
-        assert (experiment_dir / "validation" / group / "logs" / "run_01.log").is_file()
-        run = json.loads((experiment_dir / "validation" / group / "runs" / "run_01.json").read_text(encoding="utf-8"))
+        group_dir = experiment_dir / "val" / group_dir_name
+        cpp = group_dir / "cpp"
+        assert (cpp / "CMakeLists.txt").is_file()
+        assert (cpp / "external" / "lambdatwist").is_dir()
+        assert (cpp / "bench" / "core").is_dir()
+        assert (cpp / "bench" / "adapters" / "lambdatwist_p3p").is_dir()
+        assert (cpp / "bench" / "runners" / "lambdatwist_p3p_benchmark.cpp").is_file()
+        assert not (cpp / "src").exists()
+        assert not (cpp / "include").exists()
+        assert not (cpp / "tests").exists()
+        assert not (cpp / "bench" / "baseline_benchmark.cpp").exists()
+        assert not (cpp / "bench" / "families" / "geometric_pose_solvers" / "absolute_pose_solvers").exists()
+        cmake_text = (cpp / "CMakeLists.txt").read_text(encoding="utf-8")
+        assert 'set(ABSOLUTE_POSE_SOLVERS_DIR "${CMAKE_CURRENT_SOURCE_DIR}/bench")' in cmake_text
+        assert "baseline_smoke_test" not in cmake_text
+        assert "baseline_benchmark" not in cmake_text
+        assert "adapter_validator" not in cmake_text
+        assert "absolute_pose_correctness_policy_test" not in cmake_text
+        assert (group_dir / "build").is_dir()
+        assert (group_dir / "runs" / "run_01.json").is_file()
+        assert (group_dir / "logs" / "run_01.log").is_file()
+        assert payload[group]["source_dir"].endswith(f"val/{group_dir_name}/cpp")
+        assert payload[group]["build_dir"].endswith(f"val/{group_dir_name}/build")
+        assert payload[group]["runs_dir"].endswith(f"val/{group_dir_name}/runs")
+        assert payload[group]["logs_dir"].endswith(f"val/{group_dir_name}/logs")
+        run = json.loads((group_dir / "runs" / "run_01.json").read_text(encoding="utf-8"))
         assert run["validation_mode"] == "benchmark_only"
         assert run["benchmark_run_status"] == "success"
-        assert not (experiment_dir / "validation" / group / "source" / "cpp").exists()
+        assert not (group_dir / "source" / "cpp").exists()
     assert not (experiment_dir / "final_validation").exists()
-    assert not (experiment_dir / "validation" / "baseline_runs").exists()
+    assert not (experiment_dir / "val" / "baseline_runs").exists()
 
 
 def test_critical_validation_paths_scan_real_source_files(tmp_path: Path) -> None:
@@ -154,7 +201,7 @@ def test_final_validation_records_failed_repetitions(tmp_path: Path, monkeypatch
         if "--build" in command:
             _fake_executable(Path(command[2]))
         if command and Path(str(command[0])).name.startswith("absolute_pose_lambdatwist_benchmark"):
-            group = "baseline" if "baseline" in _cwd.parts else "final"
+            group = "baseline" if "b" in _cwd.parts else "final"
             benchmark_counts[group] += 1
             return {"exit_code": 0, "duration_seconds": 0.3, "stdout": _benchmark_output(100.0, correct=benchmark_counts[group] != 2), "stderr": ""}
         return {"exit_code": 0, "duration_seconds": 0.1, "stdout": "", "stderr": ""}
@@ -276,7 +323,8 @@ def test_final_validation_setup_failure_does_not_create_fake_runs(tmp_path: Path
         assert payload[group]["runs"] == []
         assert payload[group]["summary"]["benchmark_runs_attempted"] == 0
         assert payload[group]["summary"]["failed_runs"] == 0
-        assert not (experiment_dir / "validation" / group / "runs" / "run_01.json").exists()
+        group_dir_name = "b" if group == "baseline" else "f"
+        assert not (experiment_dir / "val" / group_dir_name / "runs" / "run_01.json").exists()
     assert payload["diagnostics"]["dominant_failed_step"] == "build_absolute_pose_lambdatwist_benchmark"
     assert "fatal error" in payload["diagnostics"]["dominant_error_excerpt"]
     assert payload["diagnostics"]["path_length_warning_detected"] is True
@@ -313,6 +361,6 @@ def test_final_validation_path_length_preflight_skips_setup(tmp_path: Path, monk
     assert "Maximum observed critical path length" in payload["baseline"]["setup"]["error_message"]
     assert payload["baseline"]["runs"] == []
     assert payload["baseline"]["summary"]["benchmark_runs_attempted"] == 0
-    assert not (experiment_dir / "validation" / "baseline" / "runs" / "run_01.json").exists()
-    assert (experiment_dir / "validation" / "baseline" / "logs" / "path_length_preflight.log").is_file()
+    assert not (experiment_dir / "val" / "b" / "runs" / "run_01.json").exists()
+    assert (experiment_dir / "val" / "b" / "logs" / "path_length_preflight.log").is_file()
     assert payload["diagnostics"]["dominant_failed_step"] == "path_length_preflight"

@@ -29,7 +29,7 @@ def _write_json(path: Path, payload: dict[str, Any]) -> None:
 
 def _fake_final_validation(**kwargs: Any) -> Path:
     experiment_dir = Path(kwargs["experiment_dir"])
-    report_path = experiment_dir / "validation" / "final_validation_report.json"
+    report_path = experiment_dir / "val" / "final_validation_report.json"
     _write_json(
         report_path,
         {

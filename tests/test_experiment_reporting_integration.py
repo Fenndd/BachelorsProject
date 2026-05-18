@@ -108,7 +108,7 @@ def _patch_runner_roots(monkeypatch: pytest.MonkeyPatch, root: Path) -> None:
 
 def _fake_final_validation(**kwargs: Any) -> Path:
     experiment_dir = Path(kwargs["experiment_dir"])
-    report_path = experiment_dir / "validation" / "final_validation_report.json"
+    report_path = experiment_dir / "val" / "final_validation_report.json"
     _write_json(
         report_path,
         {
@@ -247,7 +247,7 @@ def test_final_validation_runs_after_finalization_before_reporting(
         encoding="utf-8"
     )
     assert status["closed_loop"]["final_validation_report_path"].endswith(
-        "validation/final_validation_report.json"
+        "val/final_validation_report.json"
     )
 
 
@@ -262,7 +262,7 @@ def test_closed_loop_status_warns_when_final_validation_incomplete(
 
     def incomplete_validation(**kwargs: Any) -> Path:
         experiment_dir = Path(kwargs["experiment_dir"])
-        report_path = experiment_dir / "validation" / "final_validation_report.json"
+        report_path = experiment_dir / "val" / "final_validation_report.json"
         _write_json(
             report_path,
             {

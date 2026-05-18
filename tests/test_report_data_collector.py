@@ -78,7 +78,7 @@ def test_collect_report_data_does_not_fallback_when_final_validation_incomplete(
     _write_json(experiment_dir / "closed_loop_summary.json", _summary())
     _write_jsonl(experiment_dir / "closed_loop_iterations.jsonl", [])
     _write_json(
-        experiment_dir / "validation" / "final_validation_report.json",
+        experiment_dir / "val" / "final_validation_report.json",
         {
             "schema_version": "final_validation.v1",
             "enabled": True,
@@ -107,7 +107,7 @@ def test_collect_report_data_uses_final_validation_metrics_when_available(tmp_pa
     _write_json(experiment_dir / "closed_loop_summary.json", _summary())
     _write_jsonl(experiment_dir / "closed_loop_iterations.jsonl", [])
     _write_json(
-        experiment_dir / "validation" / "final_validation_report.json",
+        experiment_dir / "val" / "final_validation_report.json",
         {
             "schema_version": "final_validation.v1",
             "enabled": True,
@@ -117,10 +117,10 @@ def test_collect_report_data_uses_final_validation_metrics_when_available(tmp_pa
                 "setup": {
                     "configure_status": "success",
                     "configure_duration_seconds": 0.1,
-                    "configure_log_path": "validation/baseline/logs/configure_cmake.log",
+                    "configure_log_path": "val/b/logs/configure_cmake.log",
                     "build_status": "success",
                     "build_duration_seconds": 0.2,
-                    "build_log_path": "validation/baseline/logs/build.log",
+                    "build_log_path": "val/b/logs/build.log",
                     "failed_step": None,
                     "error_message": None,
                 },
@@ -143,10 +143,10 @@ def test_collect_report_data_uses_final_validation_metrics_when_available(tmp_pa
                 "setup": {
                     "configure_status": "success",
                     "configure_duration_seconds": 0.3,
-                    "configure_log_path": "validation/final/logs/configure_cmake.log",
+                    "configure_log_path": "val/f/logs/configure_cmake.log",
                     "build_status": "success",
                     "build_duration_seconds": 0.4,
-                    "build_log_path": "validation/final/logs/build.log",
+                    "build_log_path": "val/f/logs/build.log",
                     "failed_step": None,
                     "error_message": None,
                 },
@@ -179,11 +179,11 @@ def test_collect_report_data_uses_final_validation_metrics_when_available(tmp_pa
     assert report_data.final_validation.final.benchmark_runs_attempted == 5
     assert report_data.final_validation.baseline_setup.configure_status == "success"
     assert report_data.final_validation.baseline_setup.configure_duration_seconds == 0.1
-    assert report_data.final_validation.baseline_setup.configure_log_path == "validation/baseline/logs/configure_cmake.log"
+    assert report_data.final_validation.baseline_setup.configure_log_path == "val/b/logs/configure_cmake.log"
     assert report_data.final_validation.final_setup.build_status == "success"
     assert report_data.final_validation.final_setup.build_duration_seconds == 0.4
     assert str(report_data.final_validation.report_path).endswith(
-        "validation/final_validation_report.json"
+        "val/final_validation_report.json"
     )
     assert report_data.final_result.final_speedup_vs_baseline == 1.25
     assert report_data.final_result.final_runtime_reduction_percent == 20.0
@@ -1061,7 +1061,7 @@ def test_artifact_map_includes_extended_existing_artifacts(tmp_path: Path) -> No
         "experiment_status.json",
     ):
         _write_json(experiment_dir / name, {})
-    _write_json(experiment_dir / "validation" / "final_validation_report.json", {})
+    _write_json(experiment_dir / "val" / "final_validation_report.json", {})
     (experiment_dir / "summary.txt").write_text("summary\n", encoding="utf-8")
 
     report_data = collect_report_data(experiment_dir)
@@ -1072,9 +1072,9 @@ def test_artifact_map_includes_extended_existing_artifacts(tmp_path: Path) -> No
     assert str(report_data.artifacts.closed_loop_selection_report).endswith("closed_loop_selection_report.json")
     assert str(report_data.artifacts.experiment_status).endswith("experiment_status.json")
     assert str(report_data.artifacts.summary_txt).endswith("summary.txt")
-    assert str(report_data.artifacts.final_validation_dir).endswith("validation")
+    assert str(report_data.artifacts.final_validation_dir).endswith("val")
     assert str(report_data.artifacts.final_validation_report).replace("\\", "/").endswith(
-        "validation/final_validation_report.json"
+        "val/final_validation_report.json"
     )
 
 

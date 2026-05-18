@@ -7,7 +7,6 @@ promotion decisions, current_best_source, or the main cpp/ tree.
 
 from __future__ import annotations
 
-import fnmatch
 import json
 import os
 import platform
@@ -27,31 +26,36 @@ from orchestrator.execution.candidate_benchmark_verification import (
 )
 
 
-SOURCE_TREE_IGNORE_NAMES = {
-    "build",
-    "build-codex",
-    "build-pre-step-11-cleanup",
-    "cmake-build-debug",
-    "cmake-build-release",
-    "CMakeFiles",
-    "Testing",
-}
-SOURCE_TREE_IGNORE_PATTERNS = {
-    "CMakeCache.txt",
-    "build.ninja",
-    ".ninja_*",
-    "*.exe",
-    "*.dll",
-    "*.lib",
-    "*.a",
-    "*.obj",
-    "*.o",
-    "*.pdb",
-    "*.ilk",
-}
 SOURCE_FILE_SUFFIXES_FOR_PATH_PREFLIGHT = {".cpp", ".cc", ".cxx", ".h", ".hpp", ".hh"}
 
 WINDOWS_FINAL_VALIDATION_PATH_LENGTH_THRESHOLD = 240
+
+VALIDATION_DIR_NAME = "val"
+GROUP_DIR_NAMES = {
+    "baseline": "b",
+    "final": "f",
+}
+ORIGINAL_ABSOLUTE_POSE_ROOT = Path("bench/families/geometric_pose_solvers/absolute_pose_solvers")
+VALIDATION_SOURCE_LAYOUT = {
+    "type": "minimal_final_validation_cpp_layout",
+    "original_cpp_root": "cpp",
+    "validation_cpp_root": "cpp",
+    "original_absolute_pose_root": ORIGINAL_ABSOLUTE_POSE_ROOT.as_posix(),
+    "validation_absolute_pose_root": "bench",
+    "copied_components": [
+        "external/lambdatwist",
+        "bench/core",
+        "bench/adapters/lambdatwist_p3p",
+        "bench/runners/lambdatwist_p3p_benchmark.cpp",
+    ],
+    "excluded_components": [
+        "src",
+        "include",
+        "tests",
+        "bench/baseline_benchmark.cpp",
+        "bench/families/geometric_pose_solvers/absolute_pose_solvers/runners/lambdatwist_p3p_adapter_validator.cpp",
+    ],
+}
 
 
 CommandRunner = Callable[[Sequence[str], Path], dict[str, Any]]
@@ -73,7 +77,7 @@ def run_final_validation(
     if benchmark_repetitions <= 0:
         raise ValueError("benchmark_repetitions must be a positive integer")
 
-    validation_dir = experiment_dir / "validation"
+    validation_dir = experiment_dir / VALIDATION_DIR_NAME
     report_path = validation_dir / "final_validation_report.json"
     validation_dir.mkdir(parents=True, exist_ok=True)
     started_at = _now_iso()
@@ -86,8 +90,9 @@ def run_final_validation(
             "benchmark_repetitions": benchmark_repetitions,
             "started_at": started_at,
             "finished_at": _now_iso(),
-            "baseline": _empty_group(validation_dir / "baseline" / "cpp", repo_root),
-            "final": _empty_group(validation_dir / "final" / "cpp", repo_root),
+            "source_layout": _source_layout_metadata(),
+            "baseline": _empty_group(_group_dir(validation_dir, "baseline") / "cpp", repo_root),
+            "final": _empty_group(_group_dir(validation_dir, "final") / "cpp", repo_root),
             "comparison": _empty_comparison(),
             "safety": _safety_block(),
             "statistics_note": "Runtime standard deviation uses population std (statistics.pstdev).",
@@ -123,6 +128,7 @@ def run_final_validation(
         "benchmark_repetitions": benchmark_repetitions,
         "started_at": started_at,
         "finished_at": _now_iso(),
+        "source_layout": _source_layout_metadata(),
         "baseline": baseline_group,
         "final": final_group,
         "comparison": comparison,
@@ -149,7 +155,7 @@ def _run_group(
     repo_root: Path,
     runner: CommandRunner,
 ) -> dict[str, Any]:
-    group_dir = validation_dir / group_name
+    group_dir = _group_dir(validation_dir, group_name)
     if group_dir.exists():
         shutil.rmtree(group_dir)
     source_cpp = group_dir / "cpp"
@@ -160,7 +166,7 @@ def _run_group(
     logs_dir.mkdir(parents=True, exist_ok=True)
 
     try:
-        _copy_source_tree(source_dir / "cpp", source_cpp)
+        _prepare_minimal_final_validation_cpp_tree(source_dir / "cpp", source_cpp)
         setup = _empty_setup()
         preflight_failure = _path_length_preflight(
             source_cpp=source_cpp,
@@ -294,20 +300,116 @@ def _configure_and_build_group(
     return setup
 
 
-def _copy_source_tree(source: Path, destination: Path) -> None:
-    if not source.is_dir():
-        raise FileNotFoundError(f"Source cpp directory not found: {source}")
-    shutil.copytree(source, destination, ignore=_source_tree_ignore)
+def _group_dir(validation_dir: Path, group_name: str) -> Path:
+    return validation_dir / GROUP_DIR_NAMES.get(group_name, group_name)
 
 
-def _source_tree_ignore(_directory: str, names: list[str]) -> set[str]:
-    ignored: set[str] = set()
-    for name in names:
-        if name in SOURCE_TREE_IGNORE_NAMES:
-            ignored.add(name)
-        elif any(fnmatch.fnmatch(name, pattern) for pattern in SOURCE_TREE_IGNORE_PATTERNS):
-            ignored.add(name)
-    return ignored
+def _source_layout_metadata() -> dict[str, Any]:
+    return {
+        key: list(value) if isinstance(value, list) else value
+        for key, value in VALIDATION_SOURCE_LAYOUT.items()
+    }
+
+
+def _prepare_minimal_final_validation_cpp_tree(source_cpp: Path, destination_cpp: Path) -> dict[str, Any]:
+    if not source_cpp.is_dir():
+        raise FileNotFoundError(f"Source cpp directory not found: {source_cpp}")
+    if destination_cpp.exists():
+        shutil.rmtree(destination_cpp)
+
+    absolute_pose_root = source_cpp / ORIGINAL_ABSOLUTE_POSE_ROOT
+    copies = [
+        (source_cpp / "external" / "lambdatwist", destination_cpp / "external" / "lambdatwist"),
+        (absolute_pose_root / "core", destination_cpp / "bench" / "core"),
+        (
+            absolute_pose_root / "adapters" / "lambdatwist_p3p",
+            destination_cpp / "bench" / "adapters" / "lambdatwist_p3p",
+        ),
+    ]
+    for source, destination in copies:
+        if not source.is_dir():
+            raise FileNotFoundError(f"Required final validation source directory not found: {source}")
+        shutil.copytree(source, destination)
+
+    runner_source = absolute_pose_root / "runners" / "lambdatwist_p3p_benchmark.cpp"
+    if not runner_source.is_file():
+        raise FileNotFoundError(f"Required final validation benchmark runner not found: {runner_source}")
+    runner_destination = destination_cpp / "bench" / "runners" / "lambdatwist_p3p_benchmark.cpp"
+    runner_destination.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(runner_source, runner_destination)
+
+    (destination_cpp / "CMakeLists.txt").write_text(_minimal_final_validation_cmake(), encoding="utf-8")
+    return _source_layout_metadata()
+
+
+def _minimal_final_validation_cmake() -> str:
+    return """cmake_minimum_required(VERSION 3.20)
+
+project(P3POptimizationScaffoldFinalValidation LANGUAGES CXX)
+
+set(CMAKE_CXX_STANDARD 20)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+set(CMAKE_CXX_EXTENSIONS OFF)
+
+set(EIGEN3_INCLUDE_DIR "" CACHE PATH "Path to Eigen include directory (folder containing Eigen/)")
+if(NOT EIGEN3_INCLUDE_DIR)
+    message(FATAL_ERROR "EIGEN3_INCLUDE_DIR is not set. Please provide the Eigen include path.")
+endif()
+if(NOT EXISTS "${EIGEN3_INCLUDE_DIR}/Eigen/Core")
+    message(FATAL_ERROR "EIGEN3_INCLUDE_DIR is invalid. Expected to find Eigen/Core under: ${EIGEN3_INCLUDE_DIR}")
+endif()
+
+set(LAMBDATWIST_DIR "${CMAKE_CURRENT_SOURCE_DIR}/external/lambdatwist")
+set(ABSOLUTE_POSE_SOLVERS_DIR "${CMAKE_CURRENT_SOURCE_DIR}/bench")
+
+add_library(lambdatwist_baseline STATIC
+    "${LAMBDATWIST_DIR}/p3p.cc"
+)
+
+target_include_directories(lambdatwist_baseline
+    PUBLIC
+        "${LAMBDATWIST_DIR}"
+        "${EIGEN3_INCLUDE_DIR}"
+)
+
+add_library(absolute_pose_core STATIC
+    "${ABSOLUTE_POSE_SOLVERS_DIR}/core/absolute_pose_benchmark.cpp"
+)
+
+target_include_directories(absolute_pose_core
+    PUBLIC
+        "${ABSOLUTE_POSE_SOLVERS_DIR}/core"
+        "${EIGEN3_INCLUDE_DIR}"
+)
+
+add_library(absolute_pose_lambdatwist_adapter STATIC
+    "${ABSOLUTE_POSE_SOLVERS_DIR}/adapters/lambdatwist_p3p/lambdatwist_p3p_adapter.cpp"
+)
+
+target_include_directories(absolute_pose_lambdatwist_adapter
+    PUBLIC
+        "${ABSOLUTE_POSE_SOLVERS_DIR}/core"
+        "${ABSOLUTE_POSE_SOLVERS_DIR}/adapters/lambdatwist_p3p"
+        "${EIGEN3_INCLUDE_DIR}"
+)
+
+target_link_libraries(absolute_pose_lambdatwist_adapter
+    PUBLIC
+        absolute_pose_core
+    PRIVATE
+        lambdatwist_baseline
+)
+
+add_executable(absolute_pose_lambdatwist_benchmark
+    "${ABSOLUTE_POSE_SOLVERS_DIR}/runners/lambdatwist_p3p_benchmark.cpp"
+)
+
+target_link_libraries(absolute_pose_lambdatwist_benchmark
+    PRIVATE
+        absolute_pose_core
+        absolute_pose_lambdatwist_adapter
+)
+"""
 
 
 def _run_subprocess_command(command: Sequence[str], cwd: Path) -> dict[str, Any]:
@@ -413,8 +515,12 @@ def _group_payload(
 ) -> dict[str, Any]:
     summary = _summarize_runs(runs)
     summary["benchmark_runs_attempted"] = len(runs)
+    group_dir = source_cpp.parent
     return {
         "source_dir": _display_path(source_cpp, repo_root),
+        "build_dir": _display_path(group_dir / "build", repo_root),
+        "runs_dir": _display_path(group_dir / "runs", repo_root),
+        "logs_dir": _display_path(group_dir / "logs", repo_root),
         "setup": setup,
         "runs": runs,
         "summary": summary,
@@ -907,8 +1013,12 @@ def _validation_status(
 
 
 def _empty_group(source_dir: Path, repo_root: Path) -> dict[str, Any]:
+    group_dir = source_dir.parent
     return {
         "source_dir": _display_path(source_dir, repo_root),
+        "build_dir": _display_path(group_dir / "build", repo_root),
+        "runs_dir": _display_path(group_dir / "runs", repo_root),
+        "logs_dir": _display_path(group_dir / "logs", repo_root),
         "setup": _empty_setup(),
         "runs": [],
         "summary": _summarize_runs([]),

@@ -286,8 +286,8 @@ results/experiments/<experiment_id>/final_optimized_source.diff
 results/experiments/<experiment_id>/final_diff_stats.json
 results/experiments/<experiment_id>/closed_loop_summary.json
 results/experiments/<experiment_id>/closed_loop_selection_report.json
-results/experiments/<experiment_id>/validation/
-results/experiments/<experiment_id>/validation/final_validation_report.json
+results/experiments/<experiment_id>/val/
+results/experiments/<experiment_id>/val/final_validation_report.json
 results/experiments/<experiment_id>/experiment_metadata.json
 results/experiments/<experiment_id>/current_best_state.json
 ```
@@ -376,24 +376,25 @@ If `final_validation` is missing, validation defaults to enabled. If
 `final_validation.benchmark_repetitions` is missing, default 5 is used. The value
 must be a positive integer.
 
-The validation directory layout is:
+The validation directory layout is shortened for Windows path-length safety:
 
 ```text
-results/experiments/<experiment_id>/validation/
-├── baseline/
+results/experiments/<experiment_id>/val/
+├── final_validation_report.json
+├── b/
 │   ├── cpp/
 │   ├── build/
 │   ├── runs/
 │   └── logs/
-├── final/
+└── f/
 │   ├── cpp/
 │   ├── build/
 │   ├── runs/
 │   └── logs/
-└── final_validation_report.json
 ```
 
-Each group contains one copied `cpp/` source tree, one build directory, and a
+`b` means baseline and `f` means final. Each group contains one minimal shortened
+`cpp/` source tree, one build directory, and a
 first-class `setup` block recording configure/build status, durations, log paths,
 failed step, and error message. The runner configures/builds once per group, then
 writes repeated benchmark run JSON and logs under that group. Failed benchmark
@@ -401,6 +402,14 @@ repetitions are recorded and remaining repetitions continue when possible. If
 source preparation, path-length preflight, configure, build, or executable lookup
 fails, `runs` is empty, `benchmark_runs_attempted` is `0`, and no fake
 `run_01.json` ... records are created.
+
+The validation `cpp/` tree is not a full copy of the repository `cpp/` tree. It
+contains only `CMakeLists.txt`, `external/lambdatwist/`, `bench/core/`,
+`bench/adapters/lambdatwist_p3p/`, and
+`bench/runners/lambdatwist_p3p_benchmark.cpp`. It excludes project `src/`,
+`include/`, `tests/`, `bench/baseline_benchmark.cpp`, the adapter validator,
+smoke tests, and unrelated benchmark/test targets. The original repository
+`cpp/` layout is unchanged.
 
 `final_validation_report.json` uses `schema_version: "final_validation.v1"` and
 contains setup records, per-run benchmark-only records, aggregate
@@ -413,6 +422,11 @@ only successful runs whose correctness passed. Final validation runtime plots us
 only `benchmark_run_status: "success"`, `correctness_passed: true`, and numeric
 runtime values. If baseline or final has no successful correct run, comparison
 metrics are `null`.
+
+The report includes `source_layout` metadata with the original `cpp/` root, the
+validation `cpp/` root, the original absolute-pose solver root, the shortened
+validation root, copied components, and excluded components. Group blocks also
+include `source_dir`, `build_dir`, `runs_dir`, and `logs_dir` paths.
 
 The final validation `status` field is one of:
 
