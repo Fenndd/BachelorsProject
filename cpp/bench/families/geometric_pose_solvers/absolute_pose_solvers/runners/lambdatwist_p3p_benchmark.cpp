@@ -12,29 +12,32 @@ int main() {
 
     const LambdaTwistP3PAdapter adapter;
     BenchmarkOptions options;
+    options.camera_fov = 75.0;
+    options.n_point_point = 3;
+    options.n_point_line = 0;
+    options.tolerance = 1e-6;
+    options.num_problems = 100000;
+    options.timed_iterations = 10;
 
     const AbsolutePoseBenchmarkMetrics metrics =
         run_absolute_pose_benchmark(adapter, options);
 
     std::cout << std::boolalpha << std::setprecision(12);
     std::cout << "solver_name: " << metrics.solver_name << '\n';
-    std::cout << "num_cases: " << metrics.num_cases << '\n';
+    std::cout << "num_problems: " << metrics.num_problems << '\n';
     std::cout << "total_solutions: " << metrics.total_solutions << '\n';
-    std::cout << "valid_cases: " << metrics.valid_cases << '\n';
-    std::cout << "success_rate: " << metrics.success_rate << '\n';
-    std::cout << "mean_best_reprojection_error: " << metrics.mean_best_reprojection_error << '\n';
-    std::cout << "max_best_reprojection_error: " << metrics.max_best_reprojection_error << '\n';
+    std::cout << "solutions_per_problem: " << metrics.solutions_per_problem << '\n';
+    std::cout << "valid_solutions: " << metrics.valid_solutions << '\n';
+    std::cout << "valid_solutions_percent: " << metrics.valid_solutions_percent << '\n';
+    std::cout << "gt_found: " << metrics.gt_found << '\n';
+    std::cout << "gt_found_percent: " << metrics.gt_found_percent << '\n';
     std::cout << "runtime_ns_total_median: " << metrics.runtime_ns_total_median << '\n';
-    std::cout << "runtime_ns_per_case_median: " << metrics.runtime_ns_per_case_median << '\n';
-    // Benchmark protocol parameters for reproducibility.
-    std::cout << "warmup_iterations: " << options.warmup_iterations << '\n';
+    std::cout << "runtime_ns_per_problem_median: " << metrics.runtime_ns_per_problem_median << '\n';
+    std::cout << "tolerance: " << options.tolerance << '\n';
+    std::cout << "camera_fov: " << options.camera_fov << '\n';
+    std::cout << "n_point_point: " << options.n_point_point << '\n';
+    std::cout << "n_point_line: " << options.n_point_line << '\n';
     std::cout << "timed_iterations: " << options.timed_iterations << '\n';
-    std::cout << "random_seed: " << options.random_seed << '\n';
-    std::cout << "points_per_case: " << options.points_per_case << '\n';
-    std::cout << "min_success_rate: " << options.min_success_rate << '\n';
-    std::cout << "require_all_cases_valid: " << options.require_all_cases_valid << '\n';
-    std::cout << "use_max_reprojection_error_as_hard_gate: " << options.use_max_reprojection_error_as_hard_gate << '\n';
-    std::cout << "reprojection_error_threshold: " << options.reprojection_error_threshold << '\n';
     std::cout << "runtime_unit: ns\n";
     std::cout << "correctness_passed: " << metrics.correctness_passed << '\n';
 

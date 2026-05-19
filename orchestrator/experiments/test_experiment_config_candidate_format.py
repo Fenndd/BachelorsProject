@@ -63,45 +63,6 @@ class ExperimentConfigCandidateFormatTests(unittest.TestCase):
         self.assertTrue(config.candidate_format.require_original_verification)
         self.assertTrue(config.candidate_format.allow_exact_search_fallback)
         self.assertFalse(config.closed_loop.enabled)
-        self.assertTrue(config.final_validation.enabled)
-        self.assertEqual(config.final_validation.benchmark_repetitions, 5)
-
-    def test_final_validation_enabled_false_parses(self) -> None:
-        with tempfile.TemporaryDirectory() as tmpdir:
-            root = Path(tmpdir)
-            payload = _base_config_payload()
-            payload["final_validation"] = {"enabled": False, "benchmark_repetitions": 3}
-            config_path = root / "experiment_config.json"
-            config_path.write_text(json.dumps(payload), encoding="utf-8")
-
-            config = load_experiment_config(config_path)
-
-        self.assertFalse(config.final_validation.enabled)
-        self.assertEqual(config.final_validation.benchmark_repetitions, 3)
-
-    def test_final_validation_missing_repetitions_defaults_to_five(self) -> None:
-        with tempfile.TemporaryDirectory() as tmpdir:
-            root = Path(tmpdir)
-            payload = _base_config_payload()
-            payload["final_validation"] = {"enabled": True}
-            config_path = root / "experiment_config.json"
-            config_path.write_text(json.dumps(payload), encoding="utf-8")
-
-            config = load_experiment_config(config_path)
-
-        self.assertTrue(config.final_validation.enabled)
-        self.assertEqual(config.final_validation.benchmark_repetitions, 5)
-
-    def test_final_validation_repetitions_must_be_positive(self) -> None:
-        with tempfile.TemporaryDirectory() as tmpdir:
-            root = Path(tmpdir)
-            payload = _base_config_payload()
-            payload["final_validation"] = {"enabled": True, "benchmark_repetitions": 0}
-            config_path = root / "experiment_config.json"
-            config_path.write_text(json.dumps(payload), encoding="utf-8")
-
-            with self.assertRaises(ExperimentConfigError):
-                load_experiment_config(config_path)
 
     def test_closed_loop_enabled_loads_with_baseline_run_dir(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:

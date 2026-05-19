@@ -29,7 +29,7 @@ Not implemented yet:
 - Additional solver families/adapters beyond the current minimal Lambda Twist P3P path.
 - JSON metrics output directly from C++ benchmarks.
 - Broader statistical dashboards or aggregate reports across multiple experiments.
-- Memory measurement; the current prototype focuses on runtime and correctness/reprojection metrics.
+- Memory measurement; the current prototype focuses on runtime and PoseLib-style calibrated-pose correctness metrics.
 
 ## Repository Structure
 
@@ -77,7 +77,8 @@ Key closed-loop artifacts are written under `results/experiments/<experiment_id>
 - `closed_loop_summary.json`
 - `closed_loop_iterations.jsonl`
 - `closed_loop_selection_report.json`
-- `val/final_validation_report.json`
+- `final_selection_report.json`
+- `final_selection/`
 - `current_best_state.json`
 
 See `docs/architecture.md`, `docs/experiment_runner.md`, `docs/closed_loop_optimization.md`, `docs/result_storage_format.md`, `docs/candidate_edit_formats.md`, and `docs/best_result_selection_policy.md`.
@@ -93,7 +94,7 @@ py orchestrator/cli/main.py
 
 The flow configures CMake, builds/runs `baseline_smoke_test`, `baseline_runner`, `absolute_pose_lambdatwist_adapter_validator`, and `absolute_pose_lambdatwist_benchmark`, parses metrics, and checks `correctness_passed`. Benchmark and evaluation builds default to **Release**. Build type is recorded as reproducibility metadata in reports.
 
-The user-facing report is a single unified current report, not separate v1/v2 modes. It focuses on closed-loop mode. Legacy `selection_enabled` and `history_policy` fields are not shown as main report concepts; closed-loop promotion policy is `decision_vs_current_best.accepted_improvement_only`. Verification time includes benchmark execution, so `benchmark_seconds` is not separately shown in the main report. Missing PDF is valid for HTML-only reports; when PDF is requested, it is exported from the final completed HTML. Final repeated benchmark validation runs automatically after closed-loop completion and before report generation. It can also be rerun later with `py -m orchestrator.cli.app experiment rerun-final-validation <experiment-selector>` without rerunning LLM generation or closed-loop iterations. It compares the original baseline source against the final optimized source, defaults to 5 benchmark repetitions, does not affect candidate promotion, and does not change `current_best_source`. Its artifacts live under `val/`; `b` means baseline and `f` means final. Final validation uses a minimal shortened `cpp/` build tree for Windows path-length safety, while the original repository `cpp/` layout is unchanged. Final validation run records use benchmark-only `benchmark_run_status`, not candidate `verification_status`. Report headline baseline/final runtimes, speedup, runtime reduction, and correctness preserved come only from final repeated validation median metrics; if final validation is incomplete or unavailable, those headline metrics are unavailable. Single-run closed-loop selection metrics are iteration analytics only. Build type is reproducibility metadata; `Release` is the default benchmark build type.
+The user-facing report is a single unified current report, not separate v1/v2 modes. It focuses on closed-loop mode. Legacy `selection_enabled` and `history_policy` fields are not shown as main report concepts; closed-loop promotion policy is `decision_vs_current_best.accepted_improvement_only`. Verification time includes benchmark execution, so `benchmark_seconds` is not separately shown in the main report. Missing PDF is valid for HTML-only reports; when PDF is requested, it is exported from the final completed HTML. After closed-loop completion a single final benchmark run compares the final optimized source against the original baseline; this produces `final_selection_report.json` and feeds the report headline metrics. Report headline baseline/final runtimes, speedup, runtime reduction, and correctness preserved come from the final single-run comparison; if that run fails, headline metrics are unavailable. Single-run closed-loop selection metrics are iteration analytics only. Build type is reproducibility metadata; `Release` is the default benchmark build type.
 
 ## Experimental Terminal Control Layer
 

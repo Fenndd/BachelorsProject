@@ -13,7 +13,8 @@ The report is a single unified current report, not separate v1/v2 modes. The his
 - `results/experiments/<experiment_id>/final_optimized_source/` exists.
 - `results/experiments/<experiment_id>/final_optimized_source.diff` exists.
 - `results/experiments/<experiment_id>/final_diff_stats.json` exists for new runs.
-- `results/experiments/<experiment_id>/val/final_validation_report.json` exists for new closed-loop runs unless final validation failed before artifact creation.
+- `results/experiments/<experiment_id>/final_selection_report.json` exists for new closed-loop runs.
+- `results/experiments/<experiment_id>/final_selection/` exists when the final best is not baseline.
 
 ## Expected Report Directory Structure
 
@@ -33,8 +34,7 @@ results/experiments/<experiment_id>/report/
     ├── llm_tokens_by_iteration.svg
     ├── llm_latency_by_iteration.svg
     ├── failure_reason_breakdown.svg
-    ├── diff_stats_by_iteration.svg
-    └── final_validation_runtime_distribution.svg
+    └── diff_stats_by_iteration.svg
 ```
 
 `report.pdf` is optional when only HTML output was requested. Some SVGs may contain placeholder text if their corresponding metadata is unavailable.
@@ -46,9 +46,9 @@ results/experiments/<experiment_id>/report/
 - `experiment`, `baseline_metrics`, `final_result`, `iterations`, `status_counts`, and `artifacts` are present.
 - Current reports include per-iteration `phase_timings`, `llm_usage`, `diff_stats`, and `outcome_reason` where applicable.
 - Current reports include top-level `reason_code_counts`.
-- Current reports include top-level `final_validation` when the final validation artifact is available.
-- Final report headline final metrics use repeated validation median metrics when available.
-- Executive Summary headline baseline and final runtimes use the same repeated-validation basis when final validation is available.
+- Current reports include top-level `final_selection` when the final selection artifact is available.
+- Final report headline final metrics use the single-run comparison metrics when available.
+- Executive Summary headline baseline and final runtimes use the single-run comparison basis when available.
 - No API keys, full environment dumps, full logs, or full diffs are embedded.
 
 ## Plot Checks
@@ -59,17 +59,16 @@ results/experiments/<experiment_id>/report/
 - LLM token and latency plots show per-iteration values or placeholder text.
 - `failure_reason_breakdown.svg` shows outcome reason-code counts or placeholder text.
 - `diff_stats_by_iteration.svg` shows changed lines per iteration or placeholder text.
-- `final_validation_runtime_distribution.svg` shows successful correctness-passing baseline/final repeated validation runtimes or placeholder text.
 
 ## HTML Report Checks
 
 - `report.html` opens in a browser without visible template errors.
-- Core sections are present: cover, executive summary, experiment configuration, benchmark configuration, final repeated benchmark validation, baseline metrics, runtime progress, correctness, status breakdown, candidate funnel, per-iteration table, final best candidate summary, reporting status, and artifact map.
+- Core sections are present: cover, executive summary, experiment configuration, benchmark configuration, final single-run comparison, baseline metrics, runtime progress, correctness, status breakdown, candidate funnel, per-iteration table, final best candidate summary, reporting status, and artifact map.
 - Enriched sections are present: Outcome and Failure Analysis, Phase Timings, LLM Usage, Diff Statistics, Closed-Loop Selection, Reproducibility and Environment, and Iteration Appendix.
 - The user-facing report focuses on closed-loop mode. Legacy `selection_enabled` and `history_policy` fields are not shown as main report concepts.
 - Closed-loop promotion policy is `decision_vs_current_best.accepted_improvement_only`.
-- Final repeated benchmark validation runs automatically after closed-loop completion and before report generation. It compares original baseline source vs final optimized source, defaults to 5 repetitions, does not affect candidate promotion, and does not change `current_best_source`.
-- Executive Summary headline speedup, runtime reduction, baseline runtime, final runtime, and correctness preserved come only from `val/final_validation_report.json`. If final validation is incomplete, skipped, missing, or has null comparison metrics, those headline fields show `Not available`.
+- After closed-loop completion and before report generation, the runner performs a single benchmark run on the final optimized source and compares it against the original baseline. The comparison does not affect candidate promotion and does not change `current_best_source`.
+- Executive Summary headline speedup, runtime reduction, baseline runtime, final runtime, and correctness preserved come from `final_selection_report.json`. If the single-run comparison failed, was skipped (baseline is best), or metrics are unavailable, those headline fields show `Not available`.
 - If PDF was requested, `report.pdf` was exported from final completed `report.html`, not from pending-status HTML.
 - Tables show `Not available` for missing optional values instead of crashing or showing raw template placeholders.
 
@@ -103,28 +102,17 @@ results/experiments/<experiment_id>/report/
 - Aggregate LLM token and latency totals are shown when usage metadata exists.
 - Most Expensive Iteration and Highest Latency Iteration cards are shown when usage metadata exists.
 
-## Final Validation Checks
+## Final Single-Run Comparison Checks
 
-- The Final Repeated Benchmark Validation section shows enabled/skipped status and benchmark repetitions.
+- The Final Single-Run Comparison section shows the comparison status and whether the final best is baseline.
 - The artifact map lists both the raw `experiment_config_snapshot.json` and effective `experiment_config_effective.json` when present.
-- Final validation artifacts are under `val/`; `b` is the baseline group and `f` is the final group.
-- Final validation uses a minimal shortened `cpp/` build tree, not a full copy of the repository `cpp/` tree; the original repository layout remains unchanged.
-- `final_validation_report.json` includes `source_layout` metadata describing how the shortened tree maps to the original `cpp/` layout.
-- Status is one of `skipped`, `completed`, `completed_partial`, or `incomplete`.
-- If `final_validation.benchmark_repetitions` was missing in the config, the report shows default 5 repetitions.
-- Successful baseline/final run counts match `final_validation_report.json`.
-- Baseline/final benchmark runs attempted match `final_validation_report.json`.
-- Baseline and final median/mean/std/min/max runtime values match `final_validation_report.json`.
-- Median speedup and median runtime reduction percent match `final_validation_report.json`.
-- Baseline and final all-correctness-passed values are shown only when at least one relevant successful validation run exists; otherwise they show `Not available`.
-- Setup failures are represented in each group's `setup` block, with `runs: []` and `benchmark_runs_attempted: 0`, not as fake failed benchmark repetitions.
-- Run records use benchmark-only repeated validation (`validation_mode: benchmark_only`, `benchmark_run_status`) after one configure/build per source, not the full per-candidate verifier, and do not include `verification_status`.
-- Final validation profile metadata identifies the current `absolute_pose_lambdatwist_p3p` benchmark-only profile while preserving the existing minimal validation source layout.
-- Aggregates and plots include only successful correctness-passing repetitions; plots filter on `benchmark_run_status`, not per-iteration verification status.
-- If final validation is `completed_partial` with comparison metrics, the report still shows normal metric cards/tables and also shows a warning diagnostics panel with dominant failure, suggested logs, setup failure flags, group status fields, and attempted benchmark runs.
-- If final validation is incomplete, the report shows compact diagnostics with setup statuses, group statuses, setup failure flags, dominant failure, path-length warning state, max observed path length, and suggested logs instead of a mostly empty full metrics table.
-- If final validation is skipped, the report clearly states that it was disabled/skipped and does not show the full empty metrics table.
-- If final validation is missing, the report clearly states that final repeated benchmark validation was not available.
+- `final_selection_report.json` exists at the experiment root.
+- Status is one of `skipped`, `completed`, or `failed`.
+- Speedup and runtime reduction percent match `final_selection_report.json`.
+- Baseline and final per-problem median runtimes match `final_selection_report.json`.
+- If the final best is baseline, the report shows `skipped` with speedup 1.0 and no rebuild.
+- If the single-run comparison failed, the report shows the `failed_step` and `error_message` from `final_selection_report.json`.
+- If the single-run comparison is missing, the report clearly states that the final comparison was not available.
 
 ## Reproducibility Checks
 
@@ -155,7 +143,7 @@ results/experiments/<experiment_id>/report/
 - Final best iteration matches `closed_loop_summary.json` and `closed_loop_selection_report.json`.
 - Accepted improvement counts match status counts.
 - Final runtime/speedup values match the final best candidate metrics.
-- When final validation metrics are available, final runtime/speedup values match repeated validation median metrics, not single-run selection metrics.
+- When single-run comparison metrics are available, final runtime/speedup values match those comparison metrics.
 - Report artifact paths point inside the completed experiment directory.
-- `experiment_metadata.finished_at` and `experiment_status.finished_at` represent the full experiment cycle, including final validation and reporting.
+- `experiment_metadata.finished_at` and `experiment_status.finished_at` represent the full experiment cycle, including the single-run comparison and reporting.
 - Reporting remains read-only: no source files, candidate workspaces, verification artifacts, benchmark results, or promotion state are modified by report inspection or viewing.

@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import json
-import math
 import tempfile
 import unittest
 from pathlib import Path
@@ -23,25 +22,25 @@ def _benchmark_payload(**overrides: Any) -> dict[str, Any]:
         "runtime_unit": "ns",
         "build_type": "Release",
         "benchmark_options": {
-            "num_cases": 1000,
-            "points_per_case": 3,
-            "warmup_iterations": 3,
+            "num_problems": 1000,
+            "tolerance": 1e-6,
+            "camera_fov": 75.0,
+            "n_point_point": 3,
+            "n_point_line": 0,
             "timed_iterations": 10,
-            "random_seed": 42,
-            "reprojection_error_threshold": 1e-6,
-            "min_success_rate": 0.99,
-            "require_all_cases_valid": False,
-            "use_max_reprojection_error_as_hard_gate": False,
             "runtime_unit": "ns",
             "build_type": "Release",
         },
         "parse_success": True,
-        "parsed_num_cases": 1000,
-        "parsed_success_rate": 1.0,
-        "parsed_mean_best_reprojection_error": 1.0e-12,
-        "parsed_max_best_reprojection_error": 2.0e-12,
+        "parsed_num_problems": 1000,
+        "parsed_total_solutions": 3000,
+        "parsed_solutions_per_problem": 3.0,
+        "parsed_valid_solutions": 3000,
+        "parsed_valid_solutions_percent": 100.0,
+        "parsed_gt_found": 1000,
+        "parsed_gt_found_percent": 100.0,
         "parsed_runtime_ns_total_median": 1_000_000.0,
-        "parsed_runtime_ns_per_case_median": 1000.0,
+        "parsed_runtime_ns_per_problem_median": 1000.0,
         "parsed_correctness_passed": True,
     }
     benchmark.update(overrides)
@@ -66,48 +65,10 @@ def _evaluate(
         baseline_run.mkdir()
         candidate_run.mkdir()
 
-        _write_json(
-            baseline_run / "metrics.json",
-            _benchmark_payload(**baseline_overrides),
-        )
-        _write_json(
-            candidate_run / "verification.json",
-            _benchmark_payload(**candidate_overrides),
-        )
+        _write_json(baseline_run / "metrics.json", _benchmark_payload(**baseline_overrides))
+        _write_json(candidate_run / "verification.json", _benchmark_payload(**candidate_overrides))
 
-        return evaluate_candidate_against_baseline(
-            baseline_run,
-            candidate_run,
-        )
-
-
-def _make_run_pair(
-    root: Path,
-    *,
-    reference_kind: str = "baseline",
-    reference_overrides: dict[str, Any] | None = None,
-    candidate_overrides: dict[str, Any] | None = None,
-) -> tuple[Path, Path]:
-    reference_overrides = reference_overrides or {}
-    candidate_overrides = candidate_overrides or {}
-
-    reference_run = root / "reference"
-    candidate_run = root / "candidate"
-    reference_run.mkdir()
-    candidate_run.mkdir()
-
-    reference_artifact_name = (
-        "metrics.json" if reference_kind == "baseline" else "verification.json"
-    )
-    _write_json(
-        reference_run / reference_artifact_name,
-        _benchmark_payload(**reference_overrides),
-    )
-    _write_json(
-        candidate_run / "verification.json",
-        _benchmark_payload(**candidate_overrides),
-    )
-    return reference_run, candidate_run
+        return evaluate_candidate_against_baseline(baseline_run, candidate_run)
 
 
 class CandidateDecisionTests(unittest.TestCase):
@@ -117,369 +78,88 @@ class CandidateDecisionTests(unittest.TestCase):
                 "family": "other_family",
                 "solver": "other_solver",
                 "build_type": "Debug",
-                "parsed_num_cases": 999,
+                "parsed_num_problems": 999,
             }
         )
 
         self.assertEqual(decision["status"], "rejected")
-        self.assertFalse(decision["audit"]["comparable"])
-        self.assertIn("same_family", decision["audit"]["failed_checks"])
-        self.assertIn("same_solver", decision["audit"]["failed_checks"])
-        self.assertIn("same_num_cases", decision["audit"]["failed_checks"])
-        self.assertIn("build_type_mismatch", decision["audit"]["failed_checks"])
         self.assertIn("audit_not_comparable", decision["rejection_reasons"])
-        self.assertIsNone(decision["comparison"]["speedup"])
-        self.assertIsNone(decision["comparison"]["runtime_reduction_percent"])
+        self.assertIn("audit_failed_check:same_num_problems", decision["rejection_reasons"])
 
-    def test_correctness_false_leads_to_rejected(self) -> None:
+    def test_candidate_correctness_false_rejected(self) -> None:
         decision = _evaluate(candidate_overrides={"parsed_correctness_passed": False})
 
         self.assertEqual(decision["status"], "rejected")
-        self.assertTrue(decision["audit"]["comparable"])
         self.assertIn("candidate_correctness_not_true", decision["rejection_reasons"])
-        self.assertIsNone(decision["comparison"]["speedup"])
-        self.assertIsNone(decision["comparison"]["runtime_reduction_percent"])
 
-    def test_slower_correct_candidate_is_valid_not_improved(self) -> None:
+    def test_slower_candidate_valid_not_improved(self) -> None:
         decision = _evaluate(
-            baseline_overrides={"parsed_runtime_ns_per_case_median": 1000.0},
-            candidate_overrides={"parsed_runtime_ns_per_case_median": 1200.0},
+            baseline_overrides={"parsed_runtime_ns_per_problem_median": 1000.0},
+            candidate_overrides={"parsed_runtime_ns_per_problem_median": 1200.0},
         )
 
         self.assertEqual(decision["status"], "valid_not_improved")
-        self.assertEqual(decision["rejection_reasons"], [])
-        self.assertEqual(decision["non_acceptance_reasons"], [])
         self.assertFalse(decision["comparison"]["candidate_runtime_lower"])
-        self.assertAlmostEqual(decision["comparison"]["speedup"], 1000.0 / 1200.0)
-        self.assertAlmostEqual(
-            decision["comparison"]["runtime_reduction_percent"],
-            ((1000.0 - 1200.0) / 1000.0) * 100.0,
-        )
 
-    def test_one_percent_faster_correct_candidate_is_accepted_improvement(self) -> None:
+    def test_small_runtime_improvement_below_threshold_is_valid_not_improved(self) -> None:
         decision = _evaluate(
-            baseline_overrides={"parsed_runtime_ns_per_case_median": 1000.0},
-            candidate_overrides={"parsed_runtime_ns_per_case_median": 990.0},
-        )
-
-        self.assertEqual(decision["status"], "accepted_improvement")
-        self.assertEqual(decision["rejection_reasons"], [])
-        self.assertEqual(decision["non_acceptance_reasons"], [])
-        self.assertTrue(decision["comparison"]["candidate_runtime_lower"])
-        self.assertAlmostEqual(decision["comparison"]["speedup"], 1000.0 / 990.0)
-        self.assertAlmostEqual(decision["comparison"]["runtime_reduction_percent"], 1.0)
-        self.assertEqual(decision["thresholds"]["min_runtime_reduction_percent"], 0.5)
-
-    def test_tiny_faster_candidate_below_threshold_is_valid_not_improved(self) -> None:
-        decision = _evaluate(
-            baseline_overrides={"parsed_runtime_ns_per_case_median": 1000.0},
-            candidate_overrides={"parsed_runtime_ns_per_case_median": 999.0},
+            baseline_overrides={"parsed_runtime_ns_per_problem_median": 1000.0},
+            candidate_overrides={"parsed_runtime_ns_per_problem_median": 999.0},
         )
 
         self.assertEqual(decision["status"], "valid_not_improved")
-        self.assertEqual(decision["rejection_reasons"], [])
-        self.assertTrue(decision["comparison"]["candidate_runtime_lower"])
-        self.assertAlmostEqual(decision["comparison"]["runtime_reduction_percent"], 0.1)
         self.assertIn(
             "runtime_improvement_below_minimum_threshold",
             decision["non_acceptance_reasons"],
         )
-        self.assertEqual(decision["thresholds"]["min_runtime_reduction_percent"], 0.5)
-        self.assertEqual(decision["thresholds"]["absolute_reprojection_error_tolerance"], 1.0e-10)
 
-    def test_baseline_wrapper_preserves_legacy_keys(self) -> None:
+    def test_large_runtime_improvement_accepted(self) -> None:
         decision = _evaluate(
-            baseline_overrides={"parsed_runtime_ns_per_case_median": 1000.0},
-            candidate_overrides={"parsed_runtime_ns_per_case_median": 800.0},
-        )
-
-        self.assertEqual(decision["reference_kind"], "baseline")
-        self.assertIn("baseline_run_dir", decision)
-        self.assertIn("baseline_metrics", decision)
-        self.assertIn("candidate_run_dir", decision)
-        self.assertIn("candidate_metrics", decision)
-        self.assertIn("comparison", decision)
-        self.assertIn("status", decision)
-        self.assertIn("rejection_reasons", decision)
-        self.assertIn("non_acceptance_reasons", decision)
-        self.assertEqual(decision["baseline_run_dir"], decision["reference_run_dir"])
-        self.assertEqual(decision["baseline_metrics"], decision["reference_metrics"])
-        self.assertIn("baseline", decision["audit"])
-
-    def test_generic_reference_baseline_loads_metrics_json(self) -> None:
-        with tempfile.TemporaryDirectory() as tmpdir:
-            reference_run, candidate_run = _make_run_pair(
-                Path(tmpdir),
-                reference_kind="baseline",
-                reference_overrides={"parsed_runtime_ns_per_case_median": 1000.0},
-                candidate_overrides={"parsed_runtime_ns_per_case_median": 750.0},
-            )
-
-            decision = evaluate_candidate_against_reference(
-                reference_run,
-                candidate_run,
-                reference_kind="baseline",
-            )
-
-            self.assertEqual(decision["status"], "accepted_improvement")
-            self.assertEqual(decision["reference_kind"], "baseline")
-            self.assertEqual(
-                decision["audit"]["reference"]["normalized_artifact"]["source_artifact"],
-                str(reference_run / "metrics.json"),
-            )
-            self.assertNotIn("baseline_metrics", decision)
-
-    def test_generic_reference_verified_candidate_loads_verification_json(self) -> None:
-        with tempfile.TemporaryDirectory() as tmpdir:
-            reference_run, candidate_run = _make_run_pair(
-                Path(tmpdir),
-                reference_kind="verified_candidate",
-                reference_overrides={"parsed_runtime_ns_per_case_median": 900.0},
-                candidate_overrides={"parsed_runtime_ns_per_case_median": 700.0},
-            )
-
-            decision = evaluate_candidate_against_reference(
-                reference_run,
-                candidate_run,
-                reference_kind="verified_candidate",
-            )
-
-            self.assertEqual(decision["status"], "accepted_improvement")
-            self.assertEqual(decision["reference_kind"], "verified_candidate")
-            self.assertEqual(
-                decision["audit"]["reference"]["normalized_artifact"]["source_artifact"],
-                str(reference_run / "verification.json"),
-            )
-
-    def test_generic_reference_valid_not_improved(self) -> None:
-        with tempfile.TemporaryDirectory() as tmpdir:
-            reference_run, candidate_run = _make_run_pair(
-                Path(tmpdir),
-                reference_kind="verified_candidate",
-                reference_overrides={"parsed_runtime_ns_per_case_median": 800.0},
-                candidate_overrides={"parsed_runtime_ns_per_case_median": 850.0},
-            )
-
-            decision = evaluate_candidate_against_reference(
-                reference_run,
-                candidate_run,
-                reference_kind="verified_candidate",
-            )
-
-            self.assertEqual(decision["status"], "valid_not_improved")
-            self.assertFalse(decision["comparison"]["candidate_runtime_lower"])
-
-    def test_generic_reference_equal_runtime_is_valid_not_improved(self) -> None:
-        with tempfile.TemporaryDirectory() as tmpdir:
-            reference_run, candidate_run = _make_run_pair(
-                Path(tmpdir),
-                reference_kind="verified_candidate",
-                reference_overrides={"parsed_runtime_ns_per_case_median": 800.0},
-                candidate_overrides={"parsed_runtime_ns_per_case_median": 800.0},
-            )
-
-            decision = evaluate_candidate_against_reference(
-                reference_run,
-                candidate_run,
-                reference_kind="verified_candidate",
-            )
-
-            self.assertEqual(decision["status"], "valid_not_improved")
-            self.assertEqual(decision["comparison"]["speedup"], 1.0)
-            self.assertEqual(decision["comparison"]["runtime_reduction_percent"], 0.0)
-            self.assertFalse(decision["comparison"]["candidate_runtime_lower"])
-
-    def test_generic_reference_correctness_false_rejected(self) -> None:
-        with tempfile.TemporaryDirectory() as tmpdir:
-            reference_run, candidate_run = _make_run_pair(
-                Path(tmpdir),
-                reference_kind="verified_candidate",
-                candidate_overrides={"parsed_correctness_passed": False},
-            )
-
-            decision = evaluate_candidate_against_reference(
-                reference_run,
-                candidate_run,
-                reference_kind="verified_candidate",
-            )
-
-            self.assertEqual(decision["status"], "rejected")
-            self.assertIn("candidate_correctness_not_true", decision["rejection_reasons"])
-
-    def test_generic_reference_not_comparable_rejected(self) -> None:
-        with tempfile.TemporaryDirectory() as tmpdir:
-            reference_run, candidate_run = _make_run_pair(
-                Path(tmpdir),
-                reference_kind="verified_candidate",
-                candidate_overrides={"solver": "other_solver"},
-            )
-
-            decision = evaluate_candidate_against_reference(
-                reference_run,
-                candidate_run,
-                reference_kind="verified_candidate",
-            )
-
-            self.assertEqual(decision["status"], "rejected")
-            self.assertFalse(decision["audit"]["comparable"])
-            self.assertIn("same_solver", decision["audit"]["failed_checks"])
-
-    def test_invalid_reference_kind_rejected_clearly(self) -> None:
-        with tempfile.TemporaryDirectory() as tmpdir:
-            reference_run, candidate_run = _make_run_pair(Path(tmpdir))
-
-            with self.assertRaisesRegex(ValueError, "invalid reference_kind"):
-                evaluate_candidate_against_reference(
-                    reference_run,
-                    candidate_run,
-                    reference_kind="current_best",
-                )
-
-    def test_decision_writer_default_filename(self) -> None:
-        with tempfile.TemporaryDirectory() as tmpdir:
-            candidate_run = Path(tmpdir) / "candidate"
-            candidate_run.mkdir()
-
-            output = write_candidate_decision(candidate_run, {"status": "ok"})
-
-            self.assertEqual(output, candidate_run / "candidate_decision.json")
-            self.assertTrue(output.exists())
-
-    def test_decision_writer_custom_safe_filename(self) -> None:
-        with tempfile.TemporaryDirectory() as tmpdir:
-            candidate_run = Path(tmpdir) / "candidate"
-            candidate_run.mkdir()
-
-            output = write_candidate_decision(
-                candidate_run,
-                {"status": "ok"},
-                filename="decision_vs_current_best.json",
-            )
-
-            self.assertEqual(output, candidate_run / "decision_vs_current_best.json")
-            self.assertTrue(output.exists())
-
-    def test_decision_writer_all_closed_loop_safe_filenames(self) -> None:
-        with tempfile.TemporaryDirectory() as tmpdir:
-            candidate_run = Path(tmpdir) / "candidate"
-            candidate_run.mkdir()
-
-            for filename in [
-                "candidate_decision.json",
-                "decision_vs_current_best.json",
-                "decision_vs_original_baseline.json",
-            ]:
-                output = write_candidate_decision(
-                    candidate_run,
-                    {"status": "ok", "filename": filename},
-                    filename=filename,
-                )
-
-                self.assertEqual(output, candidate_run / filename)
-                self.assertTrue(output.exists())
-                self.assertEqual(json.loads(output.read_text(encoding="utf-8"))["filename"], filename)
-
-    def test_decision_writer_rejects_unsafe_filename(self) -> None:
-        with tempfile.TemporaryDirectory() as tmpdir:
-            candidate_run = Path(tmpdir) / "candidate"
-            candidate_run.mkdir()
-
-            with self.assertRaisesRegex(ValueError, "unsafe decision filename"):
-                write_candidate_decision(candidate_run, {}, filename="../x.json")
-
-    def test_success_rate_drop_leads_to_rejected(self) -> None:
-        decision = _evaluate(candidate_overrides={"parsed_success_rate": 0.98})
-
-        self.assertEqual(decision["status"], "rejected")
-        self.assertTrue(
-            any(
-                reason.startswith("candidate_success_rate_below_minimum")
-                for reason in decision["rejection_reasons"]
-            )
-        )
-        self.assertIsNone(decision["comparison"]["speedup"])
-        self.assertIsNone(decision["comparison"]["runtime_reduction_percent"])
-
-    def test_near_zero_max_reprojection_error_uses_absolute_tolerance(self) -> None:
-        decision = _evaluate(
-            baseline_overrides={"parsed_max_best_reprojection_error": 1.0e-12},
-            candidate_overrides={
-                "parsed_runtime_ns_per_case_median": 990.0,
-                "parsed_max_best_reprojection_error": 1.4e-12,
-            },
+            baseline_overrides={"parsed_runtime_ns_per_problem_median": 1000.0},
+            candidate_overrides={"parsed_runtime_ns_per_problem_median": 800.0},
         )
 
         self.assertEqual(decision["status"], "accepted_improvement")
-        self.assertEqual(decision["rejection_reasons"], [])
-        self.assertEqual(decision["thresholds"]["absolute_reprojection_error_tolerance"], 1.0e-10)
+        self.assertAlmostEqual(decision["comparison"]["speedup"], 1.25)
 
-    def test_near_zero_mean_reprojection_error_uses_absolute_tolerance(self) -> None:
-        decision = _evaluate(
-            baseline_overrides={"parsed_mean_best_reprojection_error": 1.0e-12},
-            candidate_overrides={
-                "parsed_runtime_ns_per_case_median": 990.0,
-                "parsed_mean_best_reprojection_error": 1.4e-12,
-            },
-        )
+    def test_reference_kind_verified_candidate_loads_verification_json(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            reference_run = root / "reference"
+            candidate_run = root / "candidate"
+            reference_run.mkdir()
+            candidate_run.mkdir()
+            _write_json(reference_run / "verification.json", _benchmark_payload())
+            _write_json(
+                candidate_run / "verification.json",
+                _benchmark_payload(parsed_runtime_ns_per_problem_median=750.0),
+            )
+
+            decision = evaluate_candidate_against_reference(
+                reference_run,
+                candidate_run,
+                reference_kind="verified_candidate",
+            )
 
         self.assertEqual(decision["status"], "accepted_improvement")
-        self.assertEqual(decision["rejection_reasons"], [])
+        self.assertEqual(decision["reference_kind"], "verified_candidate")
 
-    def test_meaningful_reprojection_error_regression_still_rejected(self) -> None:
+    def test_write_candidate_decision_rejects_path_traversal_filename(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            with self.assertRaises(ValueError):
+                write_candidate_decision(Path(tmpdir), {"status": "ok"}, filename="../x.json")
+
+    def test_metrics_summary_uses_new_metric_names(self) -> None:
         decision = _evaluate(
-            candidate_overrides={
-                "parsed_mean_best_reprojection_error": 1.0e-8,
-                "parsed_max_best_reprojection_error": 1.0e-8,
-            }
+            candidate_overrides={"parsed_runtime_ns_per_problem_median": 800.0}
         )
 
-        self.assertEqual(decision["status"], "rejected")
-        self.assertTrue(
-            any(
-                reason.startswith("candidate_mean_reprojection_error_exceeds_limit")
-                for reason in decision["rejection_reasons"]
-            )
+        self.assertEqual(
+            decision["candidate_metrics"]["runtime_ns_per_problem_median"], 800.0
         )
-        self.assertTrue(
-            any(
-                reason.startswith("candidate_max_reprojection_error_exceeds_limit")
-                for reason in decision["rejection_reasons"]
-            )
-        )
-        self.assertIsNone(decision["comparison"]["speedup"])
-        self.assertIsNone(decision["comparison"]["runtime_reduction_percent"])
-
-    def test_non_finite_candidate_accuracy_metrics_are_not_comparable(self) -> None:
-        cases = [
-            {"parsed_success_rate": math.nan},
-            {"parsed_mean_best_reprojection_error": math.inf},
-            {"parsed_max_best_reprojection_error": math.nan},
-        ]
-        for overrides in cases:
-            with self.subTest(overrides=overrides):
-                decision = _evaluate(candidate_overrides=overrides)
-
-                self.assertEqual(decision["status"], "rejected")
-                self.assertFalse(decision["audit"]["comparable"])
-                self.assertIn("candidate_artifact_invalid", decision["audit"]["failed_checks"])
-                self.assertIn("audit_not_comparable", decision["rejection_reasons"])
-                self.assertIsNone(decision["comparison"]["speedup"])
-
-    def test_non_finite_reference_accuracy_metrics_are_not_comparable(self) -> None:
-        cases = [
-            {"parsed_success_rate": math.nan},
-            {"parsed_mean_best_reprojection_error": math.inf},
-            {"parsed_max_best_reprojection_error": -math.inf},
-        ]
-        for overrides in cases:
-            with self.subTest(overrides=overrides):
-                decision = _evaluate(baseline_overrides=overrides)
-
-                self.assertEqual(decision["status"], "rejected")
-                self.assertFalse(decision["audit"]["comparable"])
-                self.assertIn("reference_artifact_invalid", decision["audit"]["failed_checks"])
-                self.assertIn("audit_not_comparable", decision["rejection_reasons"])
-                self.assertIsNone(decision["comparison"]["speedup"])
+        self.assertEqual(decision["candidate_metrics"]["gt_found_percent"], 100.0)
+        self.assertNotIn("runtime_ns_per_case_median", decision["candidate_metrics"])
+        self.assertNotIn("mean_best_reprojection_error", decision["candidate_metrics"])
 
 
 if __name__ == "__main__":

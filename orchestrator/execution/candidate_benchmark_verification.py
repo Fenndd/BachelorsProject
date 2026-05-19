@@ -50,12 +50,15 @@ BENCHMARK_CORRECTNESS_CHECK_STEP = "benchmark_correctness_check"
 
 BENCHMARK_REQUIRED_FIELDS = [
     "solver_name",
-    "num_cases",
-    "success_rate",
-    "mean_best_reprojection_error",
-    "max_best_reprojection_error",
+    "num_problems",
+    "total_solutions",
+    "solutions_per_problem",
+    "valid_solutions",
+    "valid_solutions_percent",
+    "gt_found",
+    "gt_found_percent",
     "runtime_ns_total_median",
-    "runtime_ns_per_case_median",
+    "runtime_ns_per_problem_median",
     "correctness_passed",
 ]
 
@@ -278,15 +281,16 @@ def _empty_benchmark(raw_output_available: bool = False, build_type: str = "Rele
         "missing_fields": list(BENCHMARK_REQUIRED_FIELDS),
         "parse_errors": [],
         "parsed_solver_name": None,
-        "parsed_num_cases": None,
-        "parsed_success_rate": None,
-        "parsed_mean_best_reprojection_error": None,
-        "parsed_max_best_reprojection_error": None,
-        "parsed_runtime_ns_total_median": None,
-        "parsed_runtime_ns_per_case_median": None,
-        "parsed_correctness_passed": None,
-        "parsed_valid_cases": None,
+        "parsed_num_problems": None,
         "parsed_total_solutions": None,
+        "parsed_solutions_per_problem": None,
+        "parsed_valid_solutions": None,
+        "parsed_valid_solutions_percent": None,
+        "parsed_gt_found": None,
+        "parsed_gt_found_percent": None,
+        "parsed_runtime_ns_total_median": None,
+        "parsed_runtime_ns_per_problem_median": None,
+        "parsed_correctness_passed": None,
         "benchmark_options": None,
     }
 
@@ -301,21 +305,16 @@ def _benchmark_from_parse(
     # Build benchmark_options from parsed metrics when available.
     benchmark_options = None
     if all(k in parsed_metrics for k in (
-        "num_cases", "points_per_case", "warmup_iterations",
-        "timed_iterations", "random_seed", "reprojection_error_threshold",
-        "min_success_rate", "require_all_cases_valid",
-        "use_max_reprojection_error_as_hard_gate", "runtime_unit",
+        "num_problems", "tolerance", "camera_fov", "n_point_point",
+        "n_point_line", "timed_iterations", "runtime_unit",
     )):
         benchmark_options = {
-            "num_cases": parsed_metrics["num_cases"],
-            "points_per_case": parsed_metrics["points_per_case"],
-            "warmup_iterations": parsed_metrics["warmup_iterations"],
+            "num_problems": parsed_metrics["num_problems"],
+            "tolerance": parsed_metrics["tolerance"],
+            "camera_fov": parsed_metrics["camera_fov"],
+            "n_point_point": parsed_metrics["n_point_point"],
+            "n_point_line": parsed_metrics["n_point_line"],
             "timed_iterations": parsed_metrics["timed_iterations"],
-            "random_seed": parsed_metrics["random_seed"],
-            "reprojection_error_threshold": parsed_metrics["reprojection_error_threshold"],
-            "min_success_rate": parsed_metrics["min_success_rate"],
-            "require_all_cases_valid": parsed_metrics["require_all_cases_valid"],
-            "use_max_reprojection_error_as_hard_gate": parsed_metrics["use_max_reprojection_error_as_hard_gate"],
             "runtime_unit": parsed_metrics["runtime_unit"],
             "build_type": build_type,
         }
@@ -330,23 +329,20 @@ def _benchmark_from_parse(
         "missing_fields": parse_result["missing_fields"],
         "parse_errors": parse_result["parse_errors"],
         "parsed_solver_name": parsed_metrics.get("solver_name"),
-        "parsed_num_cases": parsed_metrics.get("num_cases"),
-        "parsed_success_rate": parsed_metrics.get("success_rate"),
-        "parsed_mean_best_reprojection_error": parsed_metrics.get(
-            "mean_best_reprojection_error"
-        ),
-        "parsed_max_best_reprojection_error": parsed_metrics.get(
-            "max_best_reprojection_error"
-        ),
+        "parsed_num_problems": parsed_metrics.get("num_problems"),
+        "parsed_total_solutions": parsed_metrics.get("total_solutions"),
+        "parsed_solutions_per_problem": parsed_metrics.get("solutions_per_problem"),
+        "parsed_valid_solutions": parsed_metrics.get("valid_solutions"),
+        "parsed_valid_solutions_percent": parsed_metrics.get("valid_solutions_percent"),
+        "parsed_gt_found": parsed_metrics.get("gt_found"),
+        "parsed_gt_found_percent": parsed_metrics.get("gt_found_percent"),
         "parsed_runtime_ns_total_median": parsed_metrics.get(
             "runtime_ns_total_median"
         ),
-        "parsed_runtime_ns_per_case_median": parsed_metrics.get(
-            "runtime_ns_per_case_median"
+        "parsed_runtime_ns_per_problem_median": parsed_metrics.get(
+            "runtime_ns_per_problem_median"
         ),
         "parsed_correctness_passed": parsed_metrics.get("correctness_passed"),
-        "parsed_valid_cases": parsed_metrics.get("valid_cases"),
-        "parsed_total_solutions": parsed_metrics.get("total_solutions"),
         "benchmark_options": benchmark_options,
     }
 
@@ -355,11 +351,11 @@ def _build_benchmark_correctness_error_message(benchmark: dict[str, Any]) -> str
     return (
         "Family benchmark parsed successfully, but correctness_passed=false. "
         "The candidate is numerically incorrect and is not usable for comparison. "
-        f"success_rate={benchmark.get('parsed_success_rate')!r}, "
-        "mean_best_reprojection_error="
-        f"{benchmark.get('parsed_mean_best_reprojection_error')!r}, "
-        "max_best_reprojection_error="
-        f"{benchmark.get('parsed_max_best_reprojection_error')!r}."
+        f"gt_found_percent={benchmark.get('parsed_gt_found_percent')!r}, "
+        "valid_solutions_percent="
+        f"{benchmark.get('parsed_valid_solutions_percent')!r}, "
+        "runtime_ns_per_problem_median="
+        f"{benchmark.get('parsed_runtime_ns_per_problem_median')!r}."
     )
 
 
@@ -448,17 +444,15 @@ def _build_summary(verification: dict[str, Any], logs_dir: Path) -> str:
             "",
             "Family benchmark:",
             f"- solver: {_format_value(benchmark['parsed_solver_name'])}",
-            f"- cases: {_format_value(benchmark['parsed_num_cases'])}",
-            f"- success rate: {_format_value(benchmark['parsed_success_rate'])}",
+            f"- problems: {_format_value(benchmark['parsed_num_problems'])}",
+            f"- solutions/problem: {_format_value(benchmark['parsed_solutions_per_problem'])}",
+            f"- valid solutions: {_format_value(benchmark['parsed_valid_solutions_percent'])}%",
+            f"- GT found: {_format_value(benchmark['parsed_gt_found_percent'])}%",
             f"- correctness passed: {_format_value(benchmark['parsed_correctness_passed'])}",
-            "- mean best reprojection error: "
-            f"{_format_value(benchmark['parsed_mean_best_reprojection_error'])}",
-            "- max best reprojection error: "
-            f"{_format_value(benchmark['parsed_max_best_reprojection_error'])}",
             "- median runtime total: "
             f"{_format_value(benchmark['parsed_runtime_ns_total_median'])} ns",
-            "- median runtime per case: "
-            f"{_format_value(benchmark['parsed_runtime_ns_per_case_median'])} ns",
+            "- median runtime per problem: "
+            f"{_format_value(benchmark['parsed_runtime_ns_per_problem_median'])} ns",
         ]
     )
     if benchmark["missing_fields"]:

@@ -158,9 +158,9 @@ class ClosedLoopSummary:
     created_at: str
     finished_at: str
     final_diff_stats: dict[str, Any] | None = None
-    final_validation_report_path: Path | None = None
-    final_validation_median_speedup: float | None = None
-    final_validation_median_runtime_reduction_percent: float | None = None
+    final_selection_report_path: Path | None = None
+    final_selection_speedup_vs_original_baseline: float | None = None
+    final_selection_runtime_reduction_percent: float | None = None
 
 
 def to_plain_dict(value: Any) -> Any:

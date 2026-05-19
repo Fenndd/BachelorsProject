@@ -82,25 +82,23 @@ Baseline metrics contain success flags and parsed family benchmark values. The p
     "missing_fields": [],
     "parse_errors": [],
     "parsed_solver_name": "lambdatwist_p3p",
-    "parsed_num_cases": 1000,
-    "parsed_success_rate": 1.0,
-    "parsed_mean_best_reprojection_error": 7.63e-14,
-    "parsed_max_best_reprojection_error": 1.1e-12,
+    "parsed_num_problems": 100000,
+    "parsed_total_solutions": 172803,
+    "parsed_solutions_per_problem": 1.72803,
+    "parsed_valid_solutions": 172803,
+    "parsed_valid_solutions_percent": 100.0,
+    "parsed_gt_found": 100000,
+    "parsed_gt_found_percent": 100.0,
     "parsed_runtime_ns_total_median": 32928700.0,
-    "parsed_runtime_ns_per_case_median": 32928.7,
+    "parsed_runtime_ns_per_problem_median": 32928.7,
     "parsed_correctness_passed": true,
-    "parsed_valid_cases": 1000,
-    "parsed_total_solutions": 3000,
     "benchmark_options": {
-      "num_cases": 1000,
-      "points_per_case": 3,
-      "warmup_iterations": 3,
+      "num_problems": 100000,
+      "tolerance": 1e-6,
+      "camera_fov": 75.0,
+      "n_point_point": 3,
+      "n_point_line": 0,
       "timed_iterations": 10,
-      "random_seed": 42,
-      "reprojection_error_threshold": 1e-6,
-      "min_success_rate": 0.99,
-      "require_all_cases_valid": false,
-      "use_max_reprojection_error_as_hard_gate": false,
       "runtime_unit": "ns",
       "build_type": "Release"
     }
@@ -117,7 +115,7 @@ Baseline metrics contain success flags and parsed family benchmark values. The p
 `results/index.jsonl` is a compact append-only JSON Lines index. Baseline records include run identity, repository state, success flags, and compact parsed family benchmark values:
 
 ```json
-{"run_id":"2026-05-01_23-40-12_baseline","scenario":"baseline","case_study":"p3p_solver","baseline":"lambda_twist","overall_status":"success","failed_step":null,"started_at":"2026-05-01T23:40:12+02:00","finished_at":"2026-05-01T23:41:03+02:00","git_commit":"abc1234","git_branch":"main","dirty_worktree":false,"build_success":true,"smoke_test_success":true,"runner_success":true,"benchmark_success":true,"adapter_validation_success":true,"family_benchmark_success":true,"benchmark_raw_output_available":true,"benchmark_runtime_ms":null,"family_benchmark_raw_output_available":true,"family_benchmark_parse_success":true,"family_benchmark_solver":"lambdatwist_p3p","family_benchmark_num_cases":1000,"family_benchmark_success_rate":1.0,"family_benchmark_mean_best_reprojection_error":7.63e-14,"family_benchmark_max_best_reprojection_error":1.1e-12,"family_benchmark_runtime_ns_total_median":32928700.0,"family_benchmark_runtime_ns_per_case_median":32928.7,"family_benchmark_correctness_passed":true,"run_dir":"results/runs/2026-05-01_23-40-12_baseline"}
+{"run_id":"2026-05-01_23-40-12_baseline","scenario":"baseline","case_study":"p3p_solver","baseline":"lambda_twist","overall_status":"success","failed_step":null,"started_at":"2026-05-01T23:40:12+02:00","finished_at":"2026-05-01T23:41:03+02:00","git_commit":"abc1234","git_branch":"main","dirty_worktree":false,"build_success":true,"smoke_test_success":true,"runner_success":true,"benchmark_success":true,"adapter_validation_success":true,"family_benchmark_success":true,"benchmark_raw_output_available":true,"benchmark_runtime_ms":null,"family_benchmark_raw_output_available":true,"family_benchmark_parse_success":true,"family_benchmark_solver":"lambdatwist_p3p","family_benchmark_num_problems":100000,"family_benchmark_gt_found_percent":100.0,"family_benchmark_valid_solutions_percent":100.0,"family_benchmark_runtime_ns_total_median":32928700.0,"family_benchmark_runtime_ns_per_problem_median":32928.7,"family_benchmark_correctness_passed":true,"run_dir":"results/runs/2026-05-01_23-40-12_baseline"}
 ```
 
 ## `logs/`
@@ -292,8 +290,8 @@ results/experiments/<experiment_id>/final_optimized_source.diff
 results/experiments/<experiment_id>/final_diff_stats.json
 results/experiments/<experiment_id>/closed_loop_summary.json
 results/experiments/<experiment_id>/closed_loop_selection_report.json
-results/experiments/<experiment_id>/val/
-results/experiments/<experiment_id>/val/final_validation_report.json
+results/experiments/<experiment_id>/final_selection_report.json
+results/experiments/<experiment_id>/final_selection/
 results/experiments/<experiment_id>/experiment_config_snapshot.json
 results/experiments/<experiment_id>/experiment_config_effective.json
 results/experiments/<experiment_id>/experiment_metadata.json
@@ -302,8 +300,7 @@ results/experiments/<experiment_id>/current_best_state.json
 
 `experiment_config_snapshot.json` is the raw input config. The separate
 `experiment_config_effective.json` serializes the loaded config after defaults and
-validation. It always includes an explicit `final_validation` block, defaulting to
-`enabled: true` and `benchmark_repetitions: 5` when omitted from the input.
+validation.
 
 `final_optimized_source/` is a copy of the final workspace
 `current_best_source/` tree and preserves repo-relative structure, for example:
@@ -347,114 +344,46 @@ to the candidate workspace.
 - `created_at`
 - `finished_at`
 - `final_diff_stats`
-- `final_validation_report_path`
-- `final_validation_median_speedup`
-- `final_validation_median_runtime_reduction_percent`
-
-`closed_loop_summary.json` no longer stores single-run final speedup or runtime
-reduction fields. Those values are retained only as iteration and selection
-analytics. Final performance metrics come from final repeated validation only.
+- `final_selection_report_path`
+- `final_selection_speedup_vs_original_baseline`
+- `final_selection_runtime_reduction_percent`
 
 The results-side `current_best_state.json` is a final metadata copy of the
 workspace current-best state. The workspace state file is kept.
 
 `experiment_status.json` includes a `closed_loop` block when closed-loop mode is
 enabled. The block contains final best iteration, accepted improvement count,
-final artifact paths, status counts, and the final validation report path/median
-comparison metrics when final validation has run. It does not expose single-run
-final speedup/runtime-reduction fields.
+final artifact paths, status counts, and the final selection report path, speedup
+vs original baseline, and runtime reduction percent when the single-run comparison
+has run.
 
-## Final Repeated Benchmark Validation
+## Final Single-Run Comparison
 
-Final repeated benchmark validation runs automatically after closed-loop
-completion and final artifact creation, and before report generation. It compares
-the original baseline source against `final_optimized_source/`. It does not rerun
-the LLM, does not rerun every candidate, does not affect candidate promotion, and
-does not change `current_best_source`.
+After closed-loop completion and final artifact creation, the runner performs a
+single benchmark run on the final optimized source and compares it against the
+original baseline metrics. The comparison does not rerun the LLM, does not rerun
+every candidate, does not affect candidate promotion, and does not change
+`current_best_source`.
 
-The optional config block is:
-
-```json
-{
-  "final_validation": {
-    "enabled": true,
-    "benchmark_repetitions": 5
-  }
-}
-```
-
-If `final_validation` is missing, validation defaults to enabled. If
-`final_validation.benchmark_repetitions` is missing, default 5 is used. The value
-must be a positive integer.
-
-The validation directory layout is shortened for Windows path-length safety:
+The comparison builds under `workspace/experiments/<experiment_id>/final_selection_build/`
+(mutable, git-ignored). Only the normalized artifacts are written under
+`results/experiments/<experiment_id>/`:
 
 ```text
-results/experiments/<experiment_id>/val/
-├── final_validation_report.json
-├── b/
-│   ├── cpp/
-│   ├── build/
-│   ├── runs/
-│   └── logs/
-└── f/
-│   ├── cpp/
-│   ├── build/
-│   ├── runs/
-│   └── logs/
+results/experiments/<experiment_id>/final_selection_report.json
+results/experiments/<experiment_id>/final_selection/
 ```
 
-`b` means baseline and `f` means final. Each group contains one minimal shortened
-`cpp/` source tree, one build directory, and a
-first-class `setup` block recording configure/build status, durations, log paths,
-failed step, and error message. The runner configures/builds once per group, then
-writes repeated benchmark run JSON and logs under that group. Failed benchmark
-repetitions are recorded and remaining repetitions continue when possible. If
-source preparation, path-length preflight, configure, build, or executable lookup
-fails, `runs` is empty, `benchmark_runs_attempted` is `0`, and no fake
-`run_01.json` ... records are created.
+`final_selection_report.json` uses `report_type: "single_run_final_selection_report"`
+and contains the final best is baseline flag, baseline benchmark metrics, final
+benchmark metrics, comparison fields (speedup, runtime reduction percent, per-problem
+median runtimes), decision vs original baseline, and status.
 
-The validation `cpp/` tree is not a full copy of the repository `cpp/` tree. It
-contains only `CMakeLists.txt`, `external/lambdatwist/`, `bench/core/`,
-`bench/adapters/lambdatwist_p3p/`, and
-`bench/runners/lambdatwist_p3p_benchmark.cpp`. It excludes project `src/`,
-`include/`, `tests/`, `bench/baseline_benchmark.cpp`, the adapter validator,
-smoke tests, and unrelated benchmark/test targets. The original repository
-`cpp/` layout is unchanged.
+The final selection `status` field is one of:
 
-`final_validation_report.json` uses `schema_version: "final_validation.v1"` and
-contains setup records, per-run benchmark-only records, aggregate
-median/mean/min/max/population-std runtime statistics, correctness summaries,
-comparison speedups, and safety flags stating that validation does not update
-current-best state, promotion decisions, or the main `cpp/` tree. Run records use
-`validation_mode: "benchmark_only"` and `benchmark_run_status`; they do not use or
-write `verification_status`. Runtime aggregates use only runs with
-`benchmark_run_status: "success"`, `correctness_passed: true`, and numeric runtime
-values. Final validation runtime plots use the same criteria. If baseline or final
-has no successful correct run, comparison metrics are `null`.
-
-The current final validation implementation is represented internally by the
-`absolute_pose_lambdatwist_p3p` profile. The profile records the benchmark target,
-parser, original benchmark root, shortened validation root, copied components,
-runner source, and minimal CMake generator. It preserves the existing Lambda Twist
-P3P behavior and `val/b` plus `val/f` layout while making future benchmark profiles
-easier to add.
-
-Diagnostics include setup/group fields: `baseline_setup_failed`,
-`final_setup_failed`, `baseline_group_status`, and `final_group_status`. Group
-status is `setup_failed`, `benchmark_failed`, `completed`, or `not_run`.
-
-The report includes `source_layout` metadata with the original `cpp/` root, the
-validation `cpp/` root, the original absolute-pose solver root, the shortened
-validation root, copied components, and excluded components. Group blocks also
-include `source_dir`, `build_dir`, `runs_dir`, and `logs_dir` paths.
-
-The final validation `status` field is one of:
-
-- `skipped`: validation was disabled.
-- `completed`: comparison metrics are available and every baseline/final repetition was successful and correctness-passing.
-- `completed_partial`: comparison metrics are available but at least one repetition failed or failed correctness.
-- `incomplete`: validation ran but comparison metrics are unavailable.
+- `skipped`: final best is baseline; no build was needed and speedup is 1.0.
+- `completed`: single benchmark run succeeded and comparison metrics are available.
+- `failed`: build, run, or parse failed; `failed_step` and `error_message` are set.
 
 `experiment_metadata.json` records process metadata for experiment runs. For
 closed-loop runs, `finished_at` and `total_duration_seconds` cover the full
@@ -502,18 +431,8 @@ not promote candidates, update `current_best_source`, update
 `summary.txt` includes a concise closed-loop section listing the experiment id,
 target file, total/completed iterations, final best iteration, accepted
 improvements, status counts, paths to the final optimized source, final diff,
-summary JSON, iteration JSONL, final current-best metadata, and final repeated
-benchmark validation status/path/median metrics. If final validation metrics are
-unavailable, it explicitly says final repeated validation metrics are unavailable
-and that single-run selection metrics are iteration analytics only, not final
-headline metrics.
-
-Final repeated validation can be rerun for an existing closed-loop experiment with
-`py -m orchestrator.cli.app experiment rerun-final-validation <experiment-selector>`.
-This reruns only final validation against `final_optimized_source/`, refreshes the
-final validation fields in `closed_loop_summary.json` and `experiment_status.json`,
-and refreshes HTML report data. It does not rerun candidate generation,
-materialization, per-iteration verification, promotion, or closed-loop iterations.
+summary JSON, iteration JSONL, final current-best metadata, and final single-run
+comparison status, speedup, and runtime reduction when the comparison ran.
 
 Closed-loop history is deliberately separate from the non-closed-loop
 `history_policy` variant-local sliding-window history. It includes all
@@ -631,10 +550,9 @@ export fails, reporting status is updated to `failed`, HTML is re-rendered with
 that failed status when possible, and the exception is propagated to the runner's
 existing reporting error policy.
 
-When final repeated validation metrics are available, the Executive Summary
-headline baseline runtime and final runtime use the same repeated-validation
-comparison basis. The separate Baseline Metrics section may still show the
-original single-run baseline artifact.
+When the final single-run comparison metrics are available, the Executive Summary
+headline baseline runtime and final runtime use the single-run comparison basis.
+The separate Baseline Metrics section shows the original baseline artifact.
 
 The user-facing report focuses on closed-loop mode. Legacy `selection_enabled`
 and `history_policy` fields are not shown as main report concepts. Closed-loop
@@ -868,8 +786,8 @@ Experiment result directories use their own `summary.txt` for experiment-level
 status. The experiment summary describes configured iterations/variants,
 selection status when selection is enabled, and closed-loop final artifacts when
 closed-loop mode is enabled. In closed-loop experiments, this includes final best
-iteration, accepted improvements, status counts, final repeated validation metrics
-when available, and paths to `final_optimized_source/`,
+iteration, accepted improvements, status counts, final single-run comparison
+metrics when available, and paths to `final_optimized_source/`,
 `final_optimized_source.diff`, `closed_loop_summary.json`,
 `closed_loop_iterations.jsonl`, and results-side `current_best_state.json`.
 
@@ -880,4 +798,4 @@ when available, and paths to `final_optimized_source/`,
 - JSON metrics output directly from C++ benchmarks
 - Additional solver families/adapters
 - Configurable minimum runtime-improvement thresholds or repeated-benchmark confidence policies
-- Memory measurement; the current minimal P3P pipeline records runtime and correctness/reprojection metrics only
+- Memory measurement; the current minimal P3P pipeline records runtime and PoseLib-style calibrated-pose correctness metrics only

@@ -29,11 +29,28 @@ def _benchmark_payload() -> dict[str, Any]:
         "benchmark": {
             "family": "absolute_pose_solvers",
             "solver": "lambdatwist_p3p",
+            "runtime_unit": "ns",
+            "build_type": "Release",
+            "benchmark_options": {
+                "num_problems": 1000,
+                "tolerance": 1e-6,
+                "camera_fov": 75.0,
+                "n_point_point": 3,
+                "n_point_line": 0,
+                "timed_iterations": 10,
+                "runtime_unit": "ns",
+                "build_type": "Release",
+            },
             "parse_success": True,
-            "parsed_success_rate": 1.0,
-            "parsed_mean_best_reprojection_error": 1.0e-12,
-            "parsed_max_best_reprojection_error": 2.0e-12,
-            "parsed_runtime_ns_per_case_median": 1000.0,
+            "parsed_num_problems": 1000,
+            "parsed_total_solutions": 3000,
+            "parsed_solutions_per_problem": 3.0,
+            "parsed_valid_solutions": 3000,
+            "parsed_valid_solutions_percent": 100.0,
+            "parsed_gt_found": 1000,
+            "parsed_gt_found_percent": 100.0,
+            "parsed_runtime_ns_total_median": 1_000_000.0,
+            "parsed_runtime_ns_per_problem_median": 1000.0,
             "parsed_correctness_passed": True,
         }
     }
@@ -103,24 +120,26 @@ def _patch_runner_roots(monkeypatch: pytest.MonkeyPatch, root: Path) -> None:
         "_resolve_variant_llm_config",
         lambda variant: {"provider": "mock", "model": "mock"},
     )
-    monkeypatch.setattr(run_experiment, "run_final_validation", _fake_final_validation)
+    monkeypatch.setattr(run_experiment, "run_final_selection_report", _fake_final_selection_report)
 
 
-def _fake_final_validation(**kwargs: Any) -> Path:
+def _fake_final_selection_report(**kwargs: Any) -> Path:
     experiment_dir = Path(kwargs["experiment_dir"])
-    report_path = experiment_dir / "val" / "final_validation_report.json"
+    final_best_is_baseline = kwargs.get("final_best_is_baseline", True)
+    report_path = experiment_dir / "final_selection_report.json"
     _write_json(
         report_path,
         {
-            "schema_version": "final_validation.v1",
-            "enabled": kwargs.get("enabled", True),
-            "status": "completed",
-            "benchmark_repetitions": kwargs.get("benchmark_repetitions", 5),
-            "baseline": {"runs": [], "summary": {"successful_runs": 1, "failed_runs": 0, "median_runtime_ns_per_case": 100.0, "all_correctness_passed": True}},
-            "final": {"runs": [], "summary": {"successful_runs": 1, "failed_runs": 0, "median_runtime_ns_per_case": 100.0, "all_correctness_passed": True}},
+            "report_type": "single_run_final_selection_report",
+            "metric_source": "single_run_final_best_vs_original_baseline",
+            "final_best_is_baseline": final_best_is_baseline,
+            "status": "skipped" if final_best_is_baseline else "completed",
             "comparison": {
-                "median_speedup": 1.0,
-                "median_runtime_reduction_percent": 0.0,
+                "speedup": 1.0,
+                "runtime_reduction_percent": 0.0,
+                "baseline_runtime_ns_per_problem_median": 100.0,
+                "final_runtime_ns_per_problem_median": 100.0,
+                "candidate_runtime_lower": False,
             },
         },
     )
@@ -192,7 +211,7 @@ def test_reporting_config_defaults_when_block_absent(tmp_path: Path) -> None:
     assert config.reporting.fail_on_error is False
 
 
-def test_final_validation_runs_after_finalization_before_reporting(
+def test_final_selection_report_runs_after_finalization_before_reporting(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -212,9 +231,9 @@ def test_final_validation_runs_after_finalization_before_reporting(
         call_order.append("finalize")
         return original_finalize(*args, **kwargs)
 
-    def wrapped_validation(**kwargs: Any) -> Path:
+    def wrapped_selection(**kwargs: Any) -> Path:
         call_order.append("validation")
-        return _fake_final_validation(**kwargs)
+        return _fake_final_selection_report(**kwargs)
 
     def wrapped_reporting(*args: Any, **kwargs: Any) -> dict[str, Any]:
         call_order.append("reporting")
@@ -229,15 +248,15 @@ def test_final_validation_runs_after_finalization_before_reporting(
         return original_write_metadata(*args, **kwargs)
 
     monkeypatch.setattr(run_experiment, "finalize_closed_loop_artifacts", wrapped_finalize)
-    monkeypatch.setattr(run_experiment, "run_final_validation", wrapped_validation)
+    monkeypatch.setattr(run_experiment, "run_final_selection_report", wrapped_selection)
     monkeypatch.setattr(run_experiment, "_run_final_reporting", wrapped_reporting)
     monkeypatch.setattr(run_experiment, "_write_experiment_metadata", wrapped_write_metadata)
 
     exit_code = run_experiment._run_experiment(config, payload)
 
     assert exit_code == 0
-    assert call_order == ["finalize", "validation", "reporting", "reporting"]
-    assert metadata_final_order == [["finalize", "validation", "reporting"]]
+    assert call_order == ["finalize", "validation", "reporting"]
+    assert metadata_final_order == [["finalize", "validation"]]
     experiment_dir = next((root / "results" / "experiments").iterdir())
     status = json.loads((experiment_dir / "experiment_status.json").read_text(encoding="utf-8"))
     metadata = json.loads((experiment_dir / "experiment_metadata.json").read_text(encoding="utf-8"))
@@ -248,24 +267,19 @@ def test_final_validation_runs_after_finalization_before_reporting(
     assert f"Finished at: {status['finished_at']}" in (experiment_dir / "summary.txt").read_text(
         encoding="utf-8"
     )
-    assert status["closed_loop"]["final_validation_report_path"].endswith(
-        "val/final_validation_report.json"
+    assert status["closed_loop"]["final_selection_report_path"].endswith(
+        "final_selection_report.json"
     )
     assert "final_validation" not in raw_config
-    assert effective_config["final_validation"] == {
-        "enabled": True,
-        "benchmark_repetitions": 5,
-    }
-    assert status["closed_loop"]["final_validation_median_speedup"] == 1.0
-    assert status["closed_loop"]["final_validation_median_runtime_reduction_percent"] == 0.0
-    assert "final_speedup_vs_original_baseline" not in status["closed_loop"]
-    assert "final_runtime_reduction_percent" not in status["closed_loop"]
+    assert "final_validation" not in effective_config
+    assert status["closed_loop"]["final_selection_speedup_vs_original_baseline"] == 1.0
+    assert status["closed_loop"]["final_selection_runtime_reduction_percent"] == 0.0
     closed_loop_summary = json.loads((experiment_dir / "closed_loop_summary.json").read_text(encoding="utf-8"))
-    assert "final_speedup_vs_original_baseline" not in closed_loop_summary
-    assert "final_runtime_reduction_percent" not in closed_loop_summary
+    assert closed_loop_summary["final_selection_speedup_vs_original_baseline"] == 1.0
+    assert closed_loop_summary["final_selection_runtime_reduction_percent"] == 0.0
 
 
-def test_closed_loop_status_warns_when_final_validation_incomplete(
+def test_closed_loop_status_warns_when_final_selection_failed(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -274,27 +288,25 @@ def test_closed_loop_status_warns_when_final_validation_incomplete(
     _patch_runner_roots(monkeypatch, root)
     _patch_noop_closed_loop_stage(monkeypatch, root)
 
-    def incomplete_validation(**kwargs: Any) -> Path:
+    def failed_selection(**kwargs: Any) -> Path:
         experiment_dir = Path(kwargs["experiment_dir"])
-        report_path = experiment_dir / "val" / "final_validation_report.json"
+        report_path = experiment_dir / "final_selection_report.json"
         _write_json(
             report_path,
             {
-                "schema_version": "final_validation.v1",
-                "enabled": True,
-                "status": "incomplete",
-                "benchmark_repetitions": 5,
-                "baseline": {"runs": [], "summary": {"successful_runs": 0, "failed_runs": 0}},
-                "final": {"runs": [], "summary": {"successful_runs": 0, "failed_runs": 0}},
+                "report_type": "single_run_final_selection_report",
+                "status": "failed",
+                "failed_step": "benchmark",
+                "error_message": "benchmark binary not found",
                 "comparison": {
-                    "median_speedup": None,
-                    "median_runtime_reduction_percent": None,
+                    "speedup": None,
+                    "runtime_reduction_percent": None,
                 },
             },
         )
         return report_path
 
-    monkeypatch.setattr(run_experiment, "run_final_validation", incomplete_validation)
+    monkeypatch.setattr(run_experiment, "run_final_selection_report", failed_selection)
     payload = _base_config_payload(root, reporting=None)
     config = load_experiment_config(_write_config(root, payload))
 
@@ -420,7 +432,6 @@ def test_enabled_reporting_runs_after_final_closed_loop_artifacts_exist(
     )
 
     assert calls == [
-        (experiment_dir, ("html",), "auto"),
         (experiment_dir, ("html",), "auto"),
     ]
     status = json.loads((experiment_dir / "experiment_status.json").read_text(encoding="utf-8"))

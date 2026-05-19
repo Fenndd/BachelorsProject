@@ -26,10 +26,6 @@ from .experiment_launcher import (
     build_experiment_command,
     run_experiment_control,
 )
-from .final_validation_rerun import (
-    RerunFinalValidationResult,
-    rerun_final_validation_for_experiment,
-)
 from .open_artifact import OpenArtifactError, open_path
 from .process_runner import ProcessLaunchError, ProcessResult, run_streaming_command
 from .project_paths import ProjectPaths, find_repo_root, get_project_paths, resolve_project_path
@@ -67,7 +63,6 @@ __all__ = [
     "ProjectStatus",
     "ResultArtifactMap",
     "ResultItem",
-    "RerunFinalValidationResult",
     "WorkspaceStatus",
     "build_baseline_command",
     "build_baseline_environment",
@@ -94,7 +89,6 @@ __all__ = [
     "resolve_result_selector",
     "run_baseline",
     "run_experiment_control",
-    "rerun_final_validation_for_experiment",
     "run_streaming_command",
     "summarize_environment",
 ]

@@ -159,6 +159,6 @@ Key artifacts are:
 - Multi-variant closed-loop strategy is not implemented.
 - Additional solver families beyond the current minimal Lambda Twist P3P path are not implemented.
 - Candidate acceptance uses lower median runtime plus a default 0.5% minimum runtime-reduction threshold after correctness and comparability gates. Repeated-benchmark confidence policies are not implemented.
-- Pairwise reprojection comparison uses the existing relative ratios plus an absolute near-zero tolerance of `1e-10` for mean and max reprojection errors.
+- Pairwise correctness is benchmark-defined and absolute: both artifacts must have `parsed_correctness_passed == true`.
 - Line-number mismatch diagnosis is not implemented as a special repair mechanism.
-- The current minimal P3P prototype focuses on runtime and correctness/reprojection metrics. Memory measurement is not implemented yet and remains future optional work.
+- The current minimal P3P prototype focuses on runtime and PoseLib-style calibrated-pose correctness metrics. Memory measurement is not implemented yet and remains future optional work.

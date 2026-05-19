@@ -363,9 +363,8 @@ def test_final_diff_and_summary_use_accepted_candidate_decision(
         accepted_improvements=1,
     )
     assert "Closed-loop mode: enabled" in text
-    assert "Final repeated validation metrics: unavailable" in text
-    assert "Single-run selection metrics are available only as iteration analytics" in text
-    assert "Final speedup ratio vs original baseline" not in text
+    assert "Final single-run comparison: not run" in text
+    assert "Final repeated validation" not in text
     assert "final optimized source:" in text
     assert "final diff:" in text
     assert "closed-loop summary:" in text

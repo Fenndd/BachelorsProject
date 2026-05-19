@@ -21,7 +21,6 @@ EXPECTED_PLOTS = (
     "llm_latency_by_iteration.svg",
     "failure_reason_breakdown.svg",
     "diff_stats_by_iteration.svg",
-    "final_validation_runtime_distribution.svg",
 )
 
 EXPECTED_SECTIONS = (
@@ -29,7 +28,7 @@ EXPECTED_SECTIONS = (
     "executive-summary",
     "experiment-configuration",
     "benchmark-configuration",
-    "final-validation",
+    "final-comparison",
     "baseline-metrics",
     "reproducibility-environment",
     "runtime-progress",
@@ -134,30 +133,23 @@ def _inspect_report_data(
             "report_data.json is missing important top-level key(s): "
             + ", ".join(missing_keys)
         )
-    _inspect_final_validation_semantics(payload, warnings)
+    _inspect_final_selection_semantics(payload, warnings)
     return payload
 
 
-def _inspect_final_validation_semantics(
+def _inspect_final_selection_semantics(
     payload: dict[str, Any],
     warnings: list[str],
 ) -> None:
-    final_validation = payload.get("final_validation")
-    if not isinstance(final_validation, dict):
+    final_selection = payload.get("final_selection")
+    if not isinstance(final_selection, dict):
         return
-    if final_validation.get("enabled") is not True:
-        return
-    comparison = final_validation.get("comparison")
-    comparison = comparison if isinstance(comparison, dict) else {}
-    status = final_validation.get("status")
-    has_metrics = (
-        status in {"completed", "completed_partial"}
-        and _is_number(comparison.get("median_speedup"))
-        and _is_number(comparison.get("median_runtime_reduction_percent"))
-    )
-    if not has_metrics:
+    status = final_selection.get("status")
+    speedup = final_selection.get("speedup_vs_original_baseline")
+    if status == "failed" or (status not in {"completed", "skipped"} and not _is_number(speedup)):
         warnings.append(
-            "final_validation is enabled but final comparison metrics are unavailable"
+            "final_selection comparison metrics are unavailable (status: "
+            + str(status) + ")"
         )
 
 

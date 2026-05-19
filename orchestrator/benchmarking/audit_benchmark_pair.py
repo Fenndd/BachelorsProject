@@ -55,14 +55,14 @@ def _print_summary(
     print(f"Comparable: {_format_value(audit['comparable'])}")
     print(f"Family: {_format_value(baseline.get('family'))}")
     print(f"Solver: {_format_value(baseline.get('solver'))}")
-    print(f"Num cases: {_format_value(baseline.get('parsed_num_cases'))}")
+    print(f"Num problems: {_format_value(baseline.get('parsed_num_problems'))}")
     print(
-        "Baseline runtime ns per case: "
-        f"{_format_value(baseline.get('parsed_runtime_ns_per_case_median'))}"
+        "Baseline runtime ns per problem: "
+        f"{_format_value(baseline.get('parsed_runtime_ns_per_problem_median'))}"
     )
     print(
-        "Candidate runtime ns per case: "
-        f"{_format_value(candidate.get('parsed_runtime_ns_per_case_median'))}"
+        "Candidate runtime ns per problem: "
+        f"{_format_value(candidate.get('parsed_runtime_ns_per_problem_median'))}"
     )
     failed_checks = audit["failed_checks"]
     warnings = audit["warnings"]
