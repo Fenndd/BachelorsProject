@@ -10,12 +10,9 @@ from __future__ import annotations
 import argparse
 import json
 import os
-import platform
 import shutil
-import subprocess
 import sys
 import time
-from datetime import datetime
 from pathlib import Path
 from typing import Any, Sequence
 
@@ -24,43 +21,47 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
-from orchestrator.benchmarking import parse_absolute_pose_benchmark_output
+from orchestrator.benchmarking.benchmark_artifacts import (
+    benchmark_artifact_from_parse,
+    benchmark_required_fields,
+    build_benchmark_correctness_error_message,
+    empty_benchmark_artifact,
+)
+from orchestrator.benchmarking.benchmark_runner import (
+    build_cmake_build_command,
+    configure_cmake_command,
+    find_executable,
+    format_command,
+    run_command,
+    write_step_log,
+)
+from orchestrator.benchmarking.family_benchmark_parser import parse_absolute_pose_benchmark_output
+from orchestrator.benchmarking.solver_registry import (
+    SolverBenchmarkDescriptor,
+    default_solver_descriptor,
+)
 
+
+DESCRIPTOR: SolverBenchmarkDescriptor = default_solver_descriptor()
 
 DEFAULT_BUILD_DIR_NAME = "build"
 PATH_LENGTH_WARNING_THRESHOLD = 240
 SOURCE_FILE_SUFFIXES_FOR_PATH_DIAGNOSTICS = {".cpp", ".cc", ".cxx", ".h", ".hpp", ".hh"}
-ADAPTER_VALIDATOR_TARGET = "absolute_pose_lambdatwist_adapter_validator"
-FAMILY_BENCHMARK_TARGET = "absolute_pose_lambdatwist_benchmark"
 
 EXPECTED_STEPS = [
     "configure_cmake",
     "build_baseline_smoke_test",
-    "build_absolute_pose_lambdatwist_adapter_validator",
-    "build_absolute_pose_lambdatwist_benchmark",
+    f"build_{DESCRIPTOR.adapter_validator_target}",
+    f"build_{DESCRIPTOR.benchmark_target}",
     "run_baseline_smoke_test",
-    "run_absolute_pose_lambdatwist_adapter_validator",
-    "run_absolute_pose_lambdatwist_benchmark",
-    "parse_absolute_pose_lambdatwist_benchmark",
+    f"run_{DESCRIPTOR.adapter_validator_target}",
+    f"run_{DESCRIPTOR.benchmark_target}",
+    f"parse_{DESCRIPTOR.benchmark_target}",
     "benchmark_correctness_check",
 ]
 
-PARSE_FAMILY_BENCHMARK_STEP = "parse_absolute_pose_lambdatwist_benchmark"
+PARSE_FAMILY_BENCHMARK_STEP = f"parse_{DESCRIPTOR.benchmark_target}"
 BENCHMARK_CORRECTNESS_CHECK_STEP = "benchmark_correctness_check"
-
-BENCHMARK_REQUIRED_FIELDS = [
-    "solver_name",
-    "num_problems",
-    "total_solutions",
-    "solutions_per_problem",
-    "valid_solutions",
-    "valid_solutions_percent",
-    "gt_found",
-    "gt_found_percent",
-    "runtime_ns_total_median",
-    "runtime_ns_per_problem_median",
-    "correctness_passed",
-]
 
 
 def _parse_args(argv: list[str]) -> argparse.Namespace:
@@ -130,10 +131,6 @@ def _display_path(path: Path) -> str:
         return str(path)
 
 
-def _format_command(command: Sequence[str]) -> str:
-    return " ".join(f'"{part}"' if " " in str(part) else str(part) for part in command)
-
-
 def _format_value(value: object) -> str:
     if value is None:
         return "n/a"
@@ -173,189 +170,6 @@ def _write_json(path: Path, payload: dict[str, Any]) -> None:
     path.write_text(
         json.dumps(payload, indent=2, ensure_ascii=False) + "\n",
         encoding="utf-8",
-    )
-
-
-def _write_step_log(
-    log_path: Path,
-    step: str,
-    command: Sequence[str] | str,
-    cwd: Path,
-    exit_code: int | None,
-    stdout: str,
-    stderr: str,
-) -> None:
-    command_text = command if isinstance(command, str) else _format_command(command)
-    lines = [
-        f"STEP: {step}",
-        f"COMMAND: {command_text}",
-        f"CWD: {cwd}",
-        f"EXIT_CODE: {exit_code}",
-        "",
-        "STDOUT:",
-        stdout,
-        "",
-        "STDERR:",
-        stderr,
-        "",
-    ]
-    log_path.write_text("\n".join(lines), encoding="utf-8")
-
-
-def _run_command(
-    step_name: str,
-    title: str,
-    command: Sequence[str],
-    cwd: Path,
-    log_path: Path,
-) -> tuple[dict[str, Any], str | None, str]:
-    print(f"\n[STEP] {title}")
-    print(f"[CMD ] {_format_command(command)}")
-    print(f"[CWD ] {cwd}")
-
-    started = time.perf_counter()
-    try:
-        result = subprocess.run(
-            list(command),
-            cwd=str(cwd),
-            capture_output=True,
-            text=True,
-            check=False,
-        )
-        duration_seconds = round(time.perf_counter() - started, 3)
-        exit_code = result.returncode
-        stdout = result.stdout
-        stderr = result.stderr
-    except (OSError, ValueError) as exc:
-        duration_seconds = round(time.perf_counter() - started, 3)
-        exit_code = None
-        stdout = ""
-        if isinstance(exc, FileNotFoundError):
-            stderr = (
-                f"Required command not found: '{command[0]}'. "
-                "Make sure it is installed and available in PATH."
-            )
-        else:
-            stderr = f"Could not start command '{command[0]}': {exc}"
-
-    _write_step_log(log_path, step_name, command, cwd, exit_code, stdout, stderr)
-
-    if stdout:
-        print(stdout, end="" if stdout.endswith("\n") else "\n")
-    if stderr:
-        print(stderr, end="" if stderr.endswith("\n") else "\n", file=sys.stderr)
-
-    status = "success" if exit_code == 0 else "failed"
-    error_message = None
-    if exit_code != 0:
-        error_message = f"Step failed with exit code {exit_code}: {_format_command(command)}"
-
-    return (
-        _step_status(step_name, status, exit_code, duration_seconds),
-        error_message,
-        stdout,
-    )
-
-
-def _find_executable(build_dir: Path, executable_name: str) -> Path:
-    platform_name = platform.system()
-    expected_name = f"{executable_name}.exe" if platform_name == "Windows" else executable_name
-    candidates = sorted(build_dir.rglob(expected_name))
-    if not candidates and expected_name.endswith(".exe"):
-        candidates = sorted(build_dir.rglob(executable_name))
-    if not candidates:
-        raise FileNotFoundError(
-            f"Could not find {executable_name} executable under build directory: {build_dir}"
-        )
-    return max(candidates, key=lambda path: path.stat().st_mtime)
-
-
-def _empty_benchmark(raw_output_available: bool = False, build_type: str = "Release") -> dict[str, Any]:
-    return {
-        "family": "absolute_pose_solvers",
-        "solver": "lambdatwist_p3p",
-        "runtime_unit": "ns",
-        "build_type": build_type,
-        "raw_output_available": raw_output_available,
-        "parse_success": False,
-        "missing_fields": list(BENCHMARK_REQUIRED_FIELDS),
-        "parse_errors": [],
-        "parsed_solver_name": None,
-        "parsed_num_problems": None,
-        "parsed_total_solutions": None,
-        "parsed_solutions_per_problem": None,
-        "parsed_valid_solutions": None,
-        "parsed_valid_solutions_percent": None,
-        "parsed_gt_found": None,
-        "parsed_gt_found_percent": None,
-        "parsed_runtime_ns_total_median": None,
-        "parsed_runtime_ns_per_problem_median": None,
-        "parsed_correctness_passed": None,
-        "benchmark_options": None,
-    }
-
-
-def _benchmark_from_parse(
-    stdout: str,
-    parse_result: dict[str, Any],
-    build_type: str,
-) -> dict[str, Any]:
-    parsed_metrics = parse_result["metrics"]
-
-    # Build benchmark_options from parsed metrics when available.
-    benchmark_options = None
-    if all(k in parsed_metrics for k in (
-        "num_problems", "tolerance", "camera_fov", "n_point_point",
-        "n_point_line", "timed_iterations", "runtime_unit",
-    )):
-        benchmark_options = {
-            "num_problems": parsed_metrics["num_problems"],
-            "tolerance": parsed_metrics["tolerance"],
-            "camera_fov": parsed_metrics["camera_fov"],
-            "n_point_point": parsed_metrics["n_point_point"],
-            "n_point_line": parsed_metrics["n_point_line"],
-            "timed_iterations": parsed_metrics["timed_iterations"],
-            "runtime_unit": parsed_metrics["runtime_unit"],
-            "build_type": build_type,
-        }
-
-    return {
-        "family": "absolute_pose_solvers",
-        "solver": "lambdatwist_p3p",
-        "runtime_unit": "ns",
-        "build_type": build_type,
-        "raw_output_available": True,
-        "parse_success": parse_result["parse_success"],
-        "missing_fields": parse_result["missing_fields"],
-        "parse_errors": parse_result["parse_errors"],
-        "parsed_solver_name": parsed_metrics.get("solver_name"),
-        "parsed_num_problems": parsed_metrics.get("num_problems"),
-        "parsed_total_solutions": parsed_metrics.get("total_solutions"),
-        "parsed_solutions_per_problem": parsed_metrics.get("solutions_per_problem"),
-        "parsed_valid_solutions": parsed_metrics.get("valid_solutions"),
-        "parsed_valid_solutions_percent": parsed_metrics.get("valid_solutions_percent"),
-        "parsed_gt_found": parsed_metrics.get("gt_found"),
-        "parsed_gt_found_percent": parsed_metrics.get("gt_found_percent"),
-        "parsed_runtime_ns_total_median": parsed_metrics.get(
-            "runtime_ns_total_median"
-        ),
-        "parsed_runtime_ns_per_problem_median": parsed_metrics.get(
-            "runtime_ns_per_problem_median"
-        ),
-        "parsed_correctness_passed": parsed_metrics.get("correctness_passed"),
-        "benchmark_options": benchmark_options,
-    }
-
-
-def _build_benchmark_correctness_error_message(benchmark: dict[str, Any]) -> str:
-    return (
-        "Family benchmark parsed successfully, but correctness_passed=false. "
-        "The candidate is numerically incorrect and is not usable for comparison. "
-        f"gt_found_percent={benchmark.get('parsed_gt_found_percent')!r}, "
-        "valid_solutions_percent="
-        f"{benchmark.get('parsed_valid_solutions_percent')!r}, "
-        "runtime_ns_per_problem_median="
-        f"{benchmark.get('parsed_runtime_ns_per_problem_median')!r}."
     )
 
 
@@ -437,9 +251,9 @@ def _build_summary(verification: dict[str, Any], logs_dir: Path) -> str:
             f"Logs directory: {logs_dir}",
             f"Smoke test status: {_status_for_step(steps, 'run_baseline_smoke_test')}",
             "Adapter validator status: "
-            f"{_status_for_step(steps, 'run_absolute_pose_lambdatwist_adapter_validator')}",
+            f"{_status_for_step(steps, f'run_{DESCRIPTOR.adapter_validator_target}')}",
             "Family benchmark status: "
-            f"{_status_for_step(steps, 'run_absolute_pose_lambdatwist_benchmark')}",
+            f"{_status_for_step(steps, f'run_{DESCRIPTOR.benchmark_target}')}",
             f"Benchmark parse status: {_format_value(benchmark['parse_success'])}",
             "",
             "Family benchmark:",
@@ -498,12 +312,11 @@ def _finalize(
     diagnostics: dict[str, Any] | None = None,
 ) -> int:
     completed_steps = _complete_steps(step_statuses)
+    run_adapter_step = f"run_{DESCRIPTOR.adapter_validator_target}"
     adapter_validation = {
-        "success": _step_success(
-            completed_steps, "run_absolute_pose_lambdatwist_adapter_validator"
-        ),
+        "success": _step_success(completed_steps, run_adapter_step),
         "raw_output_available": (
-            logs_dir / "run_absolute_pose_lambdatwist_adapter_validator.log"
+            logs_dir / f"{run_adapter_step}.log"
         ).exists(),
     }
     overall_status = "failed" if failed_step else "success"
@@ -562,7 +375,7 @@ def _fail_before_commands(
             [],
             failed_step,
             error_message,
-            _empty_benchmark(build_type=cmake_build_type),
+            empty_benchmark_artifact(DESCRIPTOR, build_type=cmake_build_type),
             None,
         )
     except (OSError, ValueError) as exc:
@@ -570,23 +383,6 @@ def _fail_before_commands(
         print("Failed step: save_artifacts")
         print(f"ERROR: {exc}", file=sys.stderr)
         return 1
-
-
-def _build_command(
-    cmake_exe: str,
-    build_dir: Path,
-    target: str,
-    cmake_build_type: str,
-) -> list[str]:
-    return [
-        cmake_exe,
-        "--build",
-        str(build_dir),
-        "--target",
-        target,
-        "--config",
-        cmake_build_type,
-    ]
 
 
 def _path_length_diagnostics(source_dir: Path | None, build_dir: Path | None) -> dict[str, Any]:
@@ -622,8 +418,8 @@ def _critical_candidate_paths(source_dir: Path, build_dir: Path) -> list[Path]:
         build_dir / "CMakeFiles" / f"{target}.dir"
         for target in (
             "baseline_smoke_test",
-            ADAPTER_VALIDATOR_TARGET,
-            FAMILY_BENCHMARK_TARGET,
+            DESCRIPTOR.adapter_validator_target,
+            DESCRIPTOR.benchmark_target,
         )
     ]
     if not source_dir.is_dir():
@@ -754,28 +550,25 @@ def main(argv: list[str] | None = None) -> int:
             str(exc),
         )
 
-    configure_command = [
-        args.cmake_exe,
-        "-S",
-        str(source_dir),
-        "-B",
-        str(build_dir),
-        f"-DEIGEN3_INCLUDE_DIR={eigen_include_dir}",
-    ]
-    if args.cmake_generator:
-        configure_command.extend(["-G", args.cmake_generator])
-    if args.cmake_cxx_compiler:
-        configure_command.append(f"-DCMAKE_CXX_COMPILER={args.cmake_cxx_compiler}")
-    if args.cmake_make_program:
-        configure_command.append(f"-DCMAKE_MAKE_PROGRAM={args.cmake_make_program}")
-
-    configure_command.append(f"-DCMAKE_BUILD_TYPE={args.cmake_build_type}")
+    configure_command = configure_cmake_command(
+        source_dir=source_dir,
+        build_dir=build_dir,
+        eigen_include_dir=str(eigen_include_dir),
+        cmake_generator=args.cmake_generator,
+        cmake_cxx_compiler=args.cmake_cxx_compiler,
+        cmake_make_program=args.cmake_make_program,
+        cmake_build_type=args.cmake_build_type,
+        cmake_exe=args.cmake_exe,
+    )
 
     step_statuses: list[dict[str, Any]] = []
     failed_step: str | None = None
     error_message: str | None = None
-    benchmark = _empty_benchmark(False, build_type=args.cmake_build_type)
+    benchmark = empty_benchmark_artifact(DESCRIPTOR, False, build_type=args.cmake_build_type)
     diagnostics = _path_length_diagnostics(source_dir, build_dir)
+
+    assert DESCRIPTOR.adapter_validator_target is not None
+    assert DESCRIPTOR.benchmark_target is not None
 
     command_steps: list[tuple[str, str, Sequence[str], Path, Path]] = [
         (
@@ -788,28 +581,28 @@ def main(argv: list[str] | None = None) -> int:
         (
             "build_baseline_smoke_test",
             "Build baseline_smoke_test target",
-            _build_command(args.cmake_exe, build_dir, "baseline_smoke_test", args.cmake_build_type),
+            build_cmake_build_command(args.cmake_exe, build_dir, "baseline_smoke_test", args.cmake_build_type),
             workspace_path,
             logs_dir / "build_baseline_smoke_test.log",
         ),
         (
-            "build_absolute_pose_lambdatwist_adapter_validator",
-            f"Build {ADAPTER_VALIDATOR_TARGET} target",
-            _build_command(args.cmake_exe, build_dir, ADAPTER_VALIDATOR_TARGET, args.cmake_build_type),
+            f"build_{DESCRIPTOR.adapter_validator_target}",
+            f"Build {DESCRIPTOR.adapter_validator_target} target",
+            build_cmake_build_command(args.cmake_exe, build_dir, DESCRIPTOR.adapter_validator_target, args.cmake_build_type),
             workspace_path,
-            logs_dir / "build_absolute_pose_lambdatwist_adapter_validator.log",
+            logs_dir / f"build_{DESCRIPTOR.adapter_validator_target}.log",
         ),
         (
-            "build_absolute_pose_lambdatwist_benchmark",
-            f"Build {FAMILY_BENCHMARK_TARGET} target",
-            _build_command(args.cmake_exe, build_dir, FAMILY_BENCHMARK_TARGET, args.cmake_build_type),
+            f"build_{DESCRIPTOR.benchmark_target}",
+            f"Build {DESCRIPTOR.benchmark_target} target",
+            build_cmake_build_command(args.cmake_exe, build_dir, DESCRIPTOR.benchmark_target, args.cmake_build_type),
             workspace_path,
-            logs_dir / "build_absolute_pose_lambdatwist_benchmark.log",
+            logs_dir / f"build_{DESCRIPTOR.benchmark_target}.log",
         ),
     ]
 
     for step_name, title, command, cwd, log_path in command_steps:
-        step_status, step_error, _stdout = _run_command(
+        step_status, step_error, _stdout = run_command(
             step_name, title, command, cwd, log_path
         )
         step_statuses.append(step_status)
@@ -826,16 +619,16 @@ def main(argv: list[str] | None = None) -> int:
             logs_dir / "run_baseline_smoke_test.log",
         ),
         (
-            "run_absolute_pose_lambdatwist_adapter_validator",
-            f"Run {ADAPTER_VALIDATOR_TARGET} executable",
-            ADAPTER_VALIDATOR_TARGET,
-            logs_dir / "run_absolute_pose_lambdatwist_adapter_validator.log",
+            f"run_{DESCRIPTOR.adapter_validator_target}",
+            f"Run {DESCRIPTOR.adapter_validator_target} executable",
+            DESCRIPTOR.adapter_validator_target,
+            logs_dir / f"run_{DESCRIPTOR.adapter_validator_target}.log",
         ),
         (
-            "run_absolute_pose_lambdatwist_benchmark",
-            f"Run {FAMILY_BENCHMARK_TARGET} executable",
-            FAMILY_BENCHMARK_TARGET,
-            logs_dir / "run_absolute_pose_lambdatwist_benchmark.log",
+            f"run_{DESCRIPTOR.benchmark_target}",
+            f"Run {DESCRIPTOR.benchmark_target} executable",
+            DESCRIPTOR.benchmark_target,
+            logs_dir / f"run_{DESCRIPTOR.benchmark_target}.log",
         ),
     ]
 
@@ -843,12 +636,12 @@ def main(argv: list[str] | None = None) -> int:
     if failed_step is None:
         for step_name, title, executable_name, log_path in run_targets:
             try:
-                executable = _find_executable(build_dir, executable_name)
+                executable = find_executable(build_dir, executable_name)
             except OSError as exc:
                 failed_step = step_name
                 error_message = str(exc)
                 step_statuses.append(_step_status(step_name, "failed", None, None))
-                _write_step_log(
+                write_step_log(
                     log_path,
                     step_name,
                     f"find executable {executable_name}",
@@ -861,7 +654,7 @@ def main(argv: list[str] | None = None) -> int:
                 print(f"ERROR: {error_message}", file=sys.stderr)
                 break
 
-            step_status, step_error, stdout = _run_command(
+            step_status, step_error, stdout = run_command(
                 step_name,
                 title,
                 [str(executable)],
@@ -869,9 +662,9 @@ def main(argv: list[str] | None = None) -> int:
                 log_path,
             )
             step_statuses.append(step_status)
-            if step_name == "run_absolute_pose_lambdatwist_benchmark":
+            if step_name == f"run_{DESCRIPTOR.benchmark_target}":
                 benchmark_stdout = stdout
-                benchmark = _empty_benchmark(True, build_type=args.cmake_build_type)
+                benchmark = empty_benchmark_artifact(DESCRIPTOR, True, build_type=args.cmake_build_type)
             if step_error:
                 failed_step = step_name
                 error_message = step_error
@@ -881,7 +674,7 @@ def main(argv: list[str] | None = None) -> int:
         parse_started = time.perf_counter()
         parse_result = parse_absolute_pose_benchmark_output(benchmark_stdout)
         parse_duration = round(time.perf_counter() - parse_started, 3)
-        benchmark = _benchmark_from_parse(benchmark_stdout, parse_result, args.cmake_build_type)
+        benchmark = benchmark_artifact_from_parse(benchmark_stdout, parse_result, DESCRIPTOR, args.cmake_build_type)
         if parse_result["parse_success"]:
             step_statuses.append(
                 _step_status(
@@ -921,7 +714,7 @@ def main(argv: list[str] | None = None) -> int:
                 )
             else:
                 failed_step = BENCHMARK_CORRECTNESS_CHECK_STEP
-                error_message = _build_benchmark_correctness_error_message(benchmark)
+                error_message = build_benchmark_correctness_error_message(benchmark)
                 step_statuses.append(
                     _step_status(
                         BENCHMARK_CORRECTNESS_CHECK_STEP,

@@ -1,4 +1,4 @@
-"""Benchmark parsing helpers for project-owned benchmark executables."""
+"""Benchmark parsing, artifact, runner, and solver registry helpers."""
 
 from .benchmark_artifact_audit import (
     audit_comparable_benchmark_artifacts,
@@ -9,6 +9,20 @@ from .benchmark_artifact_audit import (
     load_reference_benchmark_artifact,
     load_verified_candidate_benchmark_artifact,
 )
+from .benchmark_artifacts import (
+    benchmark_artifact_from_parse,
+    benchmark_required_fields,
+    build_benchmark_correctness_error_message,
+    empty_benchmark_artifact,
+)
+from .benchmark_runner import (
+    build_cmake_build_command,
+    configure_cmake_command,
+    find_executable,
+    format_command,
+    run_command,
+    write_step_log,
+)
 from .candidate_decision import (
     CandidateDecisionThresholds,
     evaluate_candidate_against_baseline,
@@ -16,18 +30,38 @@ from .candidate_decision import (
     write_candidate_decision,
 )
 from .family_benchmark_parser import parse_absolute_pose_benchmark_output
+from .solver_registry import (
+    SolverBenchmarkDescriptor,
+    default_solver_descriptor,
+    get_solver_descriptor,
+    list_solver_descriptors,
+)
 
 __all__ = [
     "audit_comparable_benchmark_pair",
     "audit_comparable_benchmark_artifacts",
     "audit_single_benchmark_artifact",
+    "benchmark_artifact_from_parse",
+    "benchmark_required_fields",
+    "build_benchmark_correctness_error_message",
+    "build_cmake_build_command",
     "CandidateDecisionThresholds",
+    "configure_cmake_command",
+    "default_solver_descriptor",
+    "empty_benchmark_artifact",
     "evaluate_candidate_against_baseline",
     "evaluate_candidate_against_reference",
+    "find_executable",
+    "format_command",
+    "get_solver_descriptor",
+    "list_solver_descriptors",
     "load_baseline_benchmark_artifact",
     "load_candidate_benchmark_artifact",
     "load_reference_benchmark_artifact",
     "load_verified_candidate_benchmark_artifact",
     "parse_absolute_pose_benchmark_output",
+    "run_command",
+    "SolverBenchmarkDescriptor",
     "write_candidate_decision",
+    "write_step_log",
 ]

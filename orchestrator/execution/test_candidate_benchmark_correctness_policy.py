@@ -7,16 +7,21 @@ import unittest
 from pathlib import Path
 
 from orchestrator.benchmarking import parse_absolute_pose_benchmark_output
+from orchestrator.benchmarking.benchmark_artifacts import (
+    benchmark_artifact_from_parse,
+    build_benchmark_correctness_error_message,
+    empty_benchmark_artifact,
+)
+from orchestrator.benchmarking.solver_registry import default_solver_descriptor
 from orchestrator.execution.candidate_benchmark_verification import (
     BENCHMARK_CORRECTNESS_CHECK_STEP,
-    _benchmark_from_parse,
-    _build_benchmark_correctness_error_message,
     _complete_steps,
-    _empty_benchmark,
     _finalize,
     _path_length_diagnostics,
     _step_status,
 )
+
+_DESCRIPTOR = default_solver_descriptor()
 
 
 def _incorrect_benchmark_output() -> str:
@@ -46,7 +51,7 @@ def _incorrect_benchmark_output() -> str:
 class CandidateBenchmarkCorrectnessPolicyTests(unittest.TestCase):
     def test_parse_success_correctness_false_fails_but_preserves_metrics(self) -> None:
         parse_result = parse_absolute_pose_benchmark_output(_incorrect_benchmark_output())
-        benchmark = _benchmark_from_parse(_incorrect_benchmark_output(), parse_result, "Release")
+        benchmark = benchmark_artifact_from_parse(_incorrect_benchmark_output(), parse_result, _DESCRIPTOR, "Release")
         steps = [
             _step_status("run_absolute_pose_lambdatwist_benchmark", "success", 0, 0.1),
             _step_status("parse_absolute_pose_lambdatwist_benchmark", "success", None, 0.1),
@@ -56,7 +61,7 @@ class CandidateBenchmarkCorrectnessPolicyTests(unittest.TestCase):
         self.assertTrue(benchmark["parse_success"])
         self.assertIs(benchmark["parsed_correctness_passed"], False)
         self.assertEqual(benchmark["parsed_runtime_ns_per_problem_median"], 1000.0)
-        error_message = _build_benchmark_correctness_error_message(benchmark)
+        error_message = build_benchmark_correctness_error_message(benchmark)
         self.assertIn("gt_found_percent=50.0", error_message)
         completed = _complete_steps(steps)
         step_by_name = {step["name"]: step for step in completed}
@@ -64,8 +69,8 @@ class CandidateBenchmarkCorrectnessPolicyTests(unittest.TestCase):
 
     def test_finalize_preserves_metrics_when_correctness_check_fails(self) -> None:
         parse_result = parse_absolute_pose_benchmark_output(_incorrect_benchmark_output())
-        benchmark = _benchmark_from_parse(_incorrect_benchmark_output(), parse_result, "Release")
-        error_message = _build_benchmark_correctness_error_message(benchmark)
+        benchmark = benchmark_artifact_from_parse(_incorrect_benchmark_output(), parse_result, _DESCRIPTOR, "Release")
+        error_message = build_benchmark_correctness_error_message(benchmark)
 
         with tempfile.TemporaryDirectory() as tmpdir:
             candidate_run_dir = Path(tmpdir) / "candidate"
@@ -133,7 +138,7 @@ class CandidateBenchmarkCorrectnessPolicyTests(unittest.TestCase):
                 [],
                 None,
                 None,
-                _empty_benchmark(build_type="Release"),
+                empty_benchmark_artifact(_DESCRIPTOR, build_type="Release"),
                 diagnostics,
             )
 
