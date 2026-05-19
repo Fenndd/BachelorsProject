@@ -456,18 +456,14 @@ def _build_benchmark_config(
     return ReportBenchmarkConfig(
         family=_b_str("family"),
         solver=_b_str("solver", "parsed_solver_name"),
-        num_cases=_o_int("num_cases", "num_problems", "parsed_num_cases", "parsed_num_problems"),
-        points_per_case=_o_int("points_per_case", "n_point_point"),
-        warmup_iterations=_o_int("warmup_iterations"),
+        num_problems=_o_int("num_problems", "parsed_num_problems"),
+        n_point_point=_o_int("n_point_point"),
+        n_point_line=_o_int("n_point_line"),
+        tolerance=_o_float("tolerance"),
+        camera_fov=_o_float("camera_fov"),
         timed_iterations=_o_int("timed_iterations"),
         seed=_o_int("random_seed", "seed"),
         runtime_unit=_o_str("runtime_unit"),
-        reprojection_error_threshold=_o_float("reprojection_error_threshold"),
-        minimum_success_rate=_o_float("min_success_rate", "minimum_success_rate"),
-        require_all_cases_valid=_o_bool("require_all_cases_valid"),
-        use_max_reprojection_error_as_hard_gate=_o_bool(
-            "use_max_reprojection_error_as_hard_gate"
-        ),
         build_type=_first_string(
             _o_str("build_type"),
             _b_str("build_type"),
@@ -577,9 +573,9 @@ def _apply_final_selection_overrides(
 
     baseline_runtime = final_selection.baseline_runtime_ns_per_problem_median
     final_runtime = final_selection.final_runtime_ns_per_problem_median
-    final_best_candidate.runtime_ns_per_case_median = final_runtime
-    final_best_candidate.baseline_runtime_ns_per_case_median = baseline_runtime
-    final_best_candidate.absolute_runtime_difference_ns_per_case = (
+    final_best_candidate.runtime_ns_per_problem_median = final_runtime
+    final_best_candidate.baseline_runtime_ns_per_problem_median = baseline_runtime
+    final_best_candidate.absolute_runtime_difference_ns_per_problem = (
         baseline_runtime - final_runtime
         if baseline_runtime is not None and final_runtime is not None
         else None
@@ -616,7 +612,7 @@ def _build_final_best_candidate(
     """Build ReportFinalBestCandidate from summary, iterations, and per-candidate artifacts."""
 
     final_best_iter = _int_or_default(summary.get("final_best_iteration"))
-    baseline_rt = baseline_metrics.runtime_ns_per_case_median
+    baseline_rt = baseline_metrics.runtime_ns_per_problem_median
 
     # Find matching iteration summary
     best_iter_summary: ReportIterationSummary | None = None
@@ -634,7 +630,7 @@ def _build_final_best_candidate(
         risk_level = None
         candidate_run_dir_display = None
     else:
-        final_rt = best_iter_summary.runtime_ns_per_case_median if best_iter_summary else None
+        final_rt = best_iter_summary.runtime_ns_per_problem_median if best_iter_summary else None
         correctness = best_iter_summary.correctness_passed if best_iter_summary else None
         candidate_summary = best_iter_summary.candidate_summary if best_iter_summary else None
         expected_effect = best_iter_summary.expected_effect if best_iter_summary else None
@@ -671,9 +667,9 @@ def _build_final_best_candidate(
     return ReportFinalBestCandidate(
         iteration=final_best_iter,
         candidate_run_dir=candidate_run_dir_display if final_best_iter > 0 else None,
-        runtime_ns_per_case_median=None,
-        baseline_runtime_ns_per_case_median=None,
-        absolute_runtime_difference_ns_per_case=None,
+        runtime_ns_per_problem_median=None,
+        baseline_runtime_ns_per_problem_median=None,
+        absolute_runtime_difference_ns_per_problem=None,
         speedup_vs_baseline=None,
         runtime_reduction_percent=None,
         correctness_passed=None,
@@ -887,8 +883,8 @@ def _iteration_summary(
             record.get("candidate_risk_level"),
             candidate.get("risk_level"),
         ),
-        runtime_ns_per_case_median=_first_available_number(
-            record.get("runtime_ns_per_case_median"),
+        runtime_ns_per_problem_median=_first_available_number(
+            record.get("runtime_ns_per_problem_median"),
             _verification_runtime(verification),
         ),
         speedup_vs_current_best=_first_available_number(
@@ -1126,11 +1122,7 @@ def _verification_runtime(verification: dict[str, Any]) -> float | None:
     return _first_number(
         _verification_payloads(verification),
         (
-            "runtime_ns_per_case_median",
             "runtime_ns_per_problem_median",
-            "runtime_median_ns_per_case",
-            "median_runtime_ns_per_case",
-            "parsed_runtime_ns_per_case_median",
             "parsed_runtime_ns_per_problem_median",
         ),
     )
@@ -1256,36 +1248,36 @@ def _load_baseline_metrics_with_raw(
         candidates.insert(0, benchmark)
 
     metrics = ReportBaselineMetrics(
-        runtime_ns_per_case_median=_first_number(
+        runtime_ns_per_problem_median=_first_number(
             candidates,
             (
-                "runtime_ns_per_case_median",
                 "runtime_ns_per_problem_median",
-                "runtime_median_ns_per_case",
-                "median_runtime_ns_per_case",
-                "parsed_runtime_ns_per_case_median",
                 "parsed_runtime_ns_per_problem_median",
             ),
         ),
-        success_rate=_first_number(
+        gt_found_percent=_first_number(
             candidates,
-            ("success_rate", "parsed_success_rate", "gt_found_percent", "parsed_gt_found_percent"),
+            ("gt_found_percent", "parsed_gt_found_percent"),
         ),
-        mean_reprojection_error=_first_number(
+        valid_solutions_percent=_first_number(
             candidates,
-            (
-                "mean_reprojection_error",
-                "mean_best_reprojection_error",
-                "parsed_mean_best_reprojection_error",
-            ),
+            ("valid_solutions_percent", "parsed_valid_solutions_percent"),
         ),
-        max_reprojection_error=_first_number(
+        total_solutions=_first_int(
             candidates,
-            (
-                "max_reprojection_error",
-                "max_best_reprojection_error",
-                "parsed_max_best_reprojection_error",
-            ),
+            ("total_solutions",),
+        ),
+        solutions_per_problem=_first_int(
+            candidates,
+            ("solutions_per_problem",),
+        ),
+        gt_found=_first_int(
+            candidates,
+            ("gt_found",),
+        ),
+        valid_solutions=_first_int(
+            candidates,
+            ("valid_solutions",),
         ),
         correctness_passed=_first_bool(
             candidates,
@@ -1402,6 +1394,18 @@ def _first_bool(
     for payload in payloads:
         for key in keys:
             value = _bool_or_none(payload.get(key))
+            if value is not None:
+                return value
+    return None
+
+
+def _first_int(
+    payloads: list[dict[str, Any]],
+    keys: tuple[str, ...],
+) -> int | None:
+    for payload in payloads:
+        for key in keys:
+            value = _int_or_none(payload.get(key))
             if value is not None:
                 return value
     return None

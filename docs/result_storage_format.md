@@ -387,9 +387,9 @@ The final selection `status` field is one of:
 `experiment_metadata.json` records process metadata for experiment runs. For
 closed-loop runs, `finished_at` and `total_duration_seconds` cover the full
 experiment cycle: closed-loop iterations, final artifact creation, final
-validation, report generation or recorded reporting failure, and final
+selection, report generation or recorded reporting failure, and final
 status/summary output. This is distinct from `closed_loop_summary.finished_at`,
-which marks closed-loop optimization completion before final validation.
+which marks closed-loop optimization completion before final selection.
 
 ```json
 {
@@ -577,11 +577,10 @@ inspector reports a warning. Invalid or missing `report_data.json` and missing
 `report.html` are failures. The manual checklist for real-cycle current-report review is
 `docs/report_v2_checklist.md`.
 
-Final repeated benchmark validation is a final evaluation step, not
-per-candidate repeated benchmarking. It compares N repeated baseline runs against
-N repeated final optimized source runs, reports median/mean/std/min/max for
-successful correctness-passing repetitions, writes `final_validation_report.json`,
-and displays a Final Validation section.
+Final selection is a single-run comparison step that benchmarks the final
+optimized source against the original baseline using the same protocol as
+candidate verification. It writes `final_selection_report.json` and
+displays metrics in the Final Comparison vs Original Baseline section.
 
 ## Candidate Materialization Artifacts
 

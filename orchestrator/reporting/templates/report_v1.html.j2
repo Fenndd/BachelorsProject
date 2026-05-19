@@ -162,9 +162,9 @@
       <div class="metric"><strong>Final Selection Runtime Reduction %</strong>{{ report.final_result.final_runtime_reduction_percent|display }}</div>
       <div class="metric"><strong>Accepted Improvements</strong>{{ report.final_result.accepted_improvements|display }}</div>
       <div class="metric"><strong>Correctness Preserved</strong>{{ report.final_result.correctness_preserved|yes_no }}</div>
-      <div class="metric"><strong>Baseline Runtime ns/case</strong>{{ report.final_best_candidate.baseline_runtime_ns_per_case_median|display }}</div>
-      <div class="metric"><strong>Final Best Runtime ns/case</strong>{{ report.final_best_candidate.runtime_ns_per_case_median|display }}</div>
-      <div class="metric"><strong>Runtime Improvement ns/case</strong>{{ report.final_best_candidate.absolute_runtime_difference_ns_per_case|display }}</div>
+      <div class="metric"><strong>Baseline Runtime ns/problem</strong>{{ report.final_best_candidate.baseline_runtime_ns_per_problem_median|display }}</div>
+      <div class="metric"><strong>Final Best Runtime ns/problem</strong>{{ report.final_best_candidate.runtime_ns_per_problem_median|display }}</div>
+      <div class="metric"><strong>Runtime Improvement ns/problem</strong>{{ report.final_best_candidate.absolute_runtime_difference_ns_per_problem|display }}</div>
       <div class="metric"><strong>PDF Report</strong>{{ report.reporting_status.pdf_display|display }}</div>
     </div>
     {% if report.final_selection.status not in ['completed', 'skipped'] or report.final_selection.speedup_vs_original_baseline is none %}
@@ -215,16 +215,14 @@
       <tbody>
         <tr><th>Family</th><td>{{ report.benchmark_config.family|display }}</td></tr>
         <tr><th>Solver</th><td>{{ report.benchmark_config.solver|display }}</td></tr>
-        <tr><th>Num Cases</th><td>{{ report.benchmark_config.num_cases|display }}</td></tr>
-        <tr><th>Points per Case</th><td>{{ report.benchmark_config.points_per_case|display }}</td></tr>
-        <tr><th>Warmup Iterations</th><td>{{ report.benchmark_config.warmup_iterations|display }}</td></tr>
+        <tr><th>Num Problems</th><td>{{ report.benchmark_config.num_problems|display }}</td></tr>
+        <tr><th>n_point_point</th><td>{{ report.benchmark_config.n_point_point|display }}</td></tr>
+        <tr><th>n_point_line</th><td>{{ report.benchmark_config.n_point_line|display }}</td></tr>
+        <tr><th>Tolerance</th><td>{{ report.benchmark_config.tolerance|display }}</td></tr>
+        <tr><th>Camera FOV</th><td>{{ report.benchmark_config.camera_fov|display }}</td></tr>
         <tr><th>Timed Iterations</th><td>{{ report.benchmark_config.timed_iterations|display }}</td></tr>
         <tr><th>Seed</th><td>{{ report.benchmark_config.seed|display }}</td></tr>
         <tr><th>Runtime Unit</th><td>{{ report.benchmark_config.runtime_unit|display }}</td></tr>
-        <tr><th>Reprojection Error Threshold</th><td>{{ report.benchmark_config.reprojection_error_threshold|display }}</td></tr>
-        <tr><th>Minimum Success Rate</th><td>{{ report.benchmark_config.minimum_success_rate|display }}</td></tr>
-        <tr><th>Require All Cases Valid</th><td>{{ report.benchmark_config.require_all_cases_valid|yes_no }}</td></tr>
-        <tr><th>Use Max Reprojection Error as Hard Gate</th><td>{{ report.benchmark_config.use_max_reprojection_error_as_hard_gate|yes_no }}</td></tr>
         <tr><th>Build Type</th><td>{{ report.benchmark_config.build_type|display }}</td></tr>
       </tbody>
     </table>
@@ -256,10 +254,13 @@
   <section id="baseline-metrics">
     <h2>Baseline Metrics</h2>
     <div class="metric-grid">
-      <div class="metric"><strong>Median Runtime ns/case</strong>{{ report.baseline_metrics.runtime_ns_per_case_median|display }}</div>
-      <div class="metric"><strong>Success Rate</strong>{{ report.baseline_metrics.success_rate|display }}</div>
-      <div class="metric"><strong>Mean Reprojection Error</strong>{{ report.baseline_metrics.mean_reprojection_error|display }}</div>
-      <div class="metric"><strong>Max Reprojection Error</strong>{{ report.baseline_metrics.max_reprojection_error|display }}</div>
+      <div class="metric"><strong>Median Runtime ns/problem</strong>{{ report.baseline_metrics.runtime_ns_per_problem_median|display }}</div>
+      <div class="metric"><strong>GT Found %</strong>{{ report.baseline_metrics.gt_found_percent|display }}</div>
+      <div class="metric"><strong>Valid Solutions %</strong>{{ report.baseline_metrics.valid_solutions_percent|display }}</div>
+      <div class="metric"><strong>Total Solutions</strong>{{ report.baseline_metrics.total_solutions|display }}</div>
+      <div class="metric"><strong>Solutions per Problem</strong>{{ report.baseline_metrics.solutions_per_problem|display }}</div>
+      <div class="metric"><strong>GT Found</strong>{{ report.baseline_metrics.gt_found|display }}</div>
+      <div class="metric"><strong>Valid Solutions</strong>{{ report.baseline_metrics.valid_solutions|display }}</div>
       <div class="metric"><strong>Correctness Passed</strong>{{ report.baseline_metrics.correctness_passed|yes_no }}</div>
     </div>
   </section>
@@ -504,7 +505,7 @@
         <tr>
           <th>Iteration</th>
           <th>Status</th>
-          <th>Runtime ns/case</th>
+          <th>Runtime ns/problem</th>
           <th>Speedup vs Current Best</th>
           <th>Speedup vs Baseline</th>
           <th>Correctness</th>
@@ -522,7 +523,7 @@
         <tr>
           <td>{{ iteration.iteration|display }}</td>
           <td>{{ iteration.status|display }}</td>
-          <td>{{ iteration.runtime_ns_per_case_median|display }}</td>
+          <td>{{ iteration.runtime_ns_per_problem_median|display }}</td>
           <td>{{ iteration.speedup_vs_current_best|display }}</td>
           <td>{{ iteration.speedup_vs_baseline|display }}</td>
           <td>{{ iteration.correctness_passed|yes_no }}</td>
@@ -548,9 +549,9 @@
       <tbody>
         <tr><th>Final Best Iteration</th><td>{{ report.final_best_candidate.iteration|display }}</td></tr>
         <tr><th>Candidate Run Dir</th><td><code>{{ report.final_best_candidate.candidate_run_dir|display }}</code></td></tr>
-        <tr><th>Runtime ns/case</th><td>{{ report.final_best_candidate.runtime_ns_per_case_median|display }}</td></tr>
-        <tr><th>Baseline Runtime ns/case</th><td>{{ report.final_best_candidate.baseline_runtime_ns_per_case_median|display }}</td></tr>
-        <tr><th>Runtime Improvement ns/case</th><td>{{ report.final_best_candidate.absolute_runtime_difference_ns_per_case|display }}</td></tr>
+        <tr><th>Runtime ns/problem</th><td>{{ report.final_best_candidate.runtime_ns_per_problem_median|display }}</td></tr>
+        <tr><th>Baseline Runtime ns/problem</th><td>{{ report.final_best_candidate.baseline_runtime_ns_per_problem_median|display }}</td></tr>
+        <tr><th>Runtime Improvement ns/problem</th><td>{{ report.final_best_candidate.absolute_runtime_difference_ns_per_problem|display }}</td></tr>
         <tr><th>Speedup vs Baseline</th><td>{{ report.final_best_candidate.speedup_vs_baseline|display }}</td></tr>
         <tr><th>Runtime Reduction %</th><td>{{ report.final_best_candidate.runtime_reduction_percent|display }}</td></tr>
         <tr><th>Accepted Improvements</th><td>{{ report.final_result.accepted_improvements|display }}</td></tr>
@@ -607,7 +608,7 @@
           <tr><th>Outcome Category</th><td>{{ iteration.outcome_reason.category|display }}</td></tr>
           <tr><th>Outcome Code</th><td>{{ iteration.outcome_reason.code|display }}</td></tr>
           <tr><th>Outcome Message</th><td>{{ iteration.outcome_reason.message|display }}</td></tr>
-          <tr><th>Runtime ns/case</th><td>{{ iteration.runtime_ns_per_case_median|display }}</td></tr>
+          <tr><th>Runtime ns/problem</th><td>{{ iteration.runtime_ns_per_problem_median|display }}</td></tr>
           <tr><th>Speedup vs Current Best</th><td>{{ iteration.speedup_vs_current_best|display }}</td></tr>
           <tr><th>Speedup vs Baseline</th><td>{{ iteration.speedup_vs_baseline|display }}</td></tr>
           <tr><th>Correctness</th><td>{{ iteration.correctness_passed|yes_no }}</td></tr>

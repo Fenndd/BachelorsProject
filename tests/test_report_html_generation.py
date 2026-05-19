@@ -71,10 +71,9 @@ def _report_data() -> ReportData:
         correctness_preserved=True,
     )
     report_data.baseline_metrics = ReportBaselineMetrics(
-        runtime_ns_per_case_median=1000.0,
-        success_rate=1.0,
-        mean_reprojection_error=1.0e-12,
-        max_reprojection_error=2.0e-12,
+        runtime_ns_per_problem_median=1000.0,
+        gt_found_percent=100.0,
+        valid_solutions_percent=95.0,
         correctness_passed=True,
     )
     counts = default_status_counts()
@@ -86,7 +85,7 @@ def _report_data() -> ReportData:
             iteration=1,
             status="accepted_improvement",
             candidate_summary="Simplify arithmetic.",
-            runtime_ns_per_case_median=800.0,
+            runtime_ns_per_problem_median=800.0,
             speedup_vs_baseline=1.25,
             correctness_passed=True,
             promoted=True,
@@ -96,7 +95,7 @@ def _report_data() -> ReportData:
             iteration=2,
             status="valid_not_improved",
             candidate_summary="Try branch cleanup.",
-            runtime_ns_per_case_median=820.0,
+            runtime_ns_per_problem_median=820.0,
             speedup_vs_baseline=1.22,
             correctness_passed=True,
             promoted=False,
@@ -124,7 +123,7 @@ def _enriched_report_data() -> ReportData:
     report_data = _report_data()
     report_data.final_best_candidate = ReportFinalBestCandidate(
         iteration=1,
-        runtime_ns_per_case_median=800.0,
+        runtime_ns_per_problem_median=800.0,
         speedup_vs_baseline=1.25,
         diff_stats=ReportDiffStats(
             files_changed=1,
@@ -424,7 +423,7 @@ def test_generate_basic_html_report_creates_report_outputs_read_only(
                 "iteration": 1,
                 "status": "accepted_improvement",
                 "candidate_summary": "Simplify arithmetic.",
-                "runtime_ns_per_case_median": 800.0,
+                "runtime_ns_per_problem_median": 800.0,
                 "speedup_vs_original_baseline": 1.25,
                 "correctness_passed": True,
                 "current_best_updated": True,
@@ -432,7 +431,7 @@ def test_generate_basic_html_report_creates_report_outputs_read_only(
             {
                 "iteration": 2,
                 "status": "valid_not_improved",
-                "runtime_ns_per_case_median": 820.0,
+                "runtime_ns_per_problem_median": 820.0,
                 "speedup_vs_original_baseline": 1.22,
                 "correctness_passed": True,
             },
@@ -468,7 +467,7 @@ def test_f_html_contains_enriched_fields(tmp_path: Path) -> None:
         correctness_preserved=True,
     )
     report_data.baseline_metrics = ReportBaselineMetrics(
-        runtime_ns_per_case_median=1000.0,
+        runtime_ns_per_problem_median=1000.0,
         correctness_passed=True,
     )
     report_data.llm = ReportLlmInfo(
@@ -486,7 +485,7 @@ def test_f_html_contains_enriched_fields(tmp_path: Path) -> None:
     report_data.benchmark_config = ReportBenchmarkConfig(
         family="absolute_pose_solvers",
         solver="lambdatwist_p3p",
-        num_cases=1024,
+        num_problems=1024,
         timed_iterations=50,
         build_type="Release",
     )
@@ -567,24 +566,24 @@ def test_runtime_progress_uses_current_best_step_plot(tmp_path: Path) -> None:
     """runtime_progress.svg reflects current-best runtime, not raw candidate runtime."""
 
     report_data = make_empty_report_data("exp_002", TARGET_FILE)
-    report_data.baseline_metrics = ReportBaselineMetrics(runtime_ns_per_case_median=100.0)
+    report_data.baseline_metrics = ReportBaselineMetrics(runtime_ns_per_problem_median=100.0)
     report_data.iterations = [
         ReportIterationSummary(
             iteration=1,
             status="accepted_improvement",
-            runtime_ns_per_case_median=90.0,
+            runtime_ns_per_problem_median=90.0,
             promoted=True,
         ),
         ReportIterationSummary(
             iteration=2,
             status="valid_not_improved",
-            runtime_ns_per_case_median=95.0,
+            runtime_ns_per_problem_median=95.0,
             promoted=False,
         ),
         ReportIterationSummary(
             iteration=3,
             status="accepted_improvement",
-            runtime_ns_per_case_median=80.0,
+            runtime_ns_per_problem_median=80.0,
             promoted=True,
         ),
     ]
@@ -606,7 +605,7 @@ def test_runtime_progress_placeholder_when_no_runtime_data(tmp_path: Path) -> No
         ReportIterationSummary(
             iteration=1,
             status="valid_not_improved",
-            runtime_ns_per_case_median=None,
+            runtime_ns_per_problem_median=None,
             promoted=False,
         ),
     ]
@@ -741,8 +740,8 @@ def test_executive_summary_uses_final_selection_baseline_runtime(tmp_path: Path)
     report_data.final_result.final_speedup_vs_baseline = 1.25
     report_data.final_result.final_runtime_reduction_percent = 20.0
     report_data.final_best_candidate = ReportFinalBestCandidate(
-        baseline_runtime_ns_per_case_median=900.0,
-        runtime_ns_per_case_median=700.0,
+        baseline_runtime_ns_per_problem_median=900.0,
+        runtime_ns_per_problem_median=700.0,
     )
 
     plot_paths = build_report_figures(report_data, tmp_path / "plots")
@@ -750,9 +749,9 @@ def test_executive_summary_uses_final_selection_baseline_runtime(tmp_path: Path)
     html = html_path.read_text(encoding="utf-8")
     executive = html.split('id="experiment-configuration"', 1)[0]
 
-    assert "Baseline Runtime ns/case</strong>900" in executive
-    assert "Final Best Runtime ns/case</strong>700" in executive
-    assert "Baseline Runtime ns/case</strong>1000" not in executive
+    assert "Baseline Runtime ns/problem</strong>900" in executive
+    assert "Final Best Runtime ns/problem</strong>700" in executive
+    assert "Baseline Runtime ns/problem</strong>1000" not in executive
 
 
 def test_executive_summary_not_available_when_final_selection_metrics_null(tmp_path: Path) -> None:
@@ -815,21 +814,21 @@ def test_final_validation_runtime_distribution_plot_not_generated(tmp_path: Path
 
 
 def test_html_contains_runtime_improvement_label(tmp_path: Path) -> None:
-    """HTML renders 'Runtime Improvement ns/case' label with positive value."""
+    """HTML renders 'Runtime Improvement ns/problem' label with positive value."""
 
     report_data = _report_data()
     report_data.final_best_candidate = ReportFinalBestCandidate(
         iteration=1,
-        runtime_ns_per_case_median=80.0,
-        baseline_runtime_ns_per_case_median=100.0,
-        absolute_runtime_difference_ns_per_case=20.0,
+        runtime_ns_per_problem_median=80.0,
+        baseline_runtime_ns_per_problem_median=100.0,
+        absolute_runtime_difference_ns_per_problem=20.0,
         speedup_vs_baseline=1.25,
     )
     plot_paths = build_report_figures(report_data, tmp_path / "plots")
     html_path = render_report_html(report_data, plot_paths, tmp_path / "report.html")
     html = html_path.read_text(encoding="utf-8")
 
-    assert "Runtime Improvement ns/case" in html
+    assert "Runtime Improvement ns/problem" in html
     assert "20" in html
 
 
@@ -845,7 +844,7 @@ def test_list_fields_render_as_comma_separated(tmp_path: Path) -> None:
     report_data.experiment.total_iterations = 1
     report_data.experiment.completed_iterations = 1
     report_data.baseline_metrics = ReportBaselineMetrics(
-        runtime_ns_per_case_median=100.0,
+        runtime_ns_per_problem_median=100.0,
         correctness_passed=True,
     )
     report_data.reporting_status = ReportReportingStatus(

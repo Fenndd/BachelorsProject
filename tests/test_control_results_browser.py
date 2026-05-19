@@ -151,3 +151,27 @@ def test_selector_by_unique_directory_name_works(tmp_path: Path) -> None:
 def test_open_path_raises_clear_error_for_missing_path(tmp_path: Path) -> None:
     with pytest.raises(OpenArtifactError, match="Path does not exist"):
         open_path(tmp_path / "missing")
+
+
+def test_experiment_artifacts_include_final_selection_when_present(tmp_path: Path) -> None:
+    root = _repo_root(tmp_path)
+    exp_dir = _write_experiment(root, "exp_fs")
+    (exp_dir / "final_selection").mkdir()
+    (exp_dir / "final_selection_report.json").write_text("{}\n", encoding="utf-8")
+
+    items = list_result_items(root)
+    item = items[0]
+
+    assert item.artifacts.final_selection_dir is not None
+    assert item.artifacts.final_selection_report is not None
+
+
+def test_experiment_artifacts_final_selection_absent_when_missing(tmp_path: Path) -> None:
+    root = _repo_root(tmp_path)
+    _write_experiment(root, "exp_no_fs")
+
+    items = list_result_items(root)
+    item = items[0]
+
+    assert item.artifacts.final_selection_dir is None
+    assert item.artifacts.final_selection_report is None

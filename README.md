@@ -160,7 +160,7 @@ Pairwise candidate decisions consume verified benchmark artifacts and explicit r
 
 Selection and final reporting do not promote, merge, copy, or commit candidates into the main source tree.
 
-Generated reports are read-only visualizations under `results/experiments/<experiment_id>/report/`. The single-experiment report uses `schema_version: "report.v2"` and extends the original report with Outcome and Failure Analysis, Phase Timings, LLM Usage, Diff Statistics, Final Repeated Benchmark Validation, and an Iteration Appendix. Final validation aggregates and plots use only successful correctness-passing repetitions. Older or incomplete artifacts are handled through graceful degradation where possible, with missing fields or plots marked as unavailable.
+Generated reports are read-only visualizations under `results/experiments/<experiment_id>/report/`. The single-experiment report uses `schema_version: "report.v2"` and extends the original report with Outcome and Failure Analysis, Phase Timings, LLM Usage, Diff Statistics, Final Comparison vs Original Baseline, and an Iteration Appendix. Final selection metrics come from a single-run comparison of the final optimized source against the original baseline. Older or incomplete artifacts are handled through graceful degradation where possible, with missing fields or plots marked as unavailable.
 
 Completed reports can be checked without regenerating anything:
 

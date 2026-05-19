@@ -68,7 +68,7 @@ def _experiment_dir(tmp_path: Path) -> Path:
                 "iteration": 1,
                 "status": "accepted_improvement",
                 "candidate_summary": "Simplify arithmetic.",
-                "runtime_ns_per_case_median": 800.0,
+                "runtime_ns_per_problem_median": 800.0,
                 "speedup_vs_original_baseline": 1.25,
                 "correctness_passed": True,
                 "current_best_updated": True,
@@ -76,7 +76,7 @@ def _experiment_dir(tmp_path: Path) -> Path:
             {
                 "iteration": 2,
                 "status": "valid_not_improved",
-                "runtime_ns_per_case_median": 820.0,
+                "runtime_ns_per_problem_median": 820.0,
                 "speedup_vs_original_baseline": 1.22,
                 "correctness_passed": True,
             },

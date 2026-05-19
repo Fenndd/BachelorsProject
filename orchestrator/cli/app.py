@@ -170,6 +170,8 @@ def _artifact_rows(item: ResultItem) -> list[tuple[str, str]]:
         ("report_dir", artifacts.report_dir),
         ("report_pdf", artifacts.report_pdf),
         ("report_html", artifacts.report_html),
+        ("final_selection_dir", artifacts.final_selection_dir),
+        ("final_selection_report", artifacts.final_selection_report),
     ):
         rows.append((label, "-" if path is None else _display_path(path)))
     return rows
@@ -184,8 +186,8 @@ def _result_detail_panel(item: ResultItem) -> Panel:
             f"Status: {item.status or 'unknown'}",
             f"Started: {item.started_at or '-'}",
             f"Finished: {item.finished_at or '-'}",
-            f"Final validation speedup: {_format_number(item.final_speedup_vs_baseline)}",
-            f"Final validation runtime reduction %: {_format_number(item.final_runtime_reduction_percent)}",
+            f"Final selection speedup: {_format_number(item.final_speedup_vs_baseline)}",
+            f"Final selection runtime reduction %: {_format_number(item.final_runtime_reduction_percent)}",
             f"Best iteration: {item.final_best_iteration if item.final_best_iteration is not None else '-'}",
             f"Accepted improvements: {item.accepted_improvements if item.accepted_improvements is not None else '-'}",
         ]

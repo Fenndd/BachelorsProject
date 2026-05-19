@@ -73,7 +73,7 @@ def test_json_output_contains_required_top_level_sections(tmp_path: Path) -> Non
     assert payload["experiment"]["experiment_id"] == "exp_001"
     assert payload["experiment"]["target_file"] == TARGET_FILE
     assert payload["final_result"]["final_best_iteration"] == 0
-    assert payload["baseline_metrics"]["runtime_ns_per_case_median"] is None
+    assert payload["baseline_metrics"]["runtime_ns_per_problem_median"] is None
     assert payload["iterations"] == []
     assert payload["status_counts"] == {status.value: 0 for status in IterationStatus}
     assert payload["artifacts"]["report_html"] is None
@@ -106,17 +106,17 @@ def test_optional_runtime_and_correctness_fields_can_be_none() -> None:
         ReportIterationSummary(
             iteration=1,
             status="valid_not_improved",
-            runtime_ns_per_case_median=None,
+            runtime_ns_per_problem_median=None,
             correctness_passed=None,
         )
     )
 
     payload = to_report_dict(report_data)
 
-    assert payload["baseline_metrics"]["runtime_ns_per_case_median"] is None
+    assert payload["baseline_metrics"]["runtime_ns_per_problem_median"] is None
     assert payload["baseline_metrics"]["correctness_passed"] is None
     assert payload["final_result"]["correctness_preserved"] is None
-    assert payload["iterations"][0]["runtime_ns_per_case_median"] is None
+    assert payload["iterations"][0]["runtime_ns_per_problem_median"] is None
     assert payload["iterations"][0]["correctness_passed"] is None
 
 
@@ -153,7 +153,7 @@ def test_materialization_failed_iteration_with_no_runtime_serializes() -> None:
         candidate_summary=None,
         expected_effect=None,
         risk_level=None,
-        runtime_ns_per_case_median=None,
+        runtime_ns_per_problem_median=None,
         correctness_passed=None,
         promoted=False,
         reason="Patch could not be applied.",
@@ -163,7 +163,7 @@ def test_materialization_failed_iteration_with_no_runtime_serializes() -> None:
     payload = to_report_dict(iteration)
 
     assert payload["status"] == "materialization_failed"
-    assert payload["runtime_ns_per_case_median"] is None
+    assert payload["runtime_ns_per_problem_median"] is None
     assert payload["correctness_passed"] is None
     assert payload["promoted"] is False
     json.dumps(payload)

@@ -79,10 +79,13 @@ class ReportFinalResult:
 class ReportBaselineMetrics:
     """Baseline benchmark and correctness metrics."""
 
-    runtime_ns_per_case_median: float | None = None
-    success_rate: float | None = None
-    mean_reprojection_error: float | None = None
-    max_reprojection_error: float | None = None
+    runtime_ns_per_problem_median: float | None = None
+    gt_found_percent: float | None = None
+    valid_solutions_percent: float | None = None
+    total_solutions: int | None = None
+    solutions_per_problem: int | None = None
+    gt_found: int | None = None
+    valid_solutions: int | None = None
     correctness_passed: bool | None = None
 
 
@@ -154,7 +157,7 @@ class ReportIterationSummary:
     candidate_summary: str | None = None
     expected_effect: str | None = None
     risk_level: str | None = None
-    runtime_ns_per_case_median: float | None = None
+    runtime_ns_per_problem_median: float | None = None
     speedup_vs_current_best: float | None = None
     speedup_vs_baseline: float | None = None
     correctness_passed: bool | None = None
@@ -260,16 +263,14 @@ class ReportBenchmarkConfig:
 
     family: str | None = None
     solver: str | None = None
-    num_cases: int | None = None
-    points_per_case: int | None = None
-    warmup_iterations: int | None = None
+    num_problems: int | None = None
+    n_point_point: int | None = None
+    n_point_line: int | None = None
+    tolerance: float | None = None
+    camera_fov: float | None = None
     timed_iterations: int | None = None
     seed: int | None = None
     runtime_unit: str | None = None
-    reprojection_error_threshold: float | None = None
-    minimum_success_rate: float | None = None
-    require_all_cases_valid: bool | None = None
-    use_max_reprojection_error_as_hard_gate: bool | None = None
     build_type: str | None = None
 
 
@@ -326,9 +327,9 @@ class ReportFinalBestCandidate:
 
     iteration: int | None = None
     candidate_run_dir: str | None = None
-    runtime_ns_per_case_median: float | None = None
-    baseline_runtime_ns_per_case_median: float | None = None
-    absolute_runtime_difference_ns_per_case: float | None = None
+    runtime_ns_per_problem_median: float | None = None
+    baseline_runtime_ns_per_problem_median: float | None = None
+    absolute_runtime_difference_ns_per_problem: float | None = None
     speedup_vs_baseline: float | None = None
     runtime_reduction_percent: float | None = None
     correctness_passed: bool | None = None
