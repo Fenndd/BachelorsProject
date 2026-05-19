@@ -15,26 +15,24 @@ _KEY_VALUE_RE = re.compile(r"^\s*([A-Za-z_][A-Za-z0-9_]*)\s*:\s*(.*?)\s*$")
 
 _FIELD_TYPES = {
     "solver_name": "str",
-    "num_cases": "int",
-    "success_rate": "float",
-    "mean_best_reprojection_error": "float",
-    "max_best_reprojection_error": "float",
+    "num_problems": "int",
+    "total_solutions": "int",
+    "solutions_per_problem": "float",
+    "valid_solutions": "int",
+    "valid_solutions_percent": "float",
+    "gt_found": "int",
+    "gt_found_percent": "float",
     "runtime_ns_total_median": "float",
-    "runtime_ns_per_case_median": "float",
+    "runtime_ns_per_problem_median": "float",
     "correctness_passed": "bool",
 }
 
 _OPTIONAL_FIELD_TYPES = {
-    "valid_cases": "int",
-    "total_solutions": "int",
-    "warmup_iterations": "int",
+    "tolerance": "float",
+    "camera_fov": "float",
+    "n_point_point": "int",
+    "n_point_line": "int",
     "timed_iterations": "int",
-    "random_seed": "int",
-    "points_per_case": "int",
-    "reprojection_error_threshold": "float",
-    "min_success_rate": "float",
-    "require_all_cases_valid": "bool",
-    "use_max_reprojection_error_as_hard_gate": "bool",
     "runtime_unit": "str",
 }
 

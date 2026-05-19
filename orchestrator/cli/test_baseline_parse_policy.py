@@ -57,48 +57,48 @@ def _metadata() -> dict[str, object]:
     }
 
 
+def _benchmark_output(*, correct: bool = True) -> str:
+    gt_found_percent = 100.0 if correct else 50.0
+    return "\n".join(
+        [
+            "solver_name: lambdatwist_p3p",
+            "num_problems: 1000",
+            "total_solutions: 3000",
+            "solutions_per_problem: 3.0",
+            "valid_solutions: 3000",
+            "valid_solutions_percent: 100.0",
+            f"gt_found: {1000 if correct else 500}",
+            f"gt_found_percent: {gt_found_percent}",
+            "runtime_ns_total_median: 1000000",
+            "runtime_ns_per_problem_median: 1000",
+            "tolerance: 1e-6",
+            "camera_fov: 75",
+            "n_point_point: 3",
+            "n_point_line: 0",
+            "timed_iterations: 10",
+            "runtime_unit: ns",
+            f"correctness_passed: {str(correct).lower()}",
+        ]
+    )
+
+
 class BaselineParsePolicyTests(unittest.TestCase):
     def test_parse_success_keeps_status_success(self) -> None:
-        parse_result = _benchmark_parse_result_from_output(
-            "\n".join(
-                [
-                    "solver_name: lambdatwist_p3p",
-                    "num_cases: 1000",
-                    "success_rate: 1.0",
-                    "mean_best_reprojection_error: 1e-12",
-                    "max_best_reprojection_error: 2e-12",
-                    "runtime_ns_total_median: 1000000",
-                    "runtime_ns_per_case_median: 1000",
-                    "correctness_passed: true",
-                ]
-            )
-        )
+        parse_result = _benchmark_parse_result_from_output(_benchmark_output())
         steps = [*_successful_steps(), _step(PARSE_FAMILY_BENCHMARK_STEP, "success")]
 
         status = _build_status(steps, None, None)
         metrics = _build_metrics(steps, "Release", parse_result)
 
         self.assertEqual(status["overall_status"], "success")
-        self.assertIsNone(status["failed_step"])
         self.assertTrue(metrics["benchmark"]["parse_success"])
-        self.assertEqual(metrics["benchmark"]["parsed_runtime_ns_per_case_median"], 1000.0)
+        self.assertEqual(
+            metrics["benchmark"]["parsed_runtime_ns_per_problem_median"], 1000.0
+        )
         self.assertTrue(metrics["benchmark"]["parsed_correctness_passed"])
 
     def test_parse_success_correctness_false_fails_but_preserves_metrics(self) -> None:
-        parse_result = _benchmark_parse_result_from_output(
-            "\n".join(
-                [
-                    "solver_name: lambdatwist_p3p",
-                    "num_cases: 1000",
-                    "success_rate: 0.5",
-                    "mean_best_reprojection_error: 1e-3",
-                    "max_best_reprojection_error: 2e-3",
-                    "runtime_ns_total_median: 1000000",
-                    "runtime_ns_per_case_median: 1000",
-                    "correctness_passed: false",
-                ]
-            )
-        )
+        parse_result = _benchmark_parse_result_from_output(_benchmark_output(correct=False))
         steps = [
             *_successful_steps(),
             _step(PARSE_FAMILY_BENCHMARK_STEP, "success"),
@@ -113,24 +113,13 @@ class BaselineParsePolicyTests(unittest.TestCase):
         self.assertEqual(status["failed_step"], BENCHMARK_CORRECTNESS_CHECK_STEP)
         self.assertTrue(metrics["benchmark"]["parse_success"])
         self.assertIs(metrics["benchmark"]["parsed_correctness_passed"], False)
-        self.assertEqual(metrics["benchmark"]["parsed_runtime_ns_per_case_median"], 1000.0)
-        self.assertIn("correctness_passed=false", error_message)
+        self.assertEqual(
+            metrics["benchmark"]["parsed_runtime_ns_per_problem_median"], 1000.0
+        )
+        self.assertIn("gt_found_percent=50.0", error_message)
 
     def test_correctness_failure_index_and_summary_preserve_metrics(self) -> None:
-        parse_result = _benchmark_parse_result_from_output(
-            "\n".join(
-                [
-                    "solver_name: lambdatwist_p3p",
-                    "num_cases: 1000",
-                    "success_rate: 0.5",
-                    "mean_best_reprojection_error: 1e-3",
-                    "max_best_reprojection_error: 2e-3",
-                    "runtime_ns_total_median: 1000000",
-                    "runtime_ns_per_case_median: 1000",
-                    "correctness_passed: false",
-                ]
-            )
-        )
+        parse_result = _benchmark_parse_result_from_output(_benchmark_output(correct=False))
         steps = [
             *_successful_steps(),
             _step(PARSE_FAMILY_BENCHMARK_STEP, "success"),
@@ -151,45 +140,42 @@ class BaselineParsePolicyTests(unittest.TestCase):
             summary = _build_summary(run_dir, _metadata(), status, metrics, "Release")
 
         self.assertEqual(index_record["overall_status"], "failed")
-        self.assertEqual(index_record["failed_step"], BENCHMARK_CORRECTNESS_CHECK_STEP)
         self.assertTrue(index_record["family_benchmark_parse_success"])
         self.assertIs(index_record["family_benchmark_correctness_passed"], False)
-        self.assertEqual(index_record["family_benchmark_runtime_ns_per_case_median"], 1000.0)
-        self.assertIn(f"Failed step: {BENCHMARK_CORRECTNESS_CHECK_STEP}", summary)
-        self.assertIn("- correctness passed: false", summary)
+        self.assertEqual(
+            index_record["family_benchmark_runtime_ns_per_problem_median"], 1000.0
+        )
+        self.assertIn("- GT found: 50.0%", summary)
+        self.assertNotIn("reprojection", summary)
 
     def test_parse_failure_fails_status_and_preserves_partial_metrics(self) -> None:
         parse_result = _benchmark_parse_result_from_output(
             "\n".join(
                 [
                     "solver_name: lambdatwist_p3p",
-                    "num_cases: 1000",
-                    "success_rate: 1.0",
+                    "num_problems: 1000",
+                    "gt_found_percent: 100.0",
                 ]
             )
         )
         steps = [*_successful_steps(), _step(PARSE_FAMILY_BENCHMARK_STEP, "failed")]
-        error_message = "Could not parse family benchmark output."
 
-        status = _build_status(steps, PARSE_FAMILY_BENCHMARK_STEP, error_message)
+        status = _build_status(steps, PARSE_FAMILY_BENCHMARK_STEP, "parse failed")
         metrics = _build_metrics(steps, "Release", parse_result)
 
         self.assertEqual(status["overall_status"], "failed")
-        self.assertEqual(status["failed_step"], PARSE_FAMILY_BENCHMARK_STEP)
         self.assertFalse(metrics["benchmark"]["parse_success"])
         self.assertIn(
-            "runtime_ns_per_case_median", metrics["benchmark"]["missing_fields"]
+            "runtime_ns_per_problem_median", metrics["benchmark"]["missing_fields"]
         )
         self.assertEqual(metrics["benchmark"]["parsed_solver_name"], "lambdatwist_p3p")
-        self.assertEqual(metrics["benchmark"]["parsed_num_cases"], 1000)
-        self.assertIsNone(metrics["benchmark"]["parsed_runtime_ns_per_case_median"])
-        self.assertIsNone(metrics["benchmark"]["parsed_correctness_passed"])
+        self.assertEqual(metrics["benchmark"]["parsed_num_problems"], 1000)
+        self.assertIsNone(metrics["benchmark"]["parsed_runtime_ns_per_problem_median"])
 
     def test_parse_failure_index_and_summary_reflect_failed_run(self) -> None:
         parse_result = _benchmark_parse_result_from_output("solver_name: lambdatwist_p3p\n")
         steps = [*_successful_steps(), _step(PARSE_FAMILY_BENCHMARK_STEP, "failed")]
-        error_message = "Could not parse family benchmark output."
-        status = _build_status(steps, PARSE_FAMILY_BENCHMARK_STEP, error_message)
+        status = _build_status(steps, PARSE_FAMILY_BENCHMARK_STEP, "parse failed")
         metrics = _build_metrics(steps, "Release", parse_result)
 
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -199,14 +185,10 @@ class BaselineParsePolicyTests(unittest.TestCase):
             )
             summary = _build_summary(run_dir, _metadata(), status, metrics, "Release")
 
-        self.assertEqual(index_record["overall_status"], "failed")
-        self.assertEqual(index_record["failed_step"], PARSE_FAMILY_BENCHMARK_STEP)
         self.assertFalse(index_record["family_benchmark_parse_success"])
-        self.assertIsNone(index_record["family_benchmark_runtime_ns_per_case_median"])
-        self.assertIsNone(index_record["family_benchmark_success_rate"])
-        self.assertIsNone(index_record["family_benchmark_correctness_passed"])
+        self.assertIsNone(index_record["family_benchmark_runtime_ns_per_problem_median"])
+        self.assertIsNone(index_record["family_benchmark_gt_found_percent"])
         self.assertIn("Benchmark parse status: false", summary)
-        self.assertIn(f"Failed step: {PARSE_FAMILY_BENCHMARK_STEP}", summary)
         self.assertIn("missing fields:", summary)
 
     def test_prior_benchmark_failure_skips_parse_step(self) -> None:

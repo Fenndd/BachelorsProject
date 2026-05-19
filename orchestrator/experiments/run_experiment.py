@@ -1265,10 +1265,10 @@ def _variant_record_history(record: dict[str, Any]) -> dict[str, Any]:
         "materialization_status": materialization.get("status"),
         "verification_status": verification.get("status"),
         "verification_benchmark_parse_success": benchmark.get("parse_success"),
-        "verification_benchmark_runtime_ns_per_case_median": benchmark.get(
-            "parsed_runtime_ns_per_case_median"
+        "verification_benchmark_runtime_ns_per_problem_median": benchmark.get(
+            "parsed_runtime_ns_per_problem_median"
         ),
-        "verification_benchmark_success_rate": benchmark.get("parsed_success_rate"),
+        "verification_benchmark_gt_found_percent": benchmark.get("parsed_gt_found_percent"),
         "verification_benchmark_correctness_passed": benchmark.get(
             "parsed_correctness_passed"
         ),

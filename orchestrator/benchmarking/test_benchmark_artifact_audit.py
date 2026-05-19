@@ -17,12 +17,15 @@ def _loaded_artifact(**benchmark_overrides: object) -> dict[str, object]:
         "solver": "lambdatwist_p3p",
         "runtime_unit": "ns",
         "parse_success": True,
-        "parsed_num_cases": 1000,
-        "parsed_success_rate": 1.0,
-        "parsed_mean_best_reprojection_error": 1.0e-12,
-        "parsed_max_best_reprojection_error": 2.0e-12,
+        "parsed_num_problems": 1000,
+        "parsed_total_solutions": 3000,
+        "parsed_solutions_per_problem": 3.0,
+        "parsed_valid_solutions": 3000,
+        "parsed_valid_solutions_percent": 100.0,
+        "parsed_gt_found": 1000,
+        "parsed_gt_found_percent": 100.0,
         "parsed_runtime_ns_total_median": 1000000.0,
-        "parsed_runtime_ns_per_case_median": 1000.0,
+        "parsed_runtime_ns_per_problem_median": 1000.0,
         "parsed_correctness_passed": True,
     }
     benchmark.update(benchmark_overrides)
@@ -45,7 +48,7 @@ class BenchmarkArtifactAuditTests(unittest.TestCase):
     def test_valid_pair_is_comparable(self) -> None:
         audit = audit_comparable_benchmark_pair(
             _loaded_artifact(),
-            _loaded_artifact(parsed_runtime_ns_per_case_median=1200.0),
+            _loaded_artifact(parsed_runtime_ns_per_problem_median=1200.0),
         )
 
         self.assertTrue(audit["comparable"])
@@ -53,14 +56,14 @@ class BenchmarkArtifactAuditTests(unittest.TestCase):
         self.assertTrue(audit["checks"]["same_family"])
         self.assertTrue(audit["checks"]["same_solver"])
 
-    def test_num_case_mismatch_fails_pair_without_ranking(self) -> None:
+    def test_num_problem_mismatch_fails_pair_without_ranking(self) -> None:
         audit = audit_comparable_benchmark_pair(
             _loaded_artifact(),
-            _loaded_artifact(parsed_num_cases=999),
+            _loaded_artifact(parsed_num_problems=999),
         )
 
         self.assertFalse(audit["comparable"])
-        self.assertIn("same_num_cases", audit["failed_checks"])
+        self.assertIn("same_num_problems", audit["failed_checks"])
 
     def test_parse_failure_fails_single_artifact(self) -> None:
         audit = audit_single_benchmark_artifact(
@@ -79,15 +82,12 @@ class BenchmarkArtifactAuditTests(unittest.TestCase):
 
     def test_matching_benchmark_options_passes(self) -> None:
         opts = {
-            "num_cases": 1000,
-            "points_per_case": 3,
-            "warmup_iterations": 3,
+            "num_problems": 1000,
+            "tolerance": 1e-6,
+            "camera_fov": 75.0,
+            "n_point_point": 3,
+            "n_point_line": 0,
             "timed_iterations": 10,
-            "random_seed": 42,
-            "reprojection_error_threshold": 1e-6,
-            "min_success_rate": 0.99,
-            "require_all_cases_valid": False,
-            "use_max_reprojection_error_as_hard_gate": False,
             "runtime_unit": "ns",
             "build_type": "Release",
         }
@@ -101,20 +101,17 @@ class BenchmarkArtifactAuditTests(unittest.TestCase):
 
     def test_mismatched_benchmark_options_fails(self) -> None:
         opts_a = {
-            "num_cases": 1000,
-            "points_per_case": 3,
-            "warmup_iterations": 3,
+            "num_problems": 1000,
+            "tolerance": 1e-6,
+            "camera_fov": 75.0,
+            "n_point_point": 3,
+            "n_point_line": 0,
             "timed_iterations": 10,
-            "random_seed": 42,
-            "reprojection_error_threshold": 1e-6,
-            "min_success_rate": 0.99,
-            "require_all_cases_valid": False,
-            "use_max_reprojection_error_as_hard_gate": False,
             "runtime_unit": "ns",
             "build_type": "Release",
         }
         opts_b = dict(opts_a)
-        opts_b["num_cases"] = 500
+        opts_b["num_problems"] = 500
         audit = audit_comparable_benchmark_pair(
             _loaded_artifact(benchmark_options=opts_a),
             _loaded_artifact(benchmark_options=opts_b),

@@ -56,12 +56,15 @@ PARSE_FAMILY_BENCHMARK_STEP = "parse_absolute_pose_lambdatwist_benchmark"
 BENCHMARK_CORRECTNESS_CHECK_STEP = "benchmark_correctness_check"
 BENCHMARK_REQUIRED_FIELDS = [
     "solver_name",
-    "num_cases",
-    "success_rate",
-    "mean_best_reprojection_error",
-    "max_best_reprojection_error",
+    "num_problems",
+    "total_solutions",
+    "solutions_per_problem",
+    "valid_solutions",
+    "valid_solutions_percent",
+    "gt_found",
+    "gt_found_percent",
     "runtime_ns_total_median",
-    "runtime_ns_per_case_median",
+    "runtime_ns_per_problem_median",
     "correctness_passed",
 ]
 
@@ -295,11 +298,11 @@ def _build_benchmark_correctness_error_message(
     return (
         "Family benchmark parsed successfully, but correctness_passed=false. "
         "The baseline is not usable for comparison. "
-        f"success_rate={parsed_metrics.get('success_rate')!r}, "
-        "mean_best_reprojection_error="
-        f"{parsed_metrics.get('mean_best_reprojection_error')!r}, "
-        "max_best_reprojection_error="
-        f"{parsed_metrics.get('max_best_reprojection_error')!r}."
+        f"gt_found_percent={parsed_metrics.get('gt_found_percent')!r}, "
+        "valid_solutions_percent="
+        f"{parsed_metrics.get('valid_solutions_percent')!r}, "
+        "runtime_ns_per_problem_median="
+        f"{parsed_metrics.get('runtime_ns_per_problem_median')!r}."
     )
 
 
@@ -399,23 +402,18 @@ def _build_benchmark_options(
 ) -> dict[str, Any] | None:
     """Build benchmark_options dict from parsed metrics when all keys are available."""
     required_keys = (
-        "num_cases", "points_per_case", "warmup_iterations",
-        "timed_iterations", "random_seed", "reprojection_error_threshold",
-        "min_success_rate", "require_all_cases_valid",
-        "use_max_reprojection_error_as_hard_gate", "runtime_unit",
+        "num_problems", "tolerance", "camera_fov", "n_point_point",
+        "n_point_line", "timed_iterations", "runtime_unit",
     )
     if not all(k in parsed_metrics for k in required_keys):
         return None
     return {
-        "num_cases": parsed_metrics["num_cases"],
-        "points_per_case": parsed_metrics["points_per_case"],
-        "warmup_iterations": parsed_metrics["warmup_iterations"],
+        "num_problems": parsed_metrics["num_problems"],
+        "tolerance": parsed_metrics["tolerance"],
+        "camera_fov": parsed_metrics["camera_fov"],
+        "n_point_point": parsed_metrics["n_point_point"],
+        "n_point_line": parsed_metrics["n_point_line"],
         "timed_iterations": parsed_metrics["timed_iterations"],
-        "random_seed": parsed_metrics["random_seed"],
-        "reprojection_error_threshold": parsed_metrics["reprojection_error_threshold"],
-        "min_success_rate": parsed_metrics["min_success_rate"],
-        "require_all_cases_valid": parsed_metrics["require_all_cases_valid"],
-        "use_max_reprojection_error_as_hard_gate": parsed_metrics["use_max_reprojection_error_as_hard_gate"],
         "runtime_unit": parsed_metrics["runtime_unit"],
         "build_type": cmake_build_type,
     }
@@ -465,23 +463,20 @@ def _build_metrics(
             "missing_fields": benchmark_parse_result["missing_fields"],
             "parse_errors": benchmark_parse_result["parse_errors"],
             "parsed_solver_name": parsed_metrics.get("solver_name"),
-            "parsed_num_cases": parsed_metrics.get("num_cases"),
-            "parsed_success_rate": parsed_metrics.get("success_rate"),
-            "parsed_mean_best_reprojection_error": parsed_metrics.get(
-                "mean_best_reprojection_error"
-            ),
-            "parsed_max_best_reprojection_error": parsed_metrics.get(
-                "max_best_reprojection_error"
-            ),
+            "parsed_num_problems": parsed_metrics.get("num_problems"),
+            "parsed_total_solutions": parsed_metrics.get("total_solutions"),
+            "parsed_solutions_per_problem": parsed_metrics.get("solutions_per_problem"),
+            "parsed_valid_solutions": parsed_metrics.get("valid_solutions"),
+            "parsed_valid_solutions_percent": parsed_metrics.get("valid_solutions_percent"),
+            "parsed_gt_found": parsed_metrics.get("gt_found"),
+            "parsed_gt_found_percent": parsed_metrics.get("gt_found_percent"),
             "parsed_runtime_ns_total_median": parsed_metrics.get(
                 "runtime_ns_total_median"
             ),
-            "parsed_runtime_ns_per_case_median": parsed_metrics.get(
-                "runtime_ns_per_case_median"
+            "parsed_runtime_ns_per_problem_median": parsed_metrics.get(
+                "runtime_ns_per_problem_median"
             ),
             "parsed_correctness_passed": parsed_metrics.get("correctness_passed"),
-            "parsed_valid_cases": parsed_metrics.get("valid_cases"),
-            "parsed_total_solutions": parsed_metrics.get("total_solutions"),
         },
         "correctness": {
             "basic_smoke_test_passed": smoke_test_success,
@@ -547,17 +542,15 @@ def _build_summary(
             "",
             "Family benchmark:",
             f"- solver: {_format_metric_value(benchmark['parsed_solver_name'])}",
-            f"- cases: {_format_metric_value(benchmark['parsed_num_cases'])}",
-            f"- success rate: {_format_metric_value(benchmark['parsed_success_rate'])}",
+            f"- problems: {_format_metric_value(benchmark['parsed_num_problems'])}",
+            f"- solutions/problem: {_format_metric_value(benchmark['parsed_solutions_per_problem'])}",
+            f"- valid solutions: {_format_metric_value(benchmark['parsed_valid_solutions_percent'])}%",
+            f"- GT found: {_format_metric_value(benchmark['parsed_gt_found_percent'])}%",
             f"- correctness passed: {_format_metric_value(benchmark['parsed_correctness_passed'])}",
-            "- mean best reprojection error: "
-            f"{_format_metric_value(benchmark['parsed_mean_best_reprojection_error'])}",
-            "- max best reprojection error: "
-            f"{_format_metric_value(benchmark['parsed_max_best_reprojection_error'])}",
             "- median runtime total: "
             f"{_format_metric_value(benchmark['parsed_runtime_ns_total_median'])} ns",
-            "- median runtime per case: "
-            f"{_format_metric_value(benchmark['parsed_runtime_ns_per_case_median'])} ns",
+            "- median runtime per problem: "
+            f"{_format_metric_value(benchmark['parsed_runtime_ns_per_problem_median'])} ns",
             "",
         ]
     )
@@ -615,19 +608,20 @@ def _build_index_record(
         "family_benchmark_raw_output_available": benchmark["raw_output_available"],
         "family_benchmark_parse_success": benchmark["parse_success"],
         "family_benchmark_solver": benchmark["parsed_solver_name"],
-        "family_benchmark_num_cases": benchmark["parsed_num_cases"],
-        "family_benchmark_success_rate": benchmark["parsed_success_rate"],
-        "family_benchmark_mean_best_reprojection_error": benchmark[
-            "parsed_mean_best_reprojection_error"
+        "family_benchmark_num_problems": benchmark["parsed_num_problems"],
+        "family_benchmark_total_solutions": benchmark["parsed_total_solutions"],
+        "family_benchmark_solutions_per_problem": benchmark[
+            "parsed_solutions_per_problem"
         ],
-        "family_benchmark_max_best_reprojection_error": benchmark[
-            "parsed_max_best_reprojection_error"
+        "family_benchmark_valid_solutions_percent": benchmark[
+            "parsed_valid_solutions_percent"
         ],
+        "family_benchmark_gt_found_percent": benchmark["parsed_gt_found_percent"],
         "family_benchmark_runtime_ns_total_median": benchmark[
             "parsed_runtime_ns_total_median"
         ],
-        "family_benchmark_runtime_ns_per_case_median": benchmark[
-            "parsed_runtime_ns_per_case_median"
+        "family_benchmark_runtime_ns_per_problem_median": benchmark[
+            "parsed_runtime_ns_per_problem_median"
         ],
         "family_benchmark_correctness_passed": benchmark["parsed_correctness_passed"],
         "run_dir": _display_path(run_dir, repo_root),

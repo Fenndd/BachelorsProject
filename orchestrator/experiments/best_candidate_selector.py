@@ -55,12 +55,11 @@ def select_best_candidate(
                 "accepted_improvement": 0,
             },
             "best_metrics": {
-                "runtime_ns_per_case_median": None,
+                "runtime_ns_per_problem_median": None,
                 "speedup": None,
                 "runtime_reduction_percent": None,
-                "success_rate": None,
-                "mean_best_reprojection_error": None,
-                "max_best_reprojection_error": None,
+                "valid_solutions_percent": None,
+                "gt_found_percent": None,
             },
             "decisions": [],
         }
@@ -154,14 +153,11 @@ def _decision_summary(
         "candidate_run_dir": str(candidate_run_dir),
         "status": decision.get("status"),
         "candidate_decision_path": decision_path_text,
-        "runtime_ns_per_case_median": candidate_metrics.get("runtime_ns_per_case_median"),
+        "runtime_ns_per_problem_median": candidate_metrics.get("runtime_ns_per_problem_median"),
         "speedup": comparison.get("speedup"),
         "runtime_reduction_percent": comparison.get("runtime_reduction_percent"),
-        "success_rate": candidate_metrics.get("success_rate"),
-        "mean_best_reprojection_error": candidate_metrics.get(
-            "mean_best_reprojection_error"
-        ),
-        "max_best_reprojection_error": candidate_metrics.get("max_best_reprojection_error"),
+        "valid_solutions_percent": candidate_metrics.get("valid_solutions_percent"),
+        "gt_found_percent": candidate_metrics.get("gt_found_percent"),
         "rejection_reasons": rejection_reasons,
         "non_acceptance_reasons": non_acceptance_reasons,
     }
@@ -170,21 +166,19 @@ def _decision_summary(
 def _best_metrics(best_summary: dict[str, Any] | None) -> dict[str, Any]:
     if best_summary is None:
         return {
-            "runtime_ns_per_case_median": None,
+            "runtime_ns_per_problem_median": None,
             "speedup": None,
             "runtime_reduction_percent": None,
-            "success_rate": None,
-            "mean_best_reprojection_error": None,
-            "max_best_reprojection_error": None,
+            "valid_solutions_percent": None,
+            "gt_found_percent": None,
         }
 
     return {
-        "runtime_ns_per_case_median": best_summary.get("runtime_ns_per_case_median"),
+        "runtime_ns_per_problem_median": best_summary.get("runtime_ns_per_problem_median"),
         "speedup": best_summary.get("speedup"),
         "runtime_reduction_percent": best_summary.get("runtime_reduction_percent"),
-        "success_rate": best_summary.get("success_rate"),
-        "mean_best_reprojection_error": best_summary.get("mean_best_reprojection_error"),
-        "max_best_reprojection_error": best_summary.get("max_best_reprojection_error"),
+        "valid_solutions_percent": best_summary.get("valid_solutions_percent"),
+        "gt_found_percent": best_summary.get("gt_found_percent"),
     }
 
 
@@ -197,22 +191,19 @@ def _finite_or_inf(value: object, *, higher_is_better: bool) -> float:
     return numeric
 
 
-def _ranking_key(item: tuple[int, dict[str, Any]]) -> tuple[float, float, float, float, int]:
+def _ranking_key(item: tuple[int, dict[str, Any]]) -> tuple[float, float, float, int]:
     """Return deterministic rank key for accepted improvements.
 
     Lower tuple values are better.
     """
 
     input_index, summary = item
-    runtime = _finite_or_inf(summary.get("runtime_ns_per_case_median"), higher_is_better=False)
-    success_rate = _finite_or_inf(summary.get("success_rate"), higher_is_better=True)
-    mean_error = _finite_or_inf(
-        summary.get("mean_best_reprojection_error"), higher_is_better=False
+    runtime = _finite_or_inf(summary.get("runtime_ns_per_problem_median"), higher_is_better=False)
+    gt_found_percent = _finite_or_inf(summary.get("gt_found_percent"), higher_is_better=True)
+    valid_solutions_percent = _finite_or_inf(
+        summary.get("valid_solutions_percent"), higher_is_better=True
     )
-    max_error = _finite_or_inf(
-        summary.get("max_best_reprojection_error"), higher_is_better=False
-    )
-    return (runtime, -success_rate, mean_error, max_error, input_index)
+    return (runtime, -gt_found_percent, -valid_solutions_percent, input_index)
 
 
 def _parse_args(argv: list[str]) -> argparse.Namespace:

@@ -82,25 +82,23 @@ Baseline metrics contain success flags and parsed family benchmark values. The p
     "missing_fields": [],
     "parse_errors": [],
     "parsed_solver_name": "lambdatwist_p3p",
-    "parsed_num_cases": 1000,
-    "parsed_success_rate": 1.0,
-    "parsed_mean_best_reprojection_error": 7.63e-14,
-    "parsed_max_best_reprojection_error": 1.1e-12,
+    "parsed_num_problems": 100000,
+    "parsed_total_solutions": 172803,
+    "parsed_solutions_per_problem": 1.72803,
+    "parsed_valid_solutions": 172803,
+    "parsed_valid_solutions_percent": 100.0,
+    "parsed_gt_found": 100000,
+    "parsed_gt_found_percent": 100.0,
     "parsed_runtime_ns_total_median": 32928700.0,
-    "parsed_runtime_ns_per_case_median": 32928.7,
+    "parsed_runtime_ns_per_problem_median": 32928.7,
     "parsed_correctness_passed": true,
-    "parsed_valid_cases": 1000,
-    "parsed_total_solutions": 3000,
     "benchmark_options": {
-      "num_cases": 1000,
-      "points_per_case": 3,
-      "warmup_iterations": 3,
+      "num_problems": 100000,
+      "tolerance": 1e-6,
+      "camera_fov": 75.0,
+      "n_point_point": 3,
+      "n_point_line": 0,
       "timed_iterations": 10,
-      "random_seed": 42,
-      "reprojection_error_threshold": 1e-6,
-      "min_success_rate": 0.99,
-      "require_all_cases_valid": false,
-      "use_max_reprojection_error_as_hard_gate": false,
       "runtime_unit": "ns",
       "build_type": "Release"
     }
@@ -117,7 +115,7 @@ Baseline metrics contain success flags and parsed family benchmark values. The p
 `results/index.jsonl` is a compact append-only JSON Lines index. Baseline records include run identity, repository state, success flags, and compact parsed family benchmark values:
 
 ```json
-{"run_id":"2026-05-01_23-40-12_baseline","scenario":"baseline","case_study":"p3p_solver","baseline":"lambda_twist","overall_status":"success","failed_step":null,"started_at":"2026-05-01T23:40:12+02:00","finished_at":"2026-05-01T23:41:03+02:00","git_commit":"abc1234","git_branch":"main","dirty_worktree":false,"build_success":true,"smoke_test_success":true,"runner_success":true,"benchmark_success":true,"adapter_validation_success":true,"family_benchmark_success":true,"benchmark_raw_output_available":true,"benchmark_runtime_ms":null,"family_benchmark_raw_output_available":true,"family_benchmark_parse_success":true,"family_benchmark_solver":"lambdatwist_p3p","family_benchmark_num_cases":1000,"family_benchmark_success_rate":1.0,"family_benchmark_mean_best_reprojection_error":7.63e-14,"family_benchmark_max_best_reprojection_error":1.1e-12,"family_benchmark_runtime_ns_total_median":32928700.0,"family_benchmark_runtime_ns_per_case_median":32928.7,"family_benchmark_correctness_passed":true,"run_dir":"results/runs/2026-05-01_23-40-12_baseline"}
+{"run_id":"2026-05-01_23-40-12_baseline","scenario":"baseline","case_study":"p3p_solver","baseline":"lambda_twist","overall_status":"success","failed_step":null,"started_at":"2026-05-01T23:40:12+02:00","finished_at":"2026-05-01T23:41:03+02:00","git_commit":"abc1234","git_branch":"main","dirty_worktree":false,"build_success":true,"smoke_test_success":true,"runner_success":true,"benchmark_success":true,"adapter_validation_success":true,"family_benchmark_success":true,"benchmark_raw_output_available":true,"benchmark_runtime_ms":null,"family_benchmark_raw_output_available":true,"family_benchmark_parse_success":true,"family_benchmark_solver":"lambdatwist_p3p","family_benchmark_num_problems":100000,"family_benchmark_gt_found_percent":100.0,"family_benchmark_valid_solutions_percent":100.0,"family_benchmark_runtime_ns_total_median":32928700.0,"family_benchmark_runtime_ns_per_problem_median":32928.7,"family_benchmark_correctness_passed":true,"run_dir":"results/runs/2026-05-01_23-40-12_baseline"}
 ```
 
 ## `logs/`
@@ -880,4 +878,4 @@ when available, and paths to `final_optimized_source/`,
 - JSON metrics output directly from C++ benchmarks
 - Additional solver families/adapters
 - Configurable minimum runtime-improvement thresholds or repeated-benchmark confidence policies
-- Memory measurement; the current minimal P3P pipeline records runtime and correctness/reprojection metrics only
+- Memory measurement; the current minimal P3P pipeline records runtime and PoseLib-style calibrated-pose correctness metrics only

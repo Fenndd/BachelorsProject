@@ -44,15 +44,22 @@ def _benchmark_output(runtime: float, *, correct: bool = True) -> str:
     return "\n".join(
         [
             "solver_name: lambdatwist_p3p",
-            "num_cases: 10",
-            f"success_rate: {1.0 if correct else 0.5}",
-            "mean_best_reprojection_error: 1e-12",
-            "max_best_reprojection_error: 2e-12",
+            "num_problems: 10",
+            "total_solutions: 30",
+            "solutions_per_problem: 3.0",
+            "valid_solutions: 30",
+            "valid_solutions_percent: 100.0",
+            f"gt_found: {10 if correct else 5}",
+            f"gt_found_percent: {100.0 if correct else 50.0}",
             "runtime_ns_total_median: 1000",
-            f"runtime_ns_per_case_median: {runtime}",
+            f"runtime_ns_per_problem_median: {runtime}",
+            "tolerance: 1e-6",
+            "camera_fov: 75",
+            "n_point_point: 3",
+            "n_point_line: 0",
+            "timed_iterations: 10",
+            "runtime_unit: ns",
             f"correctness_passed: {str(correct).lower()}",
-            "valid_cases: 10",
-            "total_solutions: 10",
             "",
         ]
     )
@@ -111,11 +118,11 @@ def test_final_validation_aggregates_successful_runs(tmp_path: Path, monkeypatch
 
     payload = json.loads(report_path.read_text(encoding="utf-8"))
     assert payload["status"] == "completed"
-    assert payload["baseline"]["summary"]["median_runtime_ns_per_case"] == 100.0
-    assert payload["baseline"]["summary"]["mean_runtime_ns_per_case"] == 100.0
-    assert payload["baseline"]["summary"]["min_runtime_ns_per_case"] == 90.0
-    assert payload["baseline"]["summary"]["max_runtime_ns_per_case"] == 110.0
-    assert payload["final"]["summary"]["median_runtime_ns_per_case"] == 80.0
+    assert payload["baseline"]["summary"]["median_runtime_ns_per_problem"] == 100.0
+    assert payload["baseline"]["summary"]["mean_runtime_ns_per_problem"] == 100.0
+    assert payload["baseline"]["summary"]["min_runtime_ns_per_problem"] == 90.0
+    assert payload["baseline"]["summary"]["max_runtime_ns_per_problem"] == 110.0
+    assert payload["final"]["summary"]["median_runtime_ns_per_problem"] == 80.0
     assert payload["comparison"]["median_speedup"] == 1.25
     assert payload["comparison"]["median_runtime_reduction_percent"] == 20.0
     assert payload["safety"]["updates_current_best"] is False
@@ -405,13 +412,13 @@ def test_final_validation_ignores_legacy_verification_status() -> None:
         {
             "verification_status": "success",
             "correctness_passed": True,
-            "runtime_ns_per_case_median": 10.0,
+            "runtime_ns_per_problem_median": 10.0,
         },
         {
             "benchmark_run_status": "success",
             "verification_status": "failed",
             "correctness_passed": True,
-            "runtime_ns_per_case_median": 20.0,
+            "runtime_ns_per_problem_median": 20.0,
         },
     ]
 
@@ -419,7 +426,7 @@ def test_final_validation_ignores_legacy_verification_status() -> None:
 
     assert summary["successful_runs"] == 1
     assert summary["failed_runs"] == 1
-    assert summary["median_runtime_ns_per_case"] == 20.0
+    assert summary["median_runtime_ns_per_problem"] == 20.0
 
 
 def test_final_validation_diagnostics_do_not_fallback_to_verification_status() -> None:
@@ -432,7 +439,7 @@ def test_final_validation_diagnostics_do_not_fallback_to_verification_status() -
                     {
                         "verification_status": "success",
                         "correctness_passed": True,
-                        "runtime_ns_per_case_median": 100.0,
+                        "runtime_ns_per_problem_median": 100.0,
                     }
                 ],
             },

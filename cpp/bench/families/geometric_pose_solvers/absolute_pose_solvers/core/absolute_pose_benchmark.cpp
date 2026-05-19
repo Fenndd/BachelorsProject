@@ -1,8 +1,10 @@
 #include "absolute_pose_benchmark.hpp"
 
+// Closely adapted from PoseLib's benchmark/solver_benchmark.{h,cc}.
+// Copyright (c) 2020, Viktor Larsson. BSD 3-Clause License.
+
 #include <algorithm>
 #include <chrono>
-#include <cmath>
 #include <limits>
 #include <vector>
 
@@ -12,126 +14,89 @@
 namespace benchmark::geometric_pose::absolute_pose {
 namespace {
 
-double median_runtime(std::vector<double> runtimes) {
+double poselib_style_median_runtime(std::vector<long long> runtimes) {
     if (runtimes.empty()) {
         return 0.0;
     }
 
     std::sort(runtimes.begin(), runtimes.end());
-    const std::size_t middle = runtimes.size() / 2;
-    if (runtimes.size() % 2 == 1) {
-        return runtimes[middle];
-    }
-    return 0.5 * (runtimes[middle - 1] + runtimes[middle]);
+    return static_cast<double>(runtimes[runtimes.size() / 2]);
 }
 
 }  // namespace
 
-bool correctness_policy_passed(
-    const AbsolutePoseBenchmarkMetrics& metrics,
-    const BenchmarkOptions& options
-) {
-    if (metrics.num_cases == 0) {
-        return false;
-    }
-
-    const bool success_rate_ok =
-        metrics.success_rate >= options.min_success_rate;
-    const bool mean_error_ok =
-        metrics.mean_best_reprojection_error <= options.reprojection_error_threshold;
-
-    bool result = success_rate_ok && mean_error_ok;
-
-    if (options.require_all_cases_valid) {
-        result = result && (metrics.valid_cases == metrics.num_cases);
-    }
-
-    if (options.use_max_reprojection_error_as_hard_gate) {
-        result = result &&
-            metrics.max_best_reprojection_error <= options.reprojection_error_threshold;
-    }
-
-    return result;
+bool correctness_policy_passed(const AbsolutePoseBenchmarkMetrics& metrics) {
+    return metrics.num_problems > 0
+           && metrics.gt_found_percent >= 99.0
+           && metrics.valid_solutions_percent > 0.0
+           && metrics.runtime_ns_per_problem_median > 0.0;
 }
 
 AbsolutePoseBenchmarkMetrics run_absolute_pose_benchmark(
     const AbsolutePoseSolverAdapter& adapter,
     const BenchmarkOptions& options
 ) {
-    const std::vector<AbsolutePoseCase> test_cases = generate_absolute_pose_cases(options);
+    const std::vector<AbsolutePoseProblemInstance> problem_instances =
+        generate_absolute_pose_problems(options);
 
     AbsolutePoseBenchmarkMetrics metrics;
     metrics.solver_name = adapter.name();
-    metrics.num_cases = test_cases.size();
+    metrics.num_problems = problem_instances.size();
 
-    double finite_error_sum = 0.0;
-    std::size_t finite_error_count = 0;
-    metrics.max_best_reprojection_error = 0.0;
+    for (const AbsolutePoseProblemInstance& instance : problem_instances) {
+        std::vector<Pose> solutions;
+        const int solution_count = adapter.solve(instance, &solutions);
 
-    for (const AbsolutePoseCase& test_case : test_cases) {
-        const AbsolutePoseResult result = adapter.solve(test_case);
-        metrics.total_solutions += result.poses.size();
-
-        const double best_error = best_reprojection_error(test_case, result);
-        if (std::isfinite(best_error)) {
-            finite_error_sum += best_error;
-            ++finite_error_count;
-            metrics.max_best_reprojection_error = std::max(metrics.max_best_reprojection_error, best_error);
-        } else {
-            metrics.max_best_reprojection_error = std::numeric_limits<double>::infinity();
+        double pose_error = std::numeric_limits<double>::max();
+        if (solution_count > 0) {
+            metrics.total_solutions += static_cast<std::size_t>(solution_count);
         }
 
-        if (best_error <= options.reprojection_error_threshold) {
-            ++metrics.valid_cases;
+        for (const Pose& pose : solutions) {
+            if (is_valid_calibrated_pose(instance, pose, 1.0, options.tolerance)) {
+                ++metrics.valid_solutions;
+            }
+            pose_error = std::min(pose_error, compute_pose_error(instance, pose, 1.0));
+        }
+
+        if (pose_error < options.tolerance) {
+            ++metrics.gt_found;
         }
     }
 
-    if (metrics.num_cases > 0) {
-        metrics.success_rate =
-            static_cast<double>(metrics.valid_cases) / static_cast<double>(metrics.num_cases);
+    if (metrics.num_problems > 0) {
+        metrics.solutions_per_problem =
+            static_cast<double>(metrics.total_solutions) / static_cast<double>(metrics.num_problems);
+        metrics.gt_found_percent =
+            static_cast<double>(metrics.gt_found) / static_cast<double>(metrics.num_problems) * 100.0;
     }
-    if (finite_error_count > 0) {
-        metrics.mean_best_reprojection_error =
-            finite_error_sum / static_cast<double>(finite_error_count);
-    } else if (metrics.num_cases > 0) {
-        metrics.mean_best_reprojection_error = std::numeric_limits<double>::infinity();
+    if (metrics.total_solutions > 0) {
+        metrics.valid_solutions_percent =
+            static_cast<double>(metrics.valid_solutions) / static_cast<double>(metrics.total_solutions) * 100.0;
     }
 
-    // Use shared correctness policy instead of hardcoded 100% valid-cases check.
-    metrics.correctness_passed = correctness_policy_passed(metrics, options);
+    std::vector<long long> runtimes;
+    runtimes.reserve(options.timed_iterations);
+    std::vector<Pose> solutions;
 
-    for (std::size_t warmup_index = 0; warmup_index < options.warmup_iterations; ++warmup_index) {
-        std::size_t warmup_solution_count = 0;
-        for (const AbsolutePoseCase& test_case : test_cases) {
-            warmup_solution_count += adapter.solve(test_case).poses.size();
+    for (std::size_t iter = 0; iter < options.timed_iterations; ++iter) {
+        const auto start_time = std::chrono::high_resolution_clock::now();
+        for (const AbsolutePoseProblemInstance& instance : problem_instances) {
+            solutions.clear();
+            adapter.solve(instance, &solutions);
         }
-        volatile std::size_t sink = warmup_solution_count;
-        (void)sink;
+        const auto end_time = std::chrono::high_resolution_clock::now();
+        runtimes.push_back(
+            std::chrono::duration_cast<std::chrono::nanoseconds>(end_time - start_time).count()
+        );
     }
 
-    std::vector<double> timed_runtimes;
-    timed_runtimes.reserve(options.timed_iterations);
-
-    for (std::size_t timed_index = 0; timed_index < options.timed_iterations; ++timed_index) {
-        std::size_t timed_solution_count = 0;
-        const auto start_time = std::chrono::steady_clock::now();
-        for (const AbsolutePoseCase& test_case : test_cases) {
-            timed_solution_count += adapter.solve(test_case).poses.size();
-        }
-        const auto end_time = std::chrono::steady_clock::now();
-        volatile std::size_t sink = timed_solution_count;
-        (void)sink;
-
-        const auto elapsed =
-            std::chrono::duration_cast<std::chrono::nanoseconds>(end_time - start_time);
-        timed_runtimes.push_back(static_cast<double>(elapsed.count()));
+    metrics.runtime_ns_total_median = poselib_style_median_runtime(runtimes);
+    if (metrics.num_problems > 0) {
+        metrics.runtime_ns_per_problem_median =
+            metrics.runtime_ns_total_median / static_cast<double>(metrics.num_problems);
     }
-
-    metrics.runtime_ns_total_median = median_runtime(timed_runtimes);
-    if (metrics.num_cases > 0) {
-        metrics.runtime_ns_per_case_median =
-            metrics.runtime_ns_total_median / static_cast<double>(metrics.num_cases);
-    }
+    metrics.correctness_passed = correctness_policy_passed(metrics);
 
     return metrics;
 }

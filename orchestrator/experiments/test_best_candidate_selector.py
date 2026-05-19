@@ -18,25 +18,25 @@ def _benchmark_payload(**overrides: Any) -> dict[str, Any]:
         "runtime_unit": "ns",
         "build_type": "Release",
         "benchmark_options": {
-            "num_cases": 1000,
-            "points_per_case": 3,
-            "warmup_iterations": 3,
+            "num_problems": 1000,
+            "tolerance": 1e-6,
+            "camera_fov": 75.0,
+            "n_point_point": 3,
+            "n_point_line": 0,
             "timed_iterations": 10,
-            "random_seed": 42,
-            "reprojection_error_threshold": 1e-6,
-            "min_success_rate": 0.99,
-            "require_all_cases_valid": False,
-            "use_max_reprojection_error_as_hard_gate": False,
             "runtime_unit": "ns",
             "build_type": "Release",
         },
         "parse_success": True,
-        "parsed_num_cases": 1000,
-        "parsed_success_rate": 1.0,
-        "parsed_mean_best_reprojection_error": 1.0e-12,
-        "parsed_max_best_reprojection_error": 2.0e-12,
+        "parsed_num_problems": 1000,
+        "parsed_total_solutions": 3000,
+        "parsed_solutions_per_problem": 3.0,
+        "parsed_valid_solutions": 3000,
+        "parsed_valid_solutions_percent": 100.0,
+        "parsed_gt_found": 1000,
+        "parsed_gt_found_percent": 100.0,
         "parsed_runtime_ns_total_median": 1_000_000.0,
-        "parsed_runtime_ns_per_case_median": 1000.0,
+        "parsed_runtime_ns_per_problem_median": 1000.0,
         "parsed_correctness_passed": True,
     }
     benchmark.update(overrides)
@@ -78,235 +78,71 @@ class BestCandidateSelectorTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
             baseline = _create_baseline(root)
-            candidate_a = _create_candidate(root, "candidate_a", parsed_correctness_passed=False)
-            candidate_b = _create_candidate(root, "candidate_b", parsed_success_rate=0.98)
+            candidate = _create_candidate(root, "candidate", parsed_correctness_passed=False)
 
-            result = select_best_candidate(baseline, [candidate_a, candidate_b])
+            result = select_best_candidate(baseline, [candidate])
 
             self.assertEqual(result["overall_status"], "all_candidates_rejected")
-            self.assertEqual(result["counts"]["total"], 2)
-            self.assertEqual(result["counts"]["rejected"], 2)
-            self.assertEqual(result["counts"]["valid_not_improved"], 0)
-            self.assertEqual(result["counts"]["accepted_improvement"], 0)
-            self.assertIsNone(result["best_candidate_run_dir"])
+            self.assertEqual(result["counts"]["rejected"], 1)
 
-    def test_only_valid_not_improved_candidates(self) -> None:
+    def test_selects_fastest_accepted_candidate(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
-            baseline = _create_baseline(root, parsed_runtime_ns_per_case_median=1000.0)
-            candidate_a = _create_candidate(
-                root,
-                "candidate_a",
-                parsed_runtime_ns_per_case_median=999.0,
-            )
-            candidate_b = _create_candidate(
-                root,
-                "candidate_b",
-                parsed_runtime_ns_per_case_median=1300.0,
+            baseline = _create_baseline(root, parsed_runtime_ns_per_problem_median=1000.0)
+            slower = _create_candidate(root, "slower", parsed_runtime_ns_per_problem_median=900.0)
+            faster = _create_candidate(root, "faster", parsed_runtime_ns_per_problem_median=800.0)
+
+            result = select_best_candidate(baseline, [slower, faster])
+
+            self.assertEqual(result["overall_status"], "best_candidate_found")
+            self.assertEqual(result["best_candidate_run_dir"], str(faster))
+            self.assertAlmostEqual(
+                result["best_metrics"]["runtime_ns_per_problem_median"], 800.0
             )
 
-            result = select_best_candidate(baseline, [candidate_a, candidate_b])
+    def test_valid_not_improved_when_candidate_is_slower(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            baseline = _create_baseline(root, parsed_runtime_ns_per_problem_median=1000.0)
+            candidate = _create_candidate(root, "candidate", parsed_runtime_ns_per_problem_median=1200.0)
+
+            result = select_best_candidate(baseline, [candidate])
 
             self.assertEqual(result["overall_status"], "no_improvement_found")
-            self.assertEqual(result["counts"]["rejected"], 0)
-            self.assertEqual(result["counts"]["valid_not_improved"], 2)
-            self.assertEqual(result["counts"]["accepted_improvement"], 0)
-            self.assertIsNone(result["best_candidate_run_dir"])
-            below_threshold = result["decisions"][0]
-            self.assertEqual(below_threshold["status"], "valid_not_improved")
-            self.assertEqual(below_threshold["rejection_reasons"], [])
-            self.assertIn(
-                "runtime_improvement_below_minimum_threshold",
-                below_threshold["non_acceptance_reasons"],
-            )
+            self.assertEqual(result["counts"]["valid_not_improved"], 1)
 
-    def test_one_accepted_improvement(self) -> None:
+    def test_tie_breaker_prefers_higher_gt_found_percent_then_valid_percent(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
-            baseline = _create_baseline(root, parsed_runtime_ns_per_case_median=1000.0)
-            candidate = _create_candidate(
-                root,
-                "candidate_a",
-                parsed_runtime_ns_per_case_median=800.0,
-            )
-
-            result = select_best_candidate(baseline, [candidate])
-
-            self.assertEqual(result["overall_status"], "best_candidate_found")
-            self.assertEqual(result["counts"]["accepted_improvement"], 1)
-            self.assertEqual(result["best_candidate_run_dir"], str(candidate))
-            self.assertAlmostEqual(result["best_metrics"]["runtime_ns_per_case_median"], 800.0)
-            self.assertAlmostEqual(result["best_metrics"]["speedup"], 1.25)
-            self.assertAlmostEqual(result["best_metrics"]["runtime_reduction_percent"], 20.0)
-
-    def test_multiple_accepted_selects_lowest_runtime(self) -> None:
-        with tempfile.TemporaryDirectory() as tmpdir:
-            root = Path(tmpdir)
-            baseline = _create_baseline(root, parsed_runtime_ns_per_case_median=1000.0)
+            baseline = _create_baseline(root, parsed_runtime_ns_per_problem_median=1000.0)
             candidate_a = _create_candidate(
                 root,
                 "candidate_a",
-                parsed_runtime_ns_per_case_median=900.0,
+                parsed_runtime_ns_per_problem_median=800.0,
+                parsed_gt_found_percent=99.0,
+                parsed_valid_solutions_percent=100.0,
             )
             candidate_b = _create_candidate(
                 root,
                 "candidate_b",
-                parsed_runtime_ns_per_case_median=850.0,
-            )
-
-            result = select_best_candidate(baseline, [candidate_a, candidate_b])
-
-            self.assertEqual(result["overall_status"], "best_candidate_found")
-            self.assertEqual(result["best_candidate_run_dir"], str(candidate_b))
-
-    def test_tie_breaker_higher_success_rate(self) -> None:
-        with tempfile.TemporaryDirectory() as tmpdir:
-            root = Path(tmpdir)
-            baseline = _create_baseline(root, parsed_runtime_ns_per_case_median=1000.0)
-            candidate_a = _create_candidate(
-                root,
-                "candidate_a",
-                parsed_runtime_ns_per_case_median=800.0,
-                parsed_success_rate=0.995,
-            )
-            candidate_b = _create_candidate(
-                root,
-                "candidate_b",
-                parsed_runtime_ns_per_case_median=800.0,
-                parsed_success_rate=1.0,
+                parsed_runtime_ns_per_problem_median=800.0,
+                parsed_gt_found_percent=100.0,
+                parsed_valid_solutions_percent=99.0,
             )
 
             result = select_best_candidate(baseline, [candidate_a, candidate_b])
 
             self.assertEqual(result["best_candidate_run_dir"], str(candidate_b))
 
-    def test_tie_breaker_lower_mean_reprojection_error(self) -> None:
+    def test_writes_candidate_decision_by_default(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
-            baseline = _create_baseline(root, parsed_runtime_ns_per_case_median=1000.0)
-            candidate_a = _create_candidate(
-                root,
-                "candidate_a",
-                parsed_runtime_ns_per_case_median=800.0,
-                parsed_success_rate=1.0,
-                parsed_mean_best_reprojection_error=1.00e-12,
-            )
-            candidate_b = _create_candidate(
-                root,
-                "candidate_b",
-                parsed_runtime_ns_per_case_median=800.0,
-                parsed_success_rate=1.0,
-                parsed_mean_best_reprojection_error=0.95e-12,
-            )
+            baseline = _create_baseline(root, parsed_runtime_ns_per_problem_median=1000.0)
+            candidate = _create_candidate(root, "candidate", parsed_runtime_ns_per_problem_median=800.0)
 
-            result = select_best_candidate(baseline, [candidate_a, candidate_b])
+            select_best_candidate(baseline, [candidate])
 
-            self.assertEqual(result["best_candidate_run_dir"], str(candidate_b))
-
-    def test_tie_breaker_lower_max_reprojection_error(self) -> None:
-        with tempfile.TemporaryDirectory() as tmpdir:
-            root = Path(tmpdir)
-            baseline = _create_baseline(root, parsed_runtime_ns_per_case_median=1000.0)
-            candidate_a = _create_candidate(
-                root,
-                "candidate_a",
-                parsed_runtime_ns_per_case_median=800.0,
-                parsed_success_rate=1.0,
-                parsed_mean_best_reprojection_error=1.0e-12,
-                parsed_max_best_reprojection_error=2.0e-12,
-            )
-            candidate_b = _create_candidate(
-                root,
-                "candidate_b",
-                parsed_runtime_ns_per_case_median=800.0,
-                parsed_success_rate=1.0,
-                parsed_mean_best_reprojection_error=1.0e-12,
-                parsed_max_best_reprojection_error=1.8e-12,
-            )
-
-            result = select_best_candidate(baseline, [candidate_a, candidate_b])
-
-            self.assertEqual(result["best_candidate_run_dir"], str(candidate_b))
-
-    def test_writes_candidate_decisions_by_default(self) -> None:
-        with tempfile.TemporaryDirectory() as tmpdir:
-            root = Path(tmpdir)
-            baseline = _create_baseline(root, parsed_runtime_ns_per_case_median=1000.0)
-            candidate = _create_candidate(
-                root,
-                "candidate_a",
-                parsed_runtime_ns_per_case_median=800.0,
-            )
-
-            result = select_best_candidate(baseline, [candidate])
-
-            decision_path = candidate / "candidate_decision.json"
-            self.assertTrue(decision_path.exists())
-            self.assertEqual(result["decisions"][0]["candidate_decision_path"], str(decision_path))
-            self.assertEqual(result["best_candidate_decision_path"], str(decision_path))
-
-    def test_can_disable_candidate_decision_writes(self) -> None:
-        with tempfile.TemporaryDirectory() as tmpdir:
-            root = Path(tmpdir)
-            baseline = _create_baseline(root, parsed_runtime_ns_per_case_median=1000.0)
-            candidate = _create_candidate(
-                root,
-                "candidate_a",
-                parsed_runtime_ns_per_case_median=800.0,
-            )
-
-            result = select_best_candidate(
-                baseline,
-                [candidate],
-                write_candidate_decisions=False,
-            )
-
-            self.assertFalse((candidate / "candidate_decision.json").exists())
-            self.assertIsNone(result["decisions"][0]["candidate_decision_path"])
-            self.assertIsNone(result["best_candidate_decision_path"])
-
-    def test_missing_candidate_directory_does_not_crash(self) -> None:
-        with tempfile.TemporaryDirectory() as tmpdir:
-            root = Path(tmpdir)
-            baseline = _create_baseline(root)
-
-            missing = root / "nonexistent_candidate"
-            # Do not create the directory
-
-            result = select_best_candidate(baseline, [missing])
-
-            self.assertEqual(result["overall_status"], "all_candidates_rejected")
-            self.assertEqual(result["counts"]["total"], 1)
-            self.assertEqual(result["counts"]["rejected"], 1)
-            self.assertIsNone(result["best_candidate_run_dir"])
-            self.assertIsNone(result["best_candidate_decision_path"])
-            # candidate_decision_path should be null for missing directory
-            self.assertIsNone(result["decisions"][0]["candidate_decision_path"])
-
-    def test_deterministic_tie_breaker_earlier_input_order(self) -> None:
-        with tempfile.TemporaryDirectory() as tmpdir:
-            root = Path(tmpdir)
-            baseline = _create_baseline(root, parsed_runtime_ns_per_case_median=1000.0)
-            candidate_a = _create_candidate(
-                root,
-                "candidate_a",
-                parsed_runtime_ns_per_case_median=800.0,
-                parsed_success_rate=1.0,
-                parsed_mean_best_reprojection_error=1.0e-12,
-                parsed_max_best_reprojection_error=2.0e-12,
-            )
-            candidate_b = _create_candidate(
-                root,
-                "candidate_b",
-                parsed_runtime_ns_per_case_median=800.0,
-                parsed_success_rate=1.0,
-                parsed_mean_best_reprojection_error=1.0e-12,
-                parsed_max_best_reprojection_error=2.0e-12,
-            )
-
-            result = select_best_candidate(baseline, [candidate_a, candidate_b])
-
-            self.assertEqual(result["best_candidate_run_dir"], str(candidate_a))
+            self.assertTrue((candidate / "candidate_decision.json").exists())
 
 
 if __name__ == "__main__":

@@ -697,12 +697,16 @@ def _run_from_benchmark_stage(
         "benchmark_run_status": benchmark_run_status,
         "benchmark_parse_status": parse_status,
         "correctness_passed": _bool_or_none(benchmark.get("parsed_correctness_passed")),
-        "runtime_ns_per_case_median": _number_or_none(benchmark.get("parsed_runtime_ns_per_case_median")),
-        "success_rate": _number_or_none(benchmark.get("parsed_success_rate")),
-        "mean_best_reprojection_error": _number_or_none(benchmark.get("parsed_mean_best_reprojection_error")),
-        "max_best_reprojection_error": _number_or_none(benchmark.get("parsed_max_best_reprojection_error")),
+        "runtime_ns_per_problem_median": _number_or_none(
+            benchmark.get("parsed_runtime_ns_per_problem_median")
+        ),
+        "valid_solutions_percent": _number_or_none(
+            benchmark.get("parsed_valid_solutions_percent")
+        ),
+        "gt_found_percent": _number_or_none(benchmark.get("parsed_gt_found_percent")),
         "total_solutions": _int_or_none(benchmark.get("parsed_total_solutions")),
-        "valid_cases": _int_or_none(benchmark.get("parsed_valid_cases")),
+        "valid_solutions": _int_or_none(benchmark.get("parsed_valid_solutions")),
+        "gt_found": _int_or_none(benchmark.get("parsed_gt_found")),
         "failed_step": failed_step,
         "error_message": error_message,
     }
@@ -741,25 +745,29 @@ def _empty_benchmark(raw_output_available: bool = False) -> dict[str, Any]:
         "parse_success": False,
         "missing_fields": [
             "solver_name",
-            "num_cases",
-            "success_rate",
-            "mean_best_reprojection_error",
-            "max_best_reprojection_error",
+            "num_problems",
+            "total_solutions",
+            "solutions_per_problem",
+            "valid_solutions",
+            "valid_solutions_percent",
+            "gt_found",
+            "gt_found_percent",
             "runtime_ns_total_median",
-            "runtime_ns_per_case_median",
+            "runtime_ns_per_problem_median",
             "correctness_passed",
         ],
         "parse_errors": [],
         "parsed_solver_name": None,
-        "parsed_num_cases": None,
-        "parsed_success_rate": None,
-        "parsed_mean_best_reprojection_error": None,
-        "parsed_max_best_reprojection_error": None,
-        "parsed_runtime_ns_total_median": None,
-        "parsed_runtime_ns_per_case_median": None,
-        "parsed_correctness_passed": None,
-        "parsed_valid_cases": None,
+        "parsed_num_problems": None,
         "parsed_total_solutions": None,
+        "parsed_solutions_per_problem": None,
+        "parsed_valid_solutions": None,
+        "parsed_valid_solutions_percent": None,
+        "parsed_gt_found": None,
+        "parsed_gt_found_percent": None,
+        "parsed_runtime_ns_total_median": None,
+        "parsed_runtime_ns_per_problem_median": None,
+        "parsed_correctness_passed": None,
         "benchmark_options": None,
     }
 
@@ -773,15 +781,16 @@ def _benchmark_from_parse(stdout: str, parse_result: dict[str, Any]) -> dict[str
             "missing_fields": parse_result["missing_fields"],
             "parse_errors": parse_result["parse_errors"],
             "parsed_solver_name": parsed_metrics.get("solver_name"),
-            "parsed_num_cases": parsed_metrics.get("num_cases"),
-            "parsed_success_rate": parsed_metrics.get("success_rate"),
-            "parsed_mean_best_reprojection_error": parsed_metrics.get("mean_best_reprojection_error"),
-            "parsed_max_best_reprojection_error": parsed_metrics.get("max_best_reprojection_error"),
-            "parsed_runtime_ns_total_median": parsed_metrics.get("runtime_ns_total_median"),
-            "parsed_runtime_ns_per_case_median": parsed_metrics.get("runtime_ns_per_case_median"),
-            "parsed_correctness_passed": parsed_metrics.get("correctness_passed"),
-            "parsed_valid_cases": parsed_metrics.get("valid_cases"),
+            "parsed_num_problems": parsed_metrics.get("num_problems"),
             "parsed_total_solutions": parsed_metrics.get("total_solutions"),
+            "parsed_solutions_per_problem": parsed_metrics.get("solutions_per_problem"),
+            "parsed_valid_solutions": parsed_metrics.get("valid_solutions"),
+            "parsed_valid_solutions_percent": parsed_metrics.get("valid_solutions_percent"),
+            "parsed_gt_found": parsed_metrics.get("gt_found"),
+            "parsed_gt_found_percent": parsed_metrics.get("gt_found_percent"),
+            "parsed_runtime_ns_total_median": parsed_metrics.get("runtime_ns_total_median"),
+            "parsed_runtime_ns_per_problem_median": parsed_metrics.get("runtime_ns_per_problem_median"),
+            "parsed_correctness_passed": parsed_metrics.get("correctness_passed"),
         }
     )
     return benchmark
@@ -790,11 +799,11 @@ def _benchmark_from_parse(stdout: str, parse_result: dict[str, Any]) -> dict[str
 def _build_benchmark_correctness_error_message(benchmark: dict[str, Any]) -> str:
     return (
         "Family benchmark parsed successfully, but correctness_passed=false. "
-        f"success_rate={benchmark.get('parsed_success_rate')!r}, "
-        "mean_best_reprojection_error="
-        f"{benchmark.get('parsed_mean_best_reprojection_error')!r}, "
-        "max_best_reprojection_error="
-        f"{benchmark.get('parsed_max_best_reprojection_error')!r}."
+        f"gt_found_percent={benchmark.get('parsed_gt_found_percent')!r}, "
+        "valid_solutions_percent="
+        f"{benchmark.get('parsed_valid_solutions_percent')!r}, "
+        "runtime_ns_per_problem_median="
+        f"{benchmark.get('parsed_runtime_ns_per_problem_median')!r}."
     )
 
 
@@ -995,35 +1004,36 @@ def _summarize_runs(runs: list[dict[str, Any]]) -> dict[str, Any]:
         run for run in runs
         if run.get("benchmark_run_status") == "success"
         and run.get("correctness_passed") is True
-        and isinstance(run.get("runtime_ns_per_case_median"), (int, float))
-        and not isinstance(run.get("runtime_ns_per_case_median"), bool)
+        and isinstance(run.get("runtime_ns_per_problem_median"), (int, float))
+        and not isinstance(run.get("runtime_ns_per_problem_median"), bool)
     ]
-    runtimes = [float(run["runtime_ns_per_case_median"]) for run in correct]
-    success_rates = [
-        float(run["success_rate"])
+    runtimes = [float(run["runtime_ns_per_problem_median"]) for run in correct]
+    gt_found_percents = [
+        float(run["gt_found_percent"])
         for run in correct
-        if isinstance(run.get("success_rate"), (int, float)) and not isinstance(run.get("success_rate"), bool)
+        if isinstance(run.get("gt_found_percent"), (int, float))
+        and not isinstance(run.get("gt_found_percent"), bool)
     ]
     return {
         "successful_runs": len(correct),
         "failed_runs": len(runs) - len(correct),
         "benchmark_runs_attempted": len(runs),
-        "median_runtime_ns_per_case": statistics.median(runtimes) if runtimes else None,
-        "mean_runtime_ns_per_case": statistics.fmean(runtimes) if runtimes else None,
-        "min_runtime_ns_per_case": min(runtimes) if runtimes else None,
-        "max_runtime_ns_per_case": max(runtimes) if runtimes else None,
-        "std_runtime_ns_per_case": statistics.pstdev(runtimes) if len(runtimes) > 1 else (0.0 if runtimes else None),
+        "median_runtime_ns_per_problem": statistics.median(runtimes) if runtimes else None,
+        "mean_runtime_ns_per_problem": statistics.fmean(runtimes) if runtimes else None,
+        "min_runtime_ns_per_problem": min(runtimes) if runtimes else None,
+        "max_runtime_ns_per_problem": max(runtimes) if runtimes else None,
+        "std_runtime_ns_per_problem": statistics.pstdev(runtimes) if len(runtimes) > 1 else (0.0 if runtimes else None),
         "all_correctness_passed": None if not runs else all(run.get("correctness_passed") is True for run in runs),
-        "success_rate_min": min(success_rates) if success_rates else None,
-        "success_rate_mean": statistics.fmean(success_rates) if success_rates else None,
+        "gt_found_percent_min": min(gt_found_percents) if gt_found_percents else None,
+        "gt_found_percent_mean": statistics.fmean(gt_found_percents) if gt_found_percents else None,
     }
 
 
 def _comparison(baseline: dict[str, Any], final: dict[str, Any]) -> dict[str, Any]:
-    baseline_median = _number_or_none(baseline.get("median_runtime_ns_per_case"))
-    final_median = _number_or_none(final.get("median_runtime_ns_per_case"))
-    baseline_mean = _number_or_none(baseline.get("mean_runtime_ns_per_case"))
-    final_mean = _number_or_none(final.get("mean_runtime_ns_per_case"))
+    baseline_median = _number_or_none(baseline.get("median_runtime_ns_per_problem"))
+    final_median = _number_or_none(final.get("median_runtime_ns_per_problem"))
+    baseline_mean = _number_or_none(baseline.get("mean_runtime_ns_per_problem"))
+    final_mean = _number_or_none(final.get("mean_runtime_ns_per_problem"))
     return {
         "median_speedup": _speedup(baseline_median, final_median),
         "median_runtime_reduction_percent": _reduction_percent(baseline_median, final_median),

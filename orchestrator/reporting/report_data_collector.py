@@ -468,8 +468,8 @@ def _build_benchmark_config(
     return ReportBenchmarkConfig(
         family=_b_str("family"),
         solver=_b_str("solver", "parsed_solver_name"),
-        num_cases=_o_int("num_cases", "parsed_num_cases"),
-        points_per_case=_o_int("points_per_case"),
+        num_cases=_o_int("num_cases", "num_problems", "parsed_num_cases", "parsed_num_problems"),
+        points_per_case=_o_int("points_per_case", "n_point_point"),
         warmup_iterations=_o_int("warmup_iterations"),
         timed_iterations=_o_int("timed_iterations"),
         seed=_o_int("random_seed", "seed"),
@@ -617,14 +617,35 @@ def _build_repeated_validation_summary(value: Any) -> ReportRepeatedValidationGr
         benchmark_runs_attempted=_int_or_default(summary.get("benchmark_runs_attempted")),
         successful_runs=_int_or_default(summary.get("successful_runs")),
         failed_runs=_int_or_default(summary.get("failed_runs")),
-        median_runtime_ns_per_case=_number_or_none(summary.get("median_runtime_ns_per_case")),
-        mean_runtime_ns_per_case=_number_or_none(summary.get("mean_runtime_ns_per_case")),
-        min_runtime_ns_per_case=_number_or_none(summary.get("min_runtime_ns_per_case")),
-        max_runtime_ns_per_case=_number_or_none(summary.get("max_runtime_ns_per_case")),
-        std_runtime_ns_per_case=_number_or_none(summary.get("std_runtime_ns_per_case")),
+        median_runtime_ns_per_case=_first_available_number(
+            summary.get("median_runtime_ns_per_case"),
+            summary.get("median_runtime_ns_per_problem"),
+        ),
+        mean_runtime_ns_per_case=_first_available_number(
+            summary.get("mean_runtime_ns_per_case"),
+            summary.get("mean_runtime_ns_per_problem"),
+        ),
+        min_runtime_ns_per_case=_first_available_number(
+            summary.get("min_runtime_ns_per_case"),
+            summary.get("min_runtime_ns_per_problem"),
+        ),
+        max_runtime_ns_per_case=_first_available_number(
+            summary.get("max_runtime_ns_per_case"),
+            summary.get("max_runtime_ns_per_problem"),
+        ),
+        std_runtime_ns_per_case=_first_available_number(
+            summary.get("std_runtime_ns_per_case"),
+            summary.get("std_runtime_ns_per_problem"),
+        ),
         all_correctness_passed=_bool_or_none(summary.get("all_correctness_passed")),
-        success_rate_min=_number_or_none(summary.get("success_rate_min")),
-        success_rate_mean=_number_or_none(summary.get("success_rate_mean")),
+        success_rate_min=_first_available_number(
+            summary.get("success_rate_min"),
+            summary.get("gt_found_percent_min"),
+        ),
+        success_rate_mean=_first_available_number(
+            summary.get("success_rate_mean"),
+            summary.get("gt_found_percent_mean"),
+        ),
     )
 
 
@@ -1223,9 +1244,11 @@ def _verification_runtime(verification: dict[str, Any]) -> float | None:
         _verification_payloads(verification),
         (
             "runtime_ns_per_case_median",
+            "runtime_ns_per_problem_median",
             "runtime_median_ns_per_case",
             "median_runtime_ns_per_case",
             "parsed_runtime_ns_per_case_median",
+            "parsed_runtime_ns_per_problem_median",
         ),
     )
 
@@ -1354,14 +1377,16 @@ def _load_baseline_metrics_with_raw(
             candidates,
             (
                 "runtime_ns_per_case_median",
+                "runtime_ns_per_problem_median",
                 "runtime_median_ns_per_case",
                 "median_runtime_ns_per_case",
                 "parsed_runtime_ns_per_case_median",
+                "parsed_runtime_ns_per_problem_median",
             ),
         ),
         success_rate=_first_number(
             candidates,
-            ("success_rate", "parsed_success_rate"),
+            ("success_rate", "parsed_success_rate", "gt_found_percent", "parsed_gt_found_percent"),
         ),
         mean_reprojection_error=_first_number(
             candidates,

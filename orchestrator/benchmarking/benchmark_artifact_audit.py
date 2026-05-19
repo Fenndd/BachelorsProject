@@ -20,15 +20,16 @@ BENCHMARK_FIELDS = [
     "family",
     "solver",
     "parse_success",
-    "parsed_num_cases",
-    "parsed_success_rate",
-    "parsed_mean_best_reprojection_error",
-    "parsed_max_best_reprojection_error",
-    "parsed_runtime_ns_total_median",
-    "parsed_runtime_ns_per_case_median",
-    "parsed_correctness_passed",
-    "parsed_valid_cases",
+    "parsed_num_problems",
     "parsed_total_solutions",
+    "parsed_solutions_per_problem",
+    "parsed_valid_solutions",
+    "parsed_valid_solutions_percent",
+    "parsed_gt_found",
+    "parsed_gt_found_percent",
+    "parsed_runtime_ns_total_median",
+    "parsed_runtime_ns_per_problem_median",
+    "parsed_correctness_passed",
     "runtime_unit",
     "build_type",
     "benchmark_options",
@@ -94,24 +95,19 @@ def audit_single_benchmark_artifact(artifact: dict[str, Any], role: str) -> dict
     _check_present_string(normalized, "solver", failed_checks)
     if normalized.get("parse_success") is not True:
         failed_checks.append("parse_success_not_true")
-    _check_positive_number(normalized, "parsed_num_cases", failed_checks)
+    _check_positive_number(normalized, "parsed_num_problems", failed_checks)
     _check_positive_number(
         normalized,
-        "parsed_runtime_ns_per_case_median",
+        "parsed_runtime_ns_per_problem_median",
         failed_checks,
     )
-    _check_present_number(normalized, "parsed_success_rate", failed_checks)
+    _check_positive_number(normalized, "parsed_total_solutions", failed_checks)
+    _check_present_number(normalized, "parsed_solutions_per_problem", failed_checks)
+    _check_positive_number(normalized, "parsed_valid_solutions", failed_checks)
+    _check_present_number(normalized, "parsed_valid_solutions_percent", failed_checks)
+    _check_positive_number(normalized, "parsed_gt_found", failed_checks)
+    _check_present_number(normalized, "parsed_gt_found_percent", failed_checks)
     _check_present_bool(normalized, "parsed_correctness_passed", failed_checks)
-    _check_present_number(
-        normalized,
-        "parsed_mean_best_reprojection_error",
-        failed_checks,
-    )
-    _check_present_number(
-        normalized,
-        "parsed_max_best_reprojection_error",
-        failed_checks,
-    )
 
     runtime_unit = normalized.get("runtime_unit")
     if runtime_unit is None:
@@ -162,13 +158,13 @@ def audit_comparable_benchmark_artifacts(
         and reference.get("family") is not None,
         "same_solver": reference.get("solver") == candidate.get("solver")
         and reference.get("solver") is not None,
-        "same_num_cases": reference.get("parsed_num_cases")
-        == candidate.get("parsed_num_cases")
-        and reference.get("parsed_num_cases") is not None,
+        "same_num_problems": reference.get("parsed_num_problems")
+        == candidate.get("parsed_num_problems")
+        and reference.get("parsed_num_problems") is not None,
         "runtime_available": _is_positive_number(
-            reference.get("parsed_runtime_ns_per_case_median")
+            reference.get("parsed_runtime_ns_per_problem_median")
         )
-        and _is_positive_number(candidate.get("parsed_runtime_ns_per_case_median")),
+        and _is_positive_number(candidate.get("parsed_runtime_ns_per_problem_median")),
         "correctness_available": reference.get("parsed_correctness_passed") is not None
         and candidate.get("parsed_correctness_passed") is not None,
         "runtime_unit_ns": reference.get("runtime_unit") == "ns"

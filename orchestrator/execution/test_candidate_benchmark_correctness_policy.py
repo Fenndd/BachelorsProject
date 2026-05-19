@@ -23,12 +23,21 @@ def _incorrect_benchmark_output() -> str:
     return "\n".join(
         [
             "solver_name: lambdatwist_p3p",
-            "num_cases: 1000",
-            "success_rate: 0.5",
-            "mean_best_reprojection_error: 1e-3",
-            "max_best_reprojection_error: 2e-3",
+            "num_problems: 1000",
+            "total_solutions: 3000",
+            "solutions_per_problem: 3.0",
+            "valid_solutions: 3000",
+            "valid_solutions_percent: 100.0",
+            "gt_found: 500",
+            "gt_found_percent: 50.0",
             "runtime_ns_total_median: 1000000",
-            "runtime_ns_per_case_median: 1000",
+            "runtime_ns_per_problem_median: 1000",
+            "tolerance: 1e-6",
+            "camera_fov: 75",
+            "n_point_point: 3",
+            "n_point_line: 0",
+            "timed_iterations: 10",
+            "runtime_unit: ns",
             "correctness_passed: false",
         ]
     )
@@ -46,9 +55,9 @@ class CandidateBenchmarkCorrectnessPolicyTests(unittest.TestCase):
 
         self.assertTrue(benchmark["parse_success"])
         self.assertIs(benchmark["parsed_correctness_passed"], False)
-        self.assertEqual(benchmark["parsed_runtime_ns_per_case_median"], 1000.0)
+        self.assertEqual(benchmark["parsed_runtime_ns_per_problem_median"], 1000.0)
         error_message = _build_benchmark_correctness_error_message(benchmark)
-        self.assertIn("correctness_passed=false", error_message)
+        self.assertIn("gt_found_percent=50.0", error_message)
         completed = _complete_steps(steps)
         step_by_name = {step["name"]: step for step in completed}
         self.assertEqual(step_by_name[BENCHMARK_CORRECTNESS_CHECK_STEP]["status"], "failed")
@@ -95,7 +104,7 @@ class CandidateBenchmarkCorrectnessPolicyTests(unittest.TestCase):
             self.assertTrue(verification["benchmark"]["parse_success"])
             self.assertIs(verification["benchmark"]["parsed_correctness_passed"], False)
             self.assertEqual(
-                verification["benchmark"]["parsed_runtime_ns_per_case_median"], 1000.0
+                verification["benchmark"]["parsed_runtime_ns_per_problem_median"], 1000.0
             )
 
     def test_path_length_diagnostics_are_warning_only(self) -> None:

@@ -1,5 +1,3 @@
-#include <algorithm>
-#include <cmath>
 #include <iomanip>
 #include <iostream>
 #include <limits>
@@ -14,31 +12,32 @@
 namespace {
 
 using benchmark::geometric_pose::absolute_pose::AbsolutePoseBenchmarkMetrics;
-using benchmark::geometric_pose::absolute_pose::AbsolutePoseCase;
-using benchmark::geometric_pose::absolute_pose::AbsolutePoseResult;
+using benchmark::geometric_pose::absolute_pose::AbsolutePoseProblemInstance;
 using benchmark::geometric_pose::absolute_pose::AdapterInfo;
 using benchmark::geometric_pose::absolute_pose::BenchmarkOptions;
 using benchmark::geometric_pose::absolute_pose::Pose;
 using benchmark::geometric_pose::absolute_pose::adapters::LambdaTwistP3PAdapter;
-using benchmark::geometric_pose::absolute_pose::best_reprojection_error;
+using benchmark::geometric_pose::absolute_pose::compute_pose_error;
 using benchmark::geometric_pose::absolute_pose::correctness_policy_passed;
-using benchmark::geometric_pose::absolute_pose::generate_absolute_pose_cases;
+using benchmark::geometric_pose::absolute_pose::generate_absolute_pose_problems;
 using benchmark::geometric_pose::absolute_pose::is_finite_pose;
 using benchmark::geometric_pose::absolute_pose::is_rotation_matrix_reasonable;
+using benchmark::geometric_pose::absolute_pose::is_valid_calibrated_pose;
 
 struct ValidationSummary {
     std::string adapter_name;
-    std::size_t num_cases = 0;
-    std::size_t passed_cases = 0;
-    std::size_t failed_cases = 0;
-    double success_rate = 0.0;
-    double mean_best_reprojection_error = 0.0;
-    double max_best_reprojection_error = 0.0;
+    std::size_t num_problems = 0;
+    std::size_t total_solutions = 0;
+    double solutions_per_problem = 0.0;
+    std::size_t valid_solutions = 0;
+    double valid_solutions_percent = 0.0;
+    std::size_t gt_found = 0;
+    double gt_found_percent = 0.0;
     bool metadata_check_passed = false;
-    bool solver_success_check_passed = true;
+    bool solver_output_check_passed = true;
     bool finite_output_check_passed = true;
     bool rotation_matrix_check_passed = true;
-    bool reprojection_check_passed = false;
+    bool benchmark_correctness_check_passed = false;
     bool final_status_passed = false;
 };
 
@@ -55,85 +54,78 @@ ValidationSummary run_adapter_validation() {
     constexpr double rotation_tolerance = 1e-5;
 
     BenchmarkOptions options;
-    options.num_cases = 1000;
-    options.warmup_iterations = 0;
-    options.timed_iterations = 0;
-    options.reprojection_error_threshold = 1e-6;
-    options.random_seed = 42;
+    options.num_problems = 1000;
+    options.tolerance = 1e-6;
+    options.camera_fov = 75.0;
+    options.n_point_point = 3;
+    options.n_point_line = 0;
+    options.timed_iterations = 1;
 
     const LambdaTwistP3PAdapter adapter;
-    const std::vector<AbsolutePoseCase> test_cases = generate_absolute_pose_cases(options);
+    const std::vector<AbsolutePoseProblemInstance> problem_instances =
+        generate_absolute_pose_problems(options);
 
     ValidationSummary summary;
     summary.adapter_name = adapter.name();
-    summary.num_cases = test_cases.size();
+    summary.num_problems = problem_instances.size();
     summary.metadata_check_passed = validate_metadata(adapter);
 
-    double finite_error_sum = 0.0;
-    std::size_t finite_error_count = 0;
+    for (const AbsolutePoseProblemInstance& instance : problem_instances) {
+        std::vector<Pose> solutions;
+        const int solution_count = adapter.solve(instance, &solutions);
 
-    for (const AbsolutePoseCase& test_case : test_cases) {
-        const AbsolutePoseResult result = adapter.solve(test_case);
-
-        if (!result.success || result.poses.empty()) {
-            summary.solver_success_check_passed = false;
+        if (solution_count <= 0 || solutions.empty()) {
+            summary.solver_output_check_passed = false;
         }
-        if (!result.success && !result.poses.empty()) {
-            summary.solver_success_check_passed = false;
+        if (solution_count > 0) {
+            summary.total_solutions += static_cast<std::size_t>(solution_count);
         }
 
-        for (const Pose& pose : result.poses) {
+        double best_pose_error = std::numeric_limits<double>::max();
+        for (const Pose& pose : solutions) {
             if (!is_finite_pose(pose)) {
                 summary.finite_output_check_passed = false;
             }
             if (!is_rotation_matrix_reasonable(pose, rotation_tolerance)) {
                 summary.rotation_matrix_check_passed = false;
             }
+            if (is_valid_calibrated_pose(instance, pose, 1.0, options.tolerance)) {
+                ++summary.valid_solutions;
+            }
+            best_pose_error = std::min(best_pose_error, compute_pose_error(instance, pose, 1.0));
         }
 
-        const double best_error = best_reprojection_error(test_case, result);
-        if (std::isfinite(best_error)) {
-            finite_error_sum += best_error;
-            ++finite_error_count;
-            summary.max_best_reprojection_error =
-                std::max(summary.max_best_reprojection_error, best_error);
-        } else {
-            summary.max_best_reprojection_error = std::numeric_limits<double>::infinity();
-        }
-
-        if (best_error <= options.reprojection_error_threshold) {
-            ++summary.passed_cases;
+        if (best_pose_error < options.tolerance) {
+            ++summary.gt_found;
         }
     }
 
-    summary.failed_cases = summary.num_cases - summary.passed_cases;
-    if (summary.num_cases > 0) {
-        summary.success_rate =
-            static_cast<double>(summary.passed_cases) / static_cast<double>(summary.num_cases);
+    if (summary.num_problems > 0) {
+        summary.solutions_per_problem =
+            static_cast<double>(summary.total_solutions) / static_cast<double>(summary.num_problems);
+        summary.gt_found_percent =
+            static_cast<double>(summary.gt_found) / static_cast<double>(summary.num_problems) * 100.0;
     }
-    if (finite_error_count > 0) {
-        summary.mean_best_reprojection_error =
-            finite_error_sum / static_cast<double>(finite_error_count);
-    } else if (summary.num_cases > 0) {
-        summary.mean_best_reprojection_error = std::numeric_limits<double>::infinity();
+    if (summary.total_solutions > 0) {
+        summary.valid_solutions_percent =
+            static_cast<double>(summary.valid_solutions) / static_cast<double>(summary.total_solutions) * 100.0;
     }
 
-    // Build metrics object and use the shared correctness policy helper.
     AbsolutePoseBenchmarkMetrics metrics;
-    metrics.num_cases = summary.num_cases;
-    metrics.valid_cases = summary.passed_cases;
-    metrics.success_rate = summary.success_rate;
-    metrics.mean_best_reprojection_error = summary.mean_best_reprojection_error;
-    metrics.max_best_reprojection_error = summary.max_best_reprojection_error;
+    metrics.num_problems = summary.num_problems;
+    metrics.valid_solutions = summary.valid_solutions;
+    metrics.valid_solutions_percent = summary.valid_solutions_percent;
+    metrics.gt_found = summary.gt_found;
+    metrics.gt_found_percent = summary.gt_found_percent;
+    metrics.runtime_ns_per_problem_median = 1.0;
 
-    summary.reprojection_check_passed = correctness_policy_passed(metrics, options);
-
+    summary.benchmark_correctness_check_passed = correctness_policy_passed(metrics);
     summary.final_status_passed =
         summary.metadata_check_passed
-        && summary.solver_success_check_passed
+        && summary.solver_output_check_passed
         && summary.finite_output_check_passed
         && summary.rotation_matrix_check_passed
-        && summary.reprojection_check_passed;
+        && summary.benchmark_correctness_check_passed;
 
     return summary;
 }
@@ -141,17 +133,19 @@ ValidationSummary run_adapter_validation() {
 void print_validation_summary(const ValidationSummary& summary) {
     std::cout << std::boolalpha << std::setprecision(12);
     std::cout << "adapter_name: " << summary.adapter_name << '\n';
-    std::cout << "num_cases: " << summary.num_cases << '\n';
-    std::cout << "passed_cases: " << summary.passed_cases << '\n';
-    std::cout << "failed_cases: " << summary.failed_cases << '\n';
-    std::cout << "success_rate: " << summary.success_rate << '\n';
-    std::cout << "mean_best_reprojection_error: " << summary.mean_best_reprojection_error << '\n';
-    std::cout << "max_best_reprojection_error: " << summary.max_best_reprojection_error << '\n';
+    std::cout << "num_problems: " << summary.num_problems << '\n';
+    std::cout << "total_solutions: " << summary.total_solutions << '\n';
+    std::cout << "solutions_per_problem: " << summary.solutions_per_problem << '\n';
+    std::cout << "valid_solutions: " << summary.valid_solutions << '\n';
+    std::cout << "valid_solutions_percent: " << summary.valid_solutions_percent << '\n';
+    std::cout << "gt_found: " << summary.gt_found << '\n';
+    std::cout << "gt_found_percent: " << summary.gt_found_percent << '\n';
     std::cout << "metadata_check_passed: " << summary.metadata_check_passed << '\n';
-    std::cout << "solver_success_check_passed: " << summary.solver_success_check_passed << '\n';
+    std::cout << "solver_output_check_passed: " << summary.solver_output_check_passed << '\n';
     std::cout << "finite_output_check_passed: " << summary.finite_output_check_passed << '\n';
     std::cout << "rotation_matrix_check_passed: " << summary.rotation_matrix_check_passed << '\n';
-    std::cout << "reprojection_check_passed: " << summary.reprojection_check_passed << '\n';
+    std::cout << "benchmark_correctness_check_passed: "
+              << summary.benchmark_correctness_check_passed << '\n';
     std::cout << "final_status: " << (summary.final_status_passed ? "passed" : "failed") << '\n';
 }
 

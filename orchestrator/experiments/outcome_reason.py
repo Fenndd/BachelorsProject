@@ -334,7 +334,7 @@ def _benchmark_metrics_missing(verification: dict[str, Any]) -> bool:
     benchmark = verification.get("benchmark")
     if not isinstance(benchmark, dict):
         return True
-    return benchmark.get("parsed_runtime_ns_per_case_median") is None or benchmark.get("parsed_correctness_passed") is None
+    return benchmark.get("parsed_runtime_ns_per_problem_median") is None or benchmark.get("parsed_correctness_passed") is None
 
 
 def _reason_list(value: Any) -> list[str]:
