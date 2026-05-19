@@ -65,7 +65,10 @@ from .closed_loop_history import (
     build_history_guidance,
     should_include_in_closed_loop_history,
 )
-from .final_validation import run_final_validation
+from .final_selection_report import (
+    FINAL_SELECTION_REPORT_FILENAME,
+    run_final_selection_report,
+)
 from .outcome_reason import build_outcome_reason, outcome_reason_to_dict
 from orchestrator.benchmarking.candidate_decision import (
     evaluate_candidate_against_reference,
@@ -2184,64 +2187,33 @@ def finalize_closed_loop_artifacts(
     return summary, results_state_path
 
 
-def _update_closed_loop_summary_with_final_validation(
+def _update_closed_loop_summary_with_final_selection(
     paths: ClosedLoopPaths,
     summary: ClosedLoopSummary,
     report_path: Path,
 ) -> dict[str, Any]:
     report = _read_json_object(report_path)
-    comparison_raw = report.get("comparison")
-    comparison = comparison_raw if isinstance(comparison_raw, dict) else {}
-    baseline_raw = report.get("baseline")
-    baseline = baseline_raw if isinstance(baseline_raw, dict) else {}
-    baseline_summary_raw = baseline.get("summary")
-    baseline_summary = baseline_summary_raw if isinstance(baseline_summary_raw, dict) else {}
-    final_raw = report.get("final")
-    final = final_raw if isinstance(final_raw, dict) else {}
-    final_summary_raw = final.get("summary")
-    final_summary = final_summary_raw if isinstance(final_summary_raw, dict) else {}
-    baseline_median_runtime = _numeric_or_none(
-        baseline_summary.get("median_runtime_ns_per_problem")
-    )
-    if baseline_median_runtime is None:
-        baseline_median_runtime = _numeric_or_none(
-            baseline_summary.get("median_runtime_ns_per_case")
-        )
-    final_median_runtime = _numeric_or_none(
-        final_summary.get("median_runtime_ns_per_problem")
-    )
-    if final_median_runtime is None:
-        final_median_runtime = _numeric_or_none(
-            final_summary.get("median_runtime_ns_per_case")
-        )
-    median_speedup = _numeric_or_none(comparison.get("median_speedup"))
-    median_reduction = _numeric_or_none(
-        comparison.get("median_runtime_reduction_percent")
-    )
-    summary.final_validation_report_path = report_path
-    summary.final_validation_median_speedup = median_speedup
-    summary.final_validation_median_runtime_reduction_percent = median_reduction
+    comparison = report.get("comparison") if isinstance(report.get("comparison"), dict) else {}
+    speedup = _numeric_or_none(comparison.get("speedup"))
+    runtime_reduction = _numeric_or_none(comparison.get("runtime_reduction_percent"))
+    baseline_runtime = _numeric_or_none(comparison.get("baseline_runtime_ns_per_problem_median"))
+    final_runtime = _numeric_or_none(comparison.get("final_runtime_ns_per_problem_median"))
+    final_correctness = report.get("final_benchmark", {}).get("parsed_correctness_passed") if isinstance(report.get("final_benchmark"), dict) else None
+    status = report.get("status")
+    summary.final_selection_report_path = report_path
+    summary.final_selection_speedup_vs_original_baseline = speedup
+    summary.final_selection_runtime_reduction_percent = runtime_reduction
     _write_json(paths.closed_loop_summary_path, _portable_plain_dict(summary))
     return {
-        "enabled": report.get("enabled"),
-        "status": report.get("status"),
-        "benchmark_repetitions": report.get("benchmark_repetitions"),
+        "status": status,
+        "final_best_is_baseline": report.get("final_best_is_baseline"),
         "report_path": _display_path(report_path),
-        "median_speedup": median_speedup,
-        "median_runtime_reduction_percent": median_reduction,
-        "baseline_median_runtime_ns_per_problem": baseline_median_runtime,
-        "final_median_runtime_ns_per_problem": final_median_runtime,
+        "speedup_vs_original_baseline": speedup,
+        "runtime_reduction_percent": runtime_reduction,
+        "baseline_runtime_ns_per_problem_median": baseline_runtime,
+        "final_runtime_ns_per_problem_median": final_runtime,
+        "final_correctness_passed": final_correctness,
     }
-
-
-def _final_validation_has_comparison_metrics(status: dict[str, Any] | None) -> bool:
-    if not isinstance(status, dict):
-        return False
-    return (
-        status.get("status") in {"completed", "completed_partial"}
-        and _numeric_or_none(status.get("median_speedup")) is not None
-        and _numeric_or_none(status.get("median_runtime_reduction_percent")) is not None
-    )
 
 
 def _write_effective_experiment_config(experiment_dir: Path, config: ExperimentConfig) -> Path:
@@ -2252,10 +2224,9 @@ def _write_effective_experiment_config(experiment_dir: Path, config: ExperimentC
 
 def _closed_loop_overall_status(
     *,
-    final_validation_enabled: bool,
-    final_validation_status: dict[str, Any] | None,
+    final_selection_status: dict[str, Any] | None = None,
 ) -> str:
-    if final_validation_enabled and not _final_validation_has_comparison_metrics(final_validation_status):
+    if isinstance(final_selection_status, dict) and final_selection_status.get("status") == "failed":
         return "completed_with_warnings"
     return "completed"
 
@@ -2398,7 +2369,7 @@ def _closed_loop_status_block(
     summary: ClosedLoopSummary,
     results_state_path: Path,
     accepted_improvements: int,
-    final_validation_status: dict[str, Any] | None = None,
+    final_selection_status: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     payload = {
         "enabled": True,
@@ -2413,11 +2384,11 @@ def _closed_loop_status_block(
         "workspace_current_best_state_path": _display_path(paths.current_best_state_path),
         "status_counts": summary.status_counts,
     }
-    if final_validation_status is not None:
-        payload["final_validation"] = final_validation_status
-        payload["final_validation_report_path"] = final_validation_status.get("report_path")
-        payload["final_validation_median_speedup"] = final_validation_status.get("median_speedup")
-        payload["final_validation_median_runtime_reduction_percent"] = final_validation_status.get("median_runtime_reduction_percent")
+    if final_selection_status is not None:
+        payload["final_selection_report_path"] = final_selection_status.get("report_path")
+        payload["final_selection_speedup_vs_original_baseline"] = final_selection_status.get("speedup_vs_original_baseline")
+        payload["final_selection_runtime_reduction_percent"] = final_selection_status.get("runtime_reduction_percent")
+        payload["final_selection_status"] = final_selection_status.get("status")
     return payload
 
 
@@ -2501,7 +2472,7 @@ def _build_closed_loop_summary_text(
     results_state_path: Path,
     accepted_improvements: int,
     reporting_status: dict[str, Any] | None = None,
-    final_validation_status: dict[str, Any] | None = None,
+    final_selection_status: dict[str, Any] | None = None,
     finished_at: str | None = None,
 ) -> str:
     lines = [
@@ -2549,48 +2520,37 @@ def _build_closed_loop_summary_text(
             elif reporting_status.get("status") == "failed":
                 lines.append(f"  error: {reporting_status.get('error') or 'none'}")
         lines.append("")
-    if final_validation_status is not None:
-        lines.append("Final repeated benchmark validation:")
-        lines.append(f"  enabled: {str(final_validation_status.get('enabled')).lower()}")
-        lines.append(f"  status: {final_validation_status.get('status') or 'none'}")
-        lines.append(
-            "  benchmark repetitions: "
-            f"{final_validation_status.get('benchmark_repetitions') or 'none'}"
-        )
-        lines.append(
-            "  report: "
-            f"{final_validation_status.get('report_path') or 'none'}"
-        )
-        if _final_validation_has_comparison_metrics(final_validation_status):
+    if final_selection_status is not None:
+        lines.append("Final single-run comparison vs original baseline:")
+        lines.append(f"  status: {final_selection_status.get('status') or 'none'}")
+        lines.append(f"  final best is baseline: {str(final_selection_status.get('final_best_is_baseline')).lower()}")
+        lines.append(f"  report: {final_selection_status.get('report_path') or 'none'}")
+        if final_selection_status.get("status") in {"completed", "skipped"}:
             lines.append(
-                "  final repeated validation median speedup: "
-                f"{_format_optional_float(final_validation_status.get('median_speedup'))}"
+                "  speedup vs original baseline: "
+                f"{_format_optional_float(final_selection_status.get('speedup_vs_original_baseline'))}"
             )
             lines.append(
-                "  final repeated validation median runtime reduction percent: "
-                f"{_format_optional_float(final_validation_status.get('median_runtime_reduction_percent'))}"
+                "  runtime reduction percent: "
+                f"{_format_optional_float(final_selection_status.get('runtime_reduction_percent'))}"
             )
             lines.append(
-                "  baseline median runtime ns/problem: "
-                f"{_format_optional_float(final_validation_status.get('baseline_median_runtime_ns_per_problem'))}"
+                "  baseline runtime ns/problem: "
+                f"{_format_optional_float(final_selection_status.get('baseline_runtime_ns_per_problem_median'))}"
             )
             lines.append(
-                "  final median runtime ns/problem: "
-                f"{_format_optional_float(final_validation_status.get('final_median_runtime_ns_per_problem'))}"
+                "  final runtime ns/problem: "
+                f"{_format_optional_float(final_selection_status.get('final_runtime_ns_per_problem_median'))}"
+            )
+            lines.append(
+                "  final correctness_passed: "
+                f"{final_selection_status.get('final_correctness_passed')}"
             )
         else:
-            lines.append("  Final repeated validation metrics: unavailable")
-            lines.append(
-                "  Single-run selection metrics are available only as iteration analytics "
-                "and are not used as final headline metrics."
-            )
+            lines.append("  Final single-run comparison metrics: unavailable")
         lines.append("")
     else:
-        lines.append("Final repeated validation metrics: unavailable")
-        lines.append(
-            "Single-run selection metrics are available only as iteration analytics "
-            "and are not used as final headline metrics."
-        )
+        lines.append("Final single-run comparison: not run")
         lines.append("")
     return "\n".join(lines)
 
@@ -2913,21 +2873,20 @@ def _run_closed_loop_experiment(
         finished_at=closed_loop_finished_at,
     )
     selection_report_path = write_closed_loop_selection_report(experiment_dir, state, summary, records)
-    final_validation_report_path = run_final_validation(
+    final_selection_report_path = run_final_selection_report(
         experiment_dir=experiment_dir,
         experiment_id=experiment_id,
         repo_root=REPO_ROOT,
-        baseline_source_dir=REPO_ROOT,
+        baseline_run_dir=state.original_baseline_run_dir,
         final_source_dir=closed_loop_paths.final_optimized_source_dir,
-        enabled=config.final_validation.enabled,
-        benchmark_repetitions=config.final_validation.benchmark_repetitions,
+        target_file=config.target_file,
+        final_best_is_baseline=state.current_best_is_baseline,
     )
-    final_validation_status = _update_closed_loop_summary_with_final_validation(
+    final_selection_status = _update_closed_loop_summary_with_final_selection(
         closed_loop_paths,
         summary,
-        final_validation_report_path,
+        final_selection_report_path,
     )
-    reporting_status = _run_final_reporting(experiment_dir, config)
     finished_at = _now_iso()
     _write_experiment_metadata(experiment_dir, started_at, finished_at)
     reporting_status = _run_final_reporting(experiment_dir, config)
@@ -2935,15 +2894,14 @@ def _run_closed_loop_experiment(
         "experiment_id": experiment_id,
         "experiment_name": config.experiment_name,
         "overall_status": _closed_loop_overall_status(
-            final_validation_enabled=config.final_validation.enabled,
-            final_validation_status=final_validation_status,
+            final_selection_status=final_selection_status,
         ),
         "closed_loop": _closed_loop_status_block(
             closed_loop_paths,
             summary,
             results_state_path,
             state.accepted_improvements,
-            final_validation_status,
+            final_selection_status,
         ),
         "started_at": started_at.isoformat(timespec="seconds"),
         "finished_at": finished_at,
@@ -2953,6 +2911,7 @@ def _run_closed_loop_experiment(
         "pipeline": asdict(config.pipeline),
         "candidate_format": asdict(config.candidate_format),
         "closed_loop_selection_report_path": _display_path(selection_report_path),
+        "final_selection_report_path": _display_path(final_selection_report_path),
         "reporting": reporting_status,
     }
     _write_json(experiment_dir / "experiment_status.json", final_status)
@@ -2964,7 +2923,7 @@ def _run_closed_loop_experiment(
             results_state_path=results_state_path,
             accepted_improvements=state.accepted_improvements,
             reporting_status=reporting_status,
-            final_validation_status=final_validation_status,
+            final_selection_status=final_selection_status,
             finished_at=finished_at,
         ),
         encoding="utf-8",

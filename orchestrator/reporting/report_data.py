@@ -202,8 +202,8 @@ class ReportArtifactMap:
     closed_loop_selection_report: Path | str | None = None
     experiment_status: Path | str | None = None
     summary_txt: Path | str | None = None
-    final_validation_dir: Path | str | None = None
-    final_validation_report: Path | str | None = None
+    final_selection_dir: Path | str | None = None
+    final_selection_report: Path | str | None = None
 
 
 @dataclass
@@ -309,84 +309,17 @@ class ReportReportingStatus:
 
 
 @dataclass
-class ReportRepeatedValidationGroupSummary:
-    benchmark_runs_attempted: int = 0
-    successful_runs: int = 0
-    failed_runs: int = 0
-    median_runtime_ns_per_case: float | None = None
-    mean_runtime_ns_per_case: float | None = None
-    min_runtime_ns_per_case: float | None = None
-    max_runtime_ns_per_case: float | None = None
-    std_runtime_ns_per_case: float | None = None
-    all_correctness_passed: bool | None = None
-    success_rate_min: float | None = None
-    success_rate_mean: float | None = None
+class ReportFinalSelection:
+    """Single-run final benchmark comparison against original baseline."""
 
-
-@dataclass
-class ReportFinalValidationSetup:
-    configure_status: str | None = None
-    configure_duration_seconds: float | None = None
-    configure_log_path: str | None = None
-    build_status: str | None = None
-    build_duration_seconds: float | None = None
-    build_log_path: str | None = None
-    failed_step: str | None = None
-    error_message: str | None = None
-
-
-@dataclass
-class ReportFinalValidationComparison:
-    median_speedup: float | None = None
-    median_runtime_reduction_percent: float | None = None
-    mean_speedup: float | None = None
-    mean_runtime_reduction_percent: float | None = None
-    baseline_reference: str | None = None
-    final_reference: str | None = None
-
-
-@dataclass
-class ReportFinalValidationDiagnostics:
-    summary: str | None = None
-    dominant_failed_step: str | None = None
-    dominant_error_excerpt: str | None = None
-    path_length_warning_detected: bool | None = None
-    max_observed_path_length: int | None = None
-    baseline_setup_failed: bool = False
-    final_setup_failed: bool = False
-    baseline_group_status: str | None = None
-    final_group_status: str | None = None
-    baseline_failed_runs: int = 0
-    final_failed_runs: int = 0
-    suggested_log_paths: list[str] = field(default_factory=list)
-
-
-@dataclass
-class ReportFinalValidation:
-    enabled: bool | None = None
     status: str | None = None
-    benchmark_repetitions: int | None = None
+    final_best_is_baseline: bool | None = None
     report_path: str | None = None
-    baseline: ReportRepeatedValidationGroupSummary = field(
-        default_factory=ReportRepeatedValidationGroupSummary
-    )
-    final: ReportRepeatedValidationGroupSummary = field(
-        default_factory=ReportRepeatedValidationGroupSummary
-    )
-    baseline_setup: ReportFinalValidationSetup = field(
-        default_factory=ReportFinalValidationSetup
-    )
-    final_setup: ReportFinalValidationSetup = field(
-        default_factory=ReportFinalValidationSetup
-    )
-    baseline_runs: list[dict[str, Any]] = field(default_factory=list)
-    final_runs: list[dict[str, Any]] = field(default_factory=list)
-    comparison: ReportFinalValidationComparison = field(
-        default_factory=ReportFinalValidationComparison
-    )
-    diagnostics: ReportFinalValidationDiagnostics = field(
-        default_factory=ReportFinalValidationDiagnostics
-    )
+    speedup_vs_original_baseline: float | None = None
+    runtime_reduction_percent: float | None = None
+    baseline_runtime_ns_per_problem_median: float | None = None
+    final_runtime_ns_per_problem_median: float | None = None
+    final_correctness_passed: bool | None = None
 
 
 @dataclass
@@ -454,7 +387,7 @@ class ReportData:
         default_factory=ReportFinalBestCandidate
     )
     reporting_status: ReportReportingStatus = field(default_factory=ReportReportingStatus)
-    final_validation: ReportFinalValidation = field(default_factory=ReportFinalValidation)
+    final_selection: ReportFinalSelection = field(default_factory=ReportFinalSelection)
     reason_summary: list[ReportReasonSummaryItem] = field(default_factory=list)
     reason_code_counts: list[ReportReasonCodeCount] = field(default_factory=list)
     experiment_metadata: ReportExperimentMetadata | None = None
@@ -521,12 +454,8 @@ __all__ = [
     "ReportData",
     "ReportExperimentConfigDetails",
     "ReportFinalBestCandidate",
-    "ReportFinalValidation",
-    "ReportFinalValidationComparison",
-    "ReportFinalValidationDiagnostics",
-    "ReportFinalValidationSetup",
+    "ReportFinalSelection",
     "ReportFinalResult",
-    "ReportRepeatedValidationGroupSummary",
     "ReportDiffStats",
     "ReportExperimentMetadata",
     "ReportIterationSummary",

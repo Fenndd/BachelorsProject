@@ -27,21 +27,23 @@ def _write_json(path: Path, payload: dict[str, Any]) -> None:
     path.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
 
 
-def _fake_final_validation(**kwargs: Any) -> Path:
+def _fake_final_selection_report(**kwargs: Any) -> Path:
     experiment_dir = Path(kwargs["experiment_dir"])
-    report_path = experiment_dir / "val" / "final_validation_report.json"
+    report_path = experiment_dir / "final_selection_report.json"
+    final_best_is_baseline = kwargs.get("final_best_is_baseline", False)
     _write_json(
         report_path,
         {
-            "schema_version": "final_validation.v1",
-            "enabled": kwargs.get("enabled", True),
-            "status": "completed",
-            "benchmark_repetitions": kwargs.get("benchmark_repetitions", 5),
-            "baseline": {"runs": [], "summary": {"successful_runs": 0, "failed_runs": 0}},
-            "final": {"runs": [], "summary": {"successful_runs": 0, "failed_runs": 0}},
+            "report_type": "single_run_final_selection_report",
+            "metric_source": "single_run_final_best_vs_original_baseline",
+            "final_best_is_baseline": final_best_is_baseline,
+            "status": "skipped" if final_best_is_baseline else "completed",
             "comparison": {
-                "median_speedup": None,
-                "median_runtime_reduction_percent": None,
+                "speedup": 1.0,
+                "runtime_reduction_percent": 0.0,
+                "baseline_runtime_ns_per_problem_median": 1000.0,
+                "final_runtime_ns_per_problem_median": 1000.0,
+                "candidate_runtime_lower": False,
             },
         },
     )
@@ -253,7 +255,7 @@ class RunExperimentClosedLoopTests(unittest.TestCase):
         original_run_stage = runner._run_stage
         original_decision = runner.evaluate_candidate_against_reference
         original_resolve_variant_llm_config = runner._resolve_variant_llm_config
-        original_run_final_validation = runner.run_final_validation
+        original_run_final_selection_report = runner.run_final_selection_report
         self.addCleanup(setattr, runner, "REPO_ROOT", original_repo_root)
         self.addCleanup(setattr, runner, "RESULTS_ROOT", original_results_root)
         self.addCleanup(setattr, runner, "EXPERIMENTS_ROOT", original_experiments_root)
@@ -261,7 +263,7 @@ class RunExperimentClosedLoopTests(unittest.TestCase):
         self.addCleanup(setattr, runner, "_run_stage", original_run_stage)
         self.addCleanup(setattr, runner, "evaluate_candidate_against_reference", original_decision)
         self.addCleanup(setattr, runner, "_resolve_variant_llm_config", original_resolve_variant_llm_config)
-        self.addCleanup(setattr, runner, "run_final_validation", original_run_final_validation)
+        self.addCleanup(setattr, runner, "run_final_selection_report", original_run_final_selection_report)
 
         runner.REPO_ROOT = root
         runner.RESULTS_ROOT = root / "results"
@@ -270,7 +272,7 @@ class RunExperimentClosedLoopTests(unittest.TestCase):
         runner._run_stage = harness.fake_run_stage  # type: ignore[method-assign]
         runner.evaluate_candidate_against_reference = harness.fake_decision  # type: ignore[assignment]
         runner._resolve_variant_llm_config = lambda variant: {"provider": "mock", "model": "mock"}  # type: ignore[assignment]
-        runner.run_final_validation = _fake_final_validation  # type: ignore[assignment]
+        runner.run_final_selection_report = _fake_final_selection_report  # type: ignore[assignment]
 
         exit_code = runner._run_experiment(config, _config_payload(root, iterations=len(statuses)))
         self.assertEqual(exit_code, 0)
@@ -624,7 +626,7 @@ class RunExperimentClosedLoopTests(unittest.TestCase):
             "_run_stage": runner._run_stage,
             "evaluate_candidate_against_reference": runner.evaluate_candidate_against_reference,
             "_resolve_variant_llm_config": runner._resolve_variant_llm_config,
-            "run_final_validation": runner.run_final_validation,
+            "run_final_selection_report": runner.run_final_selection_report,
         }
         for name, value in originals.items():
             self.addCleanup(setattr, runner, name, value)
@@ -635,7 +637,7 @@ class RunExperimentClosedLoopTests(unittest.TestCase):
         runner._run_stage = fake_run_stage  # type: ignore[assignment]
         runner.evaluate_candidate_against_reference = fake_decision  # type: ignore[assignment]
         runner._resolve_variant_llm_config = lambda variant: {"provider": "mock", "model": "mock"}  # type: ignore[assignment]
-        runner.run_final_validation = _fake_final_validation  # type: ignore[assignment]
+        runner.run_final_selection_report = _fake_final_selection_report  # type: ignore[assignment]
 
         exit_code = runner._run_experiment(config, _config_payload(root, iterations=3))
 

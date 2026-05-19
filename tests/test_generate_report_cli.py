@@ -22,7 +22,6 @@ EXPECTED_PLOTS = (
     "llm_latency_by_iteration.svg",
     "failure_reason_breakdown.svg",
     "diff_stats_by_iteration.svg",
-    "final_validation_runtime_distribution.svg",
 )
 
 
@@ -178,7 +177,7 @@ def test_generate_basic_report_pdf_calls_exporter(
         assert 'id="failure-analysis"' in html
         assert 'id="phase-timings"' in html
         assert 'id="llm-usage"' in html
-        assert 'id="final-validation"' in html
+        assert 'id="final-comparison"' in html
         assert 'id="diff-statistics"' in html
         assert 'id="iteration-appendix"' in html
         assert renderer == "weasyprint"

@@ -41,7 +41,7 @@ def _write_experiment(root: Path, name: str) -> Path:
         encoding="utf-8",
     )
     (exp_dir / "closed_loop_summary.json").write_text(
-        '{"final_validation_median_speedup": 1.2, "final_validation_median_runtime_reduction_percent": 16.7, "final_best_iteration": 3, "status_counts": {"accepted_improvement": 2}}\n',
+        '{"final_selection_speedup_vs_original_baseline": 1.2, "final_selection_runtime_reduction_percent": 16.7, "final_best_iteration": 3, "status_counts": {"accepted_improvement": 2}}\n',
         encoding="utf-8",
     )
     (exp_dir / "summary.txt").write_text("Experiment summary\n", encoding="utf-8")

@@ -3,6 +3,7 @@
 #include <limits>
 #include <string>
 #include <vector>
+#include <algorithm>
 
 #include "absolute_pose_problem_generator.hpp"
 #include "absolute_pose_validator.hpp"

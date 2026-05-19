@@ -13,10 +13,7 @@ from orchestrator.reporting import (
     ReportExperimentConfigDetails,
     ReportExperimentMetadata,
     ReportFinalBestCandidate,
-    ReportFinalValidation,
-    ReportFinalValidationComparison,
-    ReportFinalValidationDiagnostics,
-    ReportFinalValidationSetup,
+    ReportFinalSelection,
     ReportFinalResult,
     ReportIterationSummary,
     ReportLlmInfo,
@@ -26,7 +23,6 @@ from orchestrator.reporting import (
     ReportPhaseTimings,
     ReportReasonCodeCount,
     ReportReasonSummaryItem,
-    ReportRepeatedValidationGroupSummary,
     ReportReportingStatus,
     build_report_figures,
     default_status_counts,
@@ -50,7 +46,6 @@ EXPECTED_PLOTS = {
     "llm_latency_by_iteration": "llm_latency_by_iteration.svg",
     "failure_reason_breakdown": "failure_reason_breakdown.svg",
     "diff_stats_by_iteration": "diff_stats_by_iteration.svg",
-    "final_validation_runtime_distribution": "final_validation_runtime_distribution.svg",
 }
 
 NEW_SECTION_IDS = (
@@ -58,7 +53,7 @@ NEW_SECTION_IDS = (
     "failure-analysis",
     "phase-timings",
     "llm-usage",
-    "final-validation",
+    "final-comparison",
     "diff-statistics",
     "iteration-appendix",
 )
@@ -549,7 +544,7 @@ def test_f_html_contains_enriched_fields(tmp_path: Path) -> None:
     assert "Selection Enabled" not in html
     assert "History Policy Enabled" not in html
     assert "Final Best Candidate" in html
-    assert "Candidate runtime fields in this section are not used as final headline performance metrics" in html
+    assert "Candidate runtime fields in this section reflect the final single-run comparison against the original baseline" in html
     assert "Not generated" in html
     # correctness_preserved rendered as Yes/No
     assert "Yes" in html
@@ -712,54 +707,36 @@ def test_phase_timings_chart_still_generated_without_benchmark_column(tmp_path: 
     assert 'colspan="6"' not in html
 
 
-def test_html_contains_final_validation_section_and_llm_kpis(tmp_path: Path) -> None:
+def test_html_contains_final_comparison_section_and_llm_kpis(tmp_path: Path) -> None:
     report_data = _report_data()
     report_data.llm_usage_summary = ReportLlmUsageSummary(
         total_tokens=100,
         most_expensive_iteration=2,
         highest_latency_iteration=1,
     )
-    report_data.final_validation = ReportFinalValidation(
-        enabled=True,
+    report_data.final_selection = ReportFinalSelection(
         status="completed",
-        benchmark_repetitions=5,
-        baseline=ReportRepeatedValidationGroupSummary(
-            benchmark_runs_attempted=5,
-            successful_runs=5,
-            median_runtime_ns_per_case=100.0,
-            all_correctness_passed=True,
-        ),
-        final=ReportRepeatedValidationGroupSummary(
-            benchmark_runs_attempted=5,
-            successful_runs=5,
-            median_runtime_ns_per_case=80.0,
-            all_correctness_passed=True,
-        ),
-        comparison=ReportFinalValidationComparison(
-            median_speedup=1.25,
-            median_runtime_reduction_percent=20.0,
-        ),
-        diagnostics=ReportFinalValidationDiagnostics(
-            summary="All repeated validation runs completed successfully.",
-        ),
+        final_best_is_baseline=False,
+        speedup_vs_original_baseline=1.25,
+        runtime_reduction_percent=20.0,
+        baseline_runtime_ns_per_problem_median=100.0,
+        final_runtime_ns_per_problem_median=80.0,
+        final_correctness_passed=True,
     )
 
     plot_paths = build_report_figures(report_data, tmp_path / "plots")
     html_path = render_report_html(report_data, plot_paths, tmp_path / "report.html")
     html = html_path.read_text(encoding="utf-8")
 
-    assert 'id="final-validation"' in html
-    assert "Benchmark Repetitions" in html
-    assert "Median Speedup" in html
-    assert "Baseline Benchmark Runs Attempted" in html
-    assert "Final Benchmark Runs Attempted" in html
+    assert 'id="final-comparison"' in html
+    assert "Speedup vs Original Baseline" in html
+    assert "Runtime Reduction %" in html
+    assert "Final Correctness Passed" in html
     assert "Most Expensive Iteration" in html
     assert "Highest Latency Iteration" in html
-    assert "All repeated validation runs completed successfully." in html
-    assert "Dominant Failed Step" not in html
 
 
-def test_executive_summary_uses_final_validation_baseline_runtime(tmp_path: Path) -> None:
+def test_executive_summary_uses_final_selection_baseline_runtime(tmp_path: Path) -> None:
     report_data = _report_data()
     report_data.final_result.final_speedup_vs_baseline = 1.25
     report_data.final_result.final_runtime_reduction_percent = 20.0
@@ -778,289 +755,58 @@ def test_executive_summary_uses_final_validation_baseline_runtime(tmp_path: Path
     assert "Baseline Runtime ns/case</strong>1000" not in executive
 
 
-def test_executive_summary_not_available_when_final_validation_metrics_null(tmp_path: Path) -> None:
+def test_executive_summary_not_available_when_final_selection_metrics_null(tmp_path: Path) -> None:
     report_data = _report_data()
     report_data.final_result.final_speedup_vs_baseline = None
     report_data.final_result.final_runtime_reduction_percent = None
     report_data.final_result.correctness_preserved = None
     report_data.final_best_candidate = ReportFinalBestCandidate()
-    report_data.final_validation = ReportFinalValidation(
-        enabled=True,
-        status="incomplete",
-        benchmark_repetitions=5,
-        comparison=ReportFinalValidationComparison(
-            median_speedup=None,
-            median_runtime_reduction_percent=None,
-        ),
-    )
 
     plot_paths = build_report_figures(report_data, tmp_path / "plots")
     html_path = render_report_html(report_data, plot_paths, tmp_path / "report.html")
     html = html_path.read_text(encoding="utf-8")
     executive = html.split('id="experiment-configuration"', 1)[0]
 
-    assert "Final Validation Speedup</strong>Not available" in executive
-    assert "Final Validation Runtime Reduction %</strong>Not available" in executive
+    assert "Final Selection Speedup</strong>Not available" in executive
+    assert "Final Selection Runtime Reduction %</strong>Not available" in executive
     assert "Correctness Preserved</strong>Not available" in executive
     assert "Headline performance metrics are unavailable" in executive
 
 
-def test_final_validation_html_skipped_message_without_empty_table(tmp_path: Path) -> None:
-    report_data = _report_data()
-    report_data.final_validation = ReportFinalValidation(
-        enabled=False,
-        status="skipped",
-        benchmark_repetitions=5,
-    )
-
-    plot_paths = build_report_figures(report_data, tmp_path / "plots")
-    html_path = render_report_html(report_data, plot_paths, tmp_path / "report.html")
-    html = html_path.read_text(encoding="utf-8")
-    final_validation = html.split('id="final-validation"', 1)[1].split(
-        'id="baseline-metrics"', 1
-    )[0]
-
-    assert "Final repeated benchmark validation was disabled/skipped" in final_validation
-    assert "Benchmark Repetitions" in final_validation
-    assert "Successful Baseline Runs" not in final_validation
-    assert "Baseline Median Runtime" not in final_validation
-
-
-def test_final_validation_html_missing_message(tmp_path: Path) -> None:
+def test_final_comparison_html_not_available_message(tmp_path: Path) -> None:
     report_data = _report_data()
 
     plot_paths = build_report_figures(report_data, tmp_path / "plots")
     html_path = render_report_html(report_data, plot_paths, tmp_path / "report.html")
     html = html_path.read_text(encoding="utf-8")
-    final_validation = html.split('id="final-validation"', 1)[1].split(
+    final_comparison = html.split('id="final-comparison"', 1)[1].split(
         'id="baseline-metrics"', 1
     )[0]
 
-    assert "Final repeated benchmark validation was not available" in final_validation
-    assert "Successful Baseline Runs" not in final_validation
+    assert "Final single-run comparison was not available" in final_comparison
 
 
-def test_final_validation_html_incomplete_shows_compact_diagnostics(tmp_path: Path) -> None:
+def test_final_comparison_html_failed_message(tmp_path: Path) -> None:
     report_data = _report_data()
-    report_data.final_validation = ReportFinalValidation(
-        enabled=True,
-        status="incomplete",
-        benchmark_repetitions=5,
-        baseline=ReportRepeatedValidationGroupSummary(benchmark_runs_attempted=0),
-        final=ReportRepeatedValidationGroupSummary(benchmark_runs_attempted=0),
-        baseline_setup=ReportFinalValidationSetup(
-            configure_status="skipped",
-            build_status="not_run",
-            failed_step="path_length_preflight",
-        ),
-        final_setup=ReportFinalValidationSetup(
-            configure_status="skipped",
-            build_status="not_run",
-            failed_step="path_length_preflight",
-        ),
-        comparison=ReportFinalValidationComparison(
-            median_speedup=None,
-            median_runtime_reduction_percent=None,
-        ),
-        diagnostics=ReportFinalValidationDiagnostics(
-            summary="Repeated validation could not produce comparison metrics.",
-            dominant_failed_step="path_length_preflight",
-            dominant_error_excerpt="Maximum observed critical path length is 320",
-            path_length_warning_detected=True,
-            max_observed_path_length=320,
-            baseline_setup_failed=True,
-            final_setup_failed=True,
-            baseline_group_status="setup_failed",
-            final_group_status="setup_failed",
-            suggested_log_paths=["val/b/logs/path_length_preflight.log"],
-        ),
-    )
+    report_data.final_selection = ReportFinalSelection(status="failed")
 
     plot_paths = build_report_figures(report_data, tmp_path / "plots")
     html_path = render_report_html(report_data, plot_paths, tmp_path / "report.html")
     html = html_path.read_text(encoding="utf-8")
-    final_validation = html.split('id="final-validation"', 1)[1].split(
+    final_comparison = html.split('id="final-comparison"', 1)[1].split(
         'id="baseline-metrics"', 1
     )[0]
 
-    assert "headline performance metrics are unavailable" in final_validation
-    assert "Baseline Benchmark Runs Attempted" in final_validation
-    assert "Final Benchmark Runs Attempted" in final_validation
-    assert "Baseline Configure Status" in final_validation
-    assert "Final Build Status" in final_validation
-    assert "Dominant Failed Step" in final_validation
-    assert "path_length_preflight" in final_validation
-    assert "Baseline Group Status" in final_validation
-    assert "Final Group Status" in final_validation
-    assert "Baseline Setup Failed" in final_validation
-    assert "Final Setup Failed" in final_validation
-    assert "Path-Length Warning Detected" in final_validation
-    assert "Max Observed Path Length" in final_validation
-    assert "Suggested Logs" in final_validation
-    assert "Success Rate Mean" not in final_validation
+    assert "Final single-run comparison failed" in final_comparison
 
 
-def test_completed_partial_final_validation_shows_metrics_and_warning_panel(tmp_path: Path) -> None:
-    report_data = _report_data()
-    report_data.final_validation = ReportFinalValidation(
-        enabled=True,
-        status="completed_partial",
-        benchmark_repetitions=5,
-        baseline=ReportRepeatedValidationGroupSummary(
-            benchmark_runs_attempted=5,
-            successful_runs=4,
-            median_runtime_ns_per_case=100.0,
-            all_correctness_passed=False,
-        ),
-        final=ReportRepeatedValidationGroupSummary(
-            benchmark_runs_attempted=5,
-            successful_runs=5,
-            median_runtime_ns_per_case=80.0,
-            all_correctness_passed=True,
-        ),
-        comparison=ReportFinalValidationComparison(
-            median_speedup=1.25,
-            median_runtime_reduction_percent=20.0,
-        ),
-        diagnostics=ReportFinalValidationDiagnostics(
-            summary="Repeated validation comparison is available, but some runs failed or failed correctness.",
-            dominant_failed_step="benchmark_correctness_check",
-            dominant_error_excerpt="correctness_passed=false",
-            suggested_log_paths=["val/b/logs/run_02.log"],
-            baseline_group_status="benchmark_failed",
-            final_group_status="completed",
-            baseline_setup_failed=False,
-            final_setup_failed=False,
-        ),
-    )
-
-    plot_paths = build_report_figures(report_data, tmp_path / "plots")
-    html_path = render_report_html(report_data, plot_paths, tmp_path / "report.html")
-    html = html_path.read_text(encoding="utf-8")
-    final_validation = html.split('id="final-validation"', 1)[1].split(
-        'id="baseline-metrics"', 1
-    )[0]
-
-    assert "Median Speedup" in final_validation
-    assert "Median Runtime Reduction %" in final_validation
-    assert "Partial Validation Diagnostics" in final_validation
-    assert "benchmark_correctness_check" in final_validation
-    assert "Suggested Logs" in final_validation
-    assert "Benchmark Runs Attempted" in final_validation
-
-
-def test_completed_final_validation_does_not_show_suggested_logs(tmp_path: Path) -> None:
-    report_data = _report_data()
-    report_data.final_validation = ReportFinalValidation(
-        enabled=True,
-        status="completed",
-        benchmark_repetitions=5,
-        baseline=ReportRepeatedValidationGroupSummary(
-            benchmark_runs_attempted=5,
-            successful_runs=5,
-            median_runtime_ns_per_case=100.0,
-            all_correctness_passed=True,
-        ),
-        final=ReportRepeatedValidationGroupSummary(
-            benchmark_runs_attempted=5,
-            successful_runs=5,
-            median_runtime_ns_per_case=80.0,
-            all_correctness_passed=True,
-        ),
-        comparison=ReportFinalValidationComparison(
-            median_speedup=1.25,
-            median_runtime_reduction_percent=20.0,
-        ),
-        diagnostics=ReportFinalValidationDiagnostics(
-            summary="All repeated validation runs completed successfully.",
-            suggested_log_paths=["val/b/logs/run_01.log"],
-        ),
-    )
-
-    plot_paths = build_report_figures(report_data, tmp_path / "plots")
-    html_path = render_report_html(report_data, plot_paths, tmp_path / "report.html")
-    html = html_path.read_text(encoding="utf-8")
-    final_validation = html.split('id="final-validation"', 1)[1].split(
-        'id="baseline-metrics"', 1
-    )[0]
-
-    assert "Median Speedup" in final_validation
-    assert "Suggested Logs" not in final_validation
-
-
-def test_final_validation_plot_generated_when_missing_data(tmp_path: Path) -> None:
+def test_final_validation_runtime_distribution_plot_not_generated(tmp_path: Path) -> None:
     report_data = _report_data()
     plots_dir = tmp_path / "plots"
 
     build_report_figures(report_data, plots_dir)
 
-    plot_path = plots_dir / "final_validation_runtime_distribution.svg"
-    assert plot_path.is_file()
-    assert "Final validation data unavailable" in plot_path.read_text(encoding="utf-8")
-
-
-def test_final_validation_plot_filters_failed_and_incorrect_runs(tmp_path: Path) -> None:
-    from orchestrator.reporting.figure_builder import _validation_points
-
-    runs = [
-        {
-            "run_index": 1,
-            "benchmark_run_status": "success",
-            "correctness_passed": True,
-            "runtime_ns_per_case_median": 100.0,
-        },
-        {
-            "run_index": 2,
-            "benchmark_run_status": "failed",
-            "correctness_passed": True,
-            "runtime_ns_per_case_median": 999.0,
-        },
-        {
-            "run_index": 3,
-            "benchmark_run_status": "success",
-            "correctness_passed": False,
-            "runtime_ns_per_case_median": 888.0,
-        },
-        {
-            "run_index": 4,
-            "verification_status": "success",
-            "correctness_passed": True,
-            "runtime_ns_per_case_median": 777.0,
-        },
-    ]
-
-    assert _validation_points(runs) == [(1, 100.0)]
-
-
-def test_final_validation_plot_placeholder_when_all_runs_filtered(tmp_path: Path) -> None:
-    report_data = _report_data()
-    report_data.final_validation = ReportFinalValidation(
-        enabled=True,
-        baseline_runs=[
-            {
-                "run_index": 1,
-                "benchmark_run_status": "failed",
-                "correctness_passed": True,
-                "runtime_ns_per_case_median": 100.0,
-            }
-        ],
-        final_runs=[
-            {
-                "run_index": 1,
-                "benchmark_run_status": "success",
-                "correctness_passed": False,
-                "runtime_ns_per_case_median": 80.0,
-            }
-        ],
-    )
-    plots_dir = tmp_path / "plots"
-
-    build_report_figures(report_data, plots_dir)
-
-    svg_text = (plots_dir / "final_validation_runtime_distribution.svg").read_text(
-        encoding="utf-8"
-    )
-    assert "Final validation data unavailable" in svg_text
+    assert not (plots_dir / "final_validation_runtime_distribution.svg").exists()
 
 
 # ---------------------------------------------------------------------------

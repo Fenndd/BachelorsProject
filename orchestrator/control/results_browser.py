@@ -217,12 +217,12 @@ def _read_experiment_item(path: Path) -> ResultItem:
         finished_at=_str_value(experiment_status, "finished_at") or _str_value(closed_loop_summary, "finished_at"),
         summary_text=_read_text(path / "summary.txt", read_errors),
         final_speedup_vs_baseline=_first_float(
-            _float_value(closed_loop_summary, "final_validation_median_speedup"),
-            _float_value(closed_loop, "final_validation_median_speedup"),
+            _float_value(closed_loop_summary, "final_selection_speedup_vs_original_baseline"),
+            _float_value(closed_loop, "final_selection_speedup_vs_original_baseline"),
         ),
         final_runtime_reduction_percent=_first_float(
-            _float_value(closed_loop_summary, "final_validation_median_runtime_reduction_percent"),
-            _float_value(closed_loop, "final_validation_median_runtime_reduction_percent"),
+            _float_value(closed_loop_summary, "final_selection_runtime_reduction_percent"),
+            _float_value(closed_loop, "final_selection_runtime_reduction_percent"),
         ),
         final_best_iteration=(
             _int_value(closed_loop_summary, "final_best_iteration")

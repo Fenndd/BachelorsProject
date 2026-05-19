@@ -68,12 +68,6 @@ class ReportingConfig:
 
 
 @dataclass(frozen=True)
-class FinalValidationConfig:
-    enabled: bool = True
-    benchmark_repetitions: int = 5
-
-
-@dataclass(frozen=True)
 class ExperimentVariantConfig:
     variant_id: str
     description: str | None
@@ -110,7 +104,6 @@ class ExperimentConfig:
     optimization_scope: OptimizationScopeConfig
     variants: list[ExperimentVariantConfig]
     reporting: ReportingConfig = field(default_factory=ReportingConfig)
-    final_validation: FinalValidationConfig = field(default_factory=FinalValidationConfig)
     llm_config: str | None = None
     iterations: int | None = None
     additional_context: str | None = None
@@ -145,7 +138,6 @@ def load_experiment_config(path: Path | str) -> ExperimentConfig:
     selection = _load_selection(payload)
     closed_loop = _load_closed_loop(payload)
     reporting = _load_reporting(payload)
-    final_validation = _load_final_validation(payload)
     variants = _load_variants(payload)
 
     _validate_closed_loop_requirements(closed_loop, selection, variants)
@@ -161,7 +153,6 @@ def load_experiment_config(path: Path | str) -> ExperimentConfig:
         selection=selection,
         closed_loop=closed_loop,
         reporting=reporting,
-        final_validation=final_validation,
         optimization_scope=optimization_scope,
         variants=variants,
         llm_config=(
@@ -505,30 +496,6 @@ def _load_reporting(payload: dict[str, Any]) -> ReportingConfig:
         formats=formats,
         renderer=renderer,
         fail_on_error=fail_on_error,
-    )
-
-
-def _load_final_validation(payload: dict[str, Any]) -> FinalValidationConfig:
-    final_validation = payload.get("final_validation")
-    if final_validation is None:
-        return FinalValidationConfig()
-
-    if not isinstance(final_validation, dict):
-        raise ExperimentConfigError("Field 'final_validation' must be an object if present.")
-
-    enabled = (
-        _required_bool(final_validation, "enabled")
-        if "enabled" in final_validation
-        else True
-    )
-    benchmark_repetitions = (
-        _required_positive_int(final_validation, "benchmark_repetitions")
-        if "benchmark_repetitions" in final_validation
-        else 5
-    )
-    return FinalValidationConfig(
-        enabled=enabled,
-        benchmark_repetitions=benchmark_repetitions,
     )
 
 
