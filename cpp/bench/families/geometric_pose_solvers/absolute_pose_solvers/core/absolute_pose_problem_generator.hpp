@@ -17,18 +17,45 @@ namespace detail {
 
 inline constexpr double kPi = 3.14159265358979323846;
 
-inline void set_random_pose(Pose& pose, bool upright = false, bool planar = false) {
+inline double random_uniform(std::default_random_engine& random_engine, double min, double max) {
+    std::uniform_real_distribution<double> distribution(min, max);
+    return distribution(random_engine);
+}
+
+inline Eigen::Matrix3d random_rotation(std::default_random_engine& random_engine) {
+    const double u1 = random_uniform(random_engine, 0.0, 1.0);
+    const double u2 = random_uniform(random_engine, 0.0, 1.0);
+    const double u3 = random_uniform(random_engine, 0.0, 1.0);
+    const double sqrt_u1 = std::sqrt(u1);
+    const double sqrt_one_minus_u1 = std::sqrt(1.0 - u1);
+    const double theta1 = 2.0 * kPi * u2;
+    const double theta2 = 2.0 * kPi * u3;
+    const Eigen::Quaterniond quaternion{
+        sqrt_u1 * std::cos(theta2),
+        sqrt_one_minus_u1 * std::sin(theta1),
+        sqrt_one_minus_u1 * std::cos(theta1),
+        sqrt_u1 * std::sin(theta2),
+    };
+    return quaternion.normalized().toRotationMatrix();
+}
+
+inline void set_random_pose(Pose& pose, std::default_random_engine& random_engine, bool upright = false, bool planar = false) {
     if (upright) {
-        Eigen::Vector2d r;
-        r.setRandom().normalize();
-        pose.R << r(0), 0.0, r(1),
+        const double angle = random_uniform(random_engine, -kPi, kPi);
+        const double c = std::cos(angle);
+        const double s = std::sin(angle);
+        pose.R << c, 0.0, s,
                   0.0, 1.0, 0.0,
-                 -r(1), 0.0, r(0);
+                 -s, 0.0, c;
     } else {
-        pose.R = Eigen::Quaterniond::UnitRandom().toRotationMatrix();
+        pose.R = random_rotation(random_engine);
     }
 
-    pose.t.setRandom();
+    pose.t = Eigen::Vector3d{
+        random_uniform(random_engine, -1.0, 1.0),
+        random_uniform(random_engine, -1.0, 1.0),
+        random_uniform(random_engine, -1.0, 1.0),
+    };
     if (planar) {
         pose.t.y() = 0.0;
     }
@@ -51,7 +78,7 @@ inline std::vector<AbsolutePoseProblemInstance> generate_absolute_pose_problems(
 
     for (std::size_t i = 0; i < options.num_problems; ++i) {
         AbsolutePoseProblemInstance instance;
-        detail::set_random_pose(instance.pose_gt);
+        detail::set_random_pose(instance.pose_gt, random_engine);
 
         instance.x_point_.reserve(static_cast<std::size_t>(options.n_point_point));
         instance.X_point_.reserve(static_cast<std::size_t>(options.n_point_point));

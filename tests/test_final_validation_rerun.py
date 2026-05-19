@@ -57,8 +57,8 @@ def test_rerun_final_validation_updates_artifacts_without_iterations(tmp_path: P
                 "enabled": True,
                 "status": "completed",
                 "benchmark_repetitions": 3,
-                "baseline": {"summary": {"median_runtime_ns_per_case": 100.0}},
-                "final": {"summary": {"median_runtime_ns_per_case": 80.0}},
+                "baseline": {"summary": {"median_runtime_ns_per_problem": 100.0}},
+                "final": {"summary": {"median_runtime_ns_per_problem": 80.0}},
                 "comparison": {
                     "median_speedup": 1.25,
                     "median_runtime_reduction_percent": 20.0,

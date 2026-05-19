@@ -2200,6 +2200,20 @@ def _update_closed_loop_summary_with_final_validation(
     final = final_raw if isinstance(final_raw, dict) else {}
     final_summary_raw = final.get("summary")
     final_summary = final_summary_raw if isinstance(final_summary_raw, dict) else {}
+    baseline_median_runtime = _numeric_or_none(
+        baseline_summary.get("median_runtime_ns_per_problem")
+    )
+    if baseline_median_runtime is None:
+        baseline_median_runtime = _numeric_or_none(
+            baseline_summary.get("median_runtime_ns_per_case")
+        )
+    final_median_runtime = _numeric_or_none(
+        final_summary.get("median_runtime_ns_per_problem")
+    )
+    if final_median_runtime is None:
+        final_median_runtime = _numeric_or_none(
+            final_summary.get("median_runtime_ns_per_case")
+        )
     median_speedup = _numeric_or_none(comparison.get("median_speedup"))
     median_reduction = _numeric_or_none(
         comparison.get("median_runtime_reduction_percent")
@@ -2215,12 +2229,8 @@ def _update_closed_loop_summary_with_final_validation(
         "report_path": _display_path(report_path),
         "median_speedup": median_speedup,
         "median_runtime_reduction_percent": median_reduction,
-        "baseline_median_runtime_ns_per_case": _numeric_or_none(
-            baseline_summary.get("median_runtime_ns_per_case")
-        ),
-        "final_median_runtime_ns_per_case": _numeric_or_none(
-            final_summary.get("median_runtime_ns_per_case")
-        ),
+        "baseline_median_runtime_ns_per_problem": baseline_median_runtime,
+        "final_median_runtime_ns_per_problem": final_median_runtime,
     }
 
 
@@ -2561,12 +2571,12 @@ def _build_closed_loop_summary_text(
                 f"{_format_optional_float(final_validation_status.get('median_runtime_reduction_percent'))}"
             )
             lines.append(
-                "  baseline median runtime ns/case: "
-                f"{_format_optional_float(final_validation_status.get('baseline_median_runtime_ns_per_case'))}"
+                "  baseline median runtime ns/problem: "
+                f"{_format_optional_float(final_validation_status.get('baseline_median_runtime_ns_per_problem'))}"
             )
             lines.append(
-                "  final median runtime ns/case: "
-                f"{_format_optional_float(final_validation_status.get('final_median_runtime_ns_per_case'))}"
+                "  final median runtime ns/problem: "
+                f"{_format_optional_float(final_validation_status.get('final_median_runtime_ns_per_problem'))}"
             )
         else:
             lines.append("  Final repeated validation metrics: unavailable")

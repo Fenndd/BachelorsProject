@@ -24,11 +24,6 @@ struct AbsolutePoseProblemInstance {
     std::vector<Eigen::Vector3d> p_point_;
 };
 
-struct AbsolutePoseResult {
-    std::vector<Pose> poses;
-    bool success = false;
-};
-
 struct AdapterInfo {
     std::string solver_name;
     int min_points = 0;

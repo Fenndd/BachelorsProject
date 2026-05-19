@@ -4,21 +4,18 @@
 #include <string>
 #include <vector>
 
-#include "absolute_pose_benchmark.hpp"
 #include "absolute_pose_problem_generator.hpp"
 #include "absolute_pose_validator.hpp"
 #include "lambdatwist_p3p_adapter.hpp"
 
 namespace {
 
-using benchmark::geometric_pose::absolute_pose::AbsolutePoseBenchmarkMetrics;
 using benchmark::geometric_pose::absolute_pose::AbsolutePoseProblemInstance;
 using benchmark::geometric_pose::absolute_pose::AdapterInfo;
 using benchmark::geometric_pose::absolute_pose::BenchmarkOptions;
 using benchmark::geometric_pose::absolute_pose::Pose;
 using benchmark::geometric_pose::absolute_pose::adapters::LambdaTwistP3PAdapter;
 using benchmark::geometric_pose::absolute_pose::compute_pose_error;
-using benchmark::geometric_pose::absolute_pose::correctness_policy_passed;
 using benchmark::geometric_pose::absolute_pose::generate_absolute_pose_problems;
 using benchmark::geometric_pose::absolute_pose::is_finite_pose;
 using benchmark::geometric_pose::absolute_pose::is_rotation_matrix_reasonable;
@@ -48,6 +45,12 @@ bool validate_metadata(const LambdaTwistP3PAdapter& adapter) {
            && info.min_points == 3
            && info.default_case_points == 3
            && info.returns_multiple_solutions;
+}
+
+bool validator_correctness_passed(const ValidationSummary& summary) {
+    return summary.num_problems > 0
+           && summary.gt_found_percent >= 99.0
+           && summary.valid_solutions_percent > 0.0;
 }
 
 ValidationSummary run_adapter_validation() {
@@ -111,15 +114,7 @@ ValidationSummary run_adapter_validation() {
             static_cast<double>(summary.valid_solutions) / static_cast<double>(summary.total_solutions) * 100.0;
     }
 
-    AbsolutePoseBenchmarkMetrics metrics;
-    metrics.num_problems = summary.num_problems;
-    metrics.valid_solutions = summary.valid_solutions;
-    metrics.valid_solutions_percent = summary.valid_solutions_percent;
-    metrics.gt_found = summary.gt_found;
-    metrics.gt_found_percent = summary.gt_found_percent;
-    metrics.runtime_ns_per_problem_median = 1.0;
-
-    summary.benchmark_correctness_check_passed = correctness_policy_passed(metrics);
+    summary.benchmark_correctness_check_passed = validator_correctness_passed(summary);
     summary.final_status_passed =
         summary.metadata_check_passed
         && summary.solver_output_check_passed

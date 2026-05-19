@@ -111,7 +111,7 @@ class BestCandidateSelectorTests(unittest.TestCase):
             self.assertEqual(result["overall_status"], "no_improvement_found")
             self.assertEqual(result["counts"]["valid_not_improved"], 1)
 
-    def test_tie_breaker_prefers_higher_gt_found_percent_then_valid_percent(self) -> None:
+    def test_tie_breaker_uses_input_order_not_correctness_quality_metrics(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
             baseline = _create_baseline(root, parsed_runtime_ns_per_problem_median=1000.0)
@@ -132,7 +132,7 @@ class BestCandidateSelectorTests(unittest.TestCase):
 
             result = select_best_candidate(baseline, [candidate_a, candidate_b])
 
-            self.assertEqual(result["best_candidate_run_dir"], str(candidate_b))
+            self.assertEqual(result["best_candidate_run_dir"], str(candidate_a))
 
     def test_writes_candidate_decision_by_default(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:

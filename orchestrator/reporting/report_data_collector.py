@@ -618,24 +618,24 @@ def _build_repeated_validation_summary(value: Any) -> ReportRepeatedValidationGr
         successful_runs=_int_or_default(summary.get("successful_runs")),
         failed_runs=_int_or_default(summary.get("failed_runs")),
         median_runtime_ns_per_case=_first_available_number(
-            summary.get("median_runtime_ns_per_case"),
             summary.get("median_runtime_ns_per_problem"),
+            summary.get("median_runtime_ns_per_case"),
         ),
         mean_runtime_ns_per_case=_first_available_number(
-            summary.get("mean_runtime_ns_per_case"),
             summary.get("mean_runtime_ns_per_problem"),
+            summary.get("mean_runtime_ns_per_case"),
         ),
         min_runtime_ns_per_case=_first_available_number(
-            summary.get("min_runtime_ns_per_case"),
             summary.get("min_runtime_ns_per_problem"),
+            summary.get("min_runtime_ns_per_case"),
         ),
         max_runtime_ns_per_case=_first_available_number(
-            summary.get("max_runtime_ns_per_case"),
             summary.get("max_runtime_ns_per_problem"),
+            summary.get("max_runtime_ns_per_case"),
         ),
         std_runtime_ns_per_case=_first_available_number(
-            summary.get("std_runtime_ns_per_case"),
             summary.get("std_runtime_ns_per_problem"),
+            summary.get("std_runtime_ns_per_case"),
         ),
         all_correctness_passed=_bool_or_none(summary.get("all_correctness_passed")),
         success_rate_min=_first_available_number(

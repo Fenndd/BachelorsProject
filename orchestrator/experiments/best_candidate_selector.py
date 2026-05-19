@@ -35,7 +35,8 @@ def select_best_candidate(
     """Evaluate many candidates against one baseline and select the best valid one.
 
     Selection eligibility is limited to pairwise decisions with status
-    "accepted_improvement". The ranking rule then applies deterministic tie-breaks.
+    "accepted_improvement". Ranking is runtime-first with input order as the
+    deterministic tie-break.
     """
 
     baseline_path = Path(baseline_run_dir)
@@ -191,7 +192,7 @@ def _finite_or_inf(value: object, *, higher_is_better: bool) -> float:
     return numeric
 
 
-def _ranking_key(item: tuple[int, dict[str, Any]]) -> tuple[float, float, float, int]:
+def _ranking_key(item: tuple[int, dict[str, Any]]) -> tuple[float, int]:
     """Return deterministic rank key for accepted improvements.
 
     Lower tuple values are better.
@@ -199,11 +200,7 @@ def _ranking_key(item: tuple[int, dict[str, Any]]) -> tuple[float, float, float,
 
     input_index, summary = item
     runtime = _finite_or_inf(summary.get("runtime_ns_per_problem_median"), higher_is_better=False)
-    gt_found_percent = _finite_or_inf(summary.get("gt_found_percent"), higher_is_better=True)
-    valid_solutions_percent = _finite_or_inf(
-        summary.get("valid_solutions_percent"), higher_is_better=True
-    )
-    return (runtime, -gt_found_percent, -valid_solutions_percent, input_index)
+    return (runtime, input_index)
 
 
 def _parse_args(argv: list[str]) -> argparse.Namespace:

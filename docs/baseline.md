@@ -42,16 +42,16 @@ Benchmark execution success alone is not sufficient for a valid baseline run. Pa
 
 ## Correctness Policy
 
-The `correctness_passed` field in `run_absolute_pose_lambdatwist_benchmark` output is determined by the shared `correctness_policy_passed()` function in `absolute_pose_types.hpp` / `absolute_pose_benchmark.cpp`. The benchmark executable returns `0` when it successfully produces metrics; it does not encode `correctness_passed` in the process exit code. The policy function enforces:
+The `correctness_passed` field in `run_absolute_pose_lambdatwist_benchmark` output is determined by the shared `correctness_policy_passed()` function in `absolute_pose_benchmark.cpp`. The benchmark executable returns `0` when it successfully produces metrics; it does not encode `correctness_passed` in the process exit code. The policy function enforces:
 
-- `success_rate >= options.min_success_rate` (default: 0.99)
-- `mean_best_reprojection_error <= options.reprojection_error_threshold` (default: 1e-6)
-- Optionally: `valid_cases == num_cases` (when `require_all_cases_valid` is true)
-- Optionally: `max_best_reprojection_error <= options.reprojection_error_threshold` (when `use_max_reprojection_error_as_hard_gate` is true)
+- `num_problems > 0`
+- `gt_found_percent >= 99.0`
+- `valid_solutions_percent > 0.0`
+- `runtime_ns_per_problem_median > 0.0`
 
-The `absolute_pose_lambdatwist_adapter_validator` uses the same shared function for its `reprojection_check_passed` gate, ensuring consistent correctness semantics between adapter validation and family benchmark evaluation.
+The `absolute_pose_lambdatwist_adapter_validator` runs the same PoseLib-style generated problem protocol on a smaller problem set, validates finite calibrated-pose solutions, and applies a validator-local correctness check that does not fake or require runtime.
 
-Policy-diagnostic lines (`min_success_rate`, `require_all_cases_valid`, `use_max_reprojection_error_as_hard_gate`, `reprojection_error_threshold`, `correctness_passed`) and additional metadata (`warmup_iterations`, `timed_iterations`, `random_seed`, `points_per_case`, `runtime_unit`, `valid_cases`, `total_solutions`) are printed by the benchmark runner for traceability. The Python parser reads all of these as optional fields, stores them in parsed metrics, and collects them into the `benchmark_options` block for artifact reproducibility.
+The benchmark runner prints PoseLib-style solution counts, GT-found counts, calibrated-valid-solution counts, runtime medians, and options such as `num_problems`, `tolerance`, `camera_fov`, `n_point_point`, `n_point_line`, `timed_iterations`, and `runtime_unit`.
 
 ## Build Configuration
 

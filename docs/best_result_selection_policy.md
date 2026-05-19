@@ -66,11 +66,15 @@ The following benchmark fields are required for comparison:
 - `family`
 - `solver`
 - `parse_success`
-- `parsed_num_cases`
-- `parsed_success_rate`
-- `parsed_mean_best_reprojection_error`
-- `parsed_max_best_reprojection_error`
-- `parsed_runtime_ns_per_case_median`
+- `parsed_num_problems`
+- `parsed_total_solutions`
+- `parsed_solutions_per_problem`
+- `parsed_valid_solutions`
+- `parsed_valid_solutions_percent`
+- `parsed_gt_found`
+- `parsed_gt_found_percent`
+- `parsed_runtime_ns_total_median`
+- `parsed_runtime_ns_per_problem_median`
 - `parsed_correctness_passed`
 - `runtime_unit`
 - `build_type`
@@ -89,11 +93,9 @@ A candidate must be rejected (`rejected`) if any of the following is true:
 7. Any of the following differ from the reference:
    - `family`
    - `solver`
-   - `parsed_num_cases`
+   - `parsed_num_problems`
    - `benchmark_options`
    - `build_type`
-8. Candidate success rate is below the allowed threshold.
-9. Reprojection error violates the configured tolerance.
 
 If any hard gate fails, runtime ranking is not allowed for that candidate.
 
@@ -107,33 +109,16 @@ Correctness and comparability are mandatory gates before runtime comparison.
 
 Primary runtime metric:
 
-- `parsed_runtime_ns_per_case_median`
+- `parsed_runtime_ns_per_problem_median`
 
 Lower values are better.
 
-## 8. Accuracy tolerance policy
+## 8. Correctness policy
 
-Conservative default thresholds for first implementation:
-
-- `allowed_success_rate_drop = 0.0`
-- `max_mean_reprojection_error_ratio = 1.05`
-- `max_max_reprojection_error_ratio = 1.05`
-- `absolute_reprojection_error_tolerance = 1e-10`
-
-Interpretation:
-
-- Candidate success rate must be at least
-  `reference_success_rate - allowed_success_rate_drop`.
-- Candidate mean reprojection error must be at most
-  `max(reference_mean * max_mean_reprojection_error_ratio, absolute_reprojection_error_tolerance)`.
-- Candidate max reprojection error must be at most
-  `max(reference_max * max_max_reprojection_error_ratio, absolute_reprojection_error_tolerance)`.
-- The absolute tolerance avoids rejecting tiny numerical noise near zero, for
-  example around `1e-12`. It is still much stricter than the benchmark
-  reprojection threshold such as `1e-6`.
-
-These defaults may become configurable later, but the first selector
-implementation should use these conservative defaults.
+Correctness is defined by the benchmark artifact itself. The decision layer does
+not compare `gt_found_percent` or `valid_solutions_percent` against the
+reference; it only requires `parsed_correctness_passed == true` for both
+reference and candidate artifacts before runtime comparison.
 
 ## 9. Candidate decision statuses
 
@@ -160,7 +145,7 @@ selector and does not introduce an additional pairwise status in
 
 Runtime improvement formulas:
 
-- `speedup = reference_runtime_ns_per_case_median / candidate_runtime_ns_per_case_median`
+- `speedup = reference_runtime_ns_per_problem_median / candidate_runtime_ns_per_problem_median`
 - `runtime_reduction_percent = ((reference_runtime - candidate_runtime) / reference_runtime) * 100`
 
 Default acceptance threshold:
@@ -177,20 +162,17 @@ empty because it passed hard rejection gates.
 
 Where:
 
-- `reference_runtime = reference parsed_runtime_ns_per_case_median`
-- `candidate_runtime = candidate parsed_runtime_ns_per_case_median`
+- `reference_runtime = reference parsed_runtime_ns_per_problem_median`
+- `candidate_runtime = candidate parsed_runtime_ns_per_problem_median`
 
 ## 11. Best candidate selection rule
 
 Among all candidates with status `accepted_improvement`, select the candidate
-with the lowest `parsed_runtime_ns_per_case_median`.
+with the lowest `parsed_runtime_ns_per_problem_median`.
 
 Tie-break order (deterministic):
 
-1. Higher `parsed_success_rate`
-2. Lower `parsed_mean_best_reprojection_error`
-3. Lower `parsed_max_best_reprojection_error`
-4. Earlier candidate/run order
+1. Earlier candidate/run order
 
 ## 12. Output of selector
 
@@ -222,12 +204,11 @@ Top-level:
 
 | Field | Type | Description |
 |---|---|---|
-| `runtime_ns_per_case_median` | number\|null | Median runtime of the best candidate in nanoseconds per case |
+| `runtime_ns_per_problem_median` | number\|null | Median runtime of the best candidate in nanoseconds per problem |
 | `speedup` | number\|null | Speedup vs baseline |
 | `runtime_reduction_percent` | number\|null | Runtime reduction percent vs baseline |
-| `success_rate` | number\|null | Success rate of the best candidate |
-| `mean_best_reprojection_error` | number\|null | Mean reprojection error of the best candidate |
-| `max_best_reprojection_error` | number\|null | Max reprojection error of the best candidate |
+| `valid_solutions_percent` | number\|null | Valid-solution percentage reported by the benchmark |
+| `gt_found_percent` | number\|null | GT-found percentage reported by the benchmark |
 
 Each entry in `decisions`:
 
@@ -236,12 +217,11 @@ Each entry in `decisions`:
 | `candidate_run_dir` | string | Path to the candidate run directory |
 | `status` | string | One of `rejected`, `valid_not_improved`, `accepted_improvement` |
 | `candidate_decision_path` | string\|null | Path to `candidate_decision.json` if written, or null |
-| `runtime_ns_per_case_median` | number\|null | Median runtime in nanoseconds per case |
+| `runtime_ns_per_problem_median` | number\|null | Median runtime in nanoseconds per problem |
 | `speedup` | number\|null | Speedup vs baseline |
 | `runtime_reduction_percent` | number\|null | Runtime reduction percent vs baseline |
-| `success_rate` | number\|null | Candidate success rate |
-| `mean_best_reprojection_error` | number\|null | Mean reprojection error |
-| `max_best_reprojection_error` | number\|null | Max reprojection error |
+| `valid_solutions_percent` | number\|null | Valid-solution percentage reported by the benchmark |
+| `gt_found_percent` | number\|null | GT-found percentage reported by the benchmark |
 | `rejection_reasons` | string[] | List of rejection reasons (empty for non-rejected) |
 | `non_acceptance_reasons` | string[] | Reasons a valid non-rejected candidate was not accepted, when present |
 

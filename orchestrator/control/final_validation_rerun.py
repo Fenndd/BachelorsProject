@@ -115,6 +115,20 @@ def _update_summary_with_final_validation(summary_path: Path, report_path: Path)
     final_summary_raw = final.get("summary")
     baseline_summary = baseline_summary_raw if isinstance(baseline_summary_raw, dict) else {}
     final_summary = final_summary_raw if isinstance(final_summary_raw, dict) else {}
+    baseline_median_runtime = _numeric_or_none(
+        baseline_summary.get("median_runtime_ns_per_problem")
+    )
+    if baseline_median_runtime is None:
+        baseline_median_runtime = _numeric_or_none(
+            baseline_summary.get("median_runtime_ns_per_case")
+        )
+    final_median_runtime = _numeric_or_none(
+        final_summary.get("median_runtime_ns_per_problem")
+    )
+    if final_median_runtime is None:
+        final_median_runtime = _numeric_or_none(
+            final_summary.get("median_runtime_ns_per_case")
+        )
     median_speedup = _numeric_or_none(comparison.get("median_speedup"))
     median_reduction = _numeric_or_none(comparison.get("median_runtime_reduction_percent"))
 
@@ -129,12 +143,8 @@ def _update_summary_with_final_validation(summary_path: Path, report_path: Path)
         "report_path": _display_path(report_path),
         "median_speedup": median_speedup,
         "median_runtime_reduction_percent": median_reduction,
-        "baseline_median_runtime_ns_per_case": _numeric_or_none(
-            baseline_summary.get("median_runtime_ns_per_case")
-        ),
-        "final_median_runtime_ns_per_case": _numeric_or_none(
-            final_summary.get("median_runtime_ns_per_case")
-        ),
+        "baseline_median_runtime_ns_per_problem": baseline_median_runtime,
+        "final_median_runtime_ns_per_problem": final_median_runtime,
     }
 
 
