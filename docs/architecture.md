@@ -1,6 +1,6 @@
 # Architecture
 
-This project uses C++ for the algorithmic layer and Python for automation around baseline preparation, LLM candidate generation, candidate materialization, verification, decisions, selection, and closed-loop experiment orchestration.
+This project uses C++ for the algorithmic layer and Python for automation around baseline preparation, LLM candidate generation, candidate materialization, verification, decisions, and closed-loop experiment orchestration.
 
 The current minimal case study is Lambda Twist P3P in the absolute-pose solver benchmark family.
 
@@ -31,10 +31,9 @@ The main orchestration components are:
 - `orchestrator.patching.materialize_candidate`: materializes a candidate inside `workspace/candidates/<candidate_run_id>/` only, optionally using an explicit `--base-source-root`.
 - `orchestrator.execution.verify_candidate`: runs deterministic smoke, adapter validation, family benchmark, and benchmark parsing inside a materialized candidate workspace.
 - `orchestrator.benchmarking.candidate_decision`: evaluates one verified candidate against either a baseline run or a verified-candidate reference. In closed-loop mode, this writes reference-vs-candidate decisions such as `decision_vs_current_best.json`.
-- `orchestrator.experiments.best_candidate_selector`: selects the best candidate among verified candidates using pairwise decisions for non-closed-loop experiment analysis.
 - `orchestrator.experiments.closed_loop_state`: manages experiment-local `current_best_source` and `current_best_state` metadata.
 - `orchestrator.experiments.closed_loop_history`: builds compact benchmark-aware history for later closed-loop generations.
-- `orchestrator.experiments.run_experiment`: runs configured experiments, including non-closed-loop multi-variant/multi-iteration runs and single-variant closed-loop iterative optimization.
+- `orchestrator.experiments.run_experiment`: runs configured closed-loop iterative optimization experiments.
 - Final closed-loop artifact/reporting helpers write `final_optimized_source/`, `final_optimized_source.diff`, `closed_loop_summary.json`, `closed_loop_iterations.jsonl`, `closed_loop_selection_report.json`, and the results-side `current_best_state.json`.
 
 Experiment runs use `workspace/` for isolated source copies and `results/` for persistent outputs. The main `cpp/` source tree is not modified by candidate materialization or closed-loop current-best promotion.

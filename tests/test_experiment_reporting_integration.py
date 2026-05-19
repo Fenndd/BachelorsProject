@@ -64,11 +64,7 @@ def _base_config_payload(
     payload: dict[str, Any] = {
         "experiment_name": "reporting integration test",
         "target_file": TARGET_FILE,
-        "pipeline": {
-            "generate_candidate": True,
-            "materialize_candidate": True,
-            "verify_candidate": True,
-        },
+        "baseline_run_dir": str(root / "results" / "runs" / "baseline"),
         "candidate_generation": {"max_source_chars": 1000},
         "candidate_format": {
             "type": "line_range_edits",
@@ -76,13 +72,13 @@ def _base_config_payload(
             "require_original_verification": True,
             "allow_exact_search_fallback": True,
         },
-        "closed_loop": {"enabled": True},
-        "selection": {
-            "enabled": False,
-            "baseline_run_dir": str(root / "results" / "runs" / "baseline"),
-        },
-        "llm_config": "configs/llm_mock_candidate.json",
-        "iterations": 1,
+        "variants": [
+            {
+                "variant_id": "default",
+                "llm_config": "configs/llm_mock_candidate.json",
+                "iterations": 1,
+            }
+        ],
     }
     if reporting is not None:
         payload["reporting"] = reporting

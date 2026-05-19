@@ -60,7 +60,7 @@ class ExperimentReportInfo:
     source_presentation: str | None = None
     total_iterations: int = 0
     completed_iterations: int = 0
-    closed_loop_enabled: bool = True
+    experiment_mode: str = "closed_loop"
     benchmark_family: str | None = None
 
 
@@ -246,9 +246,7 @@ class ReportExperimentConfigDetails:
     allow_exact_search_fallback: bool | None = None
     history_policy_enabled: bool | None = None
     history_policy_scope: str | None = None
-    selection_enabled: bool | None = None
-    selection_baseline_run_dir: str | None = None
-    closed_loop_enabled: bool | None = None
+    baseline_run_dir: str | None = None
     optimization_scope_allowed_files: list[str] = field(default_factory=list)
     reporting_enabled: bool | None = None
     reporting_formats: list[str] = field(default_factory=list)

@@ -28,8 +28,8 @@ class ExperimentConfigSummary:
     total_iterations: int | None
     candidate_format: str | None
     source_presentation: str | None
-    selection_enabled: bool | None
-    closed_loop_enabled: bool | None
+    baseline_run_dir: str | None
+    reporting_enabled: bool | None
     providers: list[str]
     models: list[str]
     status: ConfigStatus
@@ -129,8 +129,7 @@ def _summary_from_payload(
         format_type = "unified_diff"
         source_presentation = "plain"
 
-    selection = payload.get("selection")
-    closed_loop = payload.get("closed_loop")
+    reporting = payload.get("reporting")
     providers, models = _provider_models_from_payload(payload, path)
     return ExperimentConfigSummary(
         path=path,
@@ -141,8 +140,8 @@ def _summary_from_payload(
         total_iterations=total_iterations,
         candidate_format=format_type,
         source_presentation=source_presentation,
-        selection_enabled=selection.get("enabled") if isinstance(selection, dict) and isinstance(selection.get("enabled"), bool) else False,
-        closed_loop_enabled=closed_loop.get("enabled") if isinstance(closed_loop, dict) and isinstance(closed_loop.get("enabled"), bool) else False,
+        baseline_run_dir=payload.get("baseline_run_dir") if isinstance(payload.get("baseline_run_dir"), str) else None,
+        reporting_enabled=reporting.get("enabled") if isinstance(reporting, dict) and isinstance(reporting.get("enabled"), bool) else False,
         providers=providers,
         models=models,
         status=status,
@@ -165,8 +164,8 @@ def read_experiment_config_summary(path: Path) -> ExperimentConfigSummary:
             total_iterations=sum(variant.iterations for variant in config.variants),
             candidate_format=config.candidate_format.type,
             source_presentation=config.candidate_format.source_presentation,
-            selection_enabled=config.selection.enabled,
-            closed_loop_enabled=config.closed_loop.enabled,
+            baseline_run_dir=config.baseline_run_dir,
+            reporting_enabled=config.reporting.enabled,
             providers=providers,
             models=models,
             status="ok",
@@ -185,8 +184,8 @@ def read_experiment_config_summary(path: Path) -> ExperimentConfigSummary:
                 total_iterations=None,
                 candidate_format=None,
                 source_presentation=None,
-                selection_enabled=None,
-                closed_loop_enabled=None,
+                baseline_run_dir=None,
+                reporting_enabled=None,
                 providers=[],
                 models=[],
                 status="invalid",

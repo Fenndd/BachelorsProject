@@ -130,11 +130,12 @@ def _experiment_summary_panel(config_path: Path) -> Panel:
             f"Experiment: {summary.name}",
             f"Description: {summary.description or 'unknown'}",
             f"Target: {summary.target_file or 'unknown'}",
+            f"Baseline: {summary.baseline_run_dir or 'unknown'}",
             f"Iterations: {summary.total_iterations if summary.total_iterations is not None else 'unknown'}",
             f"Candidate format: {summary.candidate_format or 'unknown'}",
             f"Source presentation: {summary.source_presentation or 'unknown'}",
-            f"Selection: {_format_bool(summary.selection_enabled)}",
-            f"Closed-loop: {_format_bool(summary.closed_loop_enabled)}",
+            "Mode: closed-loop optimization",
+            f"Reporting: {_format_bool(summary.reporting_enabled)}",
             f"Providers: {_format_list(summary.providers)}",
             f"Models: {_format_list(summary.models)}",
             f"Status: {summary.status}",
@@ -390,10 +391,10 @@ def experiment_list() -> None:
     table = Table(title="Experiment Configs", show_header=True, header_style="bold cyan")
     table.add_column("Config")
     table.add_column("Experiment name")
+    table.add_column("Baseline")
     table.add_column("Iterations")
     table.add_column("Candidate format")
-    table.add_column("Selection")
-    table.add_column("Closed-loop")
+    table.add_column("Reporting")
     table.add_column("Provider/model")
     table.add_column("Status")
 
@@ -406,10 +407,10 @@ def experiment_list() -> None:
             table.add_row(
                 summary.path.name,
                 summary.name,
+                summary.baseline_run_dir or "unknown",
                 str(summary.total_iterations) if summary.total_iterations is not None else "unknown",
                 summary.candidate_format or "unknown",
-                _format_bool(summary.selection_enabled),
-                _format_bool(summary.closed_loop_enabled),
+                _format_bool(summary.reporting_enabled),
                 f"{providers} / {models}",
                 status,
             )
@@ -418,7 +419,6 @@ def experiment_list() -> None:
         table.add_row(
             "none",
             f"No JSON configs found under {_display_path(paths.experiments_config)}",
-            "unknown",
             "unknown",
             "unknown",
             "unknown",

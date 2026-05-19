@@ -84,11 +84,6 @@ Closed-loop verified candidates write two reference decision artifacts in the ca
 - `decision_vs_current_best.json`: controls promotion. If its status is `accepted_improvement`, the candidate becomes the new experiment-local current best.
 - `decision_vs_original_baseline.json`: compares the candidate against the original clean baseline for reporting/control. It does not control promotion.
 
-Compatibility/default selection artifacts may also appear when useful:
-
-- `candidate_decision.json`: default pairwise decision filename used by the baseline-vs-candidate path.
-- `best_candidate_selection.json`: non-closed-loop best-candidate selection output when that selection path is enabled.
-
 Closed-loop final analysis is written to `closed_loop_selection_report.json`. It reports the final state and safety flags, but it never promotes candidates or modifies source trees.
 
 ## Compact History

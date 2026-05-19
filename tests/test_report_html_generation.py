@@ -481,7 +481,7 @@ def test_f_html_contains_enriched_fields(tmp_path: Path) -> None:
     report_data.experiment_config_details = ReportExperimentConfigDetails(
         candidate_format_type="line_range_edits",
         source_presentation="line_numbered",
-        selection_baseline_run_dir="results/runs/baseline",
+        baseline_run_dir="results/runs/baseline",
     )
     report_data.benchmark_config = ReportBenchmarkConfig(
         family="absolute_pose_solvers",

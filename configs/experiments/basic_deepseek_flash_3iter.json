@@ -2,24 +2,14 @@
   "experiment_name": "basic_deepseek_flash_3iter",
   "description": "3-iteration closed-loop P3P optimization experiment using DeepSeek Flash with line-range edits and HTML report generation.",
   "target_file": "cpp/external/lambdatwist/p3p.cc",
-
-  "pipeline": {
-    "generate_candidate": true,
-    "materialize_candidate": true,
-    "verify_candidate": true
-  },
-
-  "candidate_generation": {
-    "max_source_chars": 120000
-  },
-
+  "baseline_run_dir": "results/runs/2026-05-12_10-34-00_baseline",
+  "candidate_generation": {"max_source_chars": 120000},
   "candidate_format": {
     "type": "line_range_edits",
     "source_presentation": "line_numbered",
     "require_original_verification": true,
     "allow_exact_search_fallback": true
   },
-
   "history_policy": {
     "enabled": false,
     "scope": "variant",
@@ -28,30 +18,8 @@
     "include_materialization_results": true,
     "include_verification_results": true
   },
-
-  "selection": {
-    "enabled": false,
-    "baseline_run_dir": "results/runs/2026-05-12_10-34-00_baseline",
-    "write_candidate_decisions": true
-  },
-
-  "closed_loop": {
-    "enabled": true
-  },
-
-  "reporting": {
-    "enabled": true,
-    "formats": ["html"],
-    "renderer": "auto",
-    "fail_on_error": false
-  },
-
-  "optimization_scope": {
-    "allowed_files": [
-      "cpp/external/lambdatwist/p3p.cc"
-    ]
-  },
-
+  "reporting": {"enabled": true, "formats": ["html"], "renderer": "auto", "fail_on_error": false},
+  "optimization_scope": {"allowed_files": ["cpp/external/lambdatwist/p3p.cc"]},
   "variants": [
     {
       "variant_id": "deepseek_flash",

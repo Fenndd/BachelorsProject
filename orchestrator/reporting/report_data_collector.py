@@ -129,15 +129,7 @@ def collect_report_data(
             ),
             total_iterations=_int_or_default(summary.get("total_iterations")),
             completed_iterations=_int_or_default(summary.get("completed_iterations")),
-            closed_loop_enabled=_bool_or_default(
-                _first_available_bool(
-                    _nested_get(config_snapshot, "closed_loop", "enabled")
-                    if config_snapshot
-                    else None,
-                    True,
-                ),
-                True,
-            ),
+            experiment_mode="closed_loop",
             benchmark_family=_string_or_none(
                 _nested_get(baseline_raw, "benchmark", "family")
             )
@@ -351,7 +343,6 @@ def _build_experiment_config_details(
     cf = config_snapshot.get("candidate_format") or {}
     hp = config_snapshot.get("history_policy") or {}
     sel = config_snapshot.get("selection") or {}
-    cl = config_snapshot.get("closed_loop") or {}
     scope = config_snapshot.get("optimization_scope") or {}
     rep = config_snapshot.get("reporting") or {}
     cg = config_snapshot.get("candidate_generation") or {}
@@ -359,7 +350,10 @@ def _build_experiment_config_details(
     allowed_files = scope.get("allowed_files")
     reporting_formats = rep.get("formats")
 
-    baseline_run_dir = _string_or_none(sel.get("baseline_run_dir"))
+    baseline_run_dir = _string_or_none(config_snapshot.get("baseline_run_dir"))
+    if baseline_run_dir is None and isinstance(sel, dict):
+        # Compatibility for reports generated from older experiment snapshots.
+        baseline_run_dir = _string_or_none(sel.get("baseline_run_dir"))
 
     return ReportExperimentConfigDetails(
         description=_string_or_none(config_snapshot.get("description")),
@@ -374,11 +368,9 @@ def _build_experiment_config_details(
         ),
         history_policy_enabled=_bool_or_none(hp.get("enabled")),
         history_policy_scope=_string_or_none(hp.get("scope")),
-        selection_enabled=_bool_or_none(sel.get("enabled")),
-        selection_baseline_run_dir=_display_path(baseline_run_dir, experiment_path)
+        baseline_run_dir=_display_path(baseline_run_dir, experiment_path)
         if baseline_run_dir
         else None,
-        closed_loop_enabled=_bool_or_none(cl.get("enabled")),
         optimization_scope_allowed_files=list(allowed_files)
         if isinstance(allowed_files, list)
         else [],

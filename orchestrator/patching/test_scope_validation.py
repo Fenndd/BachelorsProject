@@ -187,15 +187,16 @@ def _write_experiment_config(root: Path, *, optimization_scope: dict | None) -> 
     payload = {
         "experiment_name": "scope_test",
         "description": "Temporary scope test config",
-        "llm_config": "configs/llm_test.json",
         "target_file": "cpp/external/lambdatwist/p3p.cc",
-        "iterations": 1,
-        "pipeline": {
-            "generate_candidate": True,
-            "materialize_candidate": False,
-            "verify_candidate": False,
-        },
+        "baseline_run_dir": "results/runs/baseline",
         "candidate_generation": {"max_source_chars": 120000},
+        "variants": [
+            {
+                "variant_id": "default",
+                "llm_config": "configs/llm_test.json",
+                "iterations": 1,
+            }
+        ],
     }
     if optimization_scope is not None:
         payload["optimization_scope"] = optimization_scope

@@ -15,7 +15,7 @@ Implemented now:
 - LLM candidate generation through `orchestrator.llm.generate_candidate`.
 - Candidate edit formats for `unified_diff` and `line_range_edits`.
 - Candidate materialization and verification in isolated workspaces.
-- Pairwise candidate decision and multi-candidate best-result selection.
+- Pairwise candidate decision for closed-loop promotion and reporting.
 - Closed-loop iterative optimization in the experiment runner with experiment-local `current_best_source`.
 - Compact benchmark-aware closed-loop history for later generations.
 - Final closed-loop artifacts and analysis-only selector/reporting.
@@ -94,7 +94,7 @@ py orchestrator/cli/main.py
 
 The flow configures CMake, builds/runs `baseline_smoke_test`, `baseline_runner`, `absolute_pose_lambdatwist_adapter_validator`, and `absolute_pose_lambdatwist_benchmark`, parses metrics, and checks `correctness_passed`. Benchmark and evaluation builds default to **Release**. Build type is recorded as reproducibility metadata in reports.
 
-The user-facing report is a single unified current report, not separate v1/v2 modes. It focuses on closed-loop mode. Legacy `selection_enabled` and `history_policy` fields are not shown as main report concepts; closed-loop promotion policy is `decision_vs_current_best.accepted_improvement_only`. Verification time includes benchmark execution, so `benchmark_seconds` is not separately shown in the main report. Missing PDF is valid for HTML-only reports; when PDF is requested, it is exported from the final completed HTML. After closed-loop completion a single final benchmark run compares the final optimized source against the original baseline; this produces `final_selection_report.json` and feeds the report headline metrics. Report headline baseline/final runtimes, speedup, runtime reduction, and correctness preserved come from the final single-run comparison; if that run fails, headline metrics are unavailable. Single-run closed-loop selection metrics are iteration analytics only. Build type is reproducibility metadata; `Release` is the default benchmark build type.
+The user-facing report is a single unified current report, not separate v1/v2 modes. It focuses on closed-loop optimization; closed-loop promotion policy is `decision_vs_current_best.accepted_improvement_only`. Verification time includes benchmark execution, so `benchmark_seconds` is not separately shown in the main report. Missing PDF is valid for HTML-only reports; when PDF is requested, it is exported from the final completed HTML. After closed-loop completion a single final benchmark run compares the final optimized source against the original baseline; this produces `final_selection_report.json` and feeds the report headline metrics. Report headline baseline/final runtimes, speedup, runtime reduction, and correctness preserved come from the final single-run comparison; if that run fails, headline metrics are unavailable. Single-run closed-loop selection metrics are iteration analytics only. Build type is reproducibility metadata; `Release` is the default benchmark build type.
 
 ## Experimental Terminal Control Layer
 
@@ -156,7 +156,7 @@ Verification configures/builds/runs inside the isolated candidate workspace and 
 
 ## Selection and Reporting
 
-Pairwise candidate decision and multi-candidate best-result selection consume verified benchmark artifacts and explicit references. The closed-loop runner uses reference-vs-candidate decisions against the current best for promotion and against the original baseline for reporting.
+Pairwise candidate decisions consume verified benchmark artifacts and explicit references. The closed-loop runner uses reference-vs-candidate decisions against the current best for promotion and against the original baseline for reporting.
 
 Selection and final reporting do not promote, merge, copy, or commit candidates into the main source tree.
 

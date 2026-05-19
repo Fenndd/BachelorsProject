@@ -194,11 +194,11 @@
         <tr><th>Max Source Chars</th><td>{{ report.experiment_config_details.candidate_generation_max_source_chars|display }}</td></tr>
         <tr><th>Total Iterations</th><td>{{ report.experiment.total_iterations|display }}</td></tr>
         <tr><th>Completed Iterations</th><td>{{ report.experiment.completed_iterations|display }}</td></tr>
-        <tr><th>Closed-loop Decision Logic</th><td>{{ report.experiment.closed_loop_enabled|yes_no }}</td></tr>
+        <tr><th>Experiment Mode</th><td>Closed-loop optimization</td></tr>
         <tr><th>Promotion Policy</th><td>{{ report.closed_loop_selection.promotion_policy|display }}</td></tr>
-        <tr><th>Baseline Run Directory</th><td><code>{{ report.experiment_config_details.selection_baseline_run_dir|display }}</code></td></tr>
-        <tr><th>Closed-loop History Context</th><td>{% if report.experiment.closed_loop_enabled %}enabled{% else %}Not available{% endif %}</td></tr>
-        <tr><th>History Context Detail</th><td>{% if report.experiment.closed_loop_enabled %}Previous iteration summaries are included in candidate generation prompts.{% else %}Not available{% endif %}</td></tr>
+        <tr><th>Baseline Run Directory</th><td><code>{{ report.experiment_config_details.baseline_run_dir|display }}</code></td></tr>
+        <tr><th>Closed-loop History Context</th><td>enabled</td></tr>
+        <tr><th>History Context Detail</th><td>Previous iteration summaries are included in candidate generation prompts.</td></tr>
         <tr><th>Optimization Scope</th><td><code>{{ report.experiment_config_details.optimization_scope_allowed_files|display }}</code></td></tr>
         <tr><th>Reporting Enabled</th><td>{{ report.experiment_config_details.reporting_enabled|yes_no }}</td></tr>
         <tr><th>Reporting Formats</th><td>{{ report.experiment_config_details.reporting_formats|display }}</td></tr>

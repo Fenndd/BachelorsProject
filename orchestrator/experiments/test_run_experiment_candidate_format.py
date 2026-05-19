@@ -19,14 +19,15 @@ def _base_config_payload(candidate_format: dict[str, Any] | None = None) -> dict
     payload: dict[str, Any] = {
         "experiment_name": "candidate format command test",
         "target_file": "cpp/external/lambdatwist/p3p.cc",
-        "pipeline": {
-            "generate_candidate": True,
-            "materialize_candidate": True,
-            "verify_candidate": True,
-        },
+        "baseline_run_dir": "results/runs/baseline",
         "candidate_generation": {"max_source_chars": 1000},
-        "llm_config": "configs/llm_mock_candidate.json",
-        "iterations": 1,
+        "variants": [
+            {
+                "variant_id": "default",
+                "llm_config": "configs/llm_mock_candidate.json",
+                "iterations": 1,
+            }
+        ],
     }
     if candidate_format is not None:
         payload["candidate_format"] = candidate_format

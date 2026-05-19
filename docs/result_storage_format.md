@@ -134,9 +134,8 @@ CMake source/object/dependency path length, the warning threshold, and a warning
 message when the estimate is high. This diagnostic is warning-only; configure,
 build, run, parse, and correctness results still determine verification status.
 
-Verification itself does not compare against baseline. Pairwise candidate
-decision and multi-candidate selection are separate stages that consume verified
-artifacts.
+Verification itself does not compare against a reference. Pairwise candidate
+decisions consume verified artifacts during closed-loop execution.
 
 ## Candidate Generation Artifacts
 
@@ -434,8 +433,7 @@ improvements, status counts, paths to the final optimized source, final diff,
 summary JSON, iteration JSONL, final current-best metadata, and final single-run
 comparison status, speedup, and runtime reduction when the comparison ran.
 
-Closed-loop history is deliberately separate from the non-closed-loop
-`history_policy` variant-local sliding-window history. It includes all
+Closed-loop history is built by the dedicated closed-loop history helper. It includes all
 meaningful previous records compactly; it does not use
 `max_previous_iterations`. History can include `accepted_improvement`,
 `valid_not_improved`, `rejected`, `materialization_failed`, and
@@ -554,8 +552,7 @@ When the final single-run comparison metrics are available, the Executive Summar
 headline baseline runtime and final runtime use the single-run comparison basis.
 The separate Baseline Metrics section shows the original baseline artifact.
 
-The user-facing report focuses on closed-loop mode. Legacy `selection_enabled`
-and `history_policy` fields are not shown as main report concepts. Closed-loop
+The user-facing report focuses on closed-loop optimization. Closed-loop
 promotion policy is `decision_vs_current_best.accepted_improvement_only`.
 Build type is reproducibility metadata; `Release` is the default benchmark build
 type.
@@ -726,9 +723,7 @@ If build type is recorded in both baseline and candidate artifacts, the audit ch
 
 The audit checks comparability. `candidate_decision` consumes audit output to
 make pairwise reference-vs-candidate decisions. The old baseline-vs-candidate
-API remains supported for compatibility. `best_candidate_selector` continues to
-consume baseline-vs-candidate decisions to select the best candidate among
-verified candidates.
+API remains supported for direct pairwise compatibility.
 
 Decision artifacts are human-readable JSON. The default writer still produces:
 

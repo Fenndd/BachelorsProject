@@ -41,7 +41,7 @@
 
 - Build iterative optimization workflow with controlled experiment tracking.
 - Status: implemented at controlled experiment-runner level.
-- Current state: multi-variant non-closed-loop runs, multi-iteration runs, variant-local history, generation, materialization, verification, pairwise decisions, best-candidate selection, and single-variant closed-loop optimization are implemented.
+- Current state: single-variant closed-loop optimization, multi-iteration runs, closed-loop history, generation, materialization, verification, and pairwise decisions are implemented.
 - Closed-loop state: implemented with experiment-local `current_best_source`, `current_best_state`, generation from the current best via `--source-root`, materialization against the current best via `--base-source-root`, compact benchmark-aware history, and promotion into experiment-local current best using `decision_vs_current_best`.
 - Not complete: automatic promotion into the main `cpp/` source tree and multi-variant closed-loop strategy.
 
@@ -49,7 +49,7 @@
 
 - Consolidate experiment metadata, result storage, and reporting outputs.
 - Status: implemented for the current minimal experiment workflow.
-- Current state: experiment artifacts, `iterations.jsonl`, `experiment_status.json`, `summary.txt`, candidate decisions, `best_candidate_selection.json`, final closed-loop artifacts, and `closed_loop_selection_report.json` are implemented.
+- Current state: `experiment_status.json`, `summary.txt`, candidate decisions, final closed-loop artifacts, `final_selection_report.json`, and `closed_loop_selection_report.json` are implemented.
 - Closed-loop reporting artifacts include `final_optimized_source/`, `final_optimized_source.diff`, `closed_loop_iterations.jsonl`, `closed_loop_summary.json`, `closed_loop_selection_report.json`, and results-side `current_best_state.json`.
 - Not complete: advanced plots, broader statistical reports/dashboards, additional aggregate analyses, and direct JSON metrics output from C++ benchmarks.
 

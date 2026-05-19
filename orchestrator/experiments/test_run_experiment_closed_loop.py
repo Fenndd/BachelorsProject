@@ -86,12 +86,7 @@ def _config_payload(root: Path, *, iterations: int = 1, allow_exact_search_fallb
     return {
         "experiment_name": "closed loop test",
         "target_file": TARGET_FILE,
-        "additional_context": "static additional context",
-        "pipeline": {
-            "generate_candidate": True,
-            "materialize_candidate": True,
-            "verify_candidate": True,
-        },
+        "baseline_run_dir": str(root / "results" / "runs" / "baseline"),
         "candidate_generation": {"max_source_chars": 1000},
         "candidate_format": {
             "type": "line_range_edits",
@@ -99,13 +94,14 @@ def _config_payload(root: Path, *, iterations: int = 1, allow_exact_search_fallb
             "require_original_verification": True,
             "allow_exact_search_fallback": allow_exact_search_fallback,
         },
-        "closed_loop": {"enabled": True},
-        "selection": {
-            "enabled": False,
-            "baseline_run_dir": str(root / "results" / "runs" / "baseline"),
-        },
-        "llm_config": "configs/llm_mock_candidate.json",
-        "iterations": iterations,
+        "variants": [
+            {
+                "variant_id": "default",
+                "llm_config": "configs/llm_mock_candidate.json",
+                "iterations": iterations,
+                "additional_context": "static additional context",
+            }
+        ],
     }
 
 

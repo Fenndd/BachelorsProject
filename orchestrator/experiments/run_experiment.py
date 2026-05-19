@@ -1,13 +1,8 @@
-"""Experiment runner for dry-runs and staged candidate iterations.
+"""Closed-loop experiment runner.
 
-This runner supports one or more variants. Each variant can run the staged
-candidate pipeline: generate_candidate, optionally materialize_candidate, and
-optionally verify_candidate. When selection is explicitly enabled in the
-experiment config, the runner compares verified candidate artifacts against an
-explicit baseline run and writes a best-candidate selection artifact. It never
-promotes candidates into the main ``cpp/`` source tree. In closed-loop mode it
-can promote accepted candidates only into the experiment-local
-``current_best_source`` workspace.
+This runner executes one closed-loop optimization experiment. It never promotes
+candidates into the main ``cpp/`` source tree. Accepted candidates are promoted
+only into the experiment-local ``current_best_source`` workspace.
 
 Build type for candidate verification:
   The candidate verification stage defaults to Release builds (optimized) so
@@ -45,10 +40,8 @@ from .experiment_config import (
     ExperimentConfig,
     ExperimentConfigError,
     ExperimentVariantConfig,
-    HistoryPolicyConfig,
     load_experiment_config,
 )
-from .best_candidate_selector import select_best_candidate
 from .closed_loop_state import (
     ClosedLoopIterationRecord,
     ClosedLoopPaths,
@@ -303,7 +296,6 @@ def _write_resolved_variant_llm_configs(
 
 
 def _print_plan(config: ExperimentConfig, dry_run: bool) -> None:
-    pipeline = config.pipeline
     candidate_generation = config.candidate_generation
     candidate_format = config.candidate_format
 
@@ -311,10 +303,8 @@ def _print_plan(config: ExperimentConfig, dry_run: bool) -> None:
     print(f"Experiment name: {config.experiment_name}")
     print(f"Description: {config.description or 'none'}")
     print(f"Target file: {config.target_file}")
-    print("Pipeline:")
-    print(f"- generate_candidate: {pipeline.generate_candidate}")
-    print(f"- materialize_candidate: {pipeline.materialize_candidate}")
-    print(f"- verify_candidate: {pipeline.verify_candidate}")
+    print("Mode: closed-loop optimization")
+    print(f"Baseline run dir: {config.baseline_run_dir}")
     print(f"Max source chars: {candidate_generation.max_source_chars}")
     print("Candidate format:")
     print(f"- type: {candidate_format.type}")
@@ -331,10 +321,6 @@ def _print_plan(config: ExperimentConfig, dry_run: bool) -> None:
         f"Optimization scope allowed files: "
         f"{config.optimization_scope.allowed_files}"
     )
-    print("Selection:")
-    print(f"- enabled: {config.selection.enabled}")
-    print(f"- baseline_run_dir: {config.selection.baseline_run_dir or 'none'}")
-    print(f"- write_candidate_decisions: {config.selection.write_candidate_decisions}")
     print("History policy:")
     print(f"- enabled: {config.history_policy.enabled}")
     print(f"- scope: {config.history_policy.scope}")
@@ -379,18 +365,6 @@ def _print_plan(config: ExperimentConfig, dry_run: bool) -> None:
     if dry_run:
         print("")
         print("Dry run only: no LLM requests, candidates, materialization, or verification were run.")
-
-
-def _validate_executable_pipeline(config: ExperimentConfig) -> str | None:
-    pipeline = config.pipeline
-    if not pipeline.generate_candidate:
-        return "Experiment runner currently requires pipeline.generate_candidate=true."
-    if pipeline.verify_candidate and not pipeline.materialize_candidate:
-        return (
-            "Experiment runner requires pipeline.materialize_candidate=true when "
-            "pipeline.verify_candidate=true."
-        )
-    return None
 
 
 def _build_generation_command(
@@ -580,155 +554,6 @@ def _looks_like_candidate_run_dir(value: str) -> bool:
     return True
 
 
-def _skipped_stage(reason: str) -> dict[str, Any]:
-    return {
-        "status": "skipped",
-        "reason": reason,
-    }
-
-
-def _skipped_materialization_stage(reason: str) -> dict[str, Any]:
-    record = _skipped_stage(reason)
-    record.update(
-        {
-            "exit_code": None,
-            "duration_seconds": 0.0,
-            "failed_step": None,
-            "error_message": None,
-            "target_files": None,
-            "patched_files": None,
-            "changed_files": None,
-        }
-    )
-    return record
-
-
-def _skipped_verification_stage(reason: str) -> dict[str, Any]:
-    record = _skipped_stage(reason)
-    record.update(
-        {
-            "exit_code": None,
-            "duration_seconds": 0.0,
-            "failed_step": None,
-            "error_message": None,
-            "steps": None,
-        }
-    )
-    return record
-
-
-def _noop_candidate_instruction(candidate_format_type: str) -> str:
-    if candidate_format_type == "line_range_edits":
-        return (
-            "If no safe new optimization is available, return a no-op candidate "
-            "with expected_effect=\"none\" and edits=[]."
-        )
-    if candidate_format_type == "unified_diff":
-        return (
-            "If no safe new optimization is available, return a no-op candidate "
-            "with expected_effect=\"none\" and an empty unified_diff."
-        )
-    return (
-        "If no safe new optimization is available, return a no-op candidate for "
-        "the active candidate format."
-    )
-
-
-def build_variant_history_context(
-    variant_id: str,
-    previous_records: list[dict[str, Any]],
-    history_policy: HistoryPolicyConfig,
-    candidate_format_type: str = "unified_diff",
-) -> tuple[str | None, dict[str, Any]]:
-    metadata: dict[str, Any] = {
-        "enabled": history_policy.enabled,
-        "scope": history_policy.scope,
-        "previous_iterations_used": 0,
-        "included_variant_iterations": [],
-        "history_context_file": None,
-    }
-    if not history_policy.enabled:
-        return None, metadata
-
-    variant_records = [
-        record for record in previous_records if record.get("variant_id") == variant_id
-    ]
-    if not history_policy.include_failed_iterations:
-        variant_records = [
-            record
-            for record in variant_records
-            if record.get("overall_status") == "success"
-        ]
-
-    selected_records = variant_records[-history_policy.max_previous_iterations :]
-    metadata["previous_iterations_used"] = len(selected_records)
-    metadata["included_variant_iterations"] = [
-        record.get("variant_iteration") for record in selected_records
-    ]
-    if not selected_records:
-        return None, metadata
-
-    lines = ["Previous attempts in this variant only:"]
-    for record in selected_records:
-        generation = record.get("generation", {})
-        materialization = record.get("materialization", {})
-        verification = record.get("verification", {})
-        lines.append(
-            (
-                f"- Variant iteration {record.get('variant_iteration')}, "
-                f"global iteration {record.get('global_iteration')}: "
-                f"{record.get('overall_status')}."
-            )
-        )
-        lines.append(
-            f"  Candidate: {generation.get('candidate_summary') or 'none'}."
-        )
-        if generation.get("risk_level") is not None:
-            lines.append(f"  Risk level: {generation.get('risk_level')}.")
-        if generation.get("expected_effect") is not None:
-            lines.append(f"  Expected effect: {generation.get('expected_effect')}.")
-        if history_policy.include_materialization_results:
-            lines.append(
-                f"  Materialization: {materialization.get('status', 'unknown')}."
-            )
-            changed_files = materialization.get("changed_files") or []
-            if changed_files:
-                lines.append(f"  Changed files: {', '.join(changed_files)}.")
-        if history_policy.include_verification_results:
-            lines.append(f"  Verification: {verification.get('status', 'unknown')}.")
-        failed_stage = _failed_stage(record)
-        failed_step = _failed_step(record)
-        if failed_stage is not None or failed_step is not None:
-            lines.append(
-                f"  Failed stage/step: {failed_stage or 'none'} / {failed_step or 'none'}."
-            )
-
-    lines.extend(
-        [
-            "",
-            (
-                "Do not repeat the same candidate. Prefer a different small, safe "
-                f"optimization. {_noop_candidate_instruction(candidate_format_type)}"
-            ),
-        ]
-    )
-    return "\n".join(lines), metadata
-
-
-def _combine_context(
-    additional_context: str | None,
-    history_context: str | None,
-) -> str | None:
-    parts: list[str] = []
-    if additional_context is not None:
-        parts.append(additional_context)
-    if history_context is not None:
-        parts.append(f"Variant-local history:\n{history_context}")
-    if not parts:
-        return None
-    return "\n\n".join(parts)
-
-
 def _combine_closed_loop_context(
     additional_context: str | None,
     history_context: str | None,
@@ -743,41 +568,11 @@ def _combine_closed_loop_context(
     return "\n\n".join(parts)
 
 
-def _history_context_log_path(
-    experiment_dir: Path,
-    global_iteration: int,
-    variant_id: str,
-) -> Path:
-    return (
-        experiment_dir
-        / "logs"
-        / f"iteration_{global_iteration:03d}_{_safe_artifact_name(variant_id)}_history_context.txt"
-    )
-
-
 def _closed_loop_history_context_log_path(
     experiment_dir: Path,
     iteration: int,
 ) -> Path:
     return experiment_dir / "logs" / f"iteration_{iteration:03d}_closed_loop_history_context.txt"
-
-
-def _write_history_context_file(
-    experiment_dir: Path,
-    global_iteration: int,
-    variant_id: str,
-    history_context: str | None,
-    metadata: dict[str, Any],
-) -> dict[str, Any]:
-    if not metadata["enabled"]:
-        return metadata
-
-    log_path = _history_context_log_path(experiment_dir, global_iteration, variant_id)
-    content = history_context if history_context is not None else "No history context used."
-    log_path.write_text(content + "\n", encoding="utf-8")
-    updated_metadata = dict(metadata)
-    updated_metadata["history_context_file"] = _display_path(log_path)
-    return updated_metadata
 
 
 def _write_closed_loop_history_context_file(
@@ -990,652 +785,6 @@ def _verification_stage_record(
     return record
 
 
-def _iteration_overall_status(record: dict[str, Any], config: ExperimentConfig) -> str:
-    stages = [record["generation"]]
-    if config.pipeline.materialize_candidate:
-        stages.append(record["materialization"])
-    if config.pipeline.verify_candidate:
-        stages.append(record["verification"])
-
-    if all(stage.get("status") == "success" for stage in stages):
-        return "success"
-    if any(stage.get("status") == "failed" for stage in stages):
-        return "failed"
-    return "failed"
-
-
-def _append_iteration_record(iterations_path: Path, record: dict[str, Any]) -> None:
-    with iterations_path.open("a", encoding="utf-8") as file:
-        file.write(json.dumps(record, ensure_ascii=False, separators=(",", ":")) + "\n")
-
-
-def _run_iteration(
-    config: ExperimentConfig,
-    variant: ExperimentVariantConfig,
-    llm_metadata: dict[str, Any],
-    experiment_dir: Path,
-    global_iteration: int,
-    variant_iteration: int,
-    previous_variant_records: list[dict[str, Any]],
-) -> dict[str, Any]:
-    print(f"\nVariant {variant.variant_id}, iteration {variant_iteration}/{variant.iterations}")
-
-    history_context, history_metadata = build_variant_history_context(
-        variant.variant_id,
-        previous_variant_records,
-        config.history_policy,
-        config.candidate_format.type,
-    )
-    history_metadata = _write_history_context_file(
-        experiment_dir,
-        global_iteration,
-        variant.variant_id,
-        history_context,
-        history_metadata,
-    )
-    generation_context = _combine_context(variant.additional_context, history_context)
-
-    generation_result = _run_stage(
-        experiment_dir,
-        global_iteration,
-        variant.variant_id,
-        variant_iteration,
-        "generate_candidate",
-        _build_generation_command(
-            config,
-            llm_metadata["resolved_config"],
-            generation_context,
-        ),
-    )
-    generation_record, candidate_run_dir = _generation_stage_record(generation_result)
-    print(f"- generate_candidate: {generation_record['status']}")
-    if candidate_run_dir:
-        print(f"  candidate_run_dir: {candidate_run_dir}")
-
-    if not config.pipeline.materialize_candidate:
-        materialization_record = _skipped_materialization_stage("disabled_by_config")
-    elif generation_record["status"] != "success" or candidate_run_dir is None:
-        materialization_record = _skipped_materialization_stage("generation_failed")
-    else:
-        materialization_result = _run_stage(
-            experiment_dir,
-            global_iteration,
-            variant.variant_id,
-            variant_iteration,
-            "materialize_candidate",
-            _build_materialization_command(candidate_run_dir, config),
-        )
-        materialization_record = _materialization_stage_record(
-            materialization_result,
-            candidate_run_dir,
-        )
-    print(f"- materialize_candidate: {materialization_record['status']}")
-
-    if not config.pipeline.verify_candidate:
-        verification_record = _skipped_verification_stage("disabled_by_config")
-    elif generation_record["status"] != "success":
-        verification_record = _skipped_verification_stage("generation_failed")
-    elif materialization_record["status"] != "success":
-        reason = (
-            "materialization_skipped"
-            if materialization_record["status"] == "skipped"
-            else "materialization_failed"
-        )
-        verification_record = _skipped_verification_stage(reason)
-    elif candidate_run_dir is None:
-        verification_record = _skipped_verification_stage("generation_failed")
-    else:
-        verification_result = _run_stage(
-            experiment_dir,
-            global_iteration,
-            variant.variant_id,
-            variant_iteration,
-            "verify_candidate",
-            _build_verification_command(candidate_run_dir),
-        )
-        verification_record = _verification_stage_record(
-            verification_result,
-            candidate_run_dir,
-        )
-    print(f"- verify_candidate: {verification_record['status']}")
-
-    record = {
-        "global_iteration": global_iteration,
-        "variant_id": variant.variant_id,
-        "variant_iteration": variant_iteration,
-        "overall_status": "unknown",
-        "candidate_run_dir": candidate_run_dir,
-        "candidate_run_id": Path(candidate_run_dir).name if candidate_run_dir else None,
-        "llm": llm_metadata,
-        "history": history_metadata,
-        "generation": generation_record,
-        "materialization": materialization_record,
-        "verification": verification_record,
-    }
-    record["overall_status"] = _iteration_overall_status(record, config)
-    print(f"- iteration: {record['overall_status']}")
-    return record
-
-
-def _overall_status(records: list[dict[str, Any]]) -> str:
-    successes = sum(1 for record in records if record["overall_status"] == "success")
-    failures = sum(1 for record in records if record["overall_status"] == "failed")
-    if successes and not failures:
-        return "success"
-    if successes and failures:
-        return "partial_success"
-    return "failed"
-
-
-def _stage_success_count(records: list[dict[str, Any]], stage_name: str) -> int:
-    return sum(
-        1
-        for record in records
-        if record.get(stage_name, {}).get("status") == "success"
-    )
-
-
-def _verified_candidate_run_dirs(records: list[dict[str, Any]]) -> list[Path]:
-    """Return candidate run dirs that produced verification.json, preserving order."""
-
-    candidate_dirs: list[Path] = []
-    seen: set[Path] = set()
-    for record in records:
-        candidate_run_dir = record.get("candidate_run_dir")
-        if not isinstance(candidate_run_dir, str) or not candidate_run_dir.strip():
-            continue
-        candidate_path = _resolve_path(candidate_run_dir)
-        if candidate_path in seen:
-            continue
-        if not (candidate_path / "verification.json").exists():
-            continue
-        seen.add(candidate_path)
-        candidate_dirs.append(candidate_path)
-    return candidate_dirs
-
-
-def _compact_selection_summary(
-    enabled: bool,
-    selection_artifact: Path | None,
-    selection: dict[str, Any] | None,
-) -> dict[str, Any]:
-    if not enabled or selection is None:
-        return {
-            "enabled": enabled,
-            "overall_status": None,
-            "best_candidate_run_dir": None,
-            "counts": None,
-            "best_speedup": None,
-            "best_runtime_reduction_percent": None,
-            "selection_artifact": None,
-        }
-
-    best_metrics = selection.get("best_metrics")
-    best_metrics = best_metrics if isinstance(best_metrics, dict) else {}
-    return {
-        "enabled": True,
-        "overall_status": selection.get("overall_status"),
-        "best_candidate_run_dir": selection.get("best_candidate_run_dir"),
-        "counts": selection.get("counts"),
-        "best_speedup": best_metrics.get("speedup"),
-        "best_runtime_reduction_percent": best_metrics.get(
-            "runtime_reduction_percent"
-        ),
-        "selection_artifact": (
-            _display_path(selection_artifact) if selection_artifact is not None else None
-        ),
-    }
-
-
-def _run_selection(
-    experiment_dir: Path,
-    config: ExperimentConfig,
-    records: list[dict[str, Any]],
-) -> dict[str, Any] | None:
-    if not config.selection.enabled:
-        return None
-
-    if config.selection.baseline_run_dir is None:
-        raise ExperimentConfigError(
-            "Field 'selection.baseline_run_dir' is required when selection.enabled is true."
-        )
-
-    baseline_run_dir = _resolve_path(config.selection.baseline_run_dir)
-    candidate_run_dirs = _verified_candidate_run_dirs(records)
-    selection = select_best_candidate(
-        baseline_run_dir,
-        candidate_run_dirs,
-        write_candidate_decisions=config.selection.write_candidate_decisions,
-    )
-    selection_artifact = experiment_dir / "best_candidate_selection.json"
-    _write_json(selection_artifact, selection)
-    return _compact_selection_summary(True, selection_artifact, selection)
-
-
-def _failed_stage(record: dict[str, Any]) -> str | None:
-    for stage_name in ["generation", "materialization", "verification"]:
-        if record[stage_name].get("status") == "failed":
-            return stage_name
-    return None
-
-
-def _failed_step(record: dict[str, Any]) -> str | None:
-    stage_name = _failed_stage(record)
-    if stage_name is None:
-        return None
-    return record[stage_name].get("failed_step")
-
-
-def _error_message(record: dict[str, Any]) -> str | None:
-    stage_name = _failed_stage(record)
-    if stage_name is None:
-        return None
-    return record[stage_name].get("error_message")
-
-
-def _variant_dir(experiment_dir: Path, variant_id: str) -> Path:
-    return experiment_dir / "variants" / _safe_artifact_name(variant_id)
-
-
-def _variant_history_path(experiment_dir: Path, variant_id: str) -> Path:
-    return _variant_dir(experiment_dir, variant_id) / "variant_history.jsonl"
-
-
-def _variant_summary_path(experiment_dir: Path, variant_id: str) -> Path:
-    return _variant_dir(experiment_dir, variant_id) / "variant_summary.txt"
-
-
-def _variant_record_history(record: dict[str, Any]) -> dict[str, Any]:
-    generation = record["generation"]
-    materialization = record["materialization"]
-    verification = record["verification"]
-    benchmark = verification.get("benchmark") or {}
-    return {
-        "variant_id": record["variant_id"],
-        "variant_iteration": record["variant_iteration"],
-        "global_iteration": record["global_iteration"],
-        "overall_status": record["overall_status"],
-        "candidate_run_id": record["candidate_run_id"],
-        "candidate_run_dir": record["candidate_run_dir"],
-        "candidate_summary": generation.get("candidate_summary"),
-        "risk_level": generation.get("risk_level"),
-        "expected_effect": generation.get("expected_effect"),
-        "requires_manual_review": generation.get("requires_manual_review"),
-        "candidate_type": generation.get("candidate_type"),
-        "structured_edit_count": generation.get("structured_edit_count"),
-        "candidate_edits_present": generation.get("candidate_edits_present"),
-        "unified_diff_present": generation.get("unified_diff_present"),
-        "materialization_status": materialization.get("status"),
-        "verification_status": verification.get("status"),
-        "verification_benchmark_parse_success": benchmark.get("parse_success"),
-        "verification_benchmark_runtime_ns_per_problem_median": benchmark.get(
-            "parsed_runtime_ns_per_problem_median"
-        ),
-        "verification_benchmark_gt_found_percent": benchmark.get("parsed_gt_found_percent"),
-        "verification_benchmark_correctness_passed": benchmark.get(
-            "parsed_correctness_passed"
-        ),
-        "changed_files": materialization.get("changed_files"),
-        "failed_stage": _failed_stage(record),
-        "failed_step": _failed_step(record),
-        "error_message": _error_message(record),
-    }
-
-
-def _variant_records(
-    records: list[dict[str, Any]],
-    variant: ExperimentVariantConfig,
-) -> list[dict[str, Any]]:
-    return [record for record in records if record["variant_id"] == variant.variant_id]
-
-
-def _variant_stage_success_count(
-    records: list[dict[str, Any]],
-    stage_name: str,
-) -> int:
-    return sum(
-        1
-        for record in records
-        if record.get(stage_name, {}).get("status") == "success"
-    )
-
-
-def _variant_summary(
-    variant: ExperimentVariantConfig,
-    records: list[dict[str, Any]],
-    experiment_dir: Path,
-    llm_metadata_by_variant: dict[str, dict[str, Any]],
-) -> dict[str, Any]:
-    variant_records = _variant_records(records, variant)
-    llm_metadata = llm_metadata_by_variant.get(
-        variant.variant_id,
-        _llm_metadata(variant, {}, None),
-    )
-    successful_iterations = sum(
-        1 for record in variant_records if record["overall_status"] == "success"
-    )
-    failed_iterations = sum(
-        1 for record in variant_records if record["overall_status"] == "failed"
-    )
-    return {
-        "variant_id": variant.variant_id,
-        "planned_iterations": variant.iterations,
-        "successful_iterations": successful_iterations,
-        "failed_iterations": failed_iterations,
-        "generation_successes": _variant_stage_success_count(
-            variant_records, "generation"
-        ),
-        "materialization_successes": _variant_stage_success_count(
-            variant_records, "materialization"
-        ),
-        "verification_successes": _variant_stage_success_count(
-            variant_records, "verification"
-        ),
-        "history_file": _display_path(
-            _variant_history_path(experiment_dir, variant.variant_id)
-        ),
-        "summary_file": _display_path(
-            _variant_summary_path(experiment_dir, variant.variant_id)
-        ),
-        "base_llm_config": llm_metadata.get("base_config"),
-        "resolved_llm_config": llm_metadata.get("resolved_config"),
-        "provider": llm_metadata.get("provider"),
-        "model": llm_metadata.get("model"),
-        "thinking_enabled": llm_metadata.get("thinking_enabled"),
-        "reasoning_effort": llm_metadata.get("reasoning_effort"),
-        "max_tokens": llm_metadata.get("max_tokens"),
-    }
-
-
-def _build_variant_summary_text(
-    variant: ExperimentVariantConfig,
-    records: list[dict[str, Any]],
-    variant_summary: dict[str, Any],
-) -> str:
-    lines = [
-        f"Variant id: {variant.variant_id}",
-        f"Description: {variant.description or 'none'}",
-        f"Base LLM config: {variant_summary.get('base_llm_config')}",
-        f"Resolved LLM config: {variant_summary.get('resolved_llm_config')}",
-        f"Provider: {variant_summary.get('provider')}",
-        f"Model: {variant_summary.get('model')}",
-        f"Thinking enabled: {variant_summary.get('thinking_enabled')}",
-        f"Thinking effort: {variant_summary.get('reasoning_effort')}",
-        f"Max tokens: {variant_summary.get('max_tokens')}",
-        f"Planned iterations: {variant_summary['planned_iterations']}",
-        f"Successful iterations: {variant_summary['successful_iterations']}",
-        f"Failed iterations: {variant_summary['failed_iterations']}",
-        f"Generation successes: {variant_summary['generation_successes']}",
-        f"Materialization successes: {variant_summary['materialization_successes']}",
-        f"Verification successes: {variant_summary['verification_successes']}",
-        "",
-        "Iterations:",
-    ]
-    for record in records:
-        generation = record["generation"]
-        lines.extend(
-            [
-                (
-                    f"- variant iteration {record['variant_iteration']} "
-                    f"(global {record['global_iteration']}): "
-                    f"{record['overall_status']}"
-                ),
-                f"  candidate summary: {generation.get('candidate_summary') or 'none'}",
-                f"  risk level: {generation.get('risk_level') or 'none'}",
-                f"  expected effect: {generation.get('expected_effect') or 'none'}",
-                f"  materialization: {record['materialization'].get('status')}",
-                f"  verification: {record['verification'].get('status')}",
-                f"  failed stage: {_failed_stage(record) or 'none'}",
-                f"  failed step: {_failed_step(record) or 'none'}",
-            ]
-        )
-    lines.append("")
-    return "\n".join(lines)
-
-
-def _write_variant_artifacts(
-    experiment_dir: Path,
-    config: ExperimentConfig,
-    records: list[dict[str, Any]],
-    llm_metadata_by_variant: dict[str, dict[str, Any]],
-) -> list[dict[str, Any]]:
-    summaries: list[dict[str, Any]] = []
-    for variant in config.variants:
-        variant_dir = _variant_dir(experiment_dir, variant.variant_id)
-        variant_dir.mkdir(parents=True, exist_ok=True)
-        records_for_variant = _variant_records(records, variant)
-        history_path = _variant_history_path(experiment_dir, variant.variant_id)
-        with history_path.open("w", encoding="utf-8") as file:
-            for record in records_for_variant:
-                file.write(
-                    json.dumps(
-                        _variant_record_history(record),
-                        ensure_ascii=False,
-                        separators=(",", ":"),
-                    )
-                    + "\n"
-                )
-
-        summary = _variant_summary(
-            variant,
-            records,
-            experiment_dir,
-            llm_metadata_by_variant,
-        )
-        _variant_summary_path(experiment_dir, variant.variant_id).write_text(
-            _build_variant_summary_text(variant, records_for_variant, summary),
-            encoding="utf-8",
-        )
-        summaries.append(summary)
-    return summaries
-
-
-def _build_experiment_status(
-    experiment_id: str,
-    config: ExperimentConfig,
-    records: list[dict[str, Any]],
-    variant_summaries: list[dict[str, Any]],
-    selection_summary: dict[str, Any] | None,
-    started_at: datetime,
-) -> dict[str, Any]:
-    successful_iterations = sum(
-        1 for record in records if record["overall_status"] == "success"
-    )
-    failed_iterations = sum(
-        1 for record in records if record["overall_status"] == "failed"
-    )
-    status = {
-        "experiment_id": experiment_id,
-        "experiment_name": config.experiment_name,
-        "overall_status": _overall_status(records),
-        "started_at": started_at.isoformat(timespec="seconds"),
-        "finished_at": datetime.now().astimezone().isoformat(timespec="seconds"),
-        "planned_iterations": _total_iterations(config),
-        "successful_iterations": successful_iterations,
-        "failed_iterations": failed_iterations,
-        "generation_successes": _stage_success_count(records, "generation"),
-        "materialization_successes": _stage_success_count(records, "materialization"),
-        "verification_successes": _stage_success_count(records, "verification"),
-        "llm_config": config.llm_config,
-        "target_file": config.target_file,
-        "pipeline": asdict(config.pipeline),
-        "candidate_format": asdict(config.candidate_format),
-        "history_policy": asdict(config.history_policy),
-        "variants": variant_summaries,
-    }
-    if selection_summary is not None:
-        status["selection"] = selection_summary
-    return status
-
-
-def _build_summary(
-    experiment_id: str,
-    config: ExperimentConfig,
-    status: dict[str, Any],
-    records: list[dict[str, Any]],
-) -> str:
-    selection = status.get("selection")
-    selection = selection if isinstance(selection, dict) else {}
-    lines = [
-        f"Experiment id: {experiment_id}",
-        f"Experiment name: {config.experiment_name}",
-        f"Description: {config.description or 'none'}",
-        f"Target file: {config.target_file}",
-        "Pipeline flags:",
-        f"- generate_candidate: {config.pipeline.generate_candidate}",
-        f"- materialize_candidate: {config.pipeline.materialize_candidate}",
-        f"- verify_candidate: {config.pipeline.verify_candidate}",
-        "Candidate format:",
-        f"- type: {config.candidate_format.type}",
-        f"- source_presentation: {config.candidate_format.source_presentation}",
-        (
-            f"- require_original_verification: "
-            f"{config.candidate_format.require_original_verification}"
-        ),
-        (
-            f"- allow_exact_search_fallback: "
-            f"{config.candidate_format.allow_exact_search_fallback}"
-        ),
-        "History policy:",
-        f"- enabled: {config.history_policy.enabled}",
-        f"- scope: {config.history_policy.scope}",
-        f"- max_previous_iterations: {config.history_policy.max_previous_iterations}",
-        (
-            f"- include_failed_iterations: "
-            f"{config.history_policy.include_failed_iterations}"
-        ),
-        (
-            f"- include_materialization_results: "
-            f"{config.history_policy.include_materialization_results}"
-        ),
-        (
-            f"- include_verification_results: "
-            f"{config.history_policy.include_verification_results}"
-        ),
-        f"Total planned iterations: {status['planned_iterations']}",
-        f"Successful iterations: {status['successful_iterations']}",
-        f"Failed iterations: {status['failed_iterations']}",
-        f"Overall status: {status['overall_status']}",
-    ]
-    if config.selection.enabled:
-        lines.extend(
-            [
-                "Selection:",
-                f"- enabled: {selection.get('enabled')}",
-                f"- overall_status: {selection.get('overall_status') or 'none'}",
-                (
-                    f"- best_candidate_run_dir: "
-                    f"{selection.get('best_candidate_run_dir') or 'none'}"
-                ),
-                f"- counts: {selection.get('counts') or 'none'}",
-                f"- best_speedup: {selection.get('best_speedup') or 'none'}",
-                (
-                    f"- best_runtime_reduction_percent: "
-                    f"{selection.get('best_runtime_reduction_percent') or 'none'}"
-                ),
-                f"- selection_artifact: {selection.get('selection_artifact') or 'none'}",
-            ]
-        )
-    lines.extend(["", "Variants:"])
-    for variant_summary in status["variants"]:
-        lines.extend(
-            [
-                f"- {variant_summary['variant_id']}:",
-                f"  model: {variant_summary.get('model')}",
-                f"  thinking effort: {variant_summary.get('reasoning_effort')}",
-                f"  max tokens: {variant_summary.get('max_tokens')}",
-                f"  resolved config: {variant_summary.get('resolved_llm_config')}",
-                f"  planned: {variant_summary['planned_iterations']}",
-                f"  success: {variant_summary['successful_iterations']}",
-                f"  failed: {variant_summary['failed_iterations']}",
-            ]
-        )
-    lines.extend(["", "Variant history artifacts:"])
-    for variant_summary in status["variants"]:
-        lines.append(
-            f"- {variant_summary['variant_id']}: {variant_summary['history_file']}"
-        )
-    lines.extend(["", "Iterations:"])
-    for record in records:
-        lines.extend(
-            [
-                (
-                    f"- global {record['global_iteration']} "
-                    f"variant {record['variant_id']} "
-                    f"iteration {record['variant_iteration']}: "
-                    f"{record['overall_status']}"
-                ),
-                f"  candidate_run_dir: {record.get('candidate_run_dir') or 'none'}",
-                f"  generation: {record['generation']['status']}",
-                f"  materialization: {record['materialization']['status']}",
-                f"  verification: {record['verification']['status']}",
-            ]
-        )
-    lines.extend(["", "Candidate promotion and closed-loop optimization are not implemented.", ""])
-    return "\n".join(lines)
-
-
-def _write_final_artifacts(
-    experiment_dir: Path,
-    experiment_id: str,
-    config: ExperimentConfig,
-    records: list[dict[str, Any]],
-    llm_metadata_by_variant: dict[str, dict[str, Any]],
-    started_at: datetime,
-) -> dict[str, Any]:
-    variant_summaries = _write_variant_artifacts(
-        experiment_dir,
-        config,
-        records,
-        llm_metadata_by_variant,
-    )
-    selection_summary = _run_selection(experiment_dir, config, records)
-    status = _build_experiment_status(
-        experiment_id,
-        config,
-        records,
-        variant_summaries,
-        selection_summary,
-        started_at,
-    )
-    status_finished_at = status.get("finished_at")
-    _write_experiment_metadata(
-        experiment_dir,
-        started_at,
-        status_finished_at if isinstance(status_finished_at, str) else None,
-    )
-    _write_json(experiment_dir / "experiment_status.json", status)
-    (experiment_dir / "summary.txt").write_text(
-        _build_summary(experiment_id, config, status, records),
-        encoding="utf-8",
-    )
-    return status
-
-
-def _early_variant_summaries(config: ExperimentConfig) -> list[dict[str, Any]]:
-    return [
-        {
-            "variant_id": variant.variant_id,
-            "planned_iterations": variant.iterations,
-            "successful_iterations": 0,
-            "failed_iterations": 0,
-            "generation_successes": 0,
-            "materialization_successes": 0,
-            "verification_successes": 0,
-            "history_file": None,
-            "summary_file": None,
-            "base_llm_config": variant.llm_config,
-            "resolved_llm_config": None,
-            "provider": None,
-            "model": None,
-            "thinking_enabled": None,
-            "reasoning_effort": None,
-            "max_tokens": None,
-        }
-        for variant in config.variants
-    ]
-
-
 def _write_early_failure_artifacts(
     experiment_dir: Path,
     experiment_id: str,
@@ -1644,6 +793,7 @@ def _write_early_failure_artifacts(
     failed_step: str,
     error_message: str,
 ) -> None:
+    variant = config.variants[0]
     status = {
         "experiment_id": experiment_id,
         "experiment_name": config.experiment_name,
@@ -1658,15 +808,24 @@ def _write_early_failure_artifacts(
         "generation_successes": 0,
         "materialization_successes": 0,
         "verification_successes": 0,
-        "llm_config": config.llm_config,
         "target_file": config.target_file,
-        "pipeline": asdict(config.pipeline),
+        "baseline_run_dir": config.baseline_run_dir,
         "candidate_format": asdict(config.candidate_format),
         "history_policy": asdict(config.history_policy),
-        "variants": _early_variant_summaries(config),
+        "variants": [
+            {
+                "variant_id": variant.variant_id,
+                "planned_iterations": variant.iterations,
+                "base_llm_config": variant.llm_config,
+                "resolved_llm_config": None,
+                "provider": None,
+                "model": None,
+                "thinking_enabled": None,
+                "reasoning_effort": None,
+                "max_tokens": None,
+            }
+        ],
     }
-    if config.selection.enabled:
-        status["selection"] = _compact_selection_summary(True, None, None)
     status_finished_at = status.get("finished_at")
     _write_experiment_metadata(
         experiment_dir,
@@ -1679,6 +838,7 @@ def _write_early_failure_artifacts(
         f"Experiment name: {config.experiment_name}",
         f"Description: {config.description or 'none'}",
         f"Target file: {config.target_file}",
+        f"Baseline run dir: {config.baseline_run_dir}",
         "Candidate format:",
         f"- type: {config.candidate_format.type}",
         f"- source_presentation: {config.candidate_format.source_presentation}",
@@ -1695,24 +855,11 @@ def _write_early_failure_artifacts(
         f"Error message: {error_message}",
         f"Total planned iterations: {_total_iterations(config)}",
     ]
-    if config.selection.enabled:
-        lines.extend(
-            [
-                "Selection:",
-                "- enabled: True",
-                "- overall_status: none",
-                "- best_candidate_run_dir: none",
-                "- counts: none",
-                "- best_speedup: none",
-                "- best_runtime_reduction_percent: none",
-                "- selection_artifact: none",
-            ]
-        )
     lines.extend(
         [
             "No iterations were executed.",
             "",
-            "Candidate promotion and closed-loop optimization are not implemented.",
+            "Closed-loop optimization did not start or did not complete.",
             "",
         ]
     )
@@ -2193,7 +1340,8 @@ def _update_closed_loop_summary_with_final_selection(
     report_path: Path,
 ) -> dict[str, Any]:
     report = _read_json_object(report_path)
-    comparison = report.get("comparison") if isinstance(report.get("comparison"), dict) else {}
+    comparison_raw = report.get("comparison")
+    comparison: dict[str, Any] = comparison_raw if isinstance(comparison_raw, dict) else {}
     speedup = _numeric_or_none(comparison.get("speedup"))
     runtime_reduction = _numeric_or_none(comparison.get("runtime_reduction_percent"))
     baseline_runtime = _numeric_or_none(comparison.get("baseline_runtime_ns_per_problem_median"))
@@ -2562,16 +1710,9 @@ def _run_closed_loop_experiment(
     llm_metadata_by_variant: dict[str, dict[str, Any]],
     started_at: datetime,
 ) -> dict[str, Any]:
-    if config.selection.baseline_run_dir is None:
-        raise ExperimentConfigError(
-            "Field 'selection.baseline_run_dir' is required when closed_loop.enabled is true."
-        )
-    if len(config.variants) != 1:
-        raise ExperimentConfigError("Closed-loop mode currently supports exactly one variant.")
-
     variant = config.variants[0]
     llm_metadata = llm_metadata_by_variant[variant.variant_id]
-    baseline_run_dir = _resolve_path(config.selection.baseline_run_dir)
+    baseline_run_dir = _resolve_path(config.baseline_run_dir)
     baseline_metrics_path = baseline_run_dir / "metrics.json"
     if not baseline_metrics_path.exists():
         raise ExperimentConfigError(f"Closed-loop baseline metrics not found: {baseline_metrics_path}")
@@ -2908,7 +2049,7 @@ def _run_closed_loop_experiment(
         "planned_iterations": variant.iterations,
         "completed_iterations": len(records),
         "target_file": config.target_file,
-        "pipeline": asdict(config.pipeline),
+        "baseline_run_dir": config.baseline_run_dir,
         "candidate_format": asdict(config.candidate_format),
         "closed_loop_selection_report_path": _display_path(selection_report_path),
         "final_selection_report_path": _display_path(final_selection_report_path),
@@ -2936,11 +2077,6 @@ def _run_experiment(
     config: ExperimentConfig,
     config_snapshot: dict[str, Any],
 ) -> int:
-    pipeline_error = _validate_executable_pipeline(config)
-    if pipeline_error:
-        print(f"ERROR: {pipeline_error}", file=sys.stderr)
-        return 1
-
     started_at = datetime.now().astimezone()
     try:
         allocation = allocate_next_experiment_run(EXPERIMENTS_ROOT)
@@ -2949,7 +2085,6 @@ def _run_experiment(
         return 1
     experiment_id = allocation.experiment_id
     experiment_dir = allocation.experiment_dir
-    iterations_path = experiment_dir / "iterations.jsonl"
 
     _write_json(experiment_dir / "experiment_config_snapshot.json", config_snapshot)
     _write_effective_experiment_config(experiment_dir, config)
@@ -2976,76 +2111,37 @@ def _run_experiment(
     print(f"Experiment: {config.experiment_name}")
     print(f"Experiment id: {experiment_id}")
     print(f"Experiment directory: {_display_path(experiment_dir)}")
-    print(f"Variants: {len(config.variants)}")
+    print("Mode: closed-loop optimization")
+    print(f"Variant: {config.variants[0].variant_id}")
+    print(f"Baseline run dir: {config.baseline_run_dir}")
     print(f"Planned iterations: {_total_iterations(config)}")
-    print(
-        "Enabled stages: "
-        f"generate={config.pipeline.generate_candidate}, "
-        f"materialize={config.pipeline.materialize_candidate}, "
-        f"verify={config.pipeline.verify_candidate}"
-    )
 
-    if config.closed_loop.enabled:
-        try:
-            status = _run_closed_loop_experiment(
-                config,
-                experiment_id,
-                experiment_dir,
-                llm_metadata_by_variant,
-                started_at,
-            )
-        except (ExperimentConfigError, OSError, ValueError) as exc:
-            _write_early_failure_artifacts(
-                experiment_dir,
-                experiment_id,
-                config,
-                started_at,
-                "closed_loop_initialization_or_execution",
-                str(exc),
-            )
-            print(f"ERROR: {exc}", file=sys.stderr)
-            print(f"Artifacts saved to: {_display_path(experiment_dir)}")
-            return 1
-
-        print("")
-        print(f"Final experiment status: {status['overall_status']}")
-        print(f"Completed iterations: {status['completed_iterations']}")
+    try:
+        status = _run_closed_loop_experiment(
+            config,
+            experiment_id,
+            experiment_dir,
+            llm_metadata_by_variant,
+            started_at,
+        )
+    except (ExperimentConfigError, OSError, ValueError) as exc:
+        _write_early_failure_artifacts(
+            experiment_dir,
+            experiment_id,
+            config,
+            started_at,
+            "closed_loop_initialization_or_execution",
+            str(exc),
+        )
+        print(f"ERROR: {exc}", file=sys.stderr)
         print(f"Artifacts saved to: {_display_path(experiment_dir)}")
-        return 0
-
-    records: list[dict[str, Any]] = []
-    global_iteration = 0
-    for variant in config.variants:
-        llm_metadata = llm_metadata_by_variant[variant.variant_id]
-        for variant_iteration in range(1, variant.iterations + 1):
-            global_iteration += 1
-            record = _run_iteration(
-                config,
-                variant,
-                llm_metadata,
-                experiment_dir,
-                global_iteration,
-                variant_iteration,
-                _variant_records(records, variant),
-            )
-            records.append(record)
-            _append_iteration_record(iterations_path, record)
-
-    status = _write_final_artifacts(
-        experiment_dir,
-        experiment_id,
-        config,
-        records,
-        llm_metadata_by_variant,
-        started_at,
-    )
+        return 1
 
     print("")
     print(f"Final experiment status: {status['overall_status']}")
-    print(f"Successful iterations: {status['successful_iterations']}")
-    print(f"Failed iterations: {status['failed_iterations']}")
+    print(f"Completed iterations: {status['completed_iterations']}")
     print(f"Artifacts saved to: {_display_path(experiment_dir)}")
-    return 0 if status["overall_status"] in {"success", "partial_success"} else 1
+    return 0
 
 
 def main(argv: list[str] | None = None) -> int:

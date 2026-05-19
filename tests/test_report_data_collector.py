@@ -67,7 +67,7 @@ def test_collect_report_data_maps_minimal_closed_loop_summary(tmp_path: Path) ->
     assert report_data.experiment.target_file == TARGET_FILE
     assert report_data.experiment.total_iterations == 2
     assert report_data.experiment.completed_iterations == 2
-    assert report_data.experiment.closed_loop_enabled is True
+    assert report_data.experiment.experiment_mode == "closed_loop"
     assert report_data.final_result.final_speedup_vs_baseline is None
     assert report_data.final_result.final_runtime_reduction_percent is None
     assert report_data.final_result.accepted_improvements == 1
@@ -785,7 +785,7 @@ def test_a_collector_fills_config_and_llm_fields(tmp_path: Path) -> None:
                 "require_original_verification": True,
                 "allow_exact_search_fallback": False,
             },
-            "closed_loop": {"enabled": True},
+            "baseline_run_dir": "results/runs/baseline",
             "variants": [
                 {
                     "variant_id": "deepseek_pro_max",
@@ -795,7 +795,6 @@ def test_a_collector_fills_config_and_llm_fields(tmp_path: Path) -> None:
                 }
             ],
             "history_policy": {"enabled": True, "scope": "all"},
-            "selection": {"enabled": True, "baseline_run_dir": "results/runs/baseline"},
             "optimization_scope": {"allowed_files": [TARGET_FILE]},
             "reporting": {"enabled": True, "formats": ["html"], "renderer": "auto"},
             "candidate_generation": {"max_source_chars": 32000},
@@ -925,7 +924,7 @@ def test_d_pdf_display_when_html_only_formats(tmp_path: Path) -> None:
             "experiment_name": "Html Only",
             "target_file": TARGET_FILE,
             "reporting": {"enabled": True, "formats": ["html"], "renderer": "auto"},
-            "closed_loop": {"enabled": True},
+            "baseline_run_dir": "results/runs/baseline",
         },
     )
 
@@ -1134,7 +1133,7 @@ def test_reporting_formats_override(tmp_path: Path) -> None:
             "experiment_name": "Override Test",
             "target_file": TARGET_FILE,
             "reporting": {"enabled": True, "formats": ["html"], "renderer": "weasyprint"},
-            "closed_loop": {"enabled": True},
+            "baseline_run_dir": "results/runs/baseline",
         },
     )
 
@@ -1160,7 +1159,7 @@ def test_reporting_pdf_pending_when_pdf_absent_but_requested(tmp_path: Path) -> 
             "experiment_name": "PDF Pending",
             "target_file": TARGET_FILE,
             "reporting": {"enabled": True, "formats": ["html", "pdf"], "renderer": "auto"},
-            "closed_loop": {"enabled": True},
+            "baseline_run_dir": "results/runs/baseline",
         },
     )
 
