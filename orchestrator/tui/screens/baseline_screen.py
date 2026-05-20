@@ -71,7 +71,7 @@ class BaselineScreen(Screen[None]):
         with VerticalScroll(id="main"):
             yield Static("Run Baseline", classes="title")
             yield Static(
-                "Runs CMake configure/build, smoke tests, adapter validation, "
+                "Runs CMake configure/build, adapter validation, "
                 "benchmark parsing, and artifact saving through the existing baseline entry point.",
                 classes="subtitle",
             )

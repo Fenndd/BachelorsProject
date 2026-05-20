@@ -7,8 +7,9 @@ parser/audit/decision helpers as candidate verification, but runs only once with
 repetitions.
 
 Build artifacts are written under workspace/ (mutable, git-ignored). The normalized
-benchmark artifact (verification.json) and the final report are written under
-results/experiments/<id>/final_selection/.
+benchmark artifact (verification.json) is written under
+results/experiments/<id>/final_selection/final_benchmark_run/. The final comparison
+report (final_selection_report.json) is written at the experiment directory root.
 """
 
 from __future__ import annotations
@@ -335,6 +336,10 @@ def run_final_selection_report(
                     "Final benchmark artifact was rejected by comparison policy "
                     "against original baseline."
                 )
+                verification["overall_status"] = "failed"
+                verification["failed_step"] = "decision_vs_original_baseline"
+                verification["error_message"] = error_message
+                _write_json(verification_path, verification)
 
     comp = (decision or {}).get("comparison", {})
     final_runtime = _runtime_ns(final_benchmark)

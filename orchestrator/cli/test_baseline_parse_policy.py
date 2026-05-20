@@ -10,7 +10,7 @@ from orchestrator.cli.main import (
     BENCHMARK_CORRECTNESS_CHECK_STEP,
     PARSE_FAMILY_BENCHMARK_STEP,
     _benchmark_parse_result_from_output,
-    _build_benchmark_correctness_error_message,
+    _correctness_error_message,
     _build_index_record,
     _build_metrics,
     _build_status,
@@ -102,7 +102,7 @@ class BaselineParsePolicyTests(unittest.TestCase):
             _step(PARSE_FAMILY_BENCHMARK_STEP, "success"),
             _step(BENCHMARK_CORRECTNESS_CHECK_STEP, "failed"),
         ]
-        error_message = _build_benchmark_correctness_error_message(parse_result)
+        error_message = _correctness_error_message(parse_result)
 
         status = _build_status(steps, BENCHMARK_CORRECTNESS_CHECK_STEP, error_message)
         metrics = _build_metrics(steps, "Release", parse_result)
@@ -126,7 +126,7 @@ class BaselineParsePolicyTests(unittest.TestCase):
         status = _build_status(
             steps,
             BENCHMARK_CORRECTNESS_CHECK_STEP,
-            _build_benchmark_correctness_error_message(parse_result),
+            _correctness_error_message(parse_result),
         )
         metrics = _build_metrics(steps, "Release", parse_result)
 

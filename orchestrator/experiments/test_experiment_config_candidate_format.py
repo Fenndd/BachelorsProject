@@ -94,32 +94,6 @@ class ExperimentConfigCandidateFormatTests(unittest.TestCase):
 
         self.assertIn("exactly one variant", str(ctx.exception))
 
-    def test_removed_closed_loop_switch_is_rejected(self) -> None:
-        with tempfile.TemporaryDirectory() as tmpdir:
-            root = Path(tmpdir)
-            payload = _base_config_payload()
-            payload["closed_loop"] = {"enabled": False}
-            config_path = root / "experiment_config.json"
-            config_path.write_text(json.dumps(payload), encoding="utf-8")
-
-            with self.assertRaises(ExperimentConfigError) as ctx:
-                load_experiment_config(config_path)
-
-        self.assertIn("closed_loop", str(ctx.exception))
-
-    def test_removed_pipeline_flags_are_rejected(self) -> None:
-        with tempfile.TemporaryDirectory() as tmpdir:
-            root = Path(tmpdir)
-            payload = _base_config_payload()
-            payload["pipeline"] = {"generate_candidate": True}
-            config_path = root / "experiment_config.json"
-            config_path.write_text(json.dumps(payload), encoding="utf-8")
-
-            with self.assertRaises(ExperimentConfigError) as ctx:
-                load_experiment_config(config_path)
-
-        self.assertIn("pipeline", str(ctx.exception))
-
     def test_explicit_unified_diff_plain_loads_successfully(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             config = load_experiment_config(

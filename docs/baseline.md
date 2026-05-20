@@ -2,7 +2,7 @@
 
 ## What Is Treated as Baseline
 
-The current baseline is the imported Lambda Twist P3P solver wired into project-owned smoke, runner, adapter validation, and absolute-pose family benchmark entry points.
+The current baseline is the imported Lambda Twist P3P solver wired into project-owned runner, adapter validation, and absolute-pose family benchmark entry points.
 
 ## Code Ownership and Locations
 
@@ -52,7 +52,7 @@ The benchmark runner prints PoseLib-style solution counts, GT-found counts, cali
 
 ## Build Configuration
 
-Baseline benchmarks and smoke tests default to **Release** builds for accurate runtime metrics. Debug builds are not suitable for performance comparisons.
+Baseline benchmarks default to **Release** builds for accurate runtime metrics. Debug builds are not suitable for performance comparisons.
 
 The build type is controlled by the `CMAKE_BUILD_TYPE` environment variable:
 - Default: `Release` (optimized)

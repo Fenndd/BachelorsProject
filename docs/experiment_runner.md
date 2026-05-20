@@ -22,12 +22,9 @@ Experiment configs live under `configs/experiments/`. A config defines:
 - `baseline_run_dir`: required original baseline run directory containing `metrics.json`.
 - `candidate_generation`: generation limits such as `max_source_chars`.
 - `candidate_format`: selects candidate edit format and source presentation.
-- `history_policy`: removed; closed-loop prompts always include compact previous-iteration history internally.
 - `optimization_scope.allowed_files`: the strict set of repo-relative files candidates may modify.
 - `variants`: exactly one model/config/context/parameter setup.
 - `reporting`: optional report generation settings.
-
-Removed config concepts are invalid: `pipeline`, `selection`, `closed_loop`, top-level `llm_config`, top-level `iterations`, and top-level `additional_context`.
 
 Example skeleton:
 
@@ -118,7 +115,7 @@ Automatic reporting runs only after closed-loop final artifacts and the final si
 
 ## Verification and Decisions
 
-`verify_candidate` is deterministic and does not call any LLM API. It configures CMake, builds/runs smoke and adapter checks, runs `absolute_pose_lambdatwist_benchmark`, parses benchmark stdout into `verification.json`, and fails verification if parsed correctness is false.
+`verify_candidate` is deterministic and does not call any LLM API. It configures CMake, builds/runs the adapter validator, runs `absolute_pose_lambdatwist_benchmark`, parses benchmark stdout into `verification.json`, and fails verification if parsed correctness is false.
 
 Candidate verification builds default to **Release** for accurate runtime metrics. Set `CMAKE_BUILD_TYPE=Debug` in the environment to override. The final single-run comparison uses the same CMake environment conventions.
 

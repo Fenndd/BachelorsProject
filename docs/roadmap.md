@@ -14,7 +14,7 @@
 
 - Define validation strategy and benchmarking protocol for baseline and optimized variants.
 - Status: completed for the current Lambda Twist P3P absolute-pose path.
-- Current state: Lambda Twist P3P has a smoke test, adapter validator, family benchmark, parsed baseline metrics, parsed candidate verification metrics, artifact audit, and selection-compatible runtime/correctness fields.
+- Current state: Lambda Twist P3P has an adapter validator, family benchmark, parsed baseline metrics, parsed candidate verification metrics, artifact audit, and selection-compatible runtime/correctness fields.
 - Not complete: broader datasets, additional solver families, advanced benchmark statistics, and direct JSON metrics output from C++ benchmarks.
 
 ## 4. First LLM Integration
@@ -28,7 +28,7 @@
 
 - Materialize generated candidates only in isolated workspace copies and run deterministic benchmark-family verification.
 - Status: completed for the minimal P3P scenario.
-- Current state: `unified_diff` materialization works with `git apply` and `--recount` fallback. `line_range_edits` materialization works with deterministic line-range edits. Candidate verification runs smoke test, adapter validator, benchmark, and benchmark parser.
+- Current state: `unified_diff` materialization works with `git apply` and `--recount` fallback. `line_range_edits` materialization works with deterministic line-range edits. Candidate verification runs adapter validator, benchmark, and benchmark parser.
 - Not complete: promotion.
 
 ## 4b. Candidate Edit Format Layer

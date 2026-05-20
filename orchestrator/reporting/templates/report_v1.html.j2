@@ -197,8 +197,6 @@
         <tr><th>Experiment Mode</th><td>Closed-loop optimization</td></tr>
         <tr><th>Promotion Policy</th><td>{{ report.closed_loop_selection.promotion_policy|display }}</td></tr>
         <tr><th>Baseline Run Directory</th><td><code>{{ report.experiment_config_details.baseline_run_dir|display }}</code></td></tr>
-        <tr><th>Closed-loop History Context</th><td>enabled</td></tr>
-        <tr><th>History Context Detail</th><td>Previous iteration summaries are included in candidate generation prompts.</td></tr>
         <tr><th>Optimization Scope</th><td><code>{{ report.experiment_config_details.optimization_scope_allowed_files|display }}</code></td></tr>
         <tr><th>Reporting Enabled</th><td>{{ report.experiment_config_details.reporting_enabled|yes_no }}</td></tr>
         <tr><th>Reporting Formats</th><td>{{ report.experiment_config_details.reporting_formats|display }}</td></tr>
@@ -341,7 +339,7 @@
 
   <section id="phase-timings">
     <h2>Phase Timings</h2>
-    <p class="muted">Verification time includes build, smoke tests, adapter validation, benchmark execution, parsing, and correctness checks.</p>
+    <p class="muted">Verification time includes build, adapter validation, benchmark execution, parsing, and correctness checks.</p>
     <figure><img src="{{ plots.phase_timings }}" alt="Phase timings plot"></figure>
     <table class="compact">
       <thead>

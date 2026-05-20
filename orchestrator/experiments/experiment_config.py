@@ -99,7 +99,6 @@ def load_experiment_config(path: Path | str) -> ExperimentConfig:
 
     target_file_raw = _required_non_empty_string(payload, "target_file")
     target_file = normalize_repo_path(target_file_raw)
-    _reject_removed_config_fields(payload)
     optimization_scope = _load_optimization_scope(payload, target_file)
     reporting = _load_reporting(payload)
     variants = _load_variants(payload)
@@ -117,20 +116,6 @@ def load_experiment_config(path: Path | str) -> ExperimentConfig:
         optimization_scope=optimization_scope,
         variants=variants,
     )
-
-
-def _reject_removed_config_fields(payload: dict[str, Any]) -> None:
-    removed_fields = {
-        "pipeline": "Pipeline stage switches were removed; closed-loop experiments always generate, materialize, and verify candidates.",
-        "selection": "The old experiment selection config was removed; use top-level 'baseline_run_dir'.",
-        "closed_loop": "The closed-loop mode switch was removed; all experiments are closed-loop.",
-        "llm_config": "Top-level llm_config compatibility was removed; configure the single item in 'variants'.",
-        "iterations": "Top-level iterations compatibility was removed; configure iterations on the single variant.",
-        "additional_context": "Top-level additional_context compatibility was removed; configure it on the single variant.",
-    }
-    for field_name, message in removed_fields.items():
-        if field_name in payload:
-            raise ExperimentConfigError(f"Field '{field_name}' is no longer supported. {message}")
 
 
 def _required_non_empty_string(payload: dict[str, Any], field_name: str) -> str:

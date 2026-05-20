@@ -494,7 +494,7 @@ Common codes include:
   `diff_apply_failed`, `line_range_mismatch`,
   `line_range_fallback_ambiguous`, `target_file_missing`, `no_files_changed`
 - Verification: `verification_failed`, `configure_failed`, `build_failed`,
-  `smoke_test_failed`, `adapter_validation_failed`,
+  `adapter_validation_failed`,
   `benchmark_execution_failed`, `benchmark_parse_failed`,
   `benchmark_correctness_failed`, `metrics_missing`
 - Decision: `accepted_improvement`, `valid_not_improved`,

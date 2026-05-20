@@ -30,7 +30,6 @@ from orchestrator.benchmarking.benchmark_runner import (
     build_cmake_build_command,
     configure_cmake_command,
     find_executable,
-    format_command,
     run_command,
     write_step_log,
 )
