@@ -1,4 +1,4 @@
-"""Tests for experiment-runner command wiring after format cleanup."""
+"""Tests for experiment-runner command wiring with fixed schema."""
 
 from __future__ import annotations
 
@@ -40,7 +40,7 @@ def _write_config(root: Path, payload: dict[str, Any] | None = None) -> Path:
     return config_path
 
 
-class RunExperimentCandidateFormatTests(unittest.TestCase):
+class RunExperimentFixedSchemaTests(unittest.TestCase):
     def test_generation_command_does_not_pass_format_flags(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             config = load_experiment_config(_write_config(Path(tmpdir)))

@@ -62,20 +62,6 @@ target_link_libraries(absolute_pose_lambdatwist_adapter
         lambdatwist_baseline
 )
 
-# --- Compatibility alias: absolute_pose_benchmark = core + adapter ---
-add_library(absolute_pose_benchmark INTERFACE)
-target_link_libraries(absolute_pose_benchmark
-    INTERFACE
-        absolute_pose_core
-        absolute_pose_lambdatwist_adapter
-)
-target_include_directories(absolute_pose_benchmark
-    INTERFACE
-        "${ABSOLUTE_POSE_SOLVERS_DIR}/core"
-        "${ABSOLUTE_POSE_SOLVERS_DIR}/adapters/lambdatwist_p3p"
-        "${EIGEN3_INCLUDE_DIR}"
-)
-
 # --- Runner executables ---
 add_executable(absolute_pose_lambdatwist_benchmark
     "${ABSOLUTE_POSE_SOLVERS_DIR}/runners/lambdatwist_p3p_benchmark.cpp"

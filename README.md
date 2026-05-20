@@ -129,7 +129,7 @@ See `docs/interactive_terminal_control_layer.md` for the full CLI/TUI command re
 
 The existing baseline entry point remains `orchestrator/cli/main.py`, and the new command layer does not change optimization, benchmark, validation, materialization, or closed-loop experiment behavior.
 
-## LLM Candidate Generation and Candidate Edit Formats
+## LLM Candidate Generation and Candidate Edit Schema
 
 LLM candidate generation is implemented by `orchestrator.llm.generate_candidate`. The LLM receives line-numbered source and returns structured `edits[]` entries with `file`, `start_line`, `end_line`, `original`, and `replace`. Generation writes `candidate.json` and `candidate.edits.json`; materialization applies the edits deterministically and writes the system-generated `candidate.generated.diff`.
 

@@ -82,7 +82,7 @@ def _benchmark_payload(runtime: float = 1000.0) -> dict[str, Any]:
     }
 
 
-def _config_payload(root: Path, *, iterations: int = 1, allow_exact_search_fallback: bool = True) -> dict[str, Any]:
+def _config_payload(root: Path, *, iterations: int = 1) -> dict[str, Any]:
     return {
         "experiment_name": "closed loop test",
         "target_file": TARGET_FILE,
@@ -99,9 +99,9 @@ def _config_payload(root: Path, *, iterations: int = 1, allow_exact_search_fallb
     }
 
 
-def _write_config(root: Path, *, iterations: int = 1, allow_exact_search_fallback: bool = True) -> Path:
+def _write_config(root: Path, *, iterations: int = 1) -> Path:
     path = root / "config.json"
-    _write_json(path, _config_payload(root, iterations=iterations, allow_exact_search_fallback=allow_exact_search_fallback))
+    _write_json(path, _config_payload(root, iterations=iterations))
     return path
 
 

@@ -1,4 +1,4 @@
-"""Tests for experiment config loading after candidate format removal."""
+"""Tests for experiment config loading with fixed candidate schema."""
 
 from __future__ import annotations
 
@@ -39,7 +39,7 @@ def _write_config(root: Path, payload: dict[str, Any] | None = None) -> Path:
     return config_path
 
 
-class ExperimentConfigCandidateFormatTests(unittest.TestCase):
+class ExperimentConfigFixedCandidateSchemaTests(unittest.TestCase):
     def test_config_loads_without_removed_format_field(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             config = load_experiment_config(_write_config(Path(tmpdir)))

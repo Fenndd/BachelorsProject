@@ -1,4 +1,4 @@
-"""Tests for generate_candidate edits-only args and artifacts."""
+"""Tests for generate_candidate fixed schema artifacts."""
 
 from __future__ import annotations
 
@@ -48,7 +48,7 @@ def _candidate() -> OptimizationCandidate:
     )
 
 
-class GenerateCandidateCandidateFormatTests(unittest.TestCase):
+class GenerateCandidateFixedSchemaTests(unittest.TestCase):
     def test_parse_args_has_no_format_attributes(self) -> None:
         args = _parse_args(["--config", "llm.json", "--source", TARGET_FILE])
 

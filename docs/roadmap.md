@@ -24,9 +24,9 @@
 - Current state: DeepSeek and mock LLM paths are available, controlled prompt builder is implemented, response parser supports the single line-range edit schema, and candidate artifacts are stored under `results/runs/`.
 - Not complete: automatic promotion into the main `cpp/` source tree.
 
-## 4b. Candidate Edit Format Layer
+## 4a. Candidate Edit Schema
 
-- Separate semantic optimization from mechanical patch application.
+- Fixed infrastructure using line-numbered prompts, line-range `edits[]` candidates, and deterministic materialization.
 - Status: implemented.
 - Current state: line-numbered prompts, `edits[]` candidates, `candidate.edits.json`, `candidate.generated.diff`, and the full-cycle line-range materialization path for mock and configured LLM runs.
 
