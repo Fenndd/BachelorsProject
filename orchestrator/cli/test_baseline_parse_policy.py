@@ -10,7 +10,7 @@ from orchestrator.cli.main import (
     BENCHMARK_CORRECTNESS_CHECK_STEP,
     PARSE_FAMILY_BENCHMARK_STEP,
     _benchmark_parse_result_from_output,
-    _build_benchmark_correctness_error_message,
+    _correctness_error_message,
     _build_index_record,
     _build_metrics,
     _build_status,
@@ -30,12 +30,8 @@ def _step(name: str, status: str) -> dict[str, object]:
 def _successful_steps() -> list[dict[str, object]]:
     return [
         _step("configure_cmake", "success"),
-        _step("build_baseline_smoke_test", "success"),
-        _step("build_baseline_runner", "success"),
         _step("build_absolute_pose_lambdatwist_adapter_validator", "success"),
         _step("build_absolute_pose_lambdatwist_benchmark", "success"),
-        _step("run_baseline_smoke_test", "success"),
-        _step("run_baseline_runner", "success"),
         _step("run_absolute_pose_lambdatwist_adapter_validator", "success"),
         _step("run_absolute_pose_lambdatwist_benchmark", "success"),
     ]
@@ -104,7 +100,7 @@ class BaselineParsePolicyTests(unittest.TestCase):
             _step(PARSE_FAMILY_BENCHMARK_STEP, "success"),
             _step(BENCHMARK_CORRECTNESS_CHECK_STEP, "failed"),
         ]
-        error_message = _build_benchmark_correctness_error_message(parse_result)
+        error_message = _correctness_error_message(parse_result)
 
         status = _build_status(steps, BENCHMARK_CORRECTNESS_CHECK_STEP, error_message)
         metrics = _build_metrics(steps, "Release", parse_result)
@@ -128,7 +124,7 @@ class BaselineParsePolicyTests(unittest.TestCase):
         status = _build_status(
             steps,
             BENCHMARK_CORRECTNESS_CHECK_STEP,
-            _build_benchmark_correctness_error_message(parse_result),
+            _correctness_error_message(parse_result),
         )
         metrics = _build_metrics(steps, "Release", parse_result)
 
@@ -194,8 +190,6 @@ class BaselineParsePolicyTests(unittest.TestCase):
     def test_prior_benchmark_failure_skips_parse_step(self) -> None:
         steps = [
             _step("configure_cmake", "success"),
-            _step("build_baseline_smoke_test", "success"),
-            _step("build_baseline_runner", "success"),
             _step("build_absolute_pose_lambdatwist_adapter_validator", "success"),
             _step("build_absolute_pose_lambdatwist_benchmark", "failed"),
         ]

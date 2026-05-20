@@ -1,4 +1,4 @@
-"""Experiment config loading and validation for future multi-run experiments."""
+"""Experiment config loading and validation for closed-loop experiments."""
 
 from __future__ import annotations
 
@@ -18,45 +18,8 @@ class ExperimentConfigError(ValueError):
 
 
 @dataclass(frozen=True)
-class ExperimentPipelineConfig:
-    generate_candidate: bool
-    materialize_candidate: bool
-    verify_candidate: bool
-
-
-@dataclass(frozen=True)
 class CandidateGenerationConfig:
     max_source_chars: int
-
-
-@dataclass(frozen=True)
-class CandidateFormatConfig:
-    type: str
-    source_presentation: str
-    require_original_verification: bool
-    allow_exact_search_fallback: bool
-
-
-@dataclass(frozen=True)
-class HistoryPolicyConfig:
-    enabled: bool
-    scope: str
-    max_previous_iterations: int
-    include_failed_iterations: bool
-    include_materialization_results: bool
-    include_verification_results: bool
-
-
-@dataclass(frozen=True)
-class SelectionConfig:
-    enabled: bool
-    baseline_run_dir: str | None
-    write_candidate_decisions: bool
-
-
-@dataclass(frozen=True)
-class ClosedLoopConfig:
-    enabled: bool
 
 
 @dataclass(frozen=True)
@@ -95,18 +58,11 @@ class ExperimentConfig:
     experiment_name: str
     description: str | None
     target_file: str
-    pipeline: ExperimentPipelineConfig
+    baseline_run_dir: str
     candidate_generation: CandidateGenerationConfig
-    candidate_format: CandidateFormatConfig
-    history_policy: HistoryPolicyConfig
-    selection: SelectionConfig
-    closed_loop: ClosedLoopConfig
     optimization_scope: OptimizationScopeConfig
     variants: list[ExperimentVariantConfig]
     reporting: ReportingConfig = field(default_factory=ReportingConfig)
-    llm_config: str | None = None
-    iterations: int | None = None
-    additional_context: str | None = None
 
 
 def load_experiment_config(path: Path | str) -> ExperimentConfig:
@@ -135,31 +91,20 @@ def load_experiment_config(path: Path | str) -> ExperimentConfig:
     target_file_raw = _required_non_empty_string(payload, "target_file")
     target_file = normalize_repo_path(target_file_raw)
     optimization_scope = _load_optimization_scope(payload, target_file)
-    selection = _load_selection(payload)
-    closed_loop = _load_closed_loop(payload)
     reporting = _load_reporting(payload)
     variants = _load_variants(payload)
 
-    _validate_closed_loop_requirements(closed_loop, selection, variants)
+    _validate_single_variant(variants)
 
     return ExperimentConfig(
         experiment_name=_required_non_empty_string(payload, "experiment_name"),
         description=_optional_string(payload, "description"),
         target_file=target_file,
-        pipeline=_load_pipeline(payload),
+        baseline_run_dir=_required_non_empty_string(payload, "baseline_run_dir"),
         candidate_generation=_load_candidate_generation(payload),
-        candidate_format=_load_candidate_format(payload),
-        history_policy=_load_history_policy(payload),
-        selection=selection,
-        closed_loop=closed_loop,
         reporting=reporting,
         optimization_scope=optimization_scope,
         variants=variants,
-        llm_config=(
-            payload.get("llm_config") if isinstance(payload.get("llm_config"), str) else None
-        ),
-        iterations=payload.get("iterations") if isinstance(payload.get("iterations"), int) else None,
-        additional_context=_optional_string(payload, "additional_context"),
     )
 
 
@@ -286,18 +231,6 @@ def _load_llm_overrides(
     return parsed
 
 
-def _load_pipeline(payload: dict[str, Any]) -> ExperimentPipelineConfig:
-    pipeline = payload.get("pipeline")
-    if not isinstance(pipeline, dict):
-        raise ExperimentConfigError("Field 'pipeline' must be an object.")
-
-    return ExperimentPipelineConfig(
-        generate_candidate=_required_bool(pipeline, "generate_candidate"),
-        materialize_candidate=_required_bool(pipeline, "materialize_candidate"),
-        verify_candidate=_required_bool(pipeline, "verify_candidate"),
-    )
-
-
 def _load_candidate_generation(payload: dict[str, Any]) -> CandidateGenerationConfig:
     candidate_generation = payload.get("candidate_generation")
     if not isinstance(candidate_generation, dict):
@@ -308,150 +241,6 @@ def _load_candidate_generation(payload: dict[str, Any]) -> CandidateGenerationCo
             candidate_generation, "max_source_chars"
         )
     )
-
-
-def _load_candidate_format(payload: dict[str, Any]) -> CandidateFormatConfig:
-    candidate_format = payload.get("candidate_format")
-    if candidate_format is None:
-        return CandidateFormatConfig(
-            type="unified_diff",
-            source_presentation="plain",
-            require_original_verification=True,
-            allow_exact_search_fallback=True,
-        )
-
-    if not isinstance(candidate_format, dict):
-        raise ExperimentConfigError("Field 'candidate_format' must be an object.")
-
-    format_type = _required_non_empty_string(candidate_format, "type")
-    if format_type not in {"unified_diff", "line_range_edits"}:
-        raise ExperimentConfigError(
-            "Field 'candidate_format.type' must be one of: "
-            "unified_diff, line_range_edits."
-        )
-
-    source_presentation = _required_non_empty_string(
-        candidate_format,
-        "source_presentation",
-    )
-    if source_presentation not in {"plain", "line_numbered"}:
-        raise ExperimentConfigError(
-            "Field 'candidate_format.source_presentation' must be one of: "
-            "plain, line_numbered."
-        )
-
-    if format_type == "unified_diff" and source_presentation != "plain":
-        raise ExperimentConfigError(
-            "candidate_format.type='unified_diff' requires "
-            "candidate_format.source_presentation='plain'."
-        )
-    if format_type == "line_range_edits" and source_presentation != "line_numbered":
-        raise ExperimentConfigError(
-            "candidate_format.type='line_range_edits' requires "
-            "candidate_format.source_presentation='line_numbered'."
-        )
-
-    return CandidateFormatConfig(
-        type=format_type,
-        source_presentation=source_presentation,
-        require_original_verification=_required_bool(
-            candidate_format,
-            "require_original_verification",
-        ),
-        allow_exact_search_fallback=_required_bool(
-            candidate_format,
-            "allow_exact_search_fallback",
-        ),
-    )
-
-
-def _load_history_policy(payload: dict[str, Any]) -> HistoryPolicyConfig:
-    history_policy = payload.get("history_policy")
-    if history_policy is None:
-        return HistoryPolicyConfig(
-            enabled=False,
-            scope="variant",
-            max_previous_iterations=0,
-            include_failed_iterations=False,
-            include_materialization_results=True,
-            include_verification_results=True,
-        )
-
-    if not isinstance(history_policy, dict):
-        raise ExperimentConfigError("Field 'history_policy' must be an object.")
-
-    enabled = _required_bool(history_policy, "enabled")
-    scope = _required_non_empty_string(history_policy, "scope")
-    if scope != "variant":
-        raise ExperimentConfigError(
-            "Field 'history_policy.scope' must be 'variant'."
-        )
-
-    max_previous_iterations = _required_non_negative_int(
-        history_policy, "max_previous_iterations"
-    )
-    if enabled and max_previous_iterations <= 0:
-        raise ExperimentConfigError(
-            "Field 'history_policy.max_previous_iterations' must be positive "
-            "when history_policy.enabled is true."
-        )
-
-    return HistoryPolicyConfig(
-        enabled=enabled,
-        scope=scope,
-        max_previous_iterations=max_previous_iterations,
-        include_failed_iterations=_required_bool(
-            history_policy, "include_failed_iterations"
-        ),
-        include_materialization_results=_required_bool(
-            history_policy, "include_materialization_results"
-        ),
-        include_verification_results=_required_bool(
-            history_policy, "include_verification_results"
-        ),
-    )
-
-
-def _load_selection(payload: dict[str, Any]) -> SelectionConfig:
-    selection = payload.get("selection")
-    if selection is None:
-        return SelectionConfig(
-            enabled=False,
-            baseline_run_dir=None,
-            write_candidate_decisions=True,
-        )
-
-    if not isinstance(selection, dict):
-        raise ExperimentConfigError("Field 'selection' must be an object.")
-
-    enabled = _required_bool(selection, "enabled")
-    baseline_run_dir = _optional_string(selection, "baseline_run_dir")
-    if enabled and baseline_run_dir is None:
-        raise ExperimentConfigError(
-            "Field 'selection.baseline_run_dir' is required when selection.enabled is true."
-        )
-
-    if "write_candidate_decisions" in selection:
-        write_candidate_decisions = _required_bool(selection, "write_candidate_decisions")
-    else:
-        write_candidate_decisions = True
-
-    return SelectionConfig(
-        enabled=enabled,
-        baseline_run_dir=baseline_run_dir,
-        write_candidate_decisions=write_candidate_decisions,
-    )
-
-
-def _load_closed_loop(payload: dict[str, Any]) -> ClosedLoopConfig:
-    closed_loop = payload.get("closed_loop")
-    if closed_loop is None:
-        return ClosedLoopConfig(enabled=False)
-
-    if not isinstance(closed_loop, dict):
-        raise ExperimentConfigError("Field 'closed_loop' must be an object if present.")
-
-    return ClosedLoopConfig(enabled=_required_bool(closed_loop, "enabled"))
 
 
 def _load_reporting(payload: dict[str, Any]) -> ReportingConfig:
@@ -499,37 +288,17 @@ def _load_reporting(payload: dict[str, Any]) -> ReportingConfig:
     )
 
 
-def _validate_closed_loop_requirements(
-    closed_loop: ClosedLoopConfig,
-    selection: SelectionConfig,
-    variants: list[ExperimentVariantConfig],
-) -> None:
-    if not closed_loop.enabled:
-        return
-
+def _validate_single_variant(variants: list[ExperimentVariantConfig]) -> None:
     if len(variants) != 1:
         raise ExperimentConfigError(
-            "Closed-loop mode currently supports exactly one variant."
-        )
-    if selection.baseline_run_dir is None:
-        raise ExperimentConfigError(
-            "Field 'selection.baseline_run_dir' is required when closed_loop.enabled is true."
+            "Closed-loop experiments currently support exactly one variant."
         )
 
 
 def _load_variants(payload: dict[str, Any]) -> list[ExperimentVariantConfig]:
     variants = payload.get("variants")
     if variants is None:
-        return [
-            ExperimentVariantConfig(
-                variant_id="default",
-                description=_optional_string(payload, "description"),
-                llm_config=_required_non_empty_string(payload, "llm_config"),
-                llm_overrides=_load_llm_overrides(payload),
-                iterations=_required_positive_int(payload, "iterations"),
-                additional_context=_optional_string(payload, "additional_context"),
-            )
-        ]
+        raise ExperimentConfigError("Field 'variants' is required and must contain exactly one variant.")
 
     if not isinstance(variants, list) or not variants:
         raise ExperimentConfigError("Field 'variants' must be a non-empty list.")

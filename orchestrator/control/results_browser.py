@@ -30,6 +30,8 @@ class ResultArtifactMap:
     report_dir: Path | None
     report_pdf: Path | None
     report_html: Path | None
+    final_selection_dir: Path | None
+    final_selection_report: Path | None
 
 
 @dataclass(frozen=True)
@@ -149,6 +151,8 @@ def _run_artifacts(path: Path) -> ResultArtifactMap:
         report_dir=None,
         report_pdf=None,
         report_html=None,
+        final_selection_dir=None,
+        final_selection_report=None,
     )
 
 
@@ -170,6 +174,8 @@ def _experiment_artifacts(path: Path) -> ResultArtifactMap:
         report_dir=report_dir,
         report_pdf=_find_report_pdf(report_dir) if report_dir is not None else None,
         report_html=_find_report_html(report_dir) if report_dir is not None else None,
+        final_selection_dir=_existing(path / "final_selection"),
+        final_selection_report=_existing(path / "final_selection_report.json"),
     )
 
 
@@ -226,11 +232,13 @@ def _read_experiment_item(path: Path) -> ResultItem:
         ),
         final_best_iteration=(
             _int_value(closed_loop_summary, "final_best_iteration")
-            or _int_value(closed_loop, "final_best_iteration")
+            if _int_value(closed_loop_summary, "final_best_iteration") is not None
+            else _int_value(closed_loop, "final_best_iteration")
         ),
         accepted_improvements=(
             _int_value(closed_loop, "accepted_improvements")
-            or (
+            if _int_value(closed_loop, "accepted_improvements") is not None
+            else (
                 closed_loop_summary.get("status_counts", {}).get("accepted_improvement")
                 if isinstance(closed_loop_summary, dict)
                 and isinstance(closed_loop_summary.get("status_counts"), dict)

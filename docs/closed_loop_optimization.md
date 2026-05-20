@@ -23,6 +23,13 @@ original baseline
 
 At the start of a closed-loop experiment, `current_best_source` is initialized from the clean baseline. Each planned iteration attempts to generate, materialize, and verify one candidate. If the candidate is a verified improvement over the current best, it is promoted into the experiment-local current best and becomes the source for the next iteration.
 
+## Closed-loop History in Prompts
+
+Closed-loop optimization always includes compact previous-iteration history in later LLM prompts. This is internal pipeline behavior, not a per-experiment config option. The history builder (`build_closed_loop_history_context`) provides each generation subprocess with:
+- The iteration number, status, per-iteration phase durations, llm response usage, source diffs, verification metrics.
+
+This helps later iterations understand what was attempted and avoid redundant or failing approaches.
+
 ## Source Roots
 
 Closed-loop mode separates logical repository paths from physical source roots:
@@ -83,11 +90,6 @@ Closed-loop verified candidates write two reference decision artifacts in the ca
 
 - `decision_vs_current_best.json`: controls promotion. If its status is `accepted_improvement`, the candidate becomes the new experiment-local current best.
 - `decision_vs_original_baseline.json`: compares the candidate against the original clean baseline for reporting/control. It does not control promotion.
-
-Compatibility/default selection artifacts may also appear when useful:
-
-- `candidate_decision.json`: default pairwise decision filename used by the baseline-vs-candidate path.
-- `best_candidate_selection.json`: non-closed-loop best-candidate selection output when that selection path is enabled.
 
 Closed-loop final analysis is written to `closed_loop_selection_report.json`. It reports the final state and safety flags, but it never promotes candidates or modifies source trees.
 

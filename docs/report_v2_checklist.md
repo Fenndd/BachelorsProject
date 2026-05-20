@@ -65,7 +65,7 @@ results/experiments/<experiment_id>/report/
 - `report.html` opens in a browser without visible template errors.
 - Core sections are present: cover, executive summary, experiment configuration, benchmark configuration, final single-run comparison, baseline metrics, runtime progress, correctness, status breakdown, candidate funnel, per-iteration table, final best candidate summary, reporting status, and artifact map.
 - Enriched sections are present: Outcome and Failure Analysis, Phase Timings, LLM Usage, Diff Statistics, Closed-Loop Selection, Reproducibility and Environment, and Iteration Appendix.
-- The user-facing report focuses on closed-loop mode. Legacy `selection_enabled` and `history_policy` fields are not shown as main report concepts.
+- The user-facing report focuses on closed-loop optimization.
 - Closed-loop promotion policy is `decision_vs_current_best.accepted_improvement_only`.
 - After closed-loop completion and before report generation, the runner performs a single benchmark run on the final optimized source and compares it against the original baseline. The comparison does not affect candidate promotion and does not change `current_best_source`.
 - Executive Summary headline speedup, runtime reduction, baseline runtime, final runtime, and correctness preserved come from `final_selection_report.json`. If the single-run comparison failed, was skipped (baseline is best), or metrics are unavailable, those headline fields show `Not available`.
@@ -121,7 +121,7 @@ results/experiments/<experiment_id>/report/
 
 ## Diff Statistics Checks
 
-- Final diff summary cards match `final_best_candidate.diff_stats` when available.
+- Final diff summary cards match final-best diff statistics when available.
 - Per-iteration rows match `iterations[*].diff_stats`.
 - Changed lines equal lines added plus lines removed in the plot.
 - Fallback usage is shown as Yes, No, or Not available.

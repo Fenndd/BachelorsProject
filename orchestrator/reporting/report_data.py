@@ -56,11 +56,9 @@ class ExperimentReportInfo:
     experiment_name: str | None = None
     target_file: str = ""
     model: str | None = None
-    candidate_format: str | None = None
-    source_presentation: str | None = None
     total_iterations: int = 0
     completed_iterations: int = 0
-    closed_loop_enabled: bool = True
+    experiment_mode: str = "closed_loop"
     benchmark_family: str | None = None
 
 
@@ -79,10 +77,13 @@ class ReportFinalResult:
 class ReportBaselineMetrics:
     """Baseline benchmark and correctness metrics."""
 
-    runtime_ns_per_case_median: float | None = None
-    success_rate: float | None = None
-    mean_reprojection_error: float | None = None
-    max_reprojection_error: float | None = None
+    runtime_ns_per_problem_median: float | None = None
+    gt_found_percent: float | None = None
+    valid_solutions_percent: float | None = None
+    total_solutions: int | None = None
+    solutions_per_problem: float | None = None
+    gt_found: int | None = None
+    valid_solutions: int | None = None
     correctness_passed: bool | None = None
 
 
@@ -154,7 +155,7 @@ class ReportIterationSummary:
     candidate_summary: str | None = None
     expected_effect: str | None = None
     risk_level: str | None = None
-    runtime_ns_per_case_median: float | None = None
+    runtime_ns_per_problem_median: float | None = None
     speedup_vs_current_best: float | None = None
     speedup_vs_baseline: float | None = None
     correctness_passed: bool | None = None
@@ -240,15 +241,7 @@ class ReportExperimentConfigDetails:
 
     description: str | None = None
     candidate_generation_max_source_chars: int | None = None
-    candidate_format_type: str | None = None
-    source_presentation: str | None = None
-    require_original_verification: bool | None = None
-    allow_exact_search_fallback: bool | None = None
-    history_policy_enabled: bool | None = None
-    history_policy_scope: str | None = None
-    selection_enabled: bool | None = None
-    selection_baseline_run_dir: str | None = None
-    closed_loop_enabled: bool | None = None
+    baseline_run_dir: str | None = None
     optimization_scope_allowed_files: list[str] = field(default_factory=list)
     reporting_enabled: bool | None = None
     reporting_formats: list[str] = field(default_factory=list)
@@ -262,16 +255,14 @@ class ReportBenchmarkConfig:
 
     family: str | None = None
     solver: str | None = None
-    num_cases: int | None = None
-    points_per_case: int | None = None
-    warmup_iterations: int | None = None
+    num_problems: int | None = None
+    n_point_point: int | None = None
+    n_point_line: int | None = None
+    tolerance: float | None = None
+    camera_fov: float | None = None
     timed_iterations: int | None = None
     seed: int | None = None
     runtime_unit: str | None = None
-    reprojection_error_threshold: float | None = None
-    minimum_success_rate: float | None = None
-    require_all_cases_valid: bool | None = None
-    use_max_reprojection_error_as_hard_gate: bool | None = None
     build_type: str | None = None
 
 
@@ -328,9 +319,9 @@ class ReportFinalBestCandidate:
 
     iteration: int | None = None
     candidate_run_dir: str | None = None
-    runtime_ns_per_case_median: float | None = None
-    baseline_runtime_ns_per_case_median: float | None = None
-    absolute_runtime_difference_ns_per_case: float | None = None
+    runtime_ns_per_problem_median: float | None = None
+    baseline_runtime_ns_per_problem_median: float | None = None
+    absolute_runtime_difference_ns_per_problem: float | None = None
     speedup_vs_baseline: float | None = None
     runtime_reduction_percent: float | None = None
     correctness_passed: bool | None = None

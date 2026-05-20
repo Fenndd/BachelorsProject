@@ -20,7 +20,7 @@ Eigen is required by the Lambda Twist baseline. The CMake project expects `EIGEN
 
 ## Command-Line Automation
 
-The baseline automation entry point is `orchestrator/cli/main.py`. It configures CMake, builds the baseline smoke test, runner, adapter validator, and absolute-pose benchmark, then runs and parses them.
+The baseline automation entry point is `orchestrator/cli/main.py`. It configures CMake, builds the adapter validator and absolute-pose benchmark, then runs and parses them.
 
 This baseline CLI is intentionally separate from LLM optimization experiments. Use `orchestrator.experiments.run_experiment` for configured LLM experiment runs.
 

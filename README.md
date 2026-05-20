@@ -13,9 +13,9 @@ Implemented now:
 - Baseline automation through `orchestrator/cli/main.py`.
 - Absolute-pose benchmark family for Lambda Twist P3P, including adapter validation and parsed benchmark metrics.
 - LLM candidate generation through `orchestrator.llm.generate_candidate`.
-- Candidate edit formats for `unified_diff` and `line_range_edits`.
+- A single line-range edit schema for LLM-generated candidates.
 - Candidate materialization and verification in isolated workspaces.
-- Pairwise candidate decision and multi-candidate best-result selection.
+- Pairwise candidate decision for closed-loop promotion and reporting.
 - Closed-loop iterative optimization in the experiment runner with experiment-local `current_best_source`.
 - Compact benchmark-aware closed-loop history for later generations.
 - Final closed-loop artifacts and analysis-only selector/reporting.
@@ -92,9 +92,9 @@ $env:EIGEN3_INCLUDE_DIR="C:\path\to\eigen"
 py orchestrator/cli/main.py
 ```
 
-The flow configures CMake, builds/runs `baseline_smoke_test`, `baseline_runner`, `absolute_pose_lambdatwist_adapter_validator`, and `absolute_pose_lambdatwist_benchmark`, parses metrics, and checks `correctness_passed`. Benchmark and evaluation builds default to **Release**. Build type is recorded as reproducibility metadata in reports.
+The flow configures CMake, builds/runs `absolute_pose_lambdatwist_adapter_validator` and `absolute_pose_lambdatwist_benchmark`, parses metrics, and checks `correctness_passed`. Benchmark and evaluation builds default to **Release**. Build type is recorded as reproducibility metadata in reports.
 
-The user-facing report is a single unified current report, not separate v1/v2 modes. It focuses on closed-loop mode. Legacy `selection_enabled` and `history_policy` fields are not shown as main report concepts; closed-loop promotion policy is `decision_vs_current_best.accepted_improvement_only`. Verification time includes benchmark execution, so `benchmark_seconds` is not separately shown in the main report. Missing PDF is valid for HTML-only reports; when PDF is requested, it is exported from the final completed HTML. After closed-loop completion a single final benchmark run compares the final optimized source against the original baseline; this produces `final_selection_report.json` and feeds the report headline metrics. Report headline baseline/final runtimes, speedup, runtime reduction, and correctness preserved come from the final single-run comparison; if that run fails, headline metrics are unavailable. Single-run closed-loop selection metrics are iteration analytics only. Build type is reproducibility metadata; `Release` is the default benchmark build type.
+The user-facing report is a single unified current report, not separate v1/v2 modes. It focuses on closed-loop optimization; closed-loop promotion policy is `decision_vs_current_best.accepted_improvement_only`. Verification time includes benchmark execution, so `benchmark_seconds` is not separately shown in the main report. Missing PDF is valid for HTML-only reports; when PDF is requested, it is exported from the final completed HTML. After closed-loop completion a single final benchmark run compares the final optimized source against the original baseline; this produces `final_selection_report.json` and feeds the report headline metrics. Report headline baseline/final runtimes, speedup, runtime reduction, and correctness preserved come from the final single-run comparison; if that run fails, headline metrics are unavailable. Single-run closed-loop selection metrics are iteration analytics only. Build type is reproducibility metadata; `Release` is the default benchmark build type.
 
 ## Experimental Terminal Control Layer
 
@@ -129,17 +129,9 @@ See `docs/interactive_terminal_control_layer.md` for the full CLI/TUI command re
 
 The existing baseline entry point remains `orchestrator/cli/main.py`, and the new command layer does not change optimization, benchmark, validation, materialization, or closed-loop experiment behavior.
 
-## LLM Candidate Generation and Candidate Edit Formats
+## LLM Candidate Generation and Candidate Edit Schema
 
-LLM candidate generation is implemented by `orchestrator.llm.generate_candidate`. It supports two candidate formats selected with `--candidate-type` and experiment `candidate_format.type`.
-
-### `unified_diff`
-
-`unified_diff` is the legacy/fallback format. The LLM receives plain source and returns a `unified_diff` string. Generation writes `candidate.diff`; materialization applies it with `git apply` and can use a `git apply --recount` fallback for malformed hunk counts.
-
-### `line_range_edits`
-
-`line_range_edits` is the preferred robust format for full-cycle LLM experiments. The LLM receives `line_numbered` source and returns structured `edits[]` entries with `file`, `start_line`, `end_line`, `original`, and `replace`. Generation writes `candidate.edits.json`; materialization applies the edits deterministically and writes the system-generated `candidate.generated.diff`.
+LLM candidate generation is implemented by `orchestrator.llm.generate_candidate`. The LLM receives line-numbered source and returns structured `edits[]` entries with `file`, `start_line`, `end_line`, `original`, and `replace`. Generation writes `candidate.json` and `candidate.edits.json`; materialization applies the edits deterministically and writes the system-generated `candidate.generated.diff`.
 
 See `docs/candidate_edit_formats.md` for details.
 
@@ -149,18 +141,17 @@ Materialization runs only inside `workspace/candidates/<candidate_run_id>/`.
 
 The materializer enforces `optimization_scope.allowed_files` from experiment configs:
 
-- `unified_diff`: candidate `target_files` and diff header paths must remain allowed.
-- `line_range_edits`: candidate `target_files` and `edits[].file` must remain allowed.
+- Candidate `target_files` and `edits[].file` must remain allowed.
 
 Verification configures/builds/runs inside the isolated candidate workspace and writes `verification.json`. It does not call an LLM and does not modify the main `cpp/` source tree.
 
 ## Selection and Reporting
 
-Pairwise candidate decision and multi-candidate best-result selection consume verified benchmark artifacts and explicit references. The closed-loop runner uses reference-vs-candidate decisions against the current best for promotion and against the original baseline for reporting.
+Pairwise candidate decisions consume verified benchmark artifacts and explicit references. The closed-loop runner uses reference-vs-candidate decisions against the current best for promotion and against the original baseline for reporting.
 
 Selection and final reporting do not promote, merge, copy, or commit candidates into the main source tree.
 
-Generated reports are read-only visualizations under `results/experiments/<experiment_id>/report/`. The single-experiment report uses `schema_version: "report.v2"` and extends the original report with Outcome and Failure Analysis, Phase Timings, LLM Usage, Diff Statistics, Final Repeated Benchmark Validation, and an Iteration Appendix. Final validation aggregates and plots use only successful correctness-passing repetitions. Older or incomplete artifacts are handled through graceful degradation where possible, with missing fields or plots marked as unavailable.
+Generated reports are read-only visualizations under `results/experiments/<experiment_id>/report/`. The single-experiment report uses `schema_version: "report.v2"` and extends the original report with Outcome and Failure Analysis, Phase Timings, LLM Usage, Diff Statistics, Final Comparison vs Original Baseline, and an Iteration Appendix. Final selection metrics come from a single-run comparison of the final optimized source against the original baseline. Older or incomplete artifacts are handled through graceful degradation where possible, with missing fields or plots marked as unavailable.
 
 Completed reports can be checked without regenerating anything:
 

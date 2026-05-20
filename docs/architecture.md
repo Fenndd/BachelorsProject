@@ -1,6 +1,6 @@
 # Architecture
 
-This project uses C++ for the algorithmic layer and Python for automation around baseline preparation, LLM candidate generation, candidate materialization, verification, decisions, selection, and closed-loop experiment orchestration.
+This project uses C++ for the algorithmic layer and Python for automation around baseline preparation, LLM candidate generation, candidate materialization, verification, decisions, and closed-loop experiment orchestration.
 
 The current minimal case study is Lambda Twist P3P in the absolute-pose solver benchmark family.
 
@@ -10,15 +10,13 @@ The clean baseline path is:
 
 1. CMake configures the C++ project.
 2. The Lambda Twist baseline target and project-owned executables are built.
-3. A smoke test, runner, adapter validator, and absolute-pose family benchmark execute from `orchestrator/cli/main.py`.
+3. An adapter validator and absolute-pose family benchmark execute from `orchestrator/cli/main.py`.
 4. Parsed benchmark metrics are stored under `results/runs/<run_id>/` and indexed in `results/index.jsonl`.
 
 The C++ baseline boundary is:
 
 - `cpp/external/lambdatwist/`: imported third-party Lambda Twist source.
 - `lambdatwist_baseline`: project CMake target wrapping the imported solver.
-- `baseline_runner` and `baseline_smoke_test`: project-owned compatibility entry points.
-- `baseline_benchmark`: old compatibility benchmark target, still kept building.
 - `absolute_pose_lambdatwist_adapter_validator` and `absolute_pose_lambdatwist_benchmark`: project-owned benchmark-family evaluation entry points.
 
 The baseline Python entry point is `orchestrator/cli/main.py`. It remains separate from LLM optimization experiments.
@@ -29,38 +27,24 @@ The main orchestration components are:
 
 - `orchestrator.llm.generate_candidate`: reads one source file from a configurable source root, builds a controlled prompt, calls the configured LLM or mock client, parses the response, and stores candidate artifacts.
 - `orchestrator.patching.materialize_candidate`: materializes a candidate inside `workspace/candidates/<candidate_run_id>/` only, optionally using an explicit `--base-source-root`.
-- `orchestrator.execution.verify_candidate`: runs deterministic smoke, adapter validation, family benchmark, and benchmark parsing inside a materialized candidate workspace.
+- `orchestrator.execution.verify_candidate`: runs deterministic adapter validation, family benchmark, and benchmark parsing inside a materialized candidate workspace.
 - `orchestrator.benchmarking.candidate_decision`: evaluates one verified candidate against either a baseline run or a verified-candidate reference. In closed-loop mode, this writes reference-vs-candidate decisions such as `decision_vs_current_best.json`.
-- `orchestrator.experiments.best_candidate_selector`: selects the best candidate among verified candidates using pairwise decisions for non-closed-loop experiment analysis.
 - `orchestrator.experiments.closed_loop_state`: manages experiment-local `current_best_source` and `current_best_state` metadata.
 - `orchestrator.experiments.closed_loop_history`: builds compact benchmark-aware history for later closed-loop generations.
-- `orchestrator.experiments.run_experiment`: runs configured experiments, including non-closed-loop multi-variant/multi-iteration runs and single-variant closed-loop iterative optimization.
+- `orchestrator.experiments.run_experiment`: runs configured closed-loop iterative optimization experiments.
 - Final closed-loop artifact/reporting helpers write `final_optimized_source/`, `final_optimized_source.diff`, `closed_loop_summary.json`, `closed_loop_iterations.jsonl`, `closed_loop_selection_report.json`, and the results-side `current_best_state.json`.
 
 Experiment runs use `workspace/` for isolated source copies and `results/` for persistent outputs. The main `cpp/` source tree is not modified by candidate materialization or closed-loop current-best promotion.
 
-## Candidate Edit Format Layer
+## Candidate Edit Layer
 
-The system does not assume every LLM candidate is a raw unified diff. Candidate format is selected through experiment config using `candidate_format`.
+The system uses one fixed LLM candidate representation: line-range edits. This is infrastructure behavior, not an experiment config option.
 
-### `unified_diff`
-
-- `schema_version`: `1.0`
-- Legacy/fallback format.
-- The LLM returns a `unified_diff` string.
-- `generate_candidate` writes `candidate.diff`.
-- The materializer applies the patch with `git apply`.
-- If normal hunk-count validation fails, the materializer can try `git apply --recount` and records whether the recount fallback was used.
-
-### `line_range_edits`
-
-- `schema_version`: `1.1`
-- Preferred robust format for full-cycle LLM experiments.
-- The LLM receives `line_numbered` source.
+- The LLM receives source with 1-based line numbers.
 - The LLM returns `edits[]` with `file`, `start_line`, `end_line`, `original`, and `replace`.
 - `original` is source text only and must not include line-number prefixes.
 - The materializer verifies the actual source text at the requested line range before applying.
-- If enabled, an exact-search fallback may be used only when the `original` text occurs exactly once.
+- An internal exact-search fallback may be used only when the `original` text occurs exactly once.
 - The system writes `candidate.generated.diff` after deterministic materialization.
 - The main `cpp/` source tree is never modified.
 
@@ -68,10 +52,7 @@ See `docs/candidate_edit_formats.md` for the dedicated format reference.
 
 ## Scope and Verification
 
-Configured experiments pass `optimization_scope.allowed_files` to candidate generation and materialization. The materializer enforces candidate `target_files` plus format-specific changed-file paths against that allowlist:
-
-- `unified_diff`: diff header paths are checked.
-- `line_range_edits`: `edits[].file` paths are checked.
+Configured experiments pass `optimization_scope.allowed_files` to candidate generation and materialization. The materializer enforces candidate `target_files` and `edits[].file` paths against that allowlist.
 
 Verification produces `verification.json` using the same absolute-pose benchmark family as the baseline. Verification does not compare against a reference; decisions and selection are separate stages that consume verified artifacts.
 

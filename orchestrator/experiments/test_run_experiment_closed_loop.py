@@ -82,36 +82,26 @@ def _benchmark_payload(runtime: float = 1000.0) -> dict[str, Any]:
     }
 
 
-def _config_payload(root: Path, *, iterations: int = 1, allow_exact_search_fallback: bool = True) -> dict[str, Any]:
+def _config_payload(root: Path, *, iterations: int = 1) -> dict[str, Any]:
     return {
         "experiment_name": "closed loop test",
         "target_file": TARGET_FILE,
-        "additional_context": "static additional context",
-        "pipeline": {
-            "generate_candidate": True,
-            "materialize_candidate": True,
-            "verify_candidate": True,
-        },
+        "baseline_run_dir": str(root / "results" / "runs" / "baseline"),
         "candidate_generation": {"max_source_chars": 1000},
-        "candidate_format": {
-            "type": "line_range_edits",
-            "source_presentation": "line_numbered",
-            "require_original_verification": True,
-            "allow_exact_search_fallback": allow_exact_search_fallback,
-        },
-        "closed_loop": {"enabled": True},
-        "selection": {
-            "enabled": False,
-            "baseline_run_dir": str(root / "results" / "runs" / "baseline"),
-        },
-        "llm_config": "configs/llm_mock_candidate.json",
-        "iterations": iterations,
+        "variants": [
+            {
+                "variant_id": "default",
+                "llm_config": "configs/llm_mock_candidate.json",
+                "iterations": iterations,
+                "additional_context": "static additional context",
+            }
+        ],
     }
 
 
-def _write_config(root: Path, *, iterations: int = 1, allow_exact_search_fallback: bool = True) -> Path:
+def _write_config(root: Path, *, iterations: int = 1) -> Path:
     path = root / "config.json"
-    _write_json(path, _config_payload(root, iterations=iterations, allow_exact_search_fallback=allow_exact_search_fallback))
+    _write_json(path, _config_payload(root, iterations=iterations))
     return path
 
 
@@ -125,7 +115,6 @@ def _create_repo_layout(root: Path, source_text: str = "baseline\n") -> None:
 
 def _candidate_payload(*, expected_effect: str = "runtime", edits: list[dict[str, Any]] | None = None) -> dict[str, Any]:
     return {
-        "candidate_type": "line_range_edits",
         "summary": "candidate summary",
         "rationale": "candidate rationale",
         "risk_level": "low",
@@ -182,7 +171,6 @@ class _ClosedLoopHarness:
                     "overall_status": "failed",
                     "failed_step": "apply",
                     "error_message": "fallback_no_match: original text was not found by exact-search fallback",
-                    "candidate_type": "line_range_edits",
                     "line_range_edit_count": 1,
                     "line_range_exact_matches": 0,
                     "line_range_trailing_whitespace_tolerant_matches": 0,
@@ -201,7 +189,6 @@ class _ClosedLoopHarness:
                 "overall_status": "success",
                 "workspace_path": str(workspace),
                 "changed_files": [TARGET_FILE],
-                "candidate_type": "line_range_edits",
                 "line_range_edit_count": 1,
                 "line_range_exact_matches": 1,
                 "line_range_trailing_whitespace_tolerant_matches": 0,
@@ -360,7 +347,7 @@ class RunExperimentClosedLoopTests(unittest.TestCase):
         self.assertEqual(harness.stage_calls.count("generate_candidate"), 5)
         self.assertIn("--source-root", harness.generated_commands[0])
         self.assertIn("--base-source-root", harness.materialization_commands[0])
-        self.assertIn("--allow-exact-search-fallback", harness.materialization_commands[0])
+        self.assertNotIn("--allow-exact-search" + "-fallback", harness.materialization_commands[0])
         records = [json.loads(line) for line in paths.closed_loop_iterations_path.read_text(encoding="utf-8").splitlines()]
         self.assertFalse(records[0]["history_included"])
         self.assertIsNone(records[0]["history_guidance"])
@@ -374,12 +361,12 @@ class RunExperimentClosedLoopTests(unittest.TestCase):
         self.assertIsNone(records[3]["history_guidance"])
         self.assertTrue(records[4]["history_included"])
 
-    def test_materialization_command_propagates_disabled_exact_search_fallback(self) -> None:
+    def test_materialization_command_does_not_include_exact_search_fallback_flags(self) -> None:
         temp = tempfile.TemporaryDirectory()
         self.addCleanup(temp.cleanup)
         root = Path(temp.name)
         _create_repo_layout(root)
-        config_path = _write_config(root, allow_exact_search_fallback=False)
+        config_path = _write_config(root)
         config = load_experiment_config(config_path)
 
         command = runner._build_materialization_command(
@@ -389,8 +376,8 @@ class RunExperimentClosedLoopTests(unittest.TestCase):
         )
 
         self.assertIn("--base-source-root", command)
-        self.assertIn("--no-allow-exact-search-fallback", command)
-        self.assertNotIn("--allow-exact-search-fallback", command)
+        self.assertNotIn("--allow-exact-search" + "-fallback", command)
+        self.assertNotIn("--no-allow-exact-search" + "-fallback", command)
 
     def test_closed_loop_iteration_jsonl_uses_portable_paths_recursively(self) -> None:
         temp = tempfile.TemporaryDirectory()

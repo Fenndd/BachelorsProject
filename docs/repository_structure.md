@@ -5,7 +5,7 @@
 - `cpp/`: C++ code area for project algorithm integration, project-owned runner/test/benchmark targets, and shared baseline sample data.
 - `cpp/external/`: third-party imported baselines and dependencies.
 - `orchestrator/`: Python automation code for baseline runs, LLM candidate generation, materialization, verification, candidate decisions, best-candidate selection, and experiment orchestration.
-- `configs/`: LLM configs, mock candidate configs, model/default configs, and experiment configs, including `candidate_format` selection.
+- `configs/`: LLM configs, mock candidate configs, model/default configs, and experiment configs.
 - `workspace/`: isolated temporary candidate workspaces created by materialization.
 - `results/`: persistent baseline, candidate generation, materialization, verification, decision, selection, and experiment artifacts.
 - `docs/`: architecture notes, roadmap, setup, and repository-level conventions.

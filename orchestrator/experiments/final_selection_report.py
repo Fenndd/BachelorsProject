@@ -7,8 +7,9 @@ parser/audit/decision helpers as candidate verification, but runs only once with
 repetitions.
 
 Build artifacts are written under workspace/ (mutable, git-ignored). The normalized
-benchmark artifact (verification.json) and the final report are written under
-results/experiments/<id>/final_selection/.
+benchmark artifact (verification.json) is written under
+results/experiments/<id>/final_selection/final_benchmark_run/. The final comparison
+report (final_selection_report.json) is written at the experiment directory root.
 """
 
 from __future__ import annotations
@@ -19,15 +20,20 @@ import sys
 from pathlib import Path
 from typing import Any, Sequence
 
+from orchestrator.benchmarking.benchmark_artifacts import (
+    benchmark_artifact_from_parse,
+    empty_benchmark_artifact,
+)
+from orchestrator.benchmarking.benchmark_runner import (
+    build_cmake_build_command,
+    configure_cmake_command,
+    find_executable,
+    run_command,
+)
 from orchestrator.benchmarking.candidate_decision import evaluate_candidate_against_baseline
-from orchestrator.benchmarking.family_benchmark_parser import parse_absolute_pose_benchmark_output
-from orchestrator.execution.candidate_benchmark_verification import (
-    FAMILY_BENCHMARK_TARGET,
-    _benchmark_from_parse,
-    _build_command,
-    _empty_benchmark,
-    _find_executable,
-    _run_command,
+from orchestrator.benchmarking.solver_registry import (
+    SolverBenchmarkDescriptor,
+    default_solver_descriptor,
 )
 
 
@@ -39,6 +45,8 @@ FINAL_BENCHMARK_RUN_DIR_NAME = "final_benchmark_run"
 FINAL_SELECTION_REPORT_FILENAME = "final_selection_report.json"
 _BUILD_DIR_NAME = "final_selection_build"
 
+_DESCRIPTOR: SolverBenchmarkDescriptor = default_solver_descriptor()
+
 
 def run_final_selection_report(
     *,
@@ -47,6 +55,7 @@ def run_final_selection_report(
     repo_root: Path,
     baseline_run_dir: Path,
     final_source_dir: Path,
+    final_best_run_dir: Path | None,
     target_file: str,
     final_best_is_baseline: bool,
     build_type: str = "Release",
@@ -59,11 +68,19 @@ def run_final_selection_report(
     final_benchmark_run_dir = output_dir / FINAL_BENCHMARK_RUN_DIR_NAME
     logs_dir = output_dir / "logs"
     report_path = experiment_dir / FINAL_SELECTION_REPORT_FILENAME
+    output_dir.mkdir(parents=True, exist_ok=True)
 
     baseline_benchmark = _load_baseline_benchmark(baseline_run_dir)
     baseline_runtime = _runtime_ns(baseline_benchmark)
 
     if final_best_is_baseline:
+        logs_dir.mkdir(parents=True, exist_ok=True)
+        marker = {
+            "reused_baseline": True,
+            "note": "Final best is original baseline; no separate benchmark was run.",
+            "baseline_run_dir": _display_path(baseline_run_dir, repo_root),
+        }
+        _write_json(output_dir / "reused_baseline.json", marker)
         comparison = {
             "speedup": 1.0,
             "runtime_reduction_percent": 0.0,
@@ -76,7 +93,7 @@ def run_final_selection_report(
             target_file=target_file,
             baseline_run_dir=baseline_run_dir,
             final_source_dir=final_source_dir,
-            final_best_run_dir=None,
+            final_best_run_dir=final_best_run_dir,
             final_best_is_baseline=True,
             baseline_benchmark=baseline_benchmark,
             final_benchmark=baseline_benchmark,
@@ -111,10 +128,10 @@ def run_final_selection_report(
             target_file=target_file,
             baseline_run_dir=baseline_run_dir,
             final_source_dir=final_source_dir,
-            final_best_run_dir=None,
+            final_best_run_dir=final_best_run_dir,
             final_best_is_baseline=False,
             baseline_benchmark=baseline_benchmark,
-            final_benchmark=_empty_benchmark(build_type=effective_build_type),
+            final_benchmark=empty_benchmark_artifact(_DESCRIPTOR, build_type=effective_build_type),
             decision_vs_original_baseline=None,
             comparison=_null_comparison(baseline_runtime),
             status="failed",
@@ -136,22 +153,19 @@ def run_final_selection_report(
     final_benchmark_run_dir.mkdir(parents=True, exist_ok=True)
     build_dir.mkdir(parents=True, exist_ok=True)
 
-    configure_command: list[str] = [
-        cmake_exe,
-        "-S", str(source_cpp),
-        "-B", str(build_dir),
-        f"-DEIGEN3_INCLUDE_DIR={eigen_include_dir}",
-    ]
-    if cmake_generator:
-        configure_command.extend(["-G", cmake_generator])
-    if cmake_cxx_compiler:
-        configure_command.append(f"-DCMAKE_CXX_COMPILER={cmake_cxx_compiler}")
-    if cmake_make_program:
-        configure_command.append(f"-DCMAKE_MAKE_PROGRAM={cmake_make_program}")
-    configure_command.append(f"-DCMAKE_BUILD_TYPE={effective_build_type}")
+    configure_command: list[str] = configure_cmake_command(
+        source_dir=source_cpp,
+        build_dir=build_dir,
+        eigen_include_dir=eigen_include_dir,
+        cmake_generator=cmake_generator,
+        cmake_cxx_compiler=cmake_cxx_compiler,
+        cmake_make_program=cmake_make_program,
+        cmake_build_type=effective_build_type,
+        cmake_exe=cmake_exe,
+    )
 
     configure_log = logs_dir / "configure_cmake.log"
-    _, configure_error, _ = _run_command(
+    _, configure_error, _ = run_command(
         "configure_cmake",
         "Configure final source CMake project",
         configure_command,
@@ -164,10 +178,10 @@ def run_final_selection_report(
             target_file=target_file,
             baseline_run_dir=baseline_run_dir,
             final_source_dir=final_source_dir,
-            final_best_run_dir=None,
+            final_best_run_dir=final_best_run_dir,
             final_best_is_baseline=False,
             baseline_benchmark=baseline_benchmark,
-            final_benchmark=_empty_benchmark(build_type=effective_build_type),
+            final_benchmark=empty_benchmark_artifact(_DESCRIPTOR, build_type=effective_build_type),
             decision_vs_original_baseline=None,
             comparison=_null_comparison(baseline_runtime),
             status="failed",
@@ -183,11 +197,11 @@ def run_final_selection_report(
         _write_json(report_path, report)
         return report_path
 
-    build_log = logs_dir / "build_absolute_pose_lambdatwist_benchmark.log"
-    build_cmd = _build_command(cmake_exe, build_dir, FAMILY_BENCHMARK_TARGET, effective_build_type)
-    _, build_error, _ = _run_command(
-        "build_absolute_pose_lambdatwist_benchmark",
-        f"Build {FAMILY_BENCHMARK_TARGET}",
+    build_log = logs_dir / f"build_{_DESCRIPTOR.benchmark_target}.log"
+    build_cmd = build_cmake_build_command(cmake_exe, build_dir, _DESCRIPTOR.benchmark_target, effective_build_type)
+    _, build_error, _ = run_command(
+        f"build_{_DESCRIPTOR.benchmark_target}",
+        f"Build {_DESCRIPTOR.benchmark_target}",
         build_cmd,
         build_dir.parent,
         build_log,
@@ -198,14 +212,14 @@ def run_final_selection_report(
             target_file=target_file,
             baseline_run_dir=baseline_run_dir,
             final_source_dir=final_source_dir,
-            final_best_run_dir=None,
+            final_best_run_dir=final_best_run_dir,
             final_best_is_baseline=False,
             baseline_benchmark=baseline_benchmark,
-            final_benchmark=_empty_benchmark(build_type=effective_build_type),
+            final_benchmark=empty_benchmark_artifact(_DESCRIPTOR, build_type=effective_build_type),
             decision_vs_original_baseline=None,
             comparison=_null_comparison(baseline_runtime),
             status="failed",
-            failed_step="build_absolute_pose_lambdatwist_benchmark",
+            failed_step=f"build_{_DESCRIPTOR.benchmark_target}",
             error_message=build_error,
             artifacts={
                 "final_benchmark_run_dir": _display_path(final_benchmark_run_dir, repo_root),
@@ -218,17 +232,17 @@ def run_final_selection_report(
         return report_path
 
     try:
-        benchmark_exe = _find_executable(build_dir, FAMILY_BENCHMARK_TARGET)
+        benchmark_exe = find_executable(build_dir, _DESCRIPTOR.benchmark_target)
     except FileNotFoundError as exc:
         report = _build_report(
             experiment_id=experiment_id,
             target_file=target_file,
             baseline_run_dir=baseline_run_dir,
             final_source_dir=final_source_dir,
-            final_best_run_dir=None,
+            final_best_run_dir=final_best_run_dir,
             final_best_is_baseline=False,
             baseline_benchmark=baseline_benchmark,
-            final_benchmark=_empty_benchmark(build_type=effective_build_type),
+            final_benchmark=empty_benchmark_artifact(_DESCRIPTOR, build_type=effective_build_type),
             decision_vs_original_baseline=None,
             comparison=_null_comparison(baseline_runtime),
             status="failed",
@@ -245,10 +259,10 @@ def run_final_selection_report(
         return report_path
 
     benchmark_log_path = output_dir / "final_benchmark.log"
-    run_log = logs_dir / "run_absolute_pose_lambdatwist_benchmark.log"
-    _, run_error, stdout = _run_command(
-        "run_absolute_pose_lambdatwist_benchmark",
-        f"Run {FAMILY_BENCHMARK_TARGET}",
+    run_log = logs_dir / f"run_{_DESCRIPTOR.benchmark_target}.log"
+    _, run_error, stdout = run_command(
+        f"run_{_DESCRIPTOR.benchmark_target}",
+        f"Run {_DESCRIPTOR.benchmark_target}",
         [str(benchmark_exe)],
         build_dir,
         run_log,
@@ -261,14 +275,14 @@ def run_final_selection_report(
             target_file=target_file,
             baseline_run_dir=baseline_run_dir,
             final_source_dir=final_source_dir,
-            final_best_run_dir=None,
+            final_best_run_dir=final_best_run_dir,
             final_best_is_baseline=False,
             baseline_benchmark=baseline_benchmark,
-            final_benchmark=_empty_benchmark(raw_output_available=False, build_type=effective_build_type),
+            final_benchmark=empty_benchmark_artifact(_DESCRIPTOR, raw_output_available=False, build_type=effective_build_type),
             decision_vs_original_baseline=None,
             comparison=_null_comparison(baseline_runtime),
             status="failed",
-            failed_step="run_absolute_pose_lambdatwist_benchmark",
+            failed_step=f"run_{_DESCRIPTOR.benchmark_target}",
             error_message=run_error,
             artifacts={
                 "final_benchmark_run_dir": _display_path(final_benchmark_run_dir, repo_root),
@@ -280,8 +294,8 @@ def run_final_selection_report(
         _write_json(report_path, report)
         return report_path
 
-    parse_result = parse_absolute_pose_benchmark_output(stdout)
-    final_benchmark = _benchmark_from_parse(stdout, parse_result, effective_build_type)
+    parse_result = _DESCRIPTOR.parser(stdout)
+    final_benchmark = benchmark_artifact_from_parse(parse_result, _DESCRIPTOR, effective_build_type)
 
     verification = {
         "overall_status": "success" if parse_result["parse_success"] else "failed",
@@ -314,6 +328,18 @@ def run_final_selection_report(
             failed_step = "decision_vs_original_baseline"
             error_message = str(exc)
             status = "failed"
+        else:
+            if decision and decision.get("status") == "rejected":
+                status = "failed"
+                failed_step = "decision_vs_original_baseline"
+                error_message = (
+                    "Final benchmark artifact was rejected by comparison policy "
+                    "against original baseline."
+                )
+                verification["overall_status"] = "failed"
+                verification["failed_step"] = "decision_vs_original_baseline"
+                verification["error_message"] = error_message
+                _write_json(verification_path, verification)
 
     comp = (decision or {}).get("comparison", {})
     final_runtime = _runtime_ns(final_benchmark)
@@ -330,7 +356,7 @@ def run_final_selection_report(
         target_file=target_file,
         baseline_run_dir=baseline_run_dir,
         final_source_dir=final_source_dir,
-        final_best_run_dir=final_benchmark_run_dir,
+        final_best_run_dir=final_best_run_dir,
         final_best_is_baseline=False,
         baseline_benchmark=baseline_benchmark,
         final_benchmark=final_benchmark,
@@ -355,11 +381,11 @@ def _load_baseline_benchmark(baseline_run_dir: Path) -> dict[str, Any]:
     try:
         payload = json.loads(metrics_path.read_text(encoding="utf-8-sig"))
     except (OSError, json.JSONDecodeError):
-        return _empty_benchmark()
+        return empty_benchmark_artifact(_DESCRIPTOR)
     if not isinstance(payload, dict):
-        return _empty_benchmark()
+        return empty_benchmark_artifact(_DESCRIPTOR)
     benchmark = payload.get("benchmark")
-    return benchmark if isinstance(benchmark, dict) else _empty_benchmark()
+    return benchmark if isinstance(benchmark, dict) else empty_benchmark_artifact(_DESCRIPTOR)
 
 
 def _runtime_ns(benchmark: dict[str, Any]) -> float | None:

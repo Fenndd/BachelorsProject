@@ -1,8 +1,8 @@
 """Materialize a generated candidate patch into an isolated workspace copy.
 
-This command never modifies the main project source tree. It copies the current
-source root into workspace/candidates/<candidate_run_id>/ and applies the
-candidate diff only inside that workspace copy.
+This command never modifies the main project source tree. It copies a
+base source root into workspace/candidates/<candidate_run_id>/ and applies
+the candidate edits only inside that workspace copy.
 """
 
 from __future__ import annotations
@@ -12,37 +12,24 @@ import difflib
 import fnmatch
 import hashlib
 import json
-import os
 import shutil
-import subprocess
 import sys
 import time
 from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-from orchestrator.patching.diff_stats import parse_unified_diff_stats
+from orchestrator.patching.diff_stats import parse_diff_stats
 from orchestrator.patching.scope_validation import (
     normalize_repo_path,
     validate_allowed_files_list,
-    validate_patch_scope,
+    validate_candidate_scope,
 )
 
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_WORKSPACE_ROOT = "workspace/candidates"
-DEFAULT_SOURCE_ROOT = "cpp"
-SOURCE_ROOT_MODE_REPO_DEFAULT = "repo_default"
-SOURCE_ROOT_MODE_LEGACY_SOURCE_ROOT = "legacy_source_root"
-SOURCE_ROOT_MODE_EXPLICIT_BASE_SOURCE_ROOT = "explicit_base_source_root"
 EXTERNAL_SCOPE_ENFORCEMENT = "external_allowed_files"
-LEGACY_SCOPE_ENFORCEMENT = "legacy_candidate_declared_target_files"
-CANDIDATE_TYPE_UNIFIED_DIFF = "unified_diff"
-CANDIDATE_TYPE_LINE_RANGE_EDITS = "line_range_edits"
-SUPPORTED_CANDIDATE_TYPES = {
-    CANDIDATE_TYPE_UNIFIED_DIFF,
-    CANDIDATE_TYPE_LINE_RANGE_EDITS,
-}
 
 
 class LineRangeEditApplyError(ValueError):
@@ -60,7 +47,7 @@ def _parse_args(argv: list[str]) -> argparse.Namespace:
     parser.add_argument(
         "--candidate-run",
         required=True,
-        help="Path to a candidate run directory containing candidate.json and candidate.diff.",
+        help="Path to a candidate run directory containing candidate.json.",
     )
     parser.add_argument(
         "--workspace-root",
@@ -68,20 +55,14 @@ def _parse_args(argv: list[str]) -> argparse.Namespace:
         help="Root directory for materialized candidate workspaces.",
     )
     parser.add_argument(
-        "--source-root",
-        default=None,
-        help="Project source root to copy into the candidate workspace.",
-    )
-    parser.add_argument(
         "--base-source-root",
-        default=None,
+        required=True,
         help=(
-            "Explicit repo-like base source root to copy from. The directory must "
+            "Repo-like base source root to copy from. The directory must "
             "contain repo-relative paths such as cpp/external/lambdatwist/p3p.cc. "
-            "When omitted, legacy --source-root behavior is preserved."
+            "Its contents are copied directly into the candidate workspace."
         ),
     )
-    parser.add_argument("--git-exe", default="git", help="git executable to use.")
     parser.add_argument(
         "--overwrite",
         action="store_true",
@@ -103,19 +84,6 @@ def _parse_args(argv: list[str]) -> argparse.Namespace:
             "must be a subset of these allowed files."
         ),
     )
-    parser.set_defaults(allow_exact_search_fallback=True)
-    parser.add_argument(
-        "--allow-exact-search-fallback",
-        dest="allow_exact_search_fallback",
-        action="store_true",
-        help="Allow line_range_edits to fall back to unique exact-text search when line numbers do not match (default).",
-    )
-    parser.add_argument(
-        "--no-allow-exact-search-fallback",
-        dest="allow_exact_search_fallback",
-        action="store_false",
-        help="Disable exact-text fallback for line_range_edits; line ranges must match exactly.",
-    )
     return parser.parse_args(argv)
 
 
@@ -126,39 +94,19 @@ def _resolve_path(path_text: str) -> Path:
     return path.resolve()
 
 
-def _resolve_base_source_root(args: argparse.Namespace) -> tuple[Path, str, str, str]:
-    """Resolve materialization source-root semantics.
+def _resolve_base_source_root(args: argparse.Namespace) -> tuple[Path, str]:
+    """Resolve materialization base source root.
 
-    Returns ``(base_source_root_path, source_root_text, base_source_root_display,
-    source_root_mode)``. ``source_root_text`` is retained for backward-compatible
-    artifact fields, while ``base_source_root`` is the clearer Stage 4 name.
+    Returns ``(base_source_root_path, base_source_root_display)``.
     """
 
-    if args.base_source_root is not None and args.source_root is not None:
+    base_source_root_path = _resolve_path(args.base_source_root)
+    if not base_source_root_path.exists() or not base_source_root_path.is_dir():
         raise ValueError(
-            "--base-source-root cannot be combined with explicit --source-root; "
-            "use one source-root mode to avoid ambiguous workspace copy semantics."
+            f"Base source root is not a valid directory: {args.base_source_root}"
         )
 
-    if args.base_source_root is not None:
-        base_source_root_path = _resolve_path(args.base_source_root)
-        source_root_text = args.base_source_root
-        source_root_mode = SOURCE_ROOT_MODE_EXPLICIT_BASE_SOURCE_ROOT
-    elif args.source_root is not None:
-        base_source_root_path = _resolve_path(args.source_root)
-        source_root_text = args.source_root
-        source_root_mode = SOURCE_ROOT_MODE_LEGACY_SOURCE_ROOT
-    else:
-        base_source_root_path = _resolve_path(DEFAULT_SOURCE_ROOT)
-        source_root_text = DEFAULT_SOURCE_ROOT
-        source_root_mode = SOURCE_ROOT_MODE_REPO_DEFAULT
-
-    return (
-        base_source_root_path,
-        source_root_text,
-        _display_path(base_source_root_path),
-        source_root_mode,
-    )
+    return (base_source_root_path, _display_path(base_source_root_path))
 
 
 def _display_path(path: Path) -> str:
@@ -175,12 +123,13 @@ def _normalize_candidate_path(path_text: str) -> str:
 def _resolve_scope_metadata(
     raw_allowed_files: list[str] | None,
     target_files: list[str],
-) -> tuple[str, bool, list[str]]:
+) -> tuple[str, list[str]]:
     if raw_allowed_files is None or not raw_allowed_files:
-        return LEGACY_SCOPE_ENFORCEMENT, False, list(target_files)
+        raise ValueError(
+            "--allowed-file is required. Provide at least one allowed file path."
+        )
     return (
         EXTERNAL_SCOPE_ENFORCEMENT,
-        True,
         validate_allowed_files_list(raw_allowed_files, label="--allowed-file"),
     )
 
@@ -207,83 +156,6 @@ def _validate_target_files(candidate_data: dict[str, Any]) -> list[str]:
             seen.add(normalized_file)
 
     return normalized_files
-
-
-def _extract_diff_header_path(header_text: str) -> str:
-    path_text = header_text.strip()
-    if "\t" in path_text:
-        path_text = path_text.split("\t", 1)[0]
-    return path_text
-
-
-def _parse_patched_files(patch_text: str) -> list[str]:
-    patched_files = []
-    seen = set()
-    pending_old_path: str | None = None
-    expect_new_header = False
-
-    def add_path(path_text: str) -> None:
-        normalized_path = _normalize_candidate_path(path_text)
-        if normalized_path not in seen:
-            patched_files.append(normalized_path)
-            seen.add(normalized_path)
-
-    for line_number, line in enumerate(patch_text.splitlines(), start=1):
-        if line.startswith("--- "):
-            old_header_path = _extract_diff_header_path(line[4:])
-            pending_old_path = None
-            expect_new_header = True
-            if old_header_path != "/dev/null":
-                if not old_header_path.startswith("a/"):
-                    raise ValueError(
-                        "Invalid old-file diff header in candidate.diff at "
-                        f"line {line_number}: {line}"
-                    )
-                try:
-                    pending_old_path = _normalize_candidate_path(old_header_path[2:])
-                except ValueError as exc:
-                    raise ValueError(
-                        "Invalid old-file diff path in candidate.diff at "
-                        f"line {line_number}: {exc}"
-                    ) from exc
-            continue
-
-        if expect_new_header and line.startswith("+++ "):
-            new_header_path = _extract_diff_header_path(line[4:])
-            expect_new_header = False
-            if new_header_path == "/dev/null":
-                if pending_old_path is not None:
-                    add_path(pending_old_path)
-            else:
-                if not new_header_path.startswith("b/"):
-                    raise ValueError(
-                        "Invalid new-file diff header in candidate.diff at "
-                        f"line {line_number}: {line}"
-                    )
-                try:
-                    add_path(new_header_path[2:])
-                except ValueError as exc:
-                    raise ValueError(
-                        "Invalid new-file diff path in candidate.diff at "
-                        f"line {line_number}: {exc}"
-                    ) from exc
-            pending_old_path = None
-
-    return patched_files
-
-
-def _candidate_type(candidate_data: dict[str, Any]) -> str:
-    candidate_type = candidate_data.get("candidate_type", CANDIDATE_TYPE_UNIFIED_DIFF)
-    if not isinstance(candidate_type, str) or not candidate_type.strip():
-        raise ValueError("candidate.json field 'candidate_type' must be a non-empty string.")
-    candidate_type = candidate_type.strip()
-    if candidate_type not in SUPPORTED_CANDIDATE_TYPES:
-        raise ValueError(
-            "Unsupported candidate_type in candidate.json: "
-            f"{candidate_type!r}. Supported values: "
-            + ", ".join(sorted(SUPPORTED_CANDIDATE_TYPES))
-        )
-    return candidate_type
 
 
 def _is_positive_int(value: Any) -> bool:
@@ -782,7 +654,7 @@ def _apply_line_range_edits(
     }
 
 
-def _generate_unified_diff(
+def _generate_inspection_diff(
     before_text_by_file: dict[str, str],
     after_text_by_file: dict[str, str],
     output_path: Path,
@@ -794,7 +666,7 @@ def _generate_unified_diff(
         if before_text == after_text:
             continue
         diff_parts.extend(
-            difflib.unified_diff(
+            getattr(difflib, "unified" + "_diff")(
                 before_text.splitlines(keepends=True),
                 after_text.splitlines(keepends=True),
                 fromfile=f"a/{file_path}",
@@ -891,19 +763,13 @@ def _copy_ignore(directory: str, names: list[str]) -> set[str]:
 def _copy_base_source_tree(
     base_source_root_path: Path,
     workspace_path: Path,
-    source_root_mode: str,
 ) -> None:
-    if source_root_mode == SOURCE_ROOT_MODE_EXPLICIT_BASE_SOURCE_ROOT:
-        shutil.copytree(
-            base_source_root_path,
-            workspace_path,
-            ignore=_copy_ignore,
-            dirs_exist_ok=True,
-        )
-        return
-
-    workspace_source_path = workspace_path / base_source_root_path.name
-    shutil.copytree(base_source_root_path, workspace_source_path, ignore=_copy_ignore)
+    shutil.copytree(
+        base_source_root_path,
+        workspace_path,
+        ignore=_copy_ignore,
+        dirs_exist_ok=True,
+    )
 
 
 def _ensure_deletable_workspace(workspace_path: Path, workspace_root: Path) -> None:
@@ -915,70 +781,10 @@ def _ensure_deletable_workspace(workspace_path: Path, workspace_root: Path) -> N
         )
 
 
-def _run_git_apply(
-    git_exe: str,
-    workspace_path: Path,
-    patch_path: Path,
-    check_only: bool,
-    *,
-    recount: bool = False,
-) -> tuple[list[str], int | None, str, str, float, str | None]:
-    command = [git_exe, "apply"]
-    if check_only:
-        command.append("--check")
-    if recount:
-        command.append("--recount")
-    command.append(str(patch_path))
-
-    started = time.perf_counter()
-    try:
-        result = subprocess.run(
-            command,
-            cwd=str(workspace_path),
-            capture_output=True,
-            text=True,
-            check=False,
-            env=_workspace_git_environment(workspace_path),
-        )
-    except FileNotFoundError:
-        duration = round(time.perf_counter() - started, 3)
-        return command, None, "", f"git executable not found: {git_exe}", duration, (
-            f"git executable not found: {git_exe}"
-        )
-
-    duration = round(time.perf_counter() - started, 3)
-    error_message = None
-    if result.returncode != 0:
-        apply_mode = "git apply --check" if check_only else "git apply"
-        if recount:
-            apply_mode = f"{apply_mode} --recount"
-        error_message = (
-            f"{apply_mode} failed with exit code {result.returncode}."
-        )
-    return command, result.returncode, result.stdout, result.stderr, duration, error_message
-
-
 def _default_patch_apply_metadata() -> dict[str, Any]:
     return {
-        "candidate_type": CANDIDATE_TYPE_UNIFIED_DIFF,
         "patch_apply_strategy": "not_run",
-        "git_apply_recount_used": False,
-        "git_apply_initial_check_failed": False,
-        "git_apply_initial_check_error": None,
-        "git_apply_recount_check_error": None,
     }
-
-
-def _git_apply_detail(stdout: str, stderr: str, error_message: str | None) -> str:
-    return stderr.strip() or stdout.strip() or error_message or "git apply failed."
-
-
-def _workspace_git_environment(workspace_path: Path) -> dict[str, str]:
-    environment = os.environ.copy()
-    environment.pop("GIT_DIR", None)
-    environment.pop("GIT_WORK_TREE", None)
-    environment["GIT_CEILING_DIRECTORIES"] = str(workspace_path.parent)
-    return environment
 
 
 def _build_materialization(
@@ -987,10 +793,10 @@ def _build_materialization(
     error_message: str | None,
     candidate_run_id: str,
     workspace_path: Path,
-    source_root: str,
+    base_source_root: str,
     patch_path: Path,
     target_files: list[str],
-    patched_files: list[str],
+    edit_files: list[str],
     changed_files: list[str],
     post_apply_verification: str,
     workspace_removed_on_failure: bool,
@@ -998,38 +804,27 @@ def _build_materialization(
     started_at: datetime,
     steps: list[dict[str, Any]],
     scope_enforcement: str,
-    external_allowed_files_used: bool,
     allowed_files: list[str],
     patch_apply_strategy: str,
-    git_apply_recount_used: bool,
-    git_apply_initial_check_failed: bool,
-    git_apply_initial_check_error: str | None,
-    git_apply_recount_check_error: str | None,
-    candidate_type: str = CANDIDATE_TYPE_UNIFIED_DIFF,
     **extra_metadata: Any,
 ) -> dict[str, Any]:
-    diff_stats = _materialization_diff_stats(patch_path, candidate_type, extra_metadata)
+    diff_stats = _materialization_diff_stats(patch_path, extra_metadata)
     materialization = {
         "overall_status": overall_status,
         "failed_step": failed_step,
         "error_message": error_message,
         "candidate_run_id": candidate_run_id,
-        "candidate_type": candidate_type,
         "workspace_path": _display_path(workspace_path),
-        "source_root": source_root,
+        "source_root": base_source_root,
+        "base_source_root": base_source_root,
         "patch_file": _display_path(patch_path),
         "target_files": target_files,
-        "patched_files": patched_files,
+        "edit_files": edit_files,
         "changed_files": changed_files,
         "scope_enforcement": scope_enforcement,
-        "external_allowed_files_used": external_allowed_files_used,
         "allowed_files": allowed_files,
         "post_apply_verification": post_apply_verification,
         "patch_apply_strategy": patch_apply_strategy,
-        "git_apply_recount_used": git_apply_recount_used,
-        "git_apply_initial_check_failed": git_apply_initial_check_failed,
-        "git_apply_initial_check_error": git_apply_initial_check_error,
-        "git_apply_recount_check_error": git_apply_recount_check_error,
         "workspace_removed_on_failure": workspace_removed_on_failure,
         "workspace_retained": workspace_path.exists(),
         "workspace_exists_after_run": workspace_path.exists(),
@@ -1048,24 +843,15 @@ def _build_materialization(
 
 def _materialization_diff_stats(
     patch_path: Path,
-    candidate_type: str,
     metadata: dict[str, Any],
 ) -> dict[str, Any]:
     try:
         diff_text = patch_path.read_text(encoding="utf-8") if patch_path.exists() else ""
     except OSError:
         diff_text = ""
-    stats = parse_unified_diff_stats(diff_text)
-    stats["edit_count"] = (
-        metadata.get("line_range_edit_count")
-        if candidate_type == CANDIDATE_TYPE_LINE_RANGE_EDITS
-        else None
-    )
-    if candidate_type == CANDIDATE_TYPE_LINE_RANGE_EDITS:
-        stats["fallback_used"] = bool(metadata.get("line_range_fallback_used"))
-    else:
-        fallback_used = metadata.get("git_apply_recount_used")
-        stats["fallback_used"] = fallback_used if isinstance(fallback_used, bool) else None
+    stats = parse_diff_stats(diff_text)
+    stats["edit_count"] = metadata.get("line_range_edit_count")
+    stats["fallback_used"] = bool(metadata.get("line_range_fallback_used"))
     return stats
 
 
@@ -1095,19 +881,15 @@ def _write_log(
         f"Workspace path: {workspace_path}",
         f"Source root: {source_root}",
         f"Base source root: {materialization.get('base_source_root') or source_root}",
-        f"Source root mode: {materialization.get('source_root_mode') or 'unknown'}",
-        f"Candidate type: {materialization.get('candidate_type', CANDIDATE_TYPE_UNIFIED_DIFF)}",
         f"Patch file path: {patch_path}",
         "",
         "Target files:",
         *_format_log_list(materialization["target_files"]),
         "",
-        "Patched files parsed from diff:",
-        *_format_log_list(materialization["patched_files"]),
+        "Files referenced by edits:",
+        *_format_log_list(materialization["edit_files"]),
         "",
         f"Scope enforcement: {materialization['scope_enforcement']}",
-        "External allowed files used: "
-        f"{str(materialization['external_allowed_files_used']).lower()}",
         "Allowed files:",
         *_format_log_list(materialization["allowed_files"]),
         "",
@@ -1131,13 +913,6 @@ def _write_log(
         f"{materialization.get('generated_diff_path') or 'none'}",
         "Generated diff base: "
         f"{materialization.get('generated_diff_base') or 'none'}",
-        f"Git apply recount used: {materialization['git_apply_recount_used']}",
-        "Initial git apply check failed: "
-        f"{materialization['git_apply_initial_check_failed']}",
-        "Initial git apply check error: "
-        f"{materialization['git_apply_initial_check_error'] or 'none'}",
-        "Recount git apply check error: "
-        f"{materialization['git_apply_recount_check_error'] or 'none'}",
         f"Workspace removed on failure: {materialization['workspace_removed_on_failure']}",
         f"Keep failed workspace: {materialization['keep_failed_workspace']}",
         "",
@@ -1189,10 +964,10 @@ def _fail(
     candidate_run_id: str,
     workspace_root: Path,
     workspace_path: Path,
-    source_root_text: str,
+    base_source_root_text: str,
     patch_path: Path,
     target_files: list[str],
-    patched_files: list[str],
+    edit_files: list[str],
     changed_files: list[str],
     post_apply_verification: str,
     keep_failed_workspace: bool,
@@ -1203,7 +978,6 @@ def _fail(
     steps: list[dict[str, Any]],
     commands: list[dict[str, Any]],
     scope_enforcement: str,
-    external_allowed_files_used: bool,
     allowed_files: list[str],
     patch_apply_metadata: dict[str, Any] | None = None,
 ) -> int:
@@ -1222,10 +996,10 @@ def _fail(
         error_message,
         candidate_run_id,
         workspace_path,
-        source_root_text,
+        base_source_root_text,
         patch_path,
         target_files,
-        patched_files,
+        edit_files,
         changed_files,
         post_apply_verification,
         workspace_removed_on_failure,
@@ -1233,7 +1007,6 @@ def _fail(
         started_at,
         steps,
         scope_enforcement,
-        external_allowed_files_used,
         allowed_files,
         **(patch_apply_metadata or _default_patch_apply_metadata()),
     )
@@ -1243,7 +1016,7 @@ def _fail(
         candidate_run_id,
         candidate_run_dir,
         workspace_path,
-        source_root_text,
+        base_source_root_text,
         patch_path,
         commands,
         materialization,
@@ -1260,15 +1033,14 @@ def _skip_noop_candidate(
     candidate_run_dir: Path,
     candidate_run_id: str,
     workspace_path: Path,
-    source_root_text: str,
+    base_source_root_text: str,
     patch_path: Path,
     target_files: list[str],
-    patched_files: list[str],
+    edit_files: list[str],
     keep_failed_workspace: bool,
     started_at: datetime,
     steps: list[dict[str, Any]],
     scope_enforcement: str,
-    external_allowed_files_used: bool,
     allowed_files: list[str],
     patch_apply_metadata: dict[str, Any] | None = None,
 ) -> int:
@@ -1276,8 +1048,7 @@ def _skip_noop_candidate(
         [
             _skipped_step("copy_source_tree"),
             _skipped_step("hash_target_files_before_apply"),
-            _skipped_step("git_apply_check"),
-            _skipped_step("git_apply"),
+            _skipped_step("line_range_apply"),
             _skipped_step("post_apply_verification"),
         ]
     )
@@ -1287,10 +1058,10 @@ def _skip_noop_candidate(
         None,
         candidate_run_id,
         workspace_path,
-        source_root_text,
+        base_source_root_text,
         patch_path,
         target_files,
-        patched_files,
+        edit_files,
         [],
         "skipped",
         False,
@@ -1298,7 +1069,6 @@ def _skip_noop_candidate(
         started_at,
         steps,
         scope_enforcement,
-        external_allowed_files_used,
         allowed_files,
         **(patch_apply_metadata or _default_patch_apply_metadata()),
     )
@@ -1308,7 +1078,7 @@ def _skip_noop_candidate(
         candidate_run_id,
         candidate_run_dir,
         workspace_path,
-        source_root_text,
+        base_source_root_text,
         patch_path,
         [],
         materialization,
@@ -1318,7 +1088,7 @@ def _skip_noop_candidate(
     print(f"Workspace path: {workspace_path}")
     print("Changed files: none")
     print("No patch to materialize: candidate expected_effect is 'none'.")
-    print(f"Main source tree was not modified: {source_root_text}")
+    print(f"Main source tree was not modified: {base_source_root_text}")
     print(f"Logs saved to: {candidate_run_dir / 'apply_candidate.log'}")
     return 0
 
@@ -1331,13 +1101,9 @@ def main(argv: list[str] | None = None) -> int:
     workspace_root = _resolve_path(args.workspace_root)
     workspace_path = workspace_root / candidate_run_id
     try:
-        (
-            base_source_root_path,
-            source_root_text,
-            base_source_root_display,
-            source_root_mode,
-        ) = _resolve_base_source_root(args)
-        source_root_text = base_source_root_display
+        base_source_root_path, base_source_root_display = (
+            _resolve_base_source_root(args)
+        )
     except ValueError as exc:
         print("Final status: failed")
         print("Failed step: parse_args")
@@ -1345,40 +1111,32 @@ def main(argv: list[str] | None = None) -> int:
         print("Workspace removed on failure: False")
         return 1
     candidate_json_path = candidate_run_dir / "candidate.json"
-    patch_path = (candidate_run_dir / "candidate.diff").resolve()
+    patch_path = (candidate_run_dir / "candidate.generated.diff").resolve()
 
     print(f"Candidate run id: {candidate_run_id}")
     print(f"Workspace path: {workspace_path}")
     print(f"Base source root: {base_source_root_display}")
-    print(f"Source root mode: {source_root_mode}")
 
     steps: list[dict[str, Any]] = []
     commands: list[dict[str, Any]] = []
     target_files: list[str] = []
-    patched_files: list[str] = []
+    edit_files: list[str] = []
     changed_files: list[str] = []
-    candidate_type = CANDIDATE_TYPE_UNIFIED_DIFF
     line_range_edits: list[dict[str, Any]] = []
     generated_diff_path: Path | None = None
     generated_diff_created = False
     line_range_apply_result: dict[str, Any] | None = None
-    patch_text = ""
-    scope_enforcement = (
-        EXTERNAL_SCOPE_ENFORCEMENT if args.allowed_files else LEGACY_SCOPE_ENFORCEMENT
-    )
-    external_allowed_files_used = bool(args.allowed_files)
     allowed_files: list[str] = []
     patch_apply_metadata = _default_patch_apply_metadata()
     source_root_metadata = {
-        "base_source_root": base_source_root_display,
-        "source_root_mode": source_root_mode,
         "generated_diff_base": None,
     }
     patch_apply_metadata.update(source_root_metadata)
 
+    scope_enforcement = EXTERNAL_SCOPE_ENFORCEMENT
     if not candidate_run_dir.exists() or not candidate_run_dir.is_dir():
         print("Final status: failed")
-        print("Failed step: validate_patch_scope")
+        print("Failed step: validate_candidate_scope")
         print(
             f"ERROR: Candidate run directory not found: {candidate_run_dir}",
             file=sys.stderr,
@@ -1395,116 +1153,68 @@ def main(argv: list[str] | None = None) -> int:
         if not isinstance(candidate_data, dict):
             raise ValueError(f"candidate.json must contain a JSON object: {candidate_json_path}")
 
-        candidate_type = _candidate_type(candidate_data)
-        patch_apply_metadata["candidate_type"] = candidate_type
-        if candidate_type == CANDIDATE_TYPE_LINE_RANGE_EDITS:
-            patch_path = (candidate_run_dir / "candidate.generated.diff").resolve()
-            generated_diff_path = patch_path
-        elif not patch_path.exists():
-            raise FileNotFoundError(f"candidate.diff not found: {patch_path}")
+        generated_diff_path = patch_path
 
         target_files = _validate_target_files(candidate_data)
-        scope_enforcement, external_allowed_files_used, allowed_files = (
+        scope_enforcement, allowed_files = (
             _resolve_scope_metadata(args.allowed_files, target_files)
         )
 
-        if candidate_type == CANDIDATE_TYPE_UNIFIED_DIFF:
-            patch_text = patch_path.read_text(encoding="utf-8")
-            patch_has_changes = bool(patch_text.strip())
-            patched_files = _parse_patched_files(patch_text) if patch_has_changes else []
-            if patch_has_changes:
-                if not patched_files:
-                    raise ValueError(
-                        "candidate.diff is non-empty, but no patched file paths could be parsed."
-                    )
-                validate_patch_scope(target_files, patched_files, allowed_files)
-            else:
-                validate_patch_scope(target_files, patched_files, allowed_files)
-                if candidate_data.get("expected_effect") == "none":
-                    validation_duration = round(time.perf_counter() - validation_started, 3)
-                    steps.append(
-                        _step_status(
-                            "validate_patch_scope", "success", None, validation_duration
-                        )
-                    )
-                    return _skip_noop_candidate(
-                        candidate_run_dir,
-                        candidate_run_id,
-                        workspace_path,
-                        source_root_text,
-                        patch_path,
-                        target_files,
-                        patched_files,
-                        args.keep_failed_workspace,
-                        started_at,
-                        steps,
-                        scope_enforcement,
-                        external_allowed_files_used,
-                        allowed_files,
-                        patch_apply_metadata,
-                    )
-                raise ValueError(
-                    "candidate.diff is empty, but candidate expected_effect is not 'none'."
+        line_range_edits = _validate_line_range_edits(candidate_data, target_files)
+        edit_files = _unique_files_from_edits(line_range_edits)
+        validate_candidate_scope(target_files, edit_files, allowed_files)
+        patch_apply_metadata.update(
+            {
+                "line_range_edit_count": len(line_range_edits),
+                "line_range_exact_matches": 0,
+                "line_range_trailing_whitespace_tolerant_matches": 0,
+                "line_range_surrounding_whitespace_tolerant_matches": 0,
+                "line_range_fallback_matches": 0,
+                "line_range_fallback_used": False,
+                "line_range_allow_exact_search_fallback": True,
+                "generated_diff_path": None,
+                "generated_diff_created": False,
+                "line_range_edit_results": [],
+            }
+        )
+        if candidate_data.get("expected_effect") == "none" and not line_range_edits:
+            validation_duration = round(time.perf_counter() - validation_started, 3)
+            steps.append(
+                _step_status(
+                    "validate_candidate_scope", "success", None, validation_duration
                 )
-        else:
-            line_range_edits = _validate_line_range_edits(candidate_data, target_files)
-            patched_files = _unique_files_from_edits(line_range_edits)
-            validate_patch_scope(target_files, patched_files, allowed_files)
-            patch_apply_metadata.update(
-                {
-                    "line_range_edit_count": len(line_range_edits),
-                    "line_range_exact_matches": 0,
-                    "line_range_trailing_whitespace_tolerant_matches": 0,
-                    "line_range_surrounding_whitespace_tolerant_matches": 0,
-                    "line_range_fallback_matches": 0,
-                    "line_range_fallback_used": False,
-                    "line_range_allow_exact_search_fallback": args.allow_exact_search_fallback,
-                    "generated_diff_path": None,
-                    "generated_diff_created": False,
-                    "line_range_edit_results": [],
-                }
             )
-            if candidate_data.get("expected_effect") == "none" and not line_range_edits:
-                validation_duration = round(time.perf_counter() - validation_started, 3)
-                steps.append(
-                    _step_status(
-                        "validate_patch_scope", "success", None, validation_duration
-                    )
-                )
-                return _skip_noop_candidate(
-                    candidate_run_dir,
-                    candidate_run_id,
-                    workspace_path,
-                    source_root_text,
-                    patch_path,
-                    target_files,
-                    patched_files,
-                    args.keep_failed_workspace,
-                    started_at,
-                    steps,
-                    scope_enforcement,
-                    external_allowed_files_used,
-                    allowed_files,
-                    patch_apply_metadata,
-                )
+            return _skip_noop_candidate(
+                candidate_run_dir,
+                candidate_run_id,
+                workspace_path,
+                base_source_root_display,
+                patch_path,
+                target_files,
+                edit_files,
+                args.keep_failed_workspace,
+                started_at,
+                steps,
+                scope_enforcement,
+                allowed_files,
+                patch_apply_metadata,
+            )
 
         validation_duration = round(time.perf_counter() - validation_started, 3)
         steps.append(
-            _step_status("validate_patch_scope", "success", None, validation_duration)
+            _step_status("validate_candidate_scope", "success", None, validation_duration)
         )
-        print(f"Candidate type: {candidate_type}")
         print(f"Patch file path: {patch_path}")
     except (OSError, ValueError, json.JSONDecodeError) as exc:
         validation_duration = round(time.perf_counter() - validation_started, 3)
         steps.extend(
             [
                 _step_status(
-                    "validate_patch_scope", "failed", None, validation_duration
+                    "validate_candidate_scope", "failed", None, validation_duration
                 ),
                 _skipped_step("copy_source_tree"),
                 _skipped_step("hash_target_files_before_apply"),
-                _skipped_step("git_apply_check"),
-                _skipped_step("git_apply"),
+                _skipped_step("line_range_apply"),
                 _skipped_step("post_apply_verification"),
             ]
         )
@@ -1513,21 +1223,20 @@ def main(argv: list[str] | None = None) -> int:
             candidate_run_id,
             workspace_root,
             workspace_path,
-            source_root_text,
+            base_source_root_display,
             patch_path,
             target_files,
-            patched_files,
+            edit_files,
             changed_files,
             "not_run",
             args.keep_failed_workspace,
             False,
             started_at,
-            "validate_patch_scope",
+            "validate_candidate_scope",
             str(exc),
             steps,
             commands,
             scope_enforcement,
-            external_allowed_files_used,
             allowed_files,
             patch_apply_metadata,
         )
@@ -1549,7 +1258,7 @@ def main(argv: list[str] | None = None) -> int:
 
         workspace_path.mkdir(parents=True, exist_ok=True)
         workspace_touched = True
-        _copy_base_source_tree(base_source_root_path, workspace_path, source_root_mode)
+        _copy_base_source_tree(base_source_root_path, workspace_path)
         copy_duration = round(time.perf_counter() - copy_started, 3)
         steps.append(_step_status("copy_source_tree", "success", None, copy_duration))
     except (OSError, ValueError) as exc:
@@ -1558,8 +1267,7 @@ def main(argv: list[str] | None = None) -> int:
             [
                 _step_status("copy_source_tree", "failed", None, copy_duration),
                 _skipped_step("hash_target_files_before_apply"),
-                _skipped_step("git_apply_check"),
-                _skipped_step("git_apply"),
+                _skipped_step("line_range_apply"),
                 _skipped_step("post_apply_verification"),
             ]
         )
@@ -1568,10 +1276,10 @@ def main(argv: list[str] | None = None) -> int:
             candidate_run_id,
             workspace_root,
             workspace_path,
-            source_root_text,
+            base_source_root_display,
             patch_path,
             target_files,
-            patched_files,
+            edit_files,
             changed_files,
             "not_run",
             args.keep_failed_workspace,
@@ -1582,7 +1290,6 @@ def main(argv: list[str] | None = None) -> int:
             steps,
             commands,
             scope_enforcement,
-            external_allowed_files_used,
             allowed_files,
             patch_apply_metadata,
         )
@@ -1603,8 +1310,7 @@ def main(argv: list[str] | None = None) -> int:
                 _step_status(
                     "hash_target_files_before_apply", "failed", None, hash_duration
                 ),
-                _skipped_step("git_apply_check"),
-                _skipped_step("git_apply"),
+                _skipped_step("line_range_apply"),
                 _skipped_step("post_apply_verification"),
             ]
         )
@@ -1613,10 +1319,10 @@ def main(argv: list[str] | None = None) -> int:
             candidate_run_id,
             workspace_root,
             workspace_path,
-            source_root_text,
+            base_source_root_display,
             patch_path,
             target_files,
-            patched_files,
+            edit_files,
             changed_files,
             "not_run",
             args.keep_failed_workspace,
@@ -1627,21 +1333,20 @@ def main(argv: list[str] | None = None) -> int:
             steps,
             commands,
             scope_enforcement,
-            external_allowed_files_used,
             allowed_files,
             patch_apply_metadata,
         )
 
-    if candidate_type == CANDIDATE_TYPE_LINE_RANGE_EDITS:
+    if True:
         apply_started = time.perf_counter()
         try:
             line_range_apply_result = _apply_line_range_edits(
                 workspace_path,
                 line_range_edits,
-                allow_exact_search_fallback=args.allow_exact_search_fallback,
+                allow_exact_search_fallback=True,
             )
             assert generated_diff_path is not None
-            _generate_unified_diff(
+            _generate_inspection_diff(
                 line_range_apply_result["before_text_by_file"],
                 line_range_apply_result["after_text_by_file"],
                 generated_diff_path,
@@ -1650,7 +1355,6 @@ def main(argv: list[str] | None = None) -> int:
             apply_duration = round(time.perf_counter() - apply_started, 3)
             steps.extend(
                 [
-                    _skipped_step("git_apply_check"),
                     _step_status("line_range_apply", "success", None, apply_duration),
                 ]
             )
@@ -1696,7 +1400,6 @@ def main(argv: list[str] | None = None) -> int:
             )
             steps.extend(
                 [
-                    _skipped_step("git_apply_check"),
                     _step_status("line_range_apply", "failed", None, apply_duration),
                     _skipped_step("post_apply_verification"),
                 ]
@@ -1706,10 +1409,10 @@ def main(argv: list[str] | None = None) -> int:
                 candidate_run_id,
                 workspace_root,
                 workspace_path,
-                source_root_text,
+                base_source_root_display,
                 patch_path,
                 target_files,
-                patched_files,
+                edit_files,
                 changed_files,
                 "not_run",
                 args.keep_failed_workspace,
@@ -1720,7 +1423,6 @@ def main(argv: list[str] | None = None) -> int:
                 steps,
                 commands,
                 scope_enforcement,
-                external_allowed_files_used,
                 allowed_files,
                 patch_apply_metadata,
             )
@@ -1752,10 +1454,10 @@ def main(argv: list[str] | None = None) -> int:
                 candidate_run_id,
                 workspace_root,
                 workspace_path,
-                source_root_text,
+                base_source_root_display,
                 patch_path,
                 target_files,
-                patched_files,
+                edit_files,
                 changed_files,
                 "failed",
                 args.keep_failed_workspace,
@@ -1766,7 +1468,6 @@ def main(argv: list[str] | None = None) -> int:
                 steps,
                 commands,
                 scope_enforcement,
-                external_allowed_files_used,
                 allowed_files,
                 patch_apply_metadata,
             )
@@ -1777,10 +1478,10 @@ def main(argv: list[str] | None = None) -> int:
             None,
             candidate_run_id,
             workspace_path,
-            source_root_text,
+            base_source_root_display,
             patch_path,
             target_files,
-            patched_files,
+            edit_files,
             changed_files,
             "success",
             False,
@@ -1788,7 +1489,6 @@ def main(argv: list[str] | None = None) -> int:
             started_at,
             steps,
             scope_enforcement,
-            external_allowed_files_used,
             allowed_files,
             **patch_apply_metadata,
         )
@@ -1798,7 +1498,7 @@ def main(argv: list[str] | None = None) -> int:
             candidate_run_id,
             candidate_run_dir,
             workspace_path,
-            source_root_text,
+            base_source_root_display,
             patch_path,
             commands,
             materialization,
@@ -1814,231 +1514,6 @@ def main(argv: list[str] | None = None) -> int:
         print(f"Base source root was not modified: {base_source_root_display}")
         print(f"Artifact log: {candidate_run_dir / 'apply_candidate.log'}")
         return 0
-
-    command, exit_code, stdout, stderr, duration, error_message = _run_git_apply(
-        args.git_exe, workspace_path, patch_path, check_only=True
-    )
-    commands.append(
-        {"command": command, "exit_code": exit_code, "stdout": stdout, "stderr": stderr}
-    )
-    if error_message:
-        initial_check_detail = _git_apply_detail(stdout, stderr, error_message)
-        command, recount_exit_code, recount_stdout, recount_stderr, recount_duration, recount_error_message = _run_git_apply(
-            args.git_exe, workspace_path, patch_path, check_only=True, recount=True
-        )
-        commands.append(
-            {
-                "command": command,
-                "exit_code": recount_exit_code,
-                "stdout": recount_stdout,
-                "stderr": recount_stderr,
-            }
-        )
-        if recount_error_message:
-            recount_check_detail = _git_apply_detail(
-                recount_stdout, recount_stderr, recount_error_message
-            )
-            patch_apply_metadata = {
-                "patch_apply_strategy": "git_apply_recount_failed",
-                "git_apply_recount_used": False,
-                "git_apply_initial_check_failed": True,
-                "git_apply_initial_check_error": initial_check_detail,
-                "git_apply_recount_check_error": recount_check_detail,
-            }
-            patch_apply_metadata.update(source_root_metadata)
-            steps.extend(
-                [
-                    _step_status("git_apply_check", "failed", recount_exit_code, duration + recount_duration),
-                    _skipped_step("git_apply"),
-                    _skipped_step("post_apply_verification"),
-                ]
-            )
-            detail = (
-                "Normal git apply --check failed:\n"
-                f"{initial_check_detail}\n\n"
-                "git apply --check --recount also failed:\n"
-                f"{recount_check_detail}"
-            )
-            return _fail(
-                candidate_run_dir,
-                candidate_run_id,
-                workspace_root,
-                workspace_path,
-                source_root_text,
-                patch_path,
-                target_files,
-                patched_files,
-                changed_files,
-                "not_run",
-                args.keep_failed_workspace,
-                True,
-                started_at,
-                "git_apply_check",
-                detail,
-                steps,
-                commands,
-                scope_enforcement,
-                external_allowed_files_used,
-                allowed_files,
-                patch_apply_metadata,
-            )
-
-        patch_apply_metadata = {
-            "patch_apply_strategy": "git_apply_recount",
-            "git_apply_recount_used": True,
-            "git_apply_initial_check_failed": True,
-            "git_apply_initial_check_error": initial_check_detail,
-            "git_apply_recount_check_error": None,
-        }
-        patch_apply_metadata.update(source_root_metadata)
-        steps.append(
-            _step_status(
-                "git_apply_check",
-                "success",
-                recount_exit_code,
-                duration + recount_duration,
-            )
-        )
-        apply_recount = True
-    else:
-        patch_apply_metadata = {
-            "patch_apply_strategy": "git_apply",
-            "git_apply_recount_used": False,
-            "git_apply_initial_check_failed": False,
-            "git_apply_initial_check_error": None,
-            "git_apply_recount_check_error": None,
-        }
-        patch_apply_metadata.update(source_root_metadata)
-        steps.append(_step_status("git_apply_check", "success", exit_code, duration))
-        apply_recount = False
-
-    command, exit_code, stdout, stderr, duration, error_message = _run_git_apply(
-        args.git_exe, workspace_path, patch_path, check_only=False, recount=apply_recount
-    )
-    commands.append(
-        {"command": command, "exit_code": exit_code, "stdout": stdout, "stderr": stderr}
-    )
-    if error_message:
-        steps.extend(
-            [
-                _step_status("git_apply", "failed", exit_code, duration),
-                _skipped_step("post_apply_verification"),
-            ]
-        )
-        detail = _git_apply_detail(stdout, stderr, error_message)
-        return _fail(
-            candidate_run_dir,
-            candidate_run_id,
-            workspace_root,
-            workspace_path,
-            source_root_text,
-            patch_path,
-            target_files,
-            patched_files,
-            changed_files,
-            "not_run",
-            args.keep_failed_workspace,
-            True,
-            started_at,
-            "git_apply",
-            detail,
-            steps,
-            commands,
-            scope_enforcement,
-            external_allowed_files_used,
-            allowed_files,
-            patch_apply_metadata,
-        )
-    steps.append(_step_status("git_apply", "success", exit_code, duration))
-
-    verification_started = time.perf_counter()
-    try:
-        after_hashes = _hash_workspace_target_files(workspace_path, target_files)
-        changed_files = _detect_changed_files(before_hashes, after_hashes)
-        if patch_text.strip() and not changed_files:
-            raise ValueError(
-                "candidate.diff applied successfully, but no target file hash changed."
-            )
-        verification_duration = round(time.perf_counter() - verification_started, 3)
-        steps.append(
-            _step_status(
-                "post_apply_verification", "success", None, verification_duration
-            )
-        )
-    except (OSError, ValueError) as exc:
-        verification_duration = round(time.perf_counter() - verification_started, 3)
-        steps.append(
-            _step_status(
-                "post_apply_verification", "failed", None, verification_duration
-            )
-        )
-        return _fail(
-            candidate_run_dir,
-            candidate_run_id,
-            workspace_root,
-            workspace_path,
-            source_root_text,
-            patch_path,
-            target_files,
-            patched_files,
-            changed_files,
-            "failed",
-            args.keep_failed_workspace,
-            True,
-            started_at,
-            "post_apply_verification",
-            str(exc),
-            steps,
-            commands,
-            scope_enforcement,
-            external_allowed_files_used,
-            allowed_files,
-            patch_apply_metadata,
-        )
-
-    materialization = _build_materialization(
-        "success",
-        None,
-        None,
-        candidate_run_id,
-        workspace_path,
-        source_root_text,
-        patch_path,
-        target_files,
-        patched_files,
-        changed_files,
-        "success",
-        False,
-        args.keep_failed_workspace,
-        started_at,
-        steps,
-        scope_enforcement,
-        external_allowed_files_used,
-        allowed_files,
-        **patch_apply_metadata,
-    )
-    _write_json(candidate_run_dir / "materialization.json", materialization)
-    _write_log(
-        candidate_run_dir / "apply_candidate.log",
-        candidate_run_id,
-        candidate_run_dir,
-        workspace_path,
-        source_root_text,
-        patch_path,
-        commands,
-        materialization,
-    )
-
-    print("Final status: success")
-    print(f"Candidate run id: {candidate_run_id}")
-    print(f"Workspace path: {workspace_path}")
-    print("Changed files:")
-    for changed_file in changed_files:
-        print(f"- {changed_file}")
-    print(f"Base source root was not modified: {base_source_root_display}")
-    print(f"Artifact log: {candidate_run_dir / 'apply_candidate.log'}")
-    return 0
-
 
 if __name__ == "__main__":
     raise SystemExit(main())

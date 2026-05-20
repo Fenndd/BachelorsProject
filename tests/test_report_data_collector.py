@@ -67,7 +67,7 @@ def test_collect_report_data_maps_minimal_closed_loop_summary(tmp_path: Path) ->
     assert report_data.experiment.target_file == TARGET_FILE
     assert report_data.experiment.total_iterations == 2
     assert report_data.experiment.completed_iterations == 2
-    assert report_data.experiment.closed_loop_enabled is True
+    assert report_data.experiment.experiment_mode == "closed_loop"
     assert report_data.final_result.final_speedup_vs_baseline is None
     assert report_data.final_result.final_runtime_reduction_percent is None
     assert report_data.final_result.accepted_improvements == 1
@@ -141,9 +141,9 @@ def test_collect_report_data_uses_final_selection_metrics_when_available(tmp_pat
     assert report_data.final_selection.final_correctness_passed is True
     assert report_data.final_result.final_speedup_vs_baseline == 1.25
     assert report_data.final_result.final_runtime_reduction_percent == 20.0
-    assert report_data.final_best_candidate.runtime_ns_per_case_median == 80.0
-    assert report_data.final_best_candidate.baseline_runtime_ns_per_case_median == 100.0
-    assert report_data.final_best_candidate.absolute_runtime_difference_ns_per_case == 20.0
+    assert report_data.final_best_candidate.runtime_ns_per_problem_median == 80.0
+    assert report_data.final_best_candidate.baseline_runtime_ns_per_problem_median == 100.0
+    assert report_data.final_best_candidate.absolute_runtime_difference_ns_per_problem == 20.0
     assert report_data.final_best_candidate.speedup_vs_baseline == 1.25
     assert report_data.final_best_candidate.runtime_reduction_percent == 20.0
     assert report_data.final_result.correctness_preserved is True
@@ -171,7 +171,7 @@ def test_collect_report_data_maps_iteration_records(tmp_path: Path) -> None:
                 "iteration": 2,
                 "status": "materialization_failed",
                 "failure_reason": "Patch could not be applied.",
-                "runtime_ns_per_case_median": None,
+                "runtime_ns_per_problem_median": None,
             },
         ],
     )
@@ -187,7 +187,7 @@ def test_collect_report_data_maps_iteration_records(tmp_path: Path) -> None:
     assert accepted.speedup_vs_baseline == 1.25
     failed = report_data.iterations[1]
     assert failed.status == "materialization_failed"
-    assert failed.runtime_ns_per_case_median is None
+    assert failed.runtime_ns_per_problem_median is None
     assert failed.reason == "Patch could not be applied."
 
 
@@ -319,7 +319,7 @@ def test_iteration_metrics_are_enriched_from_verification_json(tmp_path: Path) -
         candidate_dir / "verification.json",
         {
             "benchmark": {
-                "parsed_runtime_ns_per_case_median": 777.0,
+                "parsed_runtime_ns_per_problem_median": 777.0,
                 "parsed_correctness_passed": True,
             },
         },
@@ -328,7 +328,7 @@ def test_iteration_metrics_are_enriched_from_verification_json(tmp_path: Path) -
     report_data = collect_report_data(experiment_dir)
 
     iteration = report_data.iterations[0]
-    assert iteration.runtime_ns_per_case_median == 777.0
+    assert iteration.runtime_ns_per_problem_median == 777.0
     assert iteration.correctness_passed is True
 
 
@@ -471,8 +471,9 @@ def test_collect_report_data_includes_process_metadata(tmp_path: Path) -> None:
     assert iteration.diff_stats.edit_count == 1
     assert report_data.experiment_metadata is not None
     assert report_data.experiment_metadata.repository["git_branch"] == "reportUpdatev2v3"
-    assert report_data.final_best_candidate.diff_stats is not None
-    assert report_data.final_best_candidate.diff_stats.files_changed == 1
+    final_best = report_data.final_best_candidate
+    assert final_best.diff_stats is not None
+    assert final_best.diff_stats.files_changed == 1
 
 
 def test_missing_optional_candidate_artifacts_do_not_fail(tmp_path: Path) -> None:
@@ -494,7 +495,7 @@ def test_missing_optional_candidate_artifacts_do_not_fail(tmp_path: Path) -> Non
     report_data = collect_report_data(experiment_dir)
 
     iteration = report_data.iterations[0]
-    assert iteration.runtime_ns_per_case_median is None
+    assert iteration.runtime_ns_per_problem_median is None
     assert iteration.correctness_passed is None
     assert iteration.speedup_vs_baseline is None
     assert iteration.reason is None
@@ -524,7 +525,7 @@ def test_bad_optional_candidate_json_does_not_fail(tmp_path: Path) -> None:
 
     report_data = collect_report_data(experiment_dir)
 
-    assert report_data.iterations[0].runtime_ns_per_case_median is None
+    assert report_data.iterations[0].runtime_ns_per_problem_median is None
 
 
 def test_valid_not_improved_uses_default_reason_when_none_available(
@@ -562,12 +563,12 @@ def test_repo_relative_candidate_run_dir_is_resolved_for_artifacts(
     )
     _write_json(
         candidate_dir / "verification.json",
-        {"metrics": {"runtime_ns_per_case_median": 615.0}},
+        {"metrics": {"runtime_ns_per_problem_median": 615.0}},
     )
 
     report_data = collect_report_data(experiment_dir)
 
-    assert report_data.iterations[0].runtime_ns_per_case_median == 615.0
+    assert report_data.iterations[0].runtime_ns_per_problem_median == 615.0
 
 
 def test_collect_report_data_extracts_reason_from_decision_lists(tmp_path: Path) -> None:
@@ -711,10 +712,9 @@ def test_missing_baseline_metrics_file_keeps_metrics_empty(tmp_path: Path) -> No
 
     report_data = collect_report_data(experiment_dir)
 
-    assert report_data.baseline_metrics.runtime_ns_per_case_median is None
-    assert report_data.baseline_metrics.success_rate is None
-    assert report_data.baseline_metrics.mean_reprojection_error is None
-    assert report_data.baseline_metrics.max_reprojection_error is None
+    assert report_data.baseline_metrics.runtime_ns_per_problem_median is None
+    assert report_data.baseline_metrics.gt_found_percent is None
+    assert report_data.baseline_metrics.valid_solutions_percent is None
     assert report_data.baseline_metrics.correctness_passed is None
 
 
@@ -724,10 +724,13 @@ def test_existing_baseline_metrics_are_loaded_best_effort(tmp_path: Path) -> Non
     _write_json(
         metrics_path,
         {
-            "runtime_ns_per_case_median": 1000.0,
-            "success_rate": 1.0,
-            "mean_best_reprojection_error": 1.0e-12,
-            "max_best_reprojection_error": 2.0e-12,
+            "runtime_ns_per_problem_median": 1000.0,
+            "gt_found_percent": 100.0,
+            "valid_solutions_percent": 95.0,
+            "total_solutions": 1024,
+            "solutions_per_problem": 1,
+            "gt_found": 1024,
+            "valid_solutions": 973,
             "correctness_passed": True,
         },
     )
@@ -739,10 +742,13 @@ def test_existing_baseline_metrics_are_loaded_best_effort(tmp_path: Path) -> Non
 
     report_data = collect_report_data(experiment_dir)
 
-    assert report_data.baseline_metrics.runtime_ns_per_case_median == 1000.0
-    assert report_data.baseline_metrics.success_rate == 1.0
-    assert report_data.baseline_metrics.mean_reprojection_error == 1.0e-12
-    assert report_data.baseline_metrics.max_reprojection_error == 2.0e-12
+    assert report_data.baseline_metrics.runtime_ns_per_problem_median == 1000.0
+    assert report_data.baseline_metrics.gt_found_percent == 100.0
+    assert report_data.baseline_metrics.valid_solutions_percent == 95.0
+    assert report_data.baseline_metrics.total_solutions == 1024
+    assert report_data.baseline_metrics.solutions_per_problem == 1
+    assert report_data.baseline_metrics.gt_found == 1024
+    assert report_data.baseline_metrics.valid_solutions == 973
     assert report_data.baseline_metrics.correctness_passed is True
 
 
@@ -779,13 +785,7 @@ def test_a_collector_fills_config_and_llm_fields(tmp_path: Path) -> None:
         {
             "experiment_name": "My Experiment",
             "target_file": TARGET_FILE,
-            "candidate_format": {
-                "type": "line_range_edits",
-                "source_presentation": "line_numbered",
-                "require_original_verification": True,
-                "allow_exact_search_fallback": False,
-            },
-            "closed_loop": {"enabled": True},
+            "baseline_run_dir": "results/runs/baseline",
             "variants": [
                 {
                     "variant_id": "deepseek_pro_max",
@@ -794,8 +794,6 @@ def test_a_collector_fills_config_and_llm_fields(tmp_path: Path) -> None:
                     "iterations": 5,
                 }
             ],
-            "history_policy": {"enabled": True, "scope": "all"},
-            "selection": {"enabled": True, "baseline_run_dir": "results/runs/baseline"},
             "optimization_scope": {"allowed_files": [TARGET_FILE]},
             "reporting": {"enabled": True, "formats": ["html"], "renderer": "auto"},
             "candidate_generation": {"max_source_chars": 32000},
@@ -816,8 +814,6 @@ def test_a_collector_fills_config_and_llm_fields(tmp_path: Path) -> None:
 
     assert report_data.experiment.experiment_name == "My Experiment"
     assert report_data.experiment.model == "deepseek-v4-pro"
-    assert report_data.experiment.candidate_format == "line_range_edits"
-    assert report_data.experiment.source_presentation == "line_numbered"
     assert report_data.llm.provider == "deepseek"
     assert report_data.llm.model == "deepseek-v4-pro"
     assert report_data.llm.thinking_enabled is True
@@ -841,17 +837,15 @@ def test_b_collector_fills_benchmark_config(tmp_path: Path) -> None:
                 "build_type": "Release",
                 "benchmark_options": {
                     "build_type": "Release",
-                    "num_cases": 1024,
-                    "points_per_case": 3,
-                    "warmup_iterations": 10,
+                    "num_problems": 1024,
+                    "n_point_point": 3,
+                    "n_point_line": 0,
+                    "tolerance": 1.0,
+                    "camera_fov": 60.0,
                     "timed_iterations": 50,
                     "random_seed": 42,
-                    "reprojection_error_threshold": 1e-6,
-                    "min_success_rate": 0.99,
-                    "require_all_cases_valid": True,
-                    "use_max_reprojection_error_as_hard_gate": False,
                 },
-                "parsed_runtime_ns_per_case_median": 1000.0,
+                "parsed_runtime_ns_per_problem_median": 1000.0,
                 "parsed_correctness_passed": True,
             }
         },
@@ -866,7 +860,7 @@ def test_b_collector_fills_benchmark_config(tmp_path: Path) -> None:
 
     assert report_data.benchmark_config.family == "absolute_pose_solvers"
     assert report_data.benchmark_config.solver == "lambdatwist_p3p"
-    assert report_data.benchmark_config.num_cases == 1024
+    assert report_data.benchmark_config.num_problems == 1024
     assert report_data.benchmark_config.timed_iterations == 50
     assert report_data.benchmark_config.seed == 42
     assert report_data.benchmark_config.build_type == "Release"
@@ -883,7 +877,7 @@ def test_benchmark_config_build_type_falls_back_to_release(tmp_path: Path) -> No
 
 
 def test_c_correctness_preserved_not_inferred_from_promoted_iteration(tmp_path: Path) -> None:
-    """headline correctness_preserved comes only from final validation."""
+    """headline correctness_preserved comes only from final selection."""
 
     experiment_dir = _experiment_dir(tmp_path)
     _write_json(
@@ -925,7 +919,7 @@ def test_d_pdf_display_when_html_only_formats(tmp_path: Path) -> None:
             "experiment_name": "Html Only",
             "target_file": TARGET_FILE,
             "reporting": {"enabled": True, "formats": ["html"], "renderer": "auto"},
-            "closed_loop": {"enabled": True},
+            "baseline_run_dir": "results/runs/baseline",
         },
     )
 
@@ -1134,7 +1128,7 @@ def test_reporting_formats_override(tmp_path: Path) -> None:
             "experiment_name": "Override Test",
             "target_file": TARGET_FILE,
             "reporting": {"enabled": True, "formats": ["html"], "renderer": "weasyprint"},
-            "closed_loop": {"enabled": True},
+            "baseline_run_dir": "results/runs/baseline",
         },
     )
 
@@ -1160,7 +1154,7 @@ def test_reporting_pdf_pending_when_pdf_absent_but_requested(tmp_path: Path) -> 
             "experiment_name": "PDF Pending",
             "target_file": TARGET_FILE,
             "reporting": {"enabled": True, "formats": ["html", "pdf"], "renderer": "auto"},
-            "closed_loop": {"enabled": True},
+            "baseline_run_dir": "results/runs/baseline",
         },
     )
 
@@ -1185,7 +1179,7 @@ def test_runtime_difference_unavailable_without_final_selection_report(tmp_path:
     _write_json(
         metrics_path,
         {
-            "benchmark": {"parsed_runtime_ns_per_case_median": 100.0},
+            "benchmark": {"parsed_runtime_ns_per_problem_median": 100.0},
         },
     )
     _write_json(
@@ -1203,7 +1197,7 @@ def test_runtime_difference_unavailable_without_final_selection_report(tmp_path:
             {
                 "iteration": 1,
                 "status": "accepted_improvement",
-                "runtime_ns_per_case_median": 80.0,
+                "runtime_ns_per_problem_median": 80.0,
                 "correctness_passed": True,
                 "current_best_updated": True,
             },
@@ -1212,7 +1206,7 @@ def test_runtime_difference_unavailable_without_final_selection_report(tmp_path:
 
     report_data = collect_report_data(experiment_dir)
 
-    diff = report_data.final_best_candidate.absolute_runtime_difference_ns_per_case
+    diff = report_data.final_best_candidate.absolute_runtime_difference_ns_per_problem
     assert diff is None
 
 

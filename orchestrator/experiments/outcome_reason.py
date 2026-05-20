@@ -36,7 +36,6 @@ CODE_NO_FILES_CHANGED = "no_files_changed"
 CODE_VERIFICATION_FAILED = "verification_failed"
 CODE_CONFIGURE_FAILED = "configure_failed"
 CODE_BUILD_FAILED = "build_failed"
-CODE_SMOKE_TEST_FAILED = "smoke_test_failed"
 CODE_ADAPTER_VALIDATION_FAILED = "adapter_validation_failed"
 CODE_BENCHMARK_EXECUTION_FAILED = "benchmark_execution_failed"
 CODE_BENCHMARK_PARSE_FAILED = "benchmark_parse_failed"
@@ -200,9 +199,6 @@ def _materialization_reason(
     elif "no target file hash changed" in error_text or "no_files_changed" in error_text:
         code = CODE_NO_FILES_CHANGED
         message = "Candidate applied without changing any target file."
-    elif "git_apply" in failed_step or "git apply" in error_text:
-        code = CODE_DIFF_APPLY_FAILED
-        message = "Candidate diff could not be applied."
     return OutcomeReason(
         CATEGORY_MATERIALIZATION,
         code,
@@ -227,9 +223,6 @@ def _verification_reason(
     elif failed_step.startswith("build_"):
         code = CODE_BUILD_FAILED
         message = "Candidate failed to build."
-    elif failed_step == "run_baseline_smoke_test":
-        code = CODE_SMOKE_TEST_FAILED
-        message = "Candidate failed the baseline smoke test."
     elif "adapter_validator" in failed_step or "adapter_validation" in failed_step:
         code = CODE_ADAPTER_VALIDATION_FAILED
         message = "Candidate failed adapter validation."
@@ -322,12 +315,8 @@ def _line_range_failure_reason(materialization: dict[str, Any]) -> str | None:
 
 
 def _candidate_edit_payload_empty(candidate: dict[str, Any]) -> bool:
-    candidate_type = candidate.get("candidate_type", "unified_diff")
-    if candidate_type == "line_range_edits":
-        edits = candidate.get("edits")
-        return isinstance(edits, list) and len(edits) == 0
-    diff_text = candidate.get("unified_diff")
-    return not isinstance(diff_text, str) or not diff_text.strip()
+    edits = candidate.get("edits")
+    return isinstance(edits, list) and len(edits) == 0
 
 
 def _benchmark_metrics_missing(verification: dict[str, Any]) -> bool:

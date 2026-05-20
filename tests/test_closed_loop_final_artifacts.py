@@ -13,15 +13,10 @@ from orchestrator.experiments.closed_loop_state import (
     write_current_best_state,
 )
 from orchestrator.experiments.experiment_config import (
-    CandidateFormatConfig,
     CandidateGenerationConfig,
-    ClosedLoopConfig,
     ExperimentConfig,
-    ExperimentPipelineConfig,
     ExperimentVariantConfig,
-    HistoryPolicyConfig,
     OptimizationScopeConfig,
-    SelectionConfig,
 )
 from orchestrator.experiments import run_experiment
 
@@ -34,32 +29,8 @@ def _config(iterations: int = 2) -> ExperimentConfig:
         experiment_name="closed_loop_final_artifacts",
         description=None,
         target_file=TARGET_FILE,
-        pipeline=ExperimentPipelineConfig(
-            generate_candidate=True,
-            materialize_candidate=True,
-            verify_candidate=True,
-        ),
+        baseline_run_dir="results/runs/baseline",
         candidate_generation=CandidateGenerationConfig(max_source_chars=1000),
-        candidate_format=CandidateFormatConfig(
-            type="line_range_edits",
-            source_presentation="line_numbered",
-            require_original_verification=True,
-            allow_exact_search_fallback=True,
-        ),
-        history_policy=HistoryPolicyConfig(
-            enabled=False,
-            scope="variant",
-            max_previous_iterations=0,
-            include_failed_iterations=False,
-            include_materialization_results=True,
-            include_verification_results=True,
-        ),
-        selection=SelectionConfig(
-            enabled=False,
-            baseline_run_dir="results/runs/baseline",
-            write_candidate_decisions=True,
-        ),
-        closed_loop=ClosedLoopConfig(enabled=True),
         optimization_scope=OptimizationScopeConfig(allowed_files=[TARGET_FILE]),
         variants=[
             ExperimentVariantConfig(

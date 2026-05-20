@@ -26,10 +26,8 @@ class ExperimentConfigSummary:
     target_file: str | None
     variants_count: int | None
     total_iterations: int | None
-    candidate_format: str | None
-    source_presentation: str | None
-    selection_enabled: bool | None
-    closed_loop_enabled: bool | None
+    baseline_run_dir: str | None
+    reporting_enabled: bool | None
     providers: list[str]
     models: list[str]
     status: ConfigStatus
@@ -77,14 +75,13 @@ def _provider_models_from_payload(payload: dict[str, Any], config_path: Path) ->
     providers: list[str] = []
     models: list[str] = []
     variants = payload.get("variants")
-    if isinstance(variants, list) and variants:
-        variant_payloads = [variant for variant in variants if isinstance(variant, dict)]
-    else:
-        variant_payloads = [payload]
+    if not isinstance(variants, list) or not variants:
+        return [], []
+    variant_payloads = [variant for variant in variants if isinstance(variant, dict)]
 
     for variant in variant_payloads:
         llm_config = _read_llm_config(
-            variant.get("llm_config") if isinstance(variant.get("llm_config"), str) else payload.get("llm_config"),
+            variant.get("llm_config") if isinstance(variant.get("llm_config"), str) else None,
             config_path,
         )
         overrides = variant.get("llm_overrides")
@@ -106,8 +103,8 @@ def _summary_from_payload(
 ) -> ExperimentConfigSummary:
     variants = payload.get("variants")
     variant_payloads = variants if isinstance(variants, list) else None
-    variants_count = len(variant_payloads) if variant_payloads is not None else 1
     if variant_payloads is not None:
+        variants_count = len(variant_payloads)
         iterations = [
             variant.get("iterations")
             for variant in variant_payloads
@@ -115,22 +112,10 @@ def _summary_from_payload(
         ]
         total_iterations = sum(iterations) if len(iterations) == len(variant_payloads) else None
     else:
-        total_iterations = payload.get("iterations") if isinstance(payload.get("iterations"), int) else None
+        variants_count = None
+        total_iterations = None
 
-    candidate_format = payload.get("candidate_format")
-    if isinstance(candidate_format, dict):
-        format_type = candidate_format.get("type") if isinstance(candidate_format.get("type"), str) else None
-        source_presentation = (
-            candidate_format.get("source_presentation")
-            if isinstance(candidate_format.get("source_presentation"), str)
-            else None
-        )
-    else:
-        format_type = "unified_diff"
-        source_presentation = "plain"
-
-    selection = payload.get("selection")
-    closed_loop = payload.get("closed_loop")
+    reporting = payload.get("reporting")
     providers, models = _provider_models_from_payload(payload, path)
     return ExperimentConfigSummary(
         path=path,
@@ -139,10 +124,8 @@ def _summary_from_payload(
         target_file=payload.get("target_file") if isinstance(payload.get("target_file"), str) else None,
         variants_count=variants_count,
         total_iterations=total_iterations,
-        candidate_format=format_type,
-        source_presentation=source_presentation,
-        selection_enabled=selection.get("enabled") if isinstance(selection, dict) and isinstance(selection.get("enabled"), bool) else False,
-        closed_loop_enabled=closed_loop.get("enabled") if isinstance(closed_loop, dict) and isinstance(closed_loop.get("enabled"), bool) else False,
+        baseline_run_dir=payload.get("baseline_run_dir") if isinstance(payload.get("baseline_run_dir"), str) else None,
+        reporting_enabled=reporting.get("enabled") if isinstance(reporting, dict) and isinstance(reporting.get("enabled"), bool) else False,
         providers=providers,
         models=models,
         status=status,
@@ -163,10 +146,8 @@ def read_experiment_config_summary(path: Path) -> ExperimentConfigSummary:
             target_file=config.target_file,
             variants_count=len(config.variants),
             total_iterations=sum(variant.iterations for variant in config.variants),
-            candidate_format=config.candidate_format.type,
-            source_presentation=config.candidate_format.source_presentation,
-            selection_enabled=config.selection.enabled,
-            closed_loop_enabled=config.closed_loop.enabled,
+            baseline_run_dir=config.baseline_run_dir,
+            reporting_enabled=config.reporting.enabled,
             providers=providers,
             models=models,
             status="ok",
@@ -183,10 +164,8 @@ def read_experiment_config_summary(path: Path) -> ExperimentConfigSummary:
                 target_file=None,
                 variants_count=None,
                 total_iterations=None,
-                candidate_format=None,
-                source_presentation=None,
-                selection_enabled=None,
-                closed_loop_enabled=None,
+                baseline_run_dir=None,
+                reporting_enabled=None,
                 providers=[],
                 models=[],
                 status="invalid",

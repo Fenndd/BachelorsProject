@@ -82,7 +82,7 @@ def _plot_runtime_progress(data: dict[str, Any], output_path: Path) -> None:
     """Step plot of current-best runtime over iterations (including baseline as iter 0)."""
 
     baseline_rt = _number_or_none(
-        _dict_value(data.get("baseline_metrics")).get("runtime_ns_per_case_median")
+        _dict_value(data.get("baseline_metrics")).get("runtime_ns_per_problem_median")
     )
 
     # Build (iteration, runtime) step sequence using only promoted iterations
@@ -98,7 +98,7 @@ def _plot_runtime_progress(data: dict[str, Any], output_path: Path) -> None:
 
     for it in iterations:
         if it.get("promoted") is True:
-            rt = _number_or_none(it.get("runtime_ns_per_case_median"))
+            rt = _number_or_none(it.get("runtime_ns_per_problem_median"))
             if rt is not None:
                 current_best = rt
         if current_best is not None:
@@ -114,7 +114,7 @@ def _plot_runtime_progress(data: dict[str, Any], output_path: Path) -> None:
     ax.scatter(x_values, y_values, color="#246b8f", zorder=3)
     ax.set_title("Current Best Runtime Progress")
     ax.set_xlabel("Iteration")
-    ax.set_ylabel("Current best median runtime (ns/case)")
+    ax.set_ylabel("Current best median runtime (ns/problem)")
     ax.grid(True, alpha=0.3)
     _save(fig, output_path)
 
@@ -123,10 +123,10 @@ def _plot_candidate_runtime_by_iteration(data: dict[str, Any], output_path: Path
     """Scatter plot of candidate runtime per iteration with baseline and final-best lines."""
 
     points = [
-        (int(it["iteration"]), _number_or_none(it.get("runtime_ns_per_case_median")))
+        (int(it["iteration"]), _number_or_none(it.get("runtime_ns_per_problem_median")))
         for it in _iterations(data)
         if _is_number(it.get("iteration"))
-        and _number_or_none(it.get("runtime_ns_per_case_median")) is not None
+        and _number_or_none(it.get("runtime_ns_per_problem_median")) is not None
     ]
 
     if not points:
@@ -139,13 +139,13 @@ def _plot_candidate_runtime_by_iteration(data: dict[str, Any], output_path: Path
     ax.scatter(x_values, y_values, color="#246b8f", zorder=2, label="candidate")
 
     baseline_rt = _number_or_none(
-        _dict_value(data.get("baseline_metrics")).get("runtime_ns_per_case_median")
+        _dict_value(data.get("baseline_metrics")).get("runtime_ns_per_problem_median")
     )
     if baseline_rt is not None:
         ax.axhline(baseline_rt, color="#e07b39", linewidth=1.2, linestyle="--", label="baseline")
 
     final_best_rt = _number_or_none(
-        _dict_value(data.get("final_best_candidate")).get("runtime_ns_per_case_median")
+        _dict_value(data.get("final_best_candidate")).get("runtime_ns_per_problem_median")
     )
     if final_best_rt is not None:
         ax.axhline(
@@ -154,7 +154,7 @@ def _plot_candidate_runtime_by_iteration(data: dict[str, Any], output_path: Path
 
     ax.set_title("Candidate Runtime by Iteration")
     ax.set_xlabel("Iteration")
-    ax.set_ylabel("Median runtime (ns/case)")
+    ax.set_ylabel("Median runtime (ns/problem)")
     ax.grid(True, alpha=0.3)
     ax.legend(fontsize=9)
     _save(fig, output_path)
@@ -399,7 +399,7 @@ def _candidate_funnel_values(data: dict[str, Any]) -> dict[str, int]:
     verified_count = sum(
         1
         for it in iterations
-        if _number_or_none(it.get("runtime_ns_per_case_median")) is not None
+        if _number_or_none(it.get("runtime_ns_per_problem_median")) is not None
         or isinstance(it.get("correctness_passed"), bool)
     )
     correct_count = sum(

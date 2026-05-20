@@ -29,20 +29,17 @@ def _write_valid_experiment(root: Path, provider: str = "mock") -> Path:
         """{
   "experiment_name": "test_exp",
   "description": "Test experiment",
-  "llm_config": "configs/llm_test.json",
   "target_file": "cpp/external/lambdatwist/p3p.cc",
-  "iterations": 1,
+  "baseline_run_dir": "results/runs/baseline",
   "optimization_scope": {
     "allowed_files": ["cpp/external/lambdatwist/p3p.cc"]
   },
-  "pipeline": {
-    "generate_candidate": true,
-    "materialize_candidate": false,
-    "verify_candidate": false
-  },
   "candidate_generation": {
     "max_source_chars": 120000
-  }
+  },
+  "variants": [
+    {"variant_id": "default", "llm_config": "configs/llm_test.json", "iterations": 1}
+  ]
 }
 """,
         encoding="utf-8",

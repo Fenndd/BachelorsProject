@@ -2,12 +2,10 @@
 
 This script automates the current baseline flow:
 1. CMake configure
-2. CMake build (baseline_smoke_test, baseline_runner, adapter validator, and family benchmark targets)
-3. Run baseline_smoke_test executable
-4. Run baseline_runner executable
-5. Run the Lambda Twist P3P adapter validator executable
-6. Run the Lambda Twist P3P family benchmark executable
-7. Parse the family benchmark output into structured metrics
+2. CMake build (adapter validator and family benchmark targets)
+3. Run the Lambda Twist P3P adapter validator executable
+4. Run the Lambda Twist P3P family benchmark executable
+5. Parse the family benchmark output into structured metrics
 
 Each execution also writes persistent run artifacts under results/runs/<run_id>/.
 
@@ -32,41 +30,32 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
-from orchestrator.benchmarking import parse_absolute_pose_benchmark_output
+from orchestrator.benchmarking.benchmark_artifacts import (
+    benchmark_artifact_from_parse,
+    benchmark_required_fields,
+    empty_benchmark_artifact,
+)
+from orchestrator.benchmarking.solver_registry import (
+    SolverBenchmarkDescriptor,
+    default_solver_descriptor,
+)
 from orchestrator.storage import RunStorage
 
+DESCRIPTOR: SolverBenchmarkDescriptor = default_solver_descriptor()
+_REQUIRED_FIELDS: list[str] = benchmark_required_fields()
 
 EXPECTED_STEPS = [
     "configure_cmake",
-    "build_baseline_smoke_test",
-    "build_baseline_runner",
-    "build_absolute_pose_lambdatwist_adapter_validator",
-    "build_absolute_pose_lambdatwist_benchmark",
-    "run_baseline_smoke_test",
-    "run_baseline_runner",
-    "run_absolute_pose_lambdatwist_adapter_validator",
-    "run_absolute_pose_lambdatwist_benchmark",
-    "parse_absolute_pose_lambdatwist_benchmark",
+    f"build_{DESCRIPTOR.adapter_validator_target}",
+    f"build_{DESCRIPTOR.benchmark_target}",
+    f"run_{DESCRIPTOR.adapter_validator_target}",
+    f"run_{DESCRIPTOR.benchmark_target}",
+    f"parse_{DESCRIPTOR.benchmark_target}",
     "benchmark_correctness_check",
 ]
 
-ADAPTER_VALIDATOR_TARGET = "absolute_pose_lambdatwist_adapter_validator"
-FAMILY_BENCHMARK_TARGET = "absolute_pose_lambdatwist_benchmark"
-PARSE_FAMILY_BENCHMARK_STEP = "parse_absolute_pose_lambdatwist_benchmark"
+PARSE_FAMILY_BENCHMARK_STEP = f"parse_{DESCRIPTOR.benchmark_target}"
 BENCHMARK_CORRECTNESS_CHECK_STEP = "benchmark_correctness_check"
-BENCHMARK_REQUIRED_FIELDS = [
-    "solver_name",
-    "num_problems",
-    "total_solutions",
-    "solutions_per_problem",
-    "valid_solutions",
-    "valid_solutions_percent",
-    "gt_found",
-    "gt_found_percent",
-    "runtime_ns_total_median",
-    "runtime_ns_per_problem_median",
-    "correctness_passed",
-]
 
 
 def _format_command(command: Sequence[str]) -> str:
@@ -266,14 +255,14 @@ def _empty_benchmark_parse_result(
     return {
         "raw_output_available": raw_output_available,
         "parse_success": False,
-        "missing_fields": list(BENCHMARK_REQUIRED_FIELDS),
+        "missing_fields": list(_REQUIRED_FIELDS),
         "parse_errors": [] if parse_errors is None else parse_errors,
         "metrics": {},
     }
 
 
 def _benchmark_parse_result_from_output(output: str) -> dict[str, Any]:
-    parse_result = parse_absolute_pose_benchmark_output(output)
+    parse_result = DESCRIPTOR.parser(output)
     return {
         "raw_output_available": True,
         "parse_success": parse_result["parse_success"],
@@ -291,9 +280,7 @@ def _build_parse_error_message(benchmark_parse_result: dict[str, Any]) -> str:
     )
 
 
-def _build_benchmark_correctness_error_message(
-    benchmark_parse_result: dict[str, Any]
-) -> str:
+def _correctness_error_message(benchmark_parse_result: dict[str, Any]) -> str:
     parsed_metrics = benchmark_parse_result["metrics"]
     return (
         "Family benchmark parsed successfully, but correctness_passed=false. "
@@ -311,8 +298,8 @@ def _run_benchmark_parse_step(
     run_dir: Path,
     benchmark_stdout: str,
 ) -> tuple[dict[str, Any], dict[str, Any], str | None]:
-    print(f"\n[STEP] Parse {FAMILY_BENCHMARK_TARGET} output")
-    input_log_path = run_dir / "logs" / "run_absolute_pose_lambdatwist_benchmark.log"
+    print(f"\n[STEP] Parse {DESCRIPTOR.benchmark_target} output")
+    input_log_path = run_dir / "logs" / f"run_{DESCRIPTOR.benchmark_target}.log"
     started = time.perf_counter()
     benchmark_parse_result = _benchmark_parse_result_from_output(benchmark_stdout)
     duration_seconds = round(time.perf_counter() - started, 3)
@@ -367,7 +354,7 @@ def _run_benchmark_correctness_check_step(
     duration_seconds = round(time.perf_counter() - started, 3)
     passed = correctness_passed is True
     status = "success" if passed else "failed"
-    error_message = None if passed else _build_benchmark_correctness_error_message(
+    error_message = None if passed else _correctness_error_message(
         benchmark_parse_result
     )
     step_status = {
@@ -396,27 +383,12 @@ def _run_benchmark_correctness_check_step(
     return step_status, error_message
 
 
-def _build_benchmark_options(
-    parsed_metrics: dict[str, Any],
-    cmake_build_type: str,
-) -> dict[str, Any] | None:
-    """Build benchmark_options dict from parsed metrics when all keys are available."""
-    required_keys = (
-        "num_problems", "tolerance", "camera_fov", "n_point_point",
-        "n_point_line", "timed_iterations", "runtime_unit",
-    )
-    if not all(k in parsed_metrics for k in required_keys):
-        return None
-    return {
-        "num_problems": parsed_metrics["num_problems"],
-        "tolerance": parsed_metrics["tolerance"],
-        "camera_fov": parsed_metrics["camera_fov"],
-        "n_point_point": parsed_metrics["n_point_point"],
-        "n_point_line": parsed_metrics["n_point_line"],
-        "timed_iterations": parsed_metrics["timed_iterations"],
-        "runtime_unit": parsed_metrics["runtime_unit"],
-        "build_type": cmake_build_type,
-    }
+def _format_metric_value(value: object) -> str:
+    if value is None:
+        return "n/a"
+    if isinstance(value, bool):
+        return str(value).lower()
+    return str(value)
 
 
 def _build_metrics(
@@ -428,58 +400,33 @@ def _build_metrics(
         _step_succeeded(step_statuses, step_name)
         for step_name in [
             "configure_cmake",
-            "build_baseline_smoke_test",
-            "build_baseline_runner",
-            "build_absolute_pose_lambdatwist_adapter_validator",
-            "build_absolute_pose_lambdatwist_benchmark",
+            f"build_{DESCRIPTOR.adapter_validator_target}",
+            f"build_{DESCRIPTOR.benchmark_target}",
         ]
     )
-    smoke_test_success = _step_succeeded(step_statuses, "run_baseline_smoke_test")
-    runner_success = _step_succeeded(step_statuses, "run_baseline_runner")
     adapter_validation_success = _step_succeeded(
-        step_statuses, "run_absolute_pose_lambdatwist_adapter_validator"
+        step_statuses, f"run_{DESCRIPTOR.adapter_validator_target}"
     )
     family_benchmark_success = _step_succeeded(
-        step_statuses, "run_absolute_pose_lambdatwist_benchmark"
+        step_statuses, f"run_{DESCRIPTOR.benchmark_target}"
     )
-    parsed_metrics = benchmark_parse_result["metrics"]
 
-    benchmark_options = _build_benchmark_options(parsed_metrics, cmake_build_type)
+    if benchmark_parse_result.get("raw_output_available") is not True:
+        benchmark = empty_benchmark_artifact(
+            DESCRIPTOR,
+            raw_output_available=benchmark_parse_result.get("raw_output_available", False),
+            build_type=cmake_build_type,
+        )
+    else:
+        benchmark = benchmark_artifact_from_parse(benchmark_parse_result, DESCRIPTOR, cmake_build_type)
 
     return {
         "build_success": build_success,
-        "smoke_test_success": smoke_test_success,
-        "runner_success": runner_success,
         "adapter_validation_success": adapter_validation_success,
         "family_benchmark_success": family_benchmark_success,
         "benchmark_success": family_benchmark_success,
-        "benchmark": {
-            "family": "absolute_pose_solvers",
-            "solver": "lambdatwist_p3p",
-            "runtime_unit": "ns",
-            "benchmark_options": benchmark_options,
-            "raw_output_available": benchmark_parse_result["raw_output_available"],
-            "parse_success": benchmark_parse_result["parse_success"],
-            "missing_fields": benchmark_parse_result["missing_fields"],
-            "parse_errors": benchmark_parse_result["parse_errors"],
-            "parsed_solver_name": parsed_metrics.get("solver_name"),
-            "parsed_num_problems": parsed_metrics.get("num_problems"),
-            "parsed_total_solutions": parsed_metrics.get("total_solutions"),
-            "parsed_solutions_per_problem": parsed_metrics.get("solutions_per_problem"),
-            "parsed_valid_solutions": parsed_metrics.get("valid_solutions"),
-            "parsed_valid_solutions_percent": parsed_metrics.get("valid_solutions_percent"),
-            "parsed_gt_found": parsed_metrics.get("gt_found"),
-            "parsed_gt_found_percent": parsed_metrics.get("gt_found_percent"),
-            "parsed_runtime_ns_total_median": parsed_metrics.get(
-                "runtime_ns_total_median"
-            ),
-            "parsed_runtime_ns_per_problem_median": parsed_metrics.get(
-                "runtime_ns_per_problem_median"
-            ),
-            "parsed_correctness_passed": parsed_metrics.get("correctness_passed"),
-        },
+        "benchmark": benchmark,
         "correctness": {
-            "basic_smoke_test_passed": smoke_test_success,
             "adapter_validation_passed": adapter_validation_success,
         },
     }
@@ -500,17 +447,17 @@ def _build_summary(
 ) -> str:
     step_by_name = {step["name"]: step for step in status["steps"]}
     adapter_validation_status = step_by_name[
-        "run_absolute_pose_lambdatwist_adapter_validator"
+        f"run_{DESCRIPTOR.adapter_validator_target}"
     ]["status"]
     family_benchmark_status = step_by_name[
-        "run_absolute_pose_lambdatwist_benchmark"
+        f"run_{DESCRIPTOR.benchmark_target}"
     ]["status"]
 
     lines = [
         f"Run: {metadata['run_id']}",
         "Scenario: baseline",
         "Case study: p3p_solver",
-        "Baseline: lambda_twist",
+        f"Baseline: {DESCRIPTOR.solver_id}",
         f"Overall status: {status['overall_status']}",
         f"Failed step: {status['failed_step'] or 'none'}",
         f"Error message: {status['error_message'] or 'none'}",
@@ -536,9 +483,9 @@ def _build_summary(
             f"Family benchmark status: {family_benchmark_status}",
             "Benchmark parse status: "
             f"{_format_metric_value(benchmark['parse_success'])}",
-            "Adapter validation log: logs/run_absolute_pose_lambdatwist_adapter_validator.log",
-            "Family benchmark raw output log: logs/run_absolute_pose_lambdatwist_benchmark.log",
-            "Family benchmark parse log: logs/parse_absolute_pose_lambdatwist_benchmark.log",
+            f"Adapter validation log: logs/run_{DESCRIPTOR.adapter_validator_target}.log",
+            f"Family benchmark raw output log: logs/run_{DESCRIPTOR.benchmark_target}.log",
+            f"Family benchmark parse log: logs/parse_{DESCRIPTOR.benchmark_target}.log",
             "",
             "Family benchmark:",
             f"- solver: {_format_metric_value(benchmark['parsed_solver_name'])}",
@@ -559,14 +506,6 @@ def _build_summary(
     if benchmark["parse_errors"]:
         lines.append(f"- parse errors: {'; '.join(benchmark['parse_errors'])}")
     return "\n".join(lines)
-
-
-def _format_metric_value(value: object) -> str:
-    if value is None:
-        return "n/a"
-    if isinstance(value, bool):
-        return str(value).lower()
-    return str(value)
 
 
 def _display_path(path: Path, repo_root: Path) -> str:
@@ -598,8 +537,6 @@ def _build_index_record(
         "git_branch": repository["git_branch"],
         "dirty_worktree": repository["dirty_worktree"],
         "build_success": metrics["build_success"],
-        "smoke_test_success": metrics["smoke_test_success"],
-        "runner_success": metrics["runner_success"],
         "benchmark_success": metrics["benchmark_success"],
         "adapter_validation_success": metrics["adapter_validation_success"],
         "family_benchmark_success": metrics["family_benchmark_success"],
@@ -732,53 +669,27 @@ def main() -> int:
     command_steps: list[tuple[str, str, Sequence[str]]] = [
         ("configure_cmake", "Configure CMake project", configure_command),
         (
-            "build_baseline_smoke_test",
-            "Build baseline_smoke_test target",
+            f"build_{DESCRIPTOR.adapter_validator_target}",
+            f"Build {DESCRIPTOR.adapter_validator_target} target",
             [
                 cmake_exe,
                 "--build",
                 str(build_dir),
                 "--target",
-                "baseline_smoke_test",
+                DESCRIPTOR.adapter_validator_target,
                 "--config",
                 cmake_build_type,
             ],
         ),
         (
-            "build_baseline_runner",
-            "Build baseline_runner target",
+            f"build_{DESCRIPTOR.benchmark_target}",
+            f"Build {DESCRIPTOR.benchmark_target} target",
             [
                 cmake_exe,
                 "--build",
                 str(build_dir),
                 "--target",
-                "baseline_runner",
-                "--config",
-                cmake_build_type,
-            ],
-        ),
-        (
-            "build_absolute_pose_lambdatwist_adapter_validator",
-            f"Build {ADAPTER_VALIDATOR_TARGET} target",
-            [
-                cmake_exe,
-                "--build",
-                str(build_dir),
-                "--target",
-                ADAPTER_VALIDATOR_TARGET,
-                "--config",
-                cmake_build_type,
-            ],
-        ),
-        (
-            "build_absolute_pose_lambdatwist_benchmark",
-            f"Build {FAMILY_BENCHMARK_TARGET} target",
-            [
-                cmake_exe,
-                "--build",
-                str(build_dir),
-                "--target",
-                FAMILY_BENCHMARK_TARGET,
+                DESCRIPTOR.benchmark_target,
                 "--config",
                 cmake_build_type,
             ],
@@ -800,20 +711,14 @@ def main() -> int:
 
     run_targets = [
         (
-            "run_baseline_smoke_test",
-            "Run baseline_smoke_test executable",
-            "baseline_smoke_test",
-        ),
-        ("run_baseline_runner", "Run baseline_runner executable", "baseline_runner"),
-        (
-            "run_absolute_pose_lambdatwist_adapter_validator",
-            f"Run {ADAPTER_VALIDATOR_TARGET} executable",
-            ADAPTER_VALIDATOR_TARGET,
+            f"run_{DESCRIPTOR.adapter_validator_target}",
+            f"Run {DESCRIPTOR.adapter_validator_target} executable",
+            DESCRIPTOR.adapter_validator_target,
         ),
         (
-            "run_absolute_pose_lambdatwist_benchmark",
-            f"Run {FAMILY_BENCHMARK_TARGET} executable",
-            FAMILY_BENCHMARK_TARGET,
+            f"run_{DESCRIPTOR.benchmark_target}",
+            f"Run {DESCRIPTOR.benchmark_target} executable",
+            DESCRIPTOR.benchmark_target,
         ),
     ]
 

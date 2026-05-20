@@ -106,18 +106,6 @@ def _parse_args(argv: list[str]) -> argparse.Namespace:
             "Defaults to the --source path if not provided."
         ),
     )
-    parser.add_argument(
-        "--candidate-type",
-        choices=["unified_diff", "line_range_edits"],
-        default="unified_diff",
-        help="Candidate edit format to request from the LLM.",
-    )
-    parser.add_argument(
-        "--source-presentation",
-        choices=["plain", "line_numbered"],
-        default="plain",
-        help="Source presentation format to use in the optimization prompt.",
-    )
     return parser.parse_args(argv)
 
 
@@ -211,11 +199,6 @@ def _write_json(path: Path, payload: dict[str, Any]) -> Path:
     return path
 
 
-def _write_text(path: Path, text: str) -> Path:
-    path.write_text(text, encoding="utf-8")
-    return path
-
-
 def _read_source(source_path: Path, max_source_chars: int) -> str:
     if max_source_chars <= 0:
         raise ValueError("--max-source-chars must be greater than zero.")
@@ -240,7 +223,6 @@ def _build_metadata(
     physical_source_path: str,
     client: DeepSeekClient | None,
     started_at: datetime,
-    candidate_format: dict[str, str],
 ) -> dict[str, Any]:
     config = client.config if client is not None else None
     return {
@@ -255,7 +237,6 @@ def _build_metadata(
         "reasoning_effort": config.reasoning_effort if config else None,
         "started_at": started_at.isoformat(timespec="seconds"),
         "finished_at": None,
-        "candidate_format": candidate_format,
         "repository": _repository_info(),
     }
 
@@ -264,13 +245,11 @@ def _build_status(
     overall_status: str,
     failed_step: str | None,
     error_message: str | None,
-    candidate_format: dict[str, str] | None = None,
 ) -> dict[str, Any]:
     return {
         "overall_status": overall_status,
         "failed_step": failed_step,
         "error_message": error_message,
-        "candidate_format": candidate_format,
     }
 
 
@@ -286,8 +265,6 @@ def _build_summary(
         f"Target file: {metadata['target_file']}",
         f"Provider: {metadata['provider']}",
         f"Model: {metadata['model']}",
-        f"Candidate format: {metadata['candidate_format']['type']}",
-        f"Source presentation: {metadata['candidate_format']['source_presentation']}",
         f"Overall status: {status['overall_status']}",
         f"Failed step: {status['failed_step'] or 'none'}",
         f"Error message: {status['error_message'] or 'none'}",
@@ -303,18 +280,10 @@ def _build_summary(
                 f"Risk level: {candidate.risk_level}",
                 f"Expected effect: {candidate.expected_effect}",
                 f"Target files: {', '.join(candidate.target_files)}",
-                f"Candidate type: {field_summary['candidate_type']}",
+                f"Edit count: {field_summary['edit_count']}",
+                f"No-op: {field_summary['is_noop']}",
             ]
         )
-        if candidate.candidate_type == "line_range_edits":
-            lines.extend(
-                [
-                    f"Structured edits count: {field_summary['structured_edit_count']}",
-                    f"Candidate edits present: {field_summary['candidate_edits_present']}",
-                ]
-            )
-        else:
-            lines.append(f"Unified diff present: {field_summary['unified_diff_present']}")
     else:
         lines.append("Candidate summary: none")
 
@@ -323,12 +292,10 @@ def _build_summary(
 
 
 def _candidate_field_summary(candidate: OptimizationCandidate) -> dict[str, Any]:
-    structured_edit_count = len(candidate.edits) if candidate.candidate_type == "line_range_edits" else None
+    edit_count = len(candidate.edits)
     return {
-        "candidate_type": candidate.candidate_type,
-        "structured_edit_count": structured_edit_count,
-        "candidate_edits_present": bool(structured_edit_count),
-        "unified_diff_present": bool(candidate.unified_diff),
+        "edit_count": edit_count,
+        "is_noop": candidate.expected_effect == "none" and edit_count == 0,
     }
 
 
@@ -339,10 +306,8 @@ def _build_index_record(
     run_dir: Path,
 ) -> dict[str, Any]:
     candidate_fields = _candidate_field_summary(candidate) if candidate is not None else {
-        "candidate_type": None,
-        "structured_edit_count": None,
-        "candidate_edits_present": None,
-        "unified_diff_present": False,
+        "edit_count": None,
+        "is_noop": None,
     }
     return {
         "run_id": metadata["run_id"],
@@ -354,14 +319,11 @@ def _build_index_record(
         "finished_at": metadata["finished_at"],
         "provider": metadata["provider"],
         "model": metadata["model"],
-        "candidate_format": metadata["candidate_format"],
         "target_file": metadata["target_file"],
         "risk_level": candidate.risk_level if candidate is not None else None,
         "expected_effect": candidate.expected_effect if candidate is not None else None,
-        "candidate_type": candidate_fields["candidate_type"],
-        "structured_edit_count": candidate_fields["structured_edit_count"],
-        "candidate_edits_present": candidate_fields["candidate_edits_present"],
-        "unified_diff_present": candidate_fields["unified_diff_present"],
+        "edit_count": candidate_fields["edit_count"],
+        "is_noop": candidate_fields["is_noop"],
         "requires_manual_review": (
             candidate.requires_manual_review if candidate is not None else None
         ),
@@ -387,12 +349,7 @@ def _save_final_artifacts(
 
 def _save_candidate_artifacts(run_dir: Path, candidate: OptimizationCandidate) -> None:
     _write_json(run_dir / "candidate.json", asdict(candidate))
-    if candidate.candidate_type == "unified_diff":
-        _write_text(run_dir / "candidate.diff", candidate.unified_diff)
-    elif candidate.candidate_type == "line_range_edits":
-        _write_json(run_dir / "candidate.edits.json", {"edits": asdict(candidate)["edits"]})
-    else:
-        raise ValueError(f"Unsupported candidate_type: {candidate.candidate_type}")
+    _write_json(run_dir / "candidate.edits.json", {"edits": asdict(candidate)["edits"]})
 
 
 def _llm_usage_metadata(response: Any, api_latency_seconds: float | None) -> dict[str, Any]:
@@ -443,12 +400,8 @@ def _print_final_summary(
         _safe_print(f"Candidate summary: {candidate.summary}")
         _safe_print(f"Risk level: {candidate.risk_level}")
         _safe_print(f"Expected effect: {candidate.expected_effect}")
-        _safe_print(f"Candidate type: {field_summary['candidate_type']}")
-        if candidate.candidate_type == "line_range_edits":
-            _safe_print(f"Structured edits count: {field_summary['structured_edit_count']}")
-            _safe_print(f"Candidate edits present: {field_summary['candidate_edits_present']}")
-        else:
-            _safe_print(f"Unified diff present: {field_summary['unified_diff_present']}")
+        _safe_print(f"Edit count: {field_summary['edit_count']}")
+        _safe_print(f"No-op: {field_summary['is_noop']}")
     else:
         _safe_print(f"Failed step: {status['failed_step']}")
         _safe_print(f"Error message: {status['error_message']}")
@@ -566,10 +519,6 @@ def main(argv: list[str] | None = None) -> int:
     source_path = (source_root / target_file).resolve()
     source_root_display = _display_path(source_root)
     physical_source_path_display = _display_path(source_path)
-    candidate_format = {
-        "type": args.candidate_type,
-        "source_presentation": args.source_presentation,
-    }
 
     # Resolve allowed files early
     allowed_files = _resolve_allowed_files(args.allowed_files, target_file)
@@ -595,7 +544,6 @@ def main(argv: list[str] | None = None) -> int:
         physical_source_path_display,
         client,
         started_at,
-        candidate_format,
     )
     candidate: OptimizationCandidate | None = None
 
@@ -610,7 +558,6 @@ def main(argv: list[str] | None = None) -> int:
             physical_source_path_display,
             client,
             started_at,
-            candidate_format,
         )
         print(f"Provider/model: {client.config.provider}/{client.config.model}")
 
@@ -624,8 +571,6 @@ def main(argv: list[str] | None = None) -> int:
             source_code=source_code,
             additional_context=args.context,
             allowed_files=allowed_files,
-            candidate_type=args.candidate_type,
-            source_presentation=args.source_presentation,
         )
 
         try:
@@ -639,7 +584,6 @@ def main(argv: list[str] | None = None) -> int:
                     "system_prompt": system_prompt,
                     "user_prompt": user_prompt,
                     "additional_context": args.context,
-                    "candidate_format": candidate_format,
                 },
             )
         except OSError as exc:
@@ -682,14 +626,14 @@ def main(argv: list[str] | None = None) -> int:
         except OSError as exc:
             raise CandidateGenerationFailure("save_artifacts", str(exc)) from exc
 
-        status = _build_status("success", None, None, candidate_format)
+        status = _build_status("success", None, None)
     except CandidateGenerationFailure as exc:
-        status = _build_status("failed", exc.failed_step, exc.error_message, candidate_format)
+        status = _build_status("failed", exc.failed_step, exc.error_message)
 
     try:
         index_path = _save_final_artifacts(storage, run_dir, metadata, status, candidate)
     except OSError as exc:
-        status = _build_status("failed", "save_artifacts", str(exc), candidate_format)
+        status = _build_status("failed", "save_artifacts", str(exc))
         _print_final_summary(status, run_dir, candidate)
         return 1
 

@@ -130,11 +130,10 @@ def _experiment_summary_panel(config_path: Path) -> Panel:
             f"Experiment: {summary.name}",
             f"Description: {summary.description or 'unknown'}",
             f"Target: {summary.target_file or 'unknown'}",
+            f"Baseline: {summary.baseline_run_dir or 'unknown'}",
             f"Iterations: {summary.total_iterations if summary.total_iterations is not None else 'unknown'}",
-            f"Candidate format: {summary.candidate_format or 'unknown'}",
-            f"Source presentation: {summary.source_presentation or 'unknown'}",
-            f"Selection: {_format_bool(summary.selection_enabled)}",
-            f"Closed-loop: {_format_bool(summary.closed_loop_enabled)}",
+            "Mode: closed-loop optimization",
+            f"Reporting: {_format_bool(summary.reporting_enabled)}",
             f"Providers: {_format_list(summary.providers)}",
             f"Models: {_format_list(summary.models)}",
             f"Status: {summary.status}",
@@ -169,6 +168,8 @@ def _artifact_rows(item: ResultItem) -> list[tuple[str, str]]:
         ("report_dir", artifacts.report_dir),
         ("report_pdf", artifacts.report_pdf),
         ("report_html", artifacts.report_html),
+        ("final_selection_dir", artifacts.final_selection_dir),
+        ("final_selection_report", artifacts.final_selection_report),
     ):
         rows.append((label, "-" if path is None else _display_path(path)))
     return rows
@@ -183,8 +184,8 @@ def _result_detail_panel(item: ResultItem) -> Panel:
             f"Status: {item.status or 'unknown'}",
             f"Started: {item.started_at or '-'}",
             f"Finished: {item.finished_at or '-'}",
-            f"Final validation speedup: {_format_number(item.final_speedup_vs_baseline)}",
-            f"Final validation runtime reduction %: {_format_number(item.final_runtime_reduction_percent)}",
+            f"Final selection speedup: {_format_number(item.final_speedup_vs_baseline)}",
+            f"Final selection runtime reduction %: {_format_number(item.final_runtime_reduction_percent)}",
             f"Best iteration: {item.final_best_iteration if item.final_best_iteration is not None else '-'}",
             f"Accepted improvements: {item.accepted_improvements if item.accepted_improvements is not None else '-'}",
         ]
@@ -218,9 +219,13 @@ def _artifact_path(item: ResultItem, artifact: str) -> Path | None:
         return artifacts.final_optimized_source_dir
     if artifact == "final-diff":
         return artifacts.final_optimized_source_diff
+    if artifact == "final-selection-dir":
+        return artifacts.final_selection_dir
+    if artifact == "final-selection-report":
+        return artifacts.final_selection_report
     if artifact == "report":
         return artifacts.report_html or artifacts.report_pdf or artifacts.report_dir
-    return artifacts.directory
+    return None
 
 
 def _format_bytes(size: int) -> str:
@@ -390,10 +395,9 @@ def experiment_list() -> None:
     table = Table(title="Experiment Configs", show_header=True, header_style="bold cyan")
     table.add_column("Config")
     table.add_column("Experiment name")
+    table.add_column("Baseline")
     table.add_column("Iterations")
-    table.add_column("Candidate format")
-    table.add_column("Selection")
-    table.add_column("Closed-loop")
+    table.add_column("Reporting")
     table.add_column("Provider/model")
     table.add_column("Status")
 
@@ -406,10 +410,9 @@ def experiment_list() -> None:
             table.add_row(
                 summary.path.name,
                 summary.name,
+                summary.baseline_run_dir or "unknown",
                 str(summary.total_iterations) if summary.total_iterations is not None else "unknown",
-                summary.candidate_format or "unknown",
-                _format_bool(summary.selection_enabled),
-                _format_bool(summary.closed_loop_enabled),
+                _format_bool(summary.reporting_enabled),
                 f"{providers} / {models}",
                 status,
             )
@@ -418,8 +421,6 @@ def experiment_list() -> None:
         table.add_row(
             "none",
             f"No JSON configs found under {_display_path(paths.experiments_config)}",
-            "unknown",
-            "unknown",
             "unknown",
             "unknown",
             "missing",
@@ -553,7 +554,7 @@ def results_open(
     artifact: str = typer.Option(
         "directory",
         "--artifact",
-        help="Artifact to open: directory, summary, final-source, final-diff, report.",
+        help="Artifact to open: directory, summary, final-source, final-diff, final-selection-dir, final-selection-report, report.",
     ),
 ) -> None:
     """Open a result directory or artifact in the OS file explorer."""

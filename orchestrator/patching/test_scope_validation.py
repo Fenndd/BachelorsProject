@@ -10,7 +10,7 @@ from pathlib import Path
 from orchestrator.patching.scope_validation import (
     normalize_repo_path,
     validate_allowed_files_list,
-    validate_patch_scope,
+    validate_candidate_scope,
 )
 from orchestrator.experiments.experiment_config import (
     ExperimentConfigError,
@@ -93,22 +93,22 @@ class ValidateAllowedFilesListTests(unittest.TestCase):
         self.assertEqual(len(result), 1)
 
 
-class ValidatePatchScopeTests(unittest.TestCase):
-    """Tests for validate_patch_scope function from scope_validation module."""
+class ValidateCandidateScopeTests(unittest.TestCase):
+    """Tests for candidate edit scope validation."""
 
     def setUp(self) -> None:
         self.allowed = ["cpp/external/lambdatwist/p3p.cc"]
         self.target = ["cpp/external/lambdatwist/p3p.cc"]
-        self.patched = ["cpp/external/lambdatwist/p3p.cc"]
+        self.changed = ["cpp/external/lambdatwist/p3p.cc"]
 
     def test_scope_pass(self) -> None:
-        validate_patch_scope(self.target, self.patched, self.allowed)
+        validate_candidate_scope(self.target, self.changed, self.allowed)
 
     def test_target_outside_allowed_rejected(self) -> None:
         with self.assertRaises(ValueError) as ctx:
-            validate_patch_scope(
+            validate_candidate_scope(
                 target_files=["cpp/bench/some_bench.cpp"],
-                patched_files=[],
+                changed_files=[],
                 allowed_files=self.allowed,
             )
         self.assertIn("outside allowed optimization scope", str(ctx.exception))
@@ -116,27 +116,27 @@ class ValidatePatchScopeTests(unittest.TestCase):
     def test_patched_outside_allowed_rejected(self) -> None:
         """patched file is in target_files but not in allowed_files."""
         with self.assertRaises(ValueError) as ctx:
-            validate_patch_scope(
+            validate_candidate_scope(
                 target_files=["cpp/external/lambdatwist/p3p.cc", "cpp/bench/bench.cpp"],
-                patched_files=["cpp/bench/bench.cpp"],
+                changed_files=["cpp/bench/bench.cpp"],
                 allowed_files=["cpp/external/lambdatwist/p3p.cc"],
             )
         self.assertIn("outside allowed optimization scope", str(ctx.exception))
 
     def test_patched_outside_candidate_target_files_rejected(self) -> None:
         with self.assertRaises(ValueError) as ctx:
-            validate_patch_scope(
+            validate_candidate_scope(
                 target_files=["cpp/external/lambdatwist/p3p.cc"],
-                patched_files=["cpp/external/lambdatwist/other.cc"],
+                changed_files=["cpp/external/lambdatwist/other.cc"],
                 allowed_files=["cpp/external/lambdatwist/p3p.cc"],
             )
         self.assertIn("not listed in", str(ctx.exception))
 
     def test_benchmark_file_not_allowed(self) -> None:
         with self.assertRaises(ValueError) as ctx:
-            validate_patch_scope(
+            validate_candidate_scope(
                 target_files=["cpp/bench/bench_p3p.cpp"],
-                patched_files=[],
+                changed_files=[],
                 allowed_files=self.allowed,
             )
         self.assertIn("outside allowed optimization scope", str(ctx.exception))
@@ -144,15 +144,15 @@ class ValidatePatchScopeTests(unittest.TestCase):
     def test_cmakelists_not_allowed(self) -> None:
         """patched CMakeLists.txt is in target_files but not in allowed_files."""
         with self.assertRaises(ValueError) as ctx:
-            validate_patch_scope(
+            validate_candidate_scope(
                 target_files=["cpp/external/lambdatwist/p3p.cc", "cpp/CMakeLists.txt"],
-                patched_files=["cpp/CMakeLists.txt"],
+                changed_files=["cpp/CMakeLists.txt"],
                 allowed_files=["cpp/external/lambdatwist/p3p.cc"],
             )
         self.assertIn("outside allowed optimization scope", str(ctx.exception))
 
     def test_empty_patched_list_does_not_fail(self) -> None:
-        validate_patch_scope(self.target, [], self.allowed)
+        validate_candidate_scope(self.target, [], self.allowed)
 
 
 class ExperimentConfigOptimizationScopeTests(unittest.TestCase):
@@ -187,15 +187,16 @@ def _write_experiment_config(root: Path, *, optimization_scope: dict | None) -> 
     payload = {
         "experiment_name": "scope_test",
         "description": "Temporary scope test config",
-        "llm_config": "configs/llm_test.json",
         "target_file": "cpp/external/lambdatwist/p3p.cc",
-        "iterations": 1,
-        "pipeline": {
-            "generate_candidate": True,
-            "materialize_candidate": False,
-            "verify_candidate": False,
-        },
+        "baseline_run_dir": "results/runs/baseline",
         "candidate_generation": {"max_source_chars": 120000},
+        "variants": [
+            {
+                "variant_id": "default",
+                "llm_config": "configs/llm_test.json",
+                "iterations": 1,
+            }
+        ],
     }
     if optimization_scope is not None:
         payload["optimization_scope"] = optimization_scope

@@ -136,10 +136,6 @@ class GenerateCandidateSourceRootTests(unittest.TestCase):
             str(mock_config),
             "--source",
             TARGET_FILE,
-            "--candidate-type",
-            "line_range_edits",
-            "--source-presentation",
-            "line_numbered",
         ]
         if source_root is not None:
             argv[4:4] = ["--source-root", str(source_root)]
@@ -158,15 +154,12 @@ def _write_mock_llm_config(root: Path) -> Path:
     response_file.write_text(
         json.dumps(
             {
-                "schema_version": "1.1",
-                "candidate_type": "line_range_edits",
                 "summary": "no-op",
                 "rationale": "source-root test",
                 "risk_level": "low",
                 "expected_effect": "none",
                 "target_files": [TARGET_FILE],
                 "correctness_notes": "not applicable",
-                "unified_diff": "",
                 "edits": [],
                 "requires_manual_review": False,
             }

@@ -1,9 +1,9 @@
 from __future__ import annotations
 
-from orchestrator.patching.diff_stats import parse_unified_diff_stats
+from orchestrator.patching.diff_stats import parse_diff_stats
 
 
-def test_parse_unified_diff_stats_counts_only_real_changes() -> None:
+def test_parse_diff_stats_counts_only_real_changes() -> None:
     diff_text = """diff --git a/cpp/a.cc b/cpp/a.cc
 --- a/cpp/a.cc
 +++ b/cpp/a.cc
@@ -21,7 +21,7 @@ diff --git a/cpp/b.cc b/cpp/b.cc
  kept
 """
 
-    stats = parse_unified_diff_stats(diff_text)
+    stats = parse_diff_stats(diff_text)
 
     assert stats == {
         "files_changed": 2,

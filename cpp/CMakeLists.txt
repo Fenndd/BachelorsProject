@@ -27,50 +27,6 @@ target_include_directories(lambdatwist_baseline
         "${EIGEN3_INCLUDE_DIR}"
 )
 
-# Shared fixed sample data for project-owned baseline executables.
-add_library(baseline_sample_data STATIC
-    "${CMAKE_CURRENT_SOURCE_DIR}/src/baseline_sample_data.cpp"
-)
-
-target_include_directories(baseline_sample_data
-    PUBLIC
-        "${CMAKE_CURRENT_SOURCE_DIR}/include"
-        "${EIGEN3_INCLUDE_DIR}"
-)
-
-# Minimal project-owned executable wired to the imported baseline library.
-add_executable(baseline_runner
-    "${CMAKE_CURRENT_SOURCE_DIR}/src/baseline_runner.cpp"
-)
-
-target_link_libraries(baseline_runner
-    PRIVATE
-        baseline_sample_data
-        lambdatwist_baseline
-)
-
-# Minimal project-owned smoke test for the imported baseline solver.
-add_executable(baseline_smoke_test
-    "${CMAKE_CURRENT_SOURCE_DIR}/tests/baseline_smoke_test.cpp"
-)
-
-target_link_libraries(baseline_smoke_test
-    PRIVATE
-        baseline_sample_data
-        lambdatwist_baseline
-)
-
-# Minimal project-owned benchmark for the imported baseline solver.
-add_executable(baseline_benchmark
-    "${CMAKE_CURRENT_SOURCE_DIR}/bench/baseline_benchmark.cpp"
-)
-
-target_link_libraries(baseline_benchmark
-    PRIVATE
-        baseline_sample_data
-        lambdatwist_baseline
-)
-
 # Project-owned absolute pose benchmark family infrastructure.
 set(ABSOLUTE_POSE_SOLVERS_DIR
     "${CMAKE_CURRENT_SOURCE_DIR}/bench/families/geometric_pose_solvers/absolute_pose_solvers"
@@ -106,20 +62,6 @@ target_link_libraries(absolute_pose_lambdatwist_adapter
         lambdatwist_baseline
 )
 
-# --- Compatibility alias: absolute_pose_benchmark = core + adapter ---
-add_library(absolute_pose_benchmark INTERFACE)
-target_link_libraries(absolute_pose_benchmark
-    INTERFACE
-        absolute_pose_core
-        absolute_pose_lambdatwist_adapter
-)
-target_include_directories(absolute_pose_benchmark
-    INTERFACE
-        "${ABSOLUTE_POSE_SOLVERS_DIR}/core"
-        "${ABSOLUTE_POSE_SOLVERS_DIR}/adapters/lambdatwist_p3p"
-        "${EIGEN3_INCLUDE_DIR}"
-)
-
 # --- Runner executables ---
 add_executable(absolute_pose_lambdatwist_benchmark
     "${ABSOLUTE_POSE_SOLVERS_DIR}/runners/lambdatwist_p3p_benchmark.cpp"
@@ -142,16 +84,6 @@ target_link_libraries(absolute_pose_lambdatwist_adapter_validator
 )
 
 # --- Tests ---
-add_executable(absolute_pose_adapter_smoke_test
-    "${CMAKE_CURRENT_SOURCE_DIR}/tests/absolute_pose_adapter_smoke_test.cpp"
-)
-
-target_link_libraries(absolute_pose_adapter_smoke_test
-    PRIVATE
-        absolute_pose_core
-        absolute_pose_lambdatwist_adapter
-)
-
 add_executable(absolute_pose_correctness_policy_test
     "${CMAKE_CURRENT_SOURCE_DIR}/tests/absolute_pose_correctness_policy_test.cpp"
 )

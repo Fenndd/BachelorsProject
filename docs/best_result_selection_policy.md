@@ -5,17 +5,15 @@
 This policy defines how candidate optimization results are **filtered**,
 **compared**, **ranked**, and **selected** against a reference run.
 
-This document defines the implemented pairwise decision and multi-candidate
-selection policy.
+This document defines the implemented pairwise decision policy used by the
+closed-loop optimization pipeline.
 
 Implementation status update:
 
 - Pairwise reference-vs-candidate decision is implemented in
   `orchestrator/benchmarking/candidate_decision.py`.
 - The original baseline-vs-candidate API remains available as a compatibility
-  wrapper for current best-result selection.
-- Multi-candidate best selection is now implemented in
-  `orchestrator/experiments/best_candidate_selector.py`.
+  wrapper for direct pairwise comparisons.
 - Closed-loop experiments use reference-vs-candidate decisions inside each
   iteration.
 - Experiment-local current-best promotion is implemented through
@@ -34,15 +32,7 @@ artifact layout.
 
 ## 3. Inputs
 
-The current multi-candidate selector consumes:
-
-- a baseline run directory containing `metrics.json`
-- one or more candidate run directories containing `verification.json`
-- the existing benchmark artifact audit logic through the pairwise decision
-  helper
-
-The lower-level pairwise comparator now also supports an explicit generic
-reference:
+The pairwise comparator supports an explicit generic reference:
 
 - `reference_kind = "baseline"`: load the reference benchmark from
   `<reference_run_dir>/metrics.json`
@@ -57,7 +47,7 @@ Data source rules:
 - Candidate benchmark verification metrics are loaded from `verification.json`.
 - Verified-candidate reference metrics are loaded from `verification.json`.
 - Selection consumes verified benchmark artifacts and is independent of raw LLM candidate format.
-- It works for both `unified_diff` and `line_range_edits` candidates as long as `verification.json` exists.
+- It works for generated candidates as long as `verification.json` exists.
 
 ## 4. Required benchmark fields
 
@@ -137,8 +127,7 @@ Pairwise candidate statuses:
   - Candidate passed all hard gates and improves runtime versus the reference by
     at least the minimum runtime reduction threshold.
 
-Experiment-level selection status is reported separately by the multi-candidate
-selector and does not introduce an additional pairwise status in
+Closed-loop final analysis does not introduce additional pairwise statuses in
 `candidate_decision.py`.
 
 ## 10. Improvement calculations
@@ -235,16 +224,7 @@ Selection and reporting do **not** implement:
 - candidate generation prompt format or materialization format
 - source-tree mutation from final selector/reporting artifacts
 
-## 14. Experiment runner integration
-
-The experiment runner can optionally execute selection after candidate
-generation/materialization/verification. When enabled, it writes
-`best_candidate_selection.json` under the experiment artifact directory and adds
-a compact selection summary to experiment status/summary artifacts.
-
-Selection does not promote, merge, copy, or commit candidate source code.
-
-## 15. Closed-loop comparison in the runner
+## 14. Closed-loop comparison in the runner
 
 The comparator can compare a new verified candidate against either:
 
