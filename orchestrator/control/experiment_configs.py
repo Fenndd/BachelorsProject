@@ -75,14 +75,13 @@ def _provider_models_from_payload(payload: dict[str, Any], config_path: Path) ->
     providers: list[str] = []
     models: list[str] = []
     variants = payload.get("variants")
-    if isinstance(variants, list) and variants:
-        variant_payloads = [variant for variant in variants if isinstance(variant, dict)]
-    else:
-        variant_payloads = [payload]
+    if not isinstance(variants, list) or not variants:
+        return [], []
+    variant_payloads = [variant for variant in variants if isinstance(variant, dict)]
 
     for variant in variant_payloads:
         llm_config = _read_llm_config(
-            variant.get("llm_config") if isinstance(variant.get("llm_config"), str) else payload.get("llm_config"),
+            variant.get("llm_config") if isinstance(variant.get("llm_config"), str) else None,
             config_path,
         )
         overrides = variant.get("llm_overrides")
@@ -104,8 +103,8 @@ def _summary_from_payload(
 ) -> ExperimentConfigSummary:
     variants = payload.get("variants")
     variant_payloads = variants if isinstance(variants, list) else None
-    variants_count = len(variant_payloads) if variant_payloads is not None else 1
     if variant_payloads is not None:
+        variants_count = len(variant_payloads)
         iterations = [
             variant.get("iterations")
             for variant in variant_payloads
@@ -113,7 +112,8 @@ def _summary_from_payload(
         ]
         total_iterations = sum(iterations) if len(iterations) == len(variant_payloads) else None
     else:
-        total_iterations = payload.get("iterations") if isinstance(payload.get("iterations"), int) else None
+        variants_count = None
+        total_iterations = None
 
     reporting = payload.get("reporting")
     providers, models = _provider_models_from_payload(payload, path)

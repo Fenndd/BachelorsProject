@@ -1,8 +1,8 @@
 """Materialize a generated candidate patch into an isolated workspace copy.
 
-This command never modifies the main project source tree. It copies the current
-source root into workspace/candidates/<candidate_run_id>/ and applies the
-candidate diff only inside that workspace copy.
+This command never modifies the main project source tree. It copies a
+base source root into workspace/candidates/<candidate_run_id>/ and applies
+the candidate edits only inside that workspace copy.
 """
 
 from __future__ import annotations
@@ -29,12 +29,7 @@ from orchestrator.patching.scope_validation import (
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_WORKSPACE_ROOT = "workspace/candidates"
-DEFAULT_SOURCE_ROOT = "cpp"
-SOURCE_ROOT_MODE_REPO_DEFAULT = "repo_default"
-SOURCE_ROOT_MODE_LEGACY_SOURCE_ROOT = "legacy_source_root"
-SOURCE_ROOT_MODE_EXPLICIT_BASE_SOURCE_ROOT = "explicit_base_source_root"
 EXTERNAL_SCOPE_ENFORCEMENT = "external_allowed_files"
-LEGACY_SCOPE_ENFORCEMENT = "legacy_candidate_declared_target_files"
 
 
 class LineRangeEditApplyError(ValueError):
@@ -60,17 +55,12 @@ def _parse_args(argv: list[str]) -> argparse.Namespace:
         help="Root directory for materialized candidate workspaces.",
     )
     parser.add_argument(
-        "--source-root",
-        default=None,
-        help="Project source root to copy into the candidate workspace.",
-    )
-    parser.add_argument(
         "--base-source-root",
-        default=None,
+        required=True,
         help=(
-            "Explicit repo-like base source root to copy from. The directory must "
+            "Repo-like base source root to copy from. The directory must "
             "contain repo-relative paths such as cpp/external/lambdatwist/p3p.cc. "
-            "When omitted, legacy --source-root behavior is preserved."
+            "Its contents are copied directly into the candidate workspace."
         ),
     )
     parser.add_argument(
@@ -104,39 +94,19 @@ def _resolve_path(path_text: str) -> Path:
     return path.resolve()
 
 
-def _resolve_base_source_root(args: argparse.Namespace) -> tuple[Path, str, str, str]:
-    """Resolve materialization source-root semantics.
+def _resolve_base_source_root(args: argparse.Namespace) -> tuple[Path, str]:
+    """Resolve materialization base source root.
 
-    Returns ``(base_source_root_path, source_root_text, base_source_root_display,
-    source_root_mode)``. ``source_root_text`` is retained for backward-compatible
-    artifact fields, while ``base_source_root`` is the clearer Stage 4 name.
+    Returns ``(base_source_root_path, base_source_root_display)``.
     """
 
-    if args.base_source_root is not None and args.source_root is not None:
+    base_source_root_path = _resolve_path(args.base_source_root)
+    if not base_source_root_path.exists() or not base_source_root_path.is_dir():
         raise ValueError(
-            "--base-source-root cannot be combined with explicit --source-root; "
-            "use one source-root mode to avoid ambiguous workspace copy semantics."
+            f"Base source root is not a valid directory: {args.base_source_root}"
         )
 
-    if args.base_source_root is not None:
-        base_source_root_path = _resolve_path(args.base_source_root)
-        source_root_text = args.base_source_root
-        source_root_mode = SOURCE_ROOT_MODE_EXPLICIT_BASE_SOURCE_ROOT
-    elif args.source_root is not None:
-        base_source_root_path = _resolve_path(args.source_root)
-        source_root_text = args.source_root
-        source_root_mode = SOURCE_ROOT_MODE_LEGACY_SOURCE_ROOT
-    else:
-        base_source_root_path = _resolve_path(DEFAULT_SOURCE_ROOT)
-        source_root_text = DEFAULT_SOURCE_ROOT
-        source_root_mode = SOURCE_ROOT_MODE_REPO_DEFAULT
-
-    return (
-        base_source_root_path,
-        source_root_text,
-        _display_path(base_source_root_path),
-        source_root_mode,
-    )
+    return (base_source_root_path, _display_path(base_source_root_path))
 
 
 def _display_path(path: Path) -> str:
@@ -153,12 +123,13 @@ def _normalize_candidate_path(path_text: str) -> str:
 def _resolve_scope_metadata(
     raw_allowed_files: list[str] | None,
     target_files: list[str],
-) -> tuple[str, bool, list[str]]:
+) -> tuple[str, list[str]]:
     if raw_allowed_files is None or not raw_allowed_files:
-        return LEGACY_SCOPE_ENFORCEMENT, False, list(target_files)
+        raise ValueError(
+            "--allowed-file is required. Provide at least one allowed file path."
+        )
     return (
         EXTERNAL_SCOPE_ENFORCEMENT,
-        True,
         validate_allowed_files_list(raw_allowed_files, label="--allowed-file"),
     )
 
@@ -792,19 +763,13 @@ def _copy_ignore(directory: str, names: list[str]) -> set[str]:
 def _copy_base_source_tree(
     base_source_root_path: Path,
     workspace_path: Path,
-    source_root_mode: str,
 ) -> None:
-    if source_root_mode == SOURCE_ROOT_MODE_EXPLICIT_BASE_SOURCE_ROOT:
-        shutil.copytree(
-            base_source_root_path,
-            workspace_path,
-            ignore=_copy_ignore,
-            dirs_exist_ok=True,
-        )
-        return
-
-    workspace_source_path = workspace_path / base_source_root_path.name
-    shutil.copytree(base_source_root_path, workspace_source_path, ignore=_copy_ignore)
+    shutil.copytree(
+        base_source_root_path,
+        workspace_path,
+        ignore=_copy_ignore,
+        dirs_exist_ok=True,
+    )
 
 
 def _ensure_deletable_workspace(workspace_path: Path, workspace_root: Path) -> None:
@@ -828,7 +793,7 @@ def _build_materialization(
     error_message: str | None,
     candidate_run_id: str,
     workspace_path: Path,
-    source_root: str,
+    base_source_root: str,
     patch_path: Path,
     target_files: list[str],
     edit_files: list[str],
@@ -839,7 +804,6 @@ def _build_materialization(
     started_at: datetime,
     steps: list[dict[str, Any]],
     scope_enforcement: str,
-    external_allowed_files_used: bool,
     allowed_files: list[str],
     patch_apply_strategy: str,
     **extra_metadata: Any,
@@ -851,13 +815,13 @@ def _build_materialization(
         "error_message": error_message,
         "candidate_run_id": candidate_run_id,
         "workspace_path": _display_path(workspace_path),
-        "source_root": source_root,
+        "source_root": base_source_root,
+        "base_source_root": base_source_root,
         "patch_file": _display_path(patch_path),
         "target_files": target_files,
         "edit_files": edit_files,
         "changed_files": changed_files,
         "scope_enforcement": scope_enforcement,
-        "external_allowed_files_used": external_allowed_files_used,
         "allowed_files": allowed_files,
         "post_apply_verification": post_apply_verification,
         "patch_apply_strategy": patch_apply_strategy,
@@ -917,7 +881,6 @@ def _write_log(
         f"Workspace path: {workspace_path}",
         f"Source root: {source_root}",
         f"Base source root: {materialization.get('base_source_root') or source_root}",
-        f"Source root mode: {materialization.get('source_root_mode') or 'unknown'}",
         f"Patch file path: {patch_path}",
         "",
         "Target files:",
@@ -927,8 +890,6 @@ def _write_log(
         *_format_log_list(materialization["edit_files"]),
         "",
         f"Scope enforcement: {materialization['scope_enforcement']}",
-        "External allowed files used: "
-        f"{str(materialization['external_allowed_files_used']).lower()}",
         "Allowed files:",
         *_format_log_list(materialization["allowed_files"]),
         "",
@@ -1003,7 +964,7 @@ def _fail(
     candidate_run_id: str,
     workspace_root: Path,
     workspace_path: Path,
-    source_root_text: str,
+    base_source_root_text: str,
     patch_path: Path,
     target_files: list[str],
     edit_files: list[str],
@@ -1017,7 +978,6 @@ def _fail(
     steps: list[dict[str, Any]],
     commands: list[dict[str, Any]],
     scope_enforcement: str,
-    external_allowed_files_used: bool,
     allowed_files: list[str],
     patch_apply_metadata: dict[str, Any] | None = None,
 ) -> int:
@@ -1036,7 +996,7 @@ def _fail(
         error_message,
         candidate_run_id,
         workspace_path,
-        source_root_text,
+        base_source_root_text,
         patch_path,
         target_files,
         edit_files,
@@ -1047,7 +1007,6 @@ def _fail(
         started_at,
         steps,
         scope_enforcement,
-        external_allowed_files_used,
         allowed_files,
         **(patch_apply_metadata or _default_patch_apply_metadata()),
     )
@@ -1057,7 +1016,7 @@ def _fail(
         candidate_run_id,
         candidate_run_dir,
         workspace_path,
-        source_root_text,
+        base_source_root_text,
         patch_path,
         commands,
         materialization,
@@ -1074,7 +1033,7 @@ def _skip_noop_candidate(
     candidate_run_dir: Path,
     candidate_run_id: str,
     workspace_path: Path,
-    source_root_text: str,
+    base_source_root_text: str,
     patch_path: Path,
     target_files: list[str],
     edit_files: list[str],
@@ -1082,7 +1041,6 @@ def _skip_noop_candidate(
     started_at: datetime,
     steps: list[dict[str, Any]],
     scope_enforcement: str,
-    external_allowed_files_used: bool,
     allowed_files: list[str],
     patch_apply_metadata: dict[str, Any] | None = None,
 ) -> int:
@@ -1100,7 +1058,7 @@ def _skip_noop_candidate(
         None,
         candidate_run_id,
         workspace_path,
-        source_root_text,
+        base_source_root_text,
         patch_path,
         target_files,
         edit_files,
@@ -1111,7 +1069,6 @@ def _skip_noop_candidate(
         started_at,
         steps,
         scope_enforcement,
-        external_allowed_files_used,
         allowed_files,
         **(patch_apply_metadata or _default_patch_apply_metadata()),
     )
@@ -1121,7 +1078,7 @@ def _skip_noop_candidate(
         candidate_run_id,
         candidate_run_dir,
         workspace_path,
-        source_root_text,
+        base_source_root_text,
         patch_path,
         [],
         materialization,
@@ -1131,7 +1088,7 @@ def _skip_noop_candidate(
     print(f"Workspace path: {workspace_path}")
     print("Changed files: none")
     print("No patch to materialize: candidate expected_effect is 'none'.")
-    print(f"Main source tree was not modified: {source_root_text}")
+    print(f"Main source tree was not modified: {base_source_root_text}")
     print(f"Logs saved to: {candidate_run_dir / 'apply_candidate.log'}")
     return 0
 
@@ -1144,13 +1101,9 @@ def main(argv: list[str] | None = None) -> int:
     workspace_root = _resolve_path(args.workspace_root)
     workspace_path = workspace_root / candidate_run_id
     try:
-        (
-            base_source_root_path,
-            source_root_text,
-            base_source_root_display,
-            source_root_mode,
-        ) = _resolve_base_source_root(args)
-        source_root_text = base_source_root_display
+        base_source_root_path, base_source_root_display = (
+            _resolve_base_source_root(args)
+        )
     except ValueError as exc:
         print("Final status: failed")
         print("Failed step: parse_args")
@@ -1163,7 +1116,6 @@ def main(argv: list[str] | None = None) -> int:
     print(f"Candidate run id: {candidate_run_id}")
     print(f"Workspace path: {workspace_path}")
     print(f"Base source root: {base_source_root_display}")
-    print(f"Source root mode: {source_root_mode}")
 
     steps: list[dict[str, Any]] = []
     commands: list[dict[str, Any]] = []
@@ -1174,19 +1126,14 @@ def main(argv: list[str] | None = None) -> int:
     generated_diff_path: Path | None = None
     generated_diff_created = False
     line_range_apply_result: dict[str, Any] | None = None
-    scope_enforcement = (
-        EXTERNAL_SCOPE_ENFORCEMENT if args.allowed_files else LEGACY_SCOPE_ENFORCEMENT
-    )
-    external_allowed_files_used = bool(args.allowed_files)
     allowed_files: list[str] = []
     patch_apply_metadata = _default_patch_apply_metadata()
     source_root_metadata = {
-        "base_source_root": base_source_root_display,
-        "source_root_mode": source_root_mode,
         "generated_diff_base": None,
     }
     patch_apply_metadata.update(source_root_metadata)
 
+    scope_enforcement = EXTERNAL_SCOPE_ENFORCEMENT
     if not candidate_run_dir.exists() or not candidate_run_dir.is_dir():
         print("Final status: failed")
         print("Failed step: validate_candidate_scope")
@@ -1209,7 +1156,7 @@ def main(argv: list[str] | None = None) -> int:
         generated_diff_path = patch_path
 
         target_files = _validate_target_files(candidate_data)
-        scope_enforcement, external_allowed_files_used, allowed_files = (
+        scope_enforcement, allowed_files = (
             _resolve_scope_metadata(args.allowed_files, target_files)
         )
 
@@ -1241,7 +1188,7 @@ def main(argv: list[str] | None = None) -> int:
                 candidate_run_dir,
                 candidate_run_id,
                 workspace_path,
-                source_root_text,
+                base_source_root_display,
                 patch_path,
                 target_files,
                 edit_files,
@@ -1249,7 +1196,6 @@ def main(argv: list[str] | None = None) -> int:
                 started_at,
                 steps,
                 scope_enforcement,
-                external_allowed_files_used,
                 allowed_files,
                 patch_apply_metadata,
             )
@@ -1277,7 +1223,7 @@ def main(argv: list[str] | None = None) -> int:
             candidate_run_id,
             workspace_root,
             workspace_path,
-            source_root_text,
+            base_source_root_display,
             patch_path,
             target_files,
             edit_files,
@@ -1291,7 +1237,6 @@ def main(argv: list[str] | None = None) -> int:
             steps,
             commands,
             scope_enforcement,
-            external_allowed_files_used,
             allowed_files,
             patch_apply_metadata,
         )
@@ -1313,7 +1258,7 @@ def main(argv: list[str] | None = None) -> int:
 
         workspace_path.mkdir(parents=True, exist_ok=True)
         workspace_touched = True
-        _copy_base_source_tree(base_source_root_path, workspace_path, source_root_mode)
+        _copy_base_source_tree(base_source_root_path, workspace_path)
         copy_duration = round(time.perf_counter() - copy_started, 3)
         steps.append(_step_status("copy_source_tree", "success", None, copy_duration))
     except (OSError, ValueError) as exc:
@@ -1331,7 +1276,7 @@ def main(argv: list[str] | None = None) -> int:
             candidate_run_id,
             workspace_root,
             workspace_path,
-            source_root_text,
+            base_source_root_display,
             patch_path,
             target_files,
             edit_files,
@@ -1345,7 +1290,6 @@ def main(argv: list[str] | None = None) -> int:
             steps,
             commands,
             scope_enforcement,
-            external_allowed_files_used,
             allowed_files,
             patch_apply_metadata,
         )
@@ -1375,7 +1319,7 @@ def main(argv: list[str] | None = None) -> int:
             candidate_run_id,
             workspace_root,
             workspace_path,
-            source_root_text,
+            base_source_root_display,
             patch_path,
             target_files,
             edit_files,
@@ -1389,7 +1333,6 @@ def main(argv: list[str] | None = None) -> int:
             steps,
             commands,
             scope_enforcement,
-            external_allowed_files_used,
             allowed_files,
             patch_apply_metadata,
         )
@@ -1466,7 +1409,7 @@ def main(argv: list[str] | None = None) -> int:
                 candidate_run_id,
                 workspace_root,
                 workspace_path,
-                source_root_text,
+                base_source_root_display,
                 patch_path,
                 target_files,
                 edit_files,
@@ -1480,7 +1423,6 @@ def main(argv: list[str] | None = None) -> int:
                 steps,
                 commands,
                 scope_enforcement,
-                external_allowed_files_used,
                 allowed_files,
                 patch_apply_metadata,
             )
@@ -1512,7 +1454,7 @@ def main(argv: list[str] | None = None) -> int:
                 candidate_run_id,
                 workspace_root,
                 workspace_path,
-                source_root_text,
+                base_source_root_display,
                 patch_path,
                 target_files,
                 edit_files,
@@ -1526,7 +1468,6 @@ def main(argv: list[str] | None = None) -> int:
                 steps,
                 commands,
                 scope_enforcement,
-                external_allowed_files_used,
                 allowed_files,
                 patch_apply_metadata,
             )
@@ -1537,7 +1478,7 @@ def main(argv: list[str] | None = None) -> int:
             None,
             candidate_run_id,
             workspace_path,
-            source_root_text,
+            base_source_root_display,
             patch_path,
             target_files,
             edit_files,
@@ -1548,7 +1489,6 @@ def main(argv: list[str] | None = None) -> int:
             started_at,
             steps,
             scope_enforcement,
-            external_allowed_files_used,
             allowed_files,
             **patch_apply_metadata,
         )
@@ -1558,7 +1498,7 @@ def main(argv: list[str] | None = None) -> int:
             candidate_run_id,
             candidate_run_dir,
             workspace_path,
-            source_root_text,
+            base_source_root_display,
             patch_path,
             commands,
             materialization,

@@ -10,15 +10,13 @@ The clean baseline path is:
 
 1. CMake configures the C++ project.
 2. The Lambda Twist baseline target and project-owned executables are built.
-3. A runner, adapter validator, and absolute-pose family benchmark execute from `orchestrator/cli/main.py`.
+3. An adapter validator and absolute-pose family benchmark execute from `orchestrator/cli/main.py`.
 4. Parsed benchmark metrics are stored under `results/runs/<run_id>/` and indexed in `results/index.jsonl`.
 
 The C++ baseline boundary is:
 
 - `cpp/external/lambdatwist/`: imported third-party Lambda Twist source.
 - `lambdatwist_baseline`: project CMake target wrapping the imported solver.
-- `baseline_runner`: project-owned compatibility entry point.
-- `baseline_benchmark`: old compatibility benchmark target, still kept building.
 - `absolute_pose_lambdatwist_adapter_validator` and `absolute_pose_lambdatwist_benchmark`: project-owned benchmark-family evaluation entry points.
 
 The baseline Python entry point is `orchestrator/cli/main.py`. It remains separate from LLM optimization experiments.

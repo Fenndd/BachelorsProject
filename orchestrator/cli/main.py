@@ -2,11 +2,10 @@
 
 This script automates the current baseline flow:
 1. CMake configure
-2. CMake build (baseline_runner, adapter validator, and family benchmark targets)
-3. Run baseline_runner executable
-4. Run the Lambda Twist P3P adapter validator executable
-5. Run the Lambda Twist P3P family benchmark executable
-6. Parse the family benchmark output into structured metrics
+2. CMake build (adapter validator and family benchmark targets)
+3. Run the Lambda Twist P3P adapter validator executable
+4. Run the Lambda Twist P3P family benchmark executable
+5. Parse the family benchmark output into structured metrics
 
 Each execution also writes persistent run artifacts under results/runs/<run_id>/.
 
@@ -47,10 +46,8 @@ _REQUIRED_FIELDS: list[str] = benchmark_required_fields()
 
 EXPECTED_STEPS = [
     "configure_cmake",
-    "build_baseline_runner",
     f"build_{DESCRIPTOR.adapter_validator_target}",
     f"build_{DESCRIPTOR.benchmark_target}",
-    "run_baseline_runner",
     f"run_{DESCRIPTOR.adapter_validator_target}",
     f"run_{DESCRIPTOR.benchmark_target}",
     f"parse_{DESCRIPTOR.benchmark_target}",
@@ -403,12 +400,10 @@ def _build_metrics(
         _step_succeeded(step_statuses, step_name)
         for step_name in [
             "configure_cmake",
-            "build_baseline_runner",
             f"build_{DESCRIPTOR.adapter_validator_target}",
             f"build_{DESCRIPTOR.benchmark_target}",
         ]
     )
-    runner_success = _step_succeeded(step_statuses, "run_baseline_runner")
     adapter_validation_success = _step_succeeded(
         step_statuses, f"run_{DESCRIPTOR.adapter_validator_target}"
     )
@@ -427,7 +422,6 @@ def _build_metrics(
 
     return {
         "build_success": build_success,
-        "runner_success": runner_success,
         "adapter_validation_success": adapter_validation_success,
         "family_benchmark_success": family_benchmark_success,
         "benchmark_success": family_benchmark_success,
@@ -543,7 +537,6 @@ def _build_index_record(
         "git_branch": repository["git_branch"],
         "dirty_worktree": repository["dirty_worktree"],
         "build_success": metrics["build_success"],
-        "runner_success": metrics["runner_success"],
         "benchmark_success": metrics["benchmark_success"],
         "adapter_validation_success": metrics["adapter_validation_success"],
         "family_benchmark_success": metrics["family_benchmark_success"],
@@ -676,19 +669,6 @@ def main() -> int:
     command_steps: list[tuple[str, str, Sequence[str]]] = [
         ("configure_cmake", "Configure CMake project", configure_command),
         (
-            "build_baseline_runner",
-            "Build baseline_runner target",
-            [
-                cmake_exe,
-                "--build",
-                str(build_dir),
-                "--target",
-                "baseline_runner",
-                "--config",
-                cmake_build_type,
-            ],
-        ),
-        (
             f"build_{DESCRIPTOR.adapter_validator_target}",
             f"Build {DESCRIPTOR.adapter_validator_target} target",
             [
@@ -730,7 +710,6 @@ def main() -> int:
             break
 
     run_targets = [
-        ("run_baseline_runner", "Run baseline_runner executable", "baseline_runner"),
         (
             f"run_{DESCRIPTOR.adapter_validator_target}",
             f"Run {DESCRIPTOR.adapter_validator_target} executable",

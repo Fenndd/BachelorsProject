@@ -36,11 +36,15 @@ def _write_candidate(
 
 
 def _noop_materialize(run_dir: Path, allowed_files: list[str] | None = None) -> int:
+    source_dir = run_dir.parent / "source"
+    source_dir.mkdir(exist_ok=True)
     argv = [
         "--candidate-run",
         str(run_dir),
         "--workspace-root",
         str(run_dir.parent / "workspaces"),
+        "--base-source-root",
+        str(source_dir),
     ]
     for allowed_file in allowed_files or []:
         argv.extend(["--allowed-file", allowed_file])
@@ -66,7 +70,6 @@ class MaterializeCandidateScopeTests(unittest.TestCase):
             materialization = _read_materialization(run_dir)
             self.assertEqual(materialization["overall_status"], "skipped")
             self.assertEqual(materialization["scope_enforcement"], "external_allowed_files")
-            self.assertTrue(materialization["external_allowed_files_used"])
             self.assertEqual(materialization["allowed_files"], [TARGET_FILE])
             self.assertEqual(materialization["target_files"], [TARGET_FILE])
 
@@ -82,7 +85,6 @@ class MaterializeCandidateScopeTests(unittest.TestCase):
             self.assertEqual(materialization["overall_status"], "failed")
             self.assertEqual(materialization["failed_step"], "validate_candidate_scope")
             self.assertEqual(materialization["scope_enforcement"], "external_allowed_files")
-            self.assertTrue(materialization["external_allowed_files_used"])
             self.assertEqual(materialization["allowed_files"], [TARGET_FILE])
             self.assertIn("outside allowed optimization scope", materialization["error_message"])
 
@@ -111,21 +113,18 @@ class MaterializeCandidateScopeTests(unittest.TestCase):
             self.assertIn("not listed in", materialization["error_message"])
             self.assertEqual(materialization["edit_files"], [])
 
-    def test_legacy_mode_uses_candidate_target_files_as_allowed_files(self) -> None:
+    def test_external_allowed_file_missing_fails_clearly(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
-            run_dir = Path(tmpdir) / "candidate_legacy"
+            run_dir = Path(tmpdir) / "candidate_no_allowed"
             _write_candidate(run_dir, target_files=[TARGET_FILE])
 
-            exit_code = _noop_materialize(run_dir)
+            exit_code = _noop_materialize(run_dir, allowed_files=[])
 
-            self.assertEqual(exit_code, 0)
+            self.assertEqual(exit_code, 1)
             materialization = _read_materialization(run_dir)
-            self.assertEqual(
-                materialization["scope_enforcement"],
-                "legacy_candidate_declared_target_files",
-            )
-            self.assertFalse(materialization["external_allowed_files_used"])
-            self.assertEqual(materialization["allowed_files"], [TARGET_FILE])
+            self.assertEqual(materialization["overall_status"], "failed")
+            self.assertEqual(materialization["failed_step"], "validate_candidate_scope")
+            self.assertIn("--allowed-file is required", materialization["error_message"])
 
 
 if __name__ == "__main__":

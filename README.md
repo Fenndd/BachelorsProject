@@ -92,7 +92,7 @@ $env:EIGEN3_INCLUDE_DIR="C:\path\to\eigen"
 py orchestrator/cli/main.py
 ```
 
-The flow configures CMake, builds/runs `baseline_runner`, `absolute_pose_lambdatwist_adapter_validator`, and `absolute_pose_lambdatwist_benchmark`, parses metrics, and checks `correctness_passed`. Benchmark and evaluation builds default to **Release**. Build type is recorded as reproducibility metadata in reports.
+The flow configures CMake, builds/runs `absolute_pose_lambdatwist_adapter_validator` and `absolute_pose_lambdatwist_benchmark`, parses metrics, and checks `correctness_passed`. Benchmark and evaluation builds default to **Release**. Build type is recorded as reproducibility metadata in reports.
 
 The user-facing report is a single unified current report, not separate v1/v2 modes. It focuses on closed-loop optimization; closed-loop promotion policy is `decision_vs_current_best.accepted_improvement_only`. Verification time includes benchmark execution, so `benchmark_seconds` is not separately shown in the main report. Missing PDF is valid for HTML-only reports; when PDF is requested, it is exported from the final completed HTML. After closed-loop completion a single final benchmark run compares the final optimized source against the original baseline; this produces `final_selection_report.json` and feeds the report headline metrics. Report headline baseline/final runtimes, speedup, runtime reduction, and correctness preserved come from the final single-run comparison; if that run fails, headline metrics are unavailable. Single-run closed-loop selection metrics are iteration analytics only. Build type is reproducibility metadata; `Release` is the default benchmark build type.
 

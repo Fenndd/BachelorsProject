@@ -36,7 +36,6 @@ CODE_NO_FILES_CHANGED = "no_files_changed"
 CODE_VERIFICATION_FAILED = "verification_failed"
 CODE_CONFIGURE_FAILED = "configure_failed"
 CODE_BUILD_FAILED = "build_failed"
-CODE_SMOKE_TEST_FAILED = "smoke_test_failed"
 CODE_ADAPTER_VALIDATION_FAILED = "adapter_validation_failed"
 CODE_BENCHMARK_EXECUTION_FAILED = "benchmark_execution_failed"
 CODE_BENCHMARK_PARSE_FAILED = "benchmark_parse_failed"
@@ -224,9 +223,6 @@ def _verification_reason(
     elif failed_step.startswith("build_"):
         code = CODE_BUILD_FAILED
         message = "Candidate failed to build."
-    elif failed_step == "run_baseline_smoke_test":
-        code = CODE_SMOKE_TEST_FAILED
-        message = "Candidate failed the baseline smoke test."
     elif "adapter_validator" in failed_step or "adapter_validation" in failed_step:
         code = CODE_ADAPTER_VALIDATION_FAILED
         message = "Candidate failed adapter validation."

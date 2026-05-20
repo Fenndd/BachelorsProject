@@ -19,12 +19,14 @@ TARGET_FILE = "cpp/example.cpp"
 P3P_TARGET_FILE = "cpp/external/lambdatwist/p3p.cc"
 
 
-def _write_source(source_root: Path, text: str) -> None:
-    source_root.mkdir(parents=True, exist_ok=True)
-    (source_root / "example.cpp").write_text(text, encoding="utf-8")
+def _write_source(base_source_root: Path, text: str) -> None:
+    cpp_dir = base_source_root / "cpp"
+    cpp_dir.mkdir(parents=True, exist_ok=True)
+    (cpp_dir / "example.cpp").write_text(text, encoding="utf-8")
 
 
-def _write_build_artifacts(source_root: Path) -> None:
+def _write_build_artifacts(base_source_root: Path) -> None:
+    source_root = base_source_root / "cpp"
     for relative in [
         "build/temp.obj",
         "build-codex/cache.txt",
@@ -77,7 +79,7 @@ def _line_candidate(
 def _materialize(
     tmp_path: Path,
     run_dir: Path,
-    source_root: Path,
+    base_source_root: Path,
     *,
     allow_exact_search_fallback: bool = True,
 ) -> int:
@@ -86,13 +88,19 @@ def _materialize(
             str(run_dir),
             "--workspace-root",
             str(tmp_path / "workspaces"),
-            "--source-root",
-            str(source_root),
+            "--base-source-root",
+            str(base_source_root),
             "--overwrite",
             "--allowed-file",
             TARGET_FILE,
         ]
     return materialize_main(args)
+
+
+def _source_dir(tmp_path: Path) -> Path:
+    source = tmp_path / "source"
+    source.mkdir(exist_ok=True)
+    return source
 
 
 def _read_materialization(run_dir: Path) -> dict[str, Any]:
@@ -112,8 +120,8 @@ class MaterializeCandidateLineRangeEditsTests(unittest.TestCase):
         repo_text_before = (REPO_ROOT / P3P_TARGET_FILE).read_text(encoding="utf-8")
         with tempfile.TemporaryDirectory() as tmpdir:
             tmp_path = Path(tmpdir)
-            source_root = tmp_path / "cpp"
-            _write_source(source_root, "int value = 1;\n")
+            base_source_root = _source_dir(tmp_path)
+            _write_source(base_source_root, "int value = 1;\n")
             run_dir = tmp_path / "candidate_exact"
             _line_candidate(
                 run_dir,
@@ -128,15 +136,14 @@ class MaterializeCandidateLineRangeEditsTests(unittest.TestCase):
                 ],
             )
 
-            exit_code = _materialize(tmp_path, run_dir, source_root)
+            exit_code = _materialize(tmp_path, run_dir, base_source_root)
 
             self.assertEqual(exit_code, 0)
             materialization = _read_materialization(run_dir)
             self.assertEqual(materialization["overall_status"], "success")
             self.assertEqual(materialization["patch_apply_strategy"], "line_range_edits")
-            self.assertEqual(materialization["source_root"], str(source_root))
-            self.assertEqual(materialization["base_source_root"], str(source_root.resolve()))
-            self.assertEqual(materialization["source_root_mode"], "legacy_source_root")
+            self.assertEqual(materialization["source_root"], str(base_source_root))
+            self.assertEqual(materialization["base_source_root"], str(base_source_root.resolve()))
             self.assertEqual(materialization["line_range_exact_matches"], 1)
             self.assertEqual(materialization["line_range_surrounding_whitespace_tolerant_matches"], 0)
             self.assertTrue(materialization["workspace_retained"])
@@ -145,7 +152,7 @@ class MaterializeCandidateLineRangeEditsTests(unittest.TestCase):
             self.assertTrue(materialization["generated_diff_created"])
             self.assertTrue(materialization["generated_diff_path"].endswith("candidate.generated.diff"))
             self.assertEqual(_workspace_file(materialization).read_text(encoding="utf-8"), "int value = 2;\n")
-            self.assertEqual((source_root / "example.cpp").read_text(encoding="utf-8"), "int value = 1;\n")
+            self.assertEqual((base_source_root / "cpp" / "example.cpp").read_text(encoding="utf-8"), "int value = 1;\n")
             self.assertEqual((REPO_ROOT / P3P_TARGET_FILE).read_text(encoding="utf-8"), repo_text_before)
             self.assertTrue((run_dir / "candidate.generated.diff").exists())
             self.assertEqual(
@@ -163,9 +170,9 @@ class MaterializeCandidateLineRangeEditsTests(unittest.TestCase):
     def test_source_copy_excludes_build_cache_and_generated_artifacts(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             tmp_path = Path(tmpdir)
-            source_root = tmp_path / "cpp"
-            _write_source(source_root, "int value = 1;\n")
-            _write_build_artifacts(source_root)
+            base_source_root = _source_dir(tmp_path)
+            _write_source(base_source_root, "int value = 1;\n")
+            _write_build_artifacts(base_source_root)
             run_dir = tmp_path / "candidate_ignore_artifacts"
             _line_candidate(
                 run_dir,
@@ -180,7 +187,7 @@ class MaterializeCandidateLineRangeEditsTests(unittest.TestCase):
                 ],
             )
 
-            exit_code = _materialize(tmp_path, run_dir, source_root)
+            exit_code = _materialize(tmp_path, run_dir, base_source_root)
 
             self.assertEqual(exit_code, 0)
             materialization = _read_materialization(run_dir)
@@ -209,8 +216,8 @@ class MaterializeCandidateLineRangeEditsTests(unittest.TestCase):
     def test_line_range_trailing_whitespace_tolerant_success(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             tmp_path = Path(tmpdir)
-            source_root = tmp_path / "cpp"
-            _write_source(source_root, "int value = 1;   \n")
+            base_source_root = _source_dir(tmp_path)
+            _write_source(base_source_root, "int value = 1;   \n")
             run_dir = tmp_path / "candidate_trailing_whitespace"
             _line_candidate(
                 run_dir,
@@ -228,7 +235,7 @@ class MaterializeCandidateLineRangeEditsTests(unittest.TestCase):
             exit_code = _materialize(
                 tmp_path,
                 run_dir,
-                source_root,
+                base_source_root,
                 allow_exact_search_fallback=False,
             )
 
@@ -244,10 +251,10 @@ class MaterializeCandidateLineRangeEditsTests(unittest.TestCase):
     def test_single_line_surrounding_whitespace_tolerant_success_adapts_indent(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             tmp_path = Path(tmpdir)
-            source_root = tmp_path / "cpp"
+            base_source_root = _source_dir(tmp_path)
             actual_indent = " " * 20
             llm_indent = " " * 24
-            _write_source(source_root, f"{actual_indent}refine_lambda(x);\n")
+            _write_source(base_source_root, f"{actual_indent}refine_lambda(x);\n")
             run_dir = tmp_path / "candidate_leading_whitespace"
             _line_candidate(
                 run_dir,
@@ -265,7 +272,7 @@ class MaterializeCandidateLineRangeEditsTests(unittest.TestCase):
             exit_code = _materialize(
                 tmp_path,
                 run_dir,
-                source_root,
+                base_source_root,
                 allow_exact_search_fallback=False,
             )
 
@@ -283,8 +290,8 @@ class MaterializeCandidateLineRangeEditsTests(unittest.TestCase):
     def test_multi_line_surrounding_whitespace_tolerant_success_preserves_relative_indent(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             tmp_path = Path(tmpdir)
-            source_root = tmp_path / "cpp"
-            _write_source(source_root, "    if (ok) {\n        do_a();\n    }\n")
+            base_source_root = _source_dir(tmp_path)
+            _write_source(base_source_root, "    if (ok) {\n        do_a();\n    }\n")
             run_dir = tmp_path / "candidate_multi_leading_whitespace"
             _line_candidate(
                 run_dir,
@@ -302,7 +309,7 @@ class MaterializeCandidateLineRangeEditsTests(unittest.TestCase):
             exit_code = _materialize(
                 tmp_path,
                 run_dir,
-                source_root,
+                base_source_root,
                 allow_exact_search_fallback=False,
             )
 
@@ -381,7 +388,7 @@ class MaterializeCandidateLineRangeEditsTests(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as tmpdir:
             tmp_path = Path(tmpdir)
-            base_source_root = tmp_path / "current_best_source"
+            base_source_root = _source_dir(tmp_path) / "current_best_source"
             base_file = base_source_root / P3P_TARGET_FILE
             base_file.parent.mkdir(parents=True)
             base_file.write_text(current_best_text, encoding="utf-8")
@@ -423,7 +430,6 @@ class MaterializeCandidateLineRangeEditsTests(unittest.TestCase):
             self.assertEqual(materialization["overall_status"], "success")
             self.assertEqual(materialization["base_source_root"], str(base_source_root.resolve()))
             self.assertEqual(materialization["source_root"], str(base_source_root))
-            self.assertEqual(materialization["source_root_mode"], "explicit_base_source_root")
             self.assertEqual(materialization["generated_diff_base"], "base_source_root")
             self.assertIn(P3P_TARGET_FILE, materialization["changed_files"])
 
@@ -435,13 +441,12 @@ class MaterializeCandidateLineRangeEditsTests(unittest.TestCase):
 
             log_text = (run_dir / "apply_candidate.log").read_text(encoding="utf-8")
             self.assertIn("Base source root:", log_text)
-            self.assertIn("Source root mode: explicit_base_source_root", log_text)
             self.assertIn("Generated diff base: base_source_root", log_text)
 
     def test_explicit_base_source_root_missing_target_file_fails_clearly(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             tmp_path = Path(tmpdir)
-            base_source_root = tmp_path / "current_best_source"
+            base_source_root = _source_dir(tmp_path) / "current_best_source"
             (base_source_root / "cpp").mkdir(parents=True)
             run_dir = tmp_path / "candidate_missing_target"
             _line_candidate(
@@ -492,7 +497,7 @@ class MaterializeCandidateLineRangeEditsTests(unittest.TestCase):
     def test_target_file_missing_completes_remaining_line_range_results(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             tmp_path = Path(tmpdir)
-            base_source_root = tmp_path / "current_best_source"
+            base_source_root = _source_dir(tmp_path) / "current_best_source"
             existing_file = base_source_root / TARGET_FILE
             existing_file.parent.mkdir(parents=True)
             existing_file.write_text("int value = 1;\n", encoding="utf-8")
@@ -564,47 +569,6 @@ class MaterializeCandidateLineRangeEditsTests(unittest.TestCase):
             self.assertFalse(materialization["generated_diff_created"])
             self.assertFalse((run_dir / "candidate.generated.diff").exists())
 
-    def test_explicit_source_root_and_base_source_root_combination_is_rejected(self) -> None:
-        with tempfile.TemporaryDirectory() as tmpdir:
-            tmp_path = Path(tmpdir)
-            source_root = tmp_path / "cpp"
-            _write_source(source_root, "int value = 1;\n")
-            base_source_root = tmp_path / "current_best_source"
-            (base_source_root / TARGET_FILE).parent.mkdir(parents=True)
-            (base_source_root / TARGET_FILE).write_text("int value = 1;\n", encoding="utf-8")
-            run_dir = tmp_path / "candidate_ambiguous_roots"
-            _line_candidate(
-                run_dir,
-                edits=[
-                    {
-                        "file": TARGET_FILE,
-                        "start_line": 1,
-                        "end_line": 1,
-                        "original": "int value = 1;",
-                        "replace": "int value = 2;",
-                    }
-                ],
-            )
-
-            exit_code = materialize_main(
-                [
-                    "--candidate-run",
-                    str(run_dir),
-                    "--workspace-root",
-                    str(tmp_path / "workspaces"),
-                    "--source-root",
-                    str(source_root),
-                    "--base-source-root",
-                    str(base_source_root),
-                    "--overwrite",
-                    "--allowed-file",
-                    TARGET_FILE,
-                ]
-            )
-
-            self.assertEqual(exit_code, 1)
-            self.assertFalse((run_dir / "materialization.json").exists())
-
     def test_line_range_mismatch_without_fallback_fails_clearly(self) -> None:
         edit = {
             "index": 0,
@@ -627,8 +591,8 @@ class MaterializeCandidateLineRangeEditsTests(unittest.TestCase):
     def test_multiple_edits_in_same_file_success(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             tmp_path = Path(tmpdir)
-            source_root = tmp_path / "cpp"
-            _write_source(source_root, "int a = 1;\nint b = 2;\nint c = 3;\n")
+            base_source_root = _source_dir(tmp_path)
+            _write_source(base_source_root, "int a = 1;\nint b = 2;\nint c = 3;\n")
             run_dir = tmp_path / "candidate_multiple"
             _line_candidate(
                 run_dir,
@@ -650,7 +614,7 @@ class MaterializeCandidateLineRangeEditsTests(unittest.TestCase):
                 ],
             )
 
-            exit_code = _materialize(tmp_path, run_dir, source_root)
+            exit_code = _materialize(tmp_path, run_dir, base_source_root)
 
             self.assertEqual(exit_code, 0)
             materialization = _read_materialization(run_dir)
@@ -662,8 +626,8 @@ class MaterializeCandidateLineRangeEditsTests(unittest.TestCase):
     def test_line_range_mismatch_fallback_success(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             tmp_path = Path(tmpdir)
-            source_root = tmp_path / "cpp"
-            _write_source(source_root, "int a = 1;\nint unique = 7;\n")
+            base_source_root = _source_dir(tmp_path)
+            _write_source(base_source_root, "int a = 1;\nint unique = 7;\n")
             run_dir = tmp_path / "candidate_fallback"
             _line_candidate(
                 run_dir,
@@ -678,7 +642,7 @@ class MaterializeCandidateLineRangeEditsTests(unittest.TestCase):
                 ],
             )
 
-            exit_code = _materialize(tmp_path, run_dir, source_root)
+            exit_code = _materialize(tmp_path, run_dir, base_source_root)
 
             self.assertEqual(exit_code, 0)
             materialization = _read_materialization(run_dir)
@@ -692,8 +656,8 @@ class MaterializeCandidateLineRangeEditsTests(unittest.TestCase):
     def test_invalid_line_range_exact_search_fallback_success_records_specific_mode(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             tmp_path = Path(tmpdir)
-            source_root = tmp_path / "cpp"
-            _write_source(source_root, "int unique = 7;\n")
+            base_source_root = _source_dir(tmp_path)
+            _write_source(base_source_root, "int unique = 7;\n")
             run_dir = tmp_path / "candidate_invalid_range_fallback"
             _line_candidate(
                 run_dir,
@@ -708,7 +672,7 @@ class MaterializeCandidateLineRangeEditsTests(unittest.TestCase):
                 ],
             )
 
-            exit_code = _materialize(tmp_path, run_dir, source_root)
+            exit_code = _materialize(tmp_path, run_dir, base_source_root)
 
             self.assertEqual(exit_code, 0)
             materialization = _read_materialization(run_dir)
@@ -720,8 +684,8 @@ class MaterializeCandidateLineRangeEditsTests(unittest.TestCase):
     def test_line_range_mismatch_uses_internal_exact_search_fallback(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             tmp_path = Path(tmpdir)
-            source_root = tmp_path / "cpp"
-            _write_source(source_root, "int a = 1;\nint unique = 7;\n")
+            base_source_root = _source_dir(tmp_path)
+            _write_source(base_source_root, "int a = 1;\nint unique = 7;\n")
             run_dir = tmp_path / "candidate_no_fallback"
             _line_candidate(
                 run_dir,
@@ -736,7 +700,7 @@ class MaterializeCandidateLineRangeEditsTests(unittest.TestCase):
                 ],
             )
 
-            exit_code = _materialize(tmp_path, run_dir, source_root)
+            exit_code = _materialize(tmp_path, run_dir, base_source_root)
 
             self.assertEqual(exit_code, 0)
             materialization = _read_materialization(run_dir)
@@ -749,8 +713,8 @@ class MaterializeCandidateLineRangeEditsTests(unittest.TestCase):
     def test_fallback_ambiguous_failure(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             tmp_path = Path(tmpdir)
-            source_root = tmp_path / "cpp"
-            _write_source(source_root, "int same = 1;\nint x = 0;\nint same = 1;\n")
+            base_source_root = _source_dir(tmp_path)
+            _write_source(base_source_root, "int same = 1;\nint x = 0;\nint same = 1;\n")
             run_dir = tmp_path / "candidate_ambiguous"
             _line_candidate(
                 run_dir,
@@ -765,7 +729,7 @@ class MaterializeCandidateLineRangeEditsTests(unittest.TestCase):
                 ],
             )
 
-            exit_code = _materialize(tmp_path, run_dir, source_root)
+            exit_code = _materialize(tmp_path, run_dir, base_source_root)
 
             self.assertEqual(exit_code, 1)
             materialization = _read_materialization(run_dir)
@@ -782,8 +746,8 @@ class MaterializeCandidateLineRangeEditsTests(unittest.TestCase):
     def test_original_not_found_failure(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             tmp_path = Path(tmpdir)
-            source_root = tmp_path / "cpp"
-            _write_source(source_root, "int value = 1;\n")
+            base_source_root = _source_dir(tmp_path)
+            _write_source(base_source_root, "int value = 1;\n")
             run_dir = tmp_path / "candidate_not_found"
             _line_candidate(
                 run_dir,
@@ -798,7 +762,7 @@ class MaterializeCandidateLineRangeEditsTests(unittest.TestCase):
                 ],
             )
 
-            exit_code = _materialize(tmp_path, run_dir, source_root)
+            exit_code = _materialize(tmp_path, run_dir, base_source_root)
 
             self.assertEqual(exit_code, 1)
             materialization = _read_materialization(run_dir)
@@ -814,8 +778,8 @@ class MaterializeCandidateLineRangeEditsTests(unittest.TestCase):
     def test_failed_multiple_edits_include_not_attempted_results_sorted_by_index(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             tmp_path = Path(tmpdir)
-            source_root = tmp_path / "cpp"
-            _write_source(source_root, "int a = 1;\nint b = 2;\nint c = 3;\n")
+            base_source_root = _source_dir(tmp_path)
+            _write_source(base_source_root, "int a = 1;\nint b = 2;\nint c = 3;\n")
             run_dir = tmp_path / "candidate_partial_failure"
             _line_candidate(
                 run_dir,
@@ -844,7 +808,7 @@ class MaterializeCandidateLineRangeEditsTests(unittest.TestCase):
                 ],
             )
 
-            exit_code = _materialize(tmp_path, run_dir, source_root)
+            exit_code = _materialize(tmp_path, run_dir, base_source_root)
 
             self.assertEqual(exit_code, 1)
             materialization = _read_materialization(run_dir)
@@ -861,8 +825,8 @@ class MaterializeCandidateLineRangeEditsTests(unittest.TestCase):
     def test_edit_file_outside_target_files_rejected(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             tmp_path = Path(tmpdir)
-            source_root = tmp_path / "cpp"
-            _write_source(source_root, "int value = 1;\n")
+            base_source_root = _source_dir(tmp_path)
+            _write_source(base_source_root, "int value = 1;\n")
             run_dir = tmp_path / "candidate_outside_target"
             _line_candidate(
                 run_dir,
@@ -877,7 +841,7 @@ class MaterializeCandidateLineRangeEditsTests(unittest.TestCase):
                 ],
             )
 
-            exit_code = _materialize(tmp_path, run_dir, source_root)
+            exit_code = _materialize(tmp_path, run_dir, base_source_root)
 
             self.assertEqual(exit_code, 1)
             materialization = _read_materialization(run_dir)
@@ -887,12 +851,12 @@ class MaterializeCandidateLineRangeEditsTests(unittest.TestCase):
     def test_line_range_noop_skipped_without_candidate_diff(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             tmp_path = Path(tmpdir)
-            source_root = tmp_path / "cpp"
-            _write_source(source_root, "int value = 1;\n")
+            base_source_root = _source_dir(tmp_path)
+            _write_source(base_source_root, "int value = 1;\n")
             run_dir = tmp_path / "candidate_noop"
             _line_candidate(run_dir, edits=[], expected_effect="none")
 
-            exit_code = _materialize(tmp_path, run_dir, source_root)
+            exit_code = _materialize(tmp_path, run_dir, base_source_root)
 
             self.assertEqual(exit_code, 0)
             materialization = _read_materialization(run_dir)
@@ -904,7 +868,7 @@ class MaterializeCandidateLineRangeEditsTests(unittest.TestCase):
         workspace_parent.mkdir(exist_ok=True)
         with tempfile.TemporaryDirectory(dir=workspace_parent) as tmpdir:
             base_source_root = Path(tmpdir) / "current_best_source"
-            _write_source(base_source_root / "cpp", "int value = 1;\n")
+            _write_source(base_source_root, "int value = 1;\n")
             run_dir = Path(tmpdir) / "candidate_portable_paths"
             _line_candidate(
                 run_dir,
@@ -944,8 +908,8 @@ class MaterializeCandidateLineRangeEditsTests(unittest.TestCase):
         workspace_parent.mkdir(exist_ok=True)
         with tempfile.TemporaryDirectory(dir=workspace_parent) as tmpdir:
             tmp_path = Path(tmpdir)
-            base_source_root = tmp_path / "current_best_source"
-            _write_source(base_source_root / "cpp", "int value = 1;\n")
+            base_source_root = _source_dir(tmp_path) / "current_best_source"
+            _write_source(base_source_root, "int value = 1;\n")
             run_dir = tmp_path / "candidate_relative_portable_paths"
             _line_candidate(
                 run_dir,

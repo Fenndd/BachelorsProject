@@ -27,39 +27,6 @@ target_include_directories(lambdatwist_baseline
         "${EIGEN3_INCLUDE_DIR}"
 )
 
-# Shared fixed sample data for project-owned baseline executables.
-add_library(baseline_sample_data STATIC
-    "${CMAKE_CURRENT_SOURCE_DIR}/src/baseline_sample_data.cpp"
-)
-
-target_include_directories(baseline_sample_data
-    PUBLIC
-        "${CMAKE_CURRENT_SOURCE_DIR}/include"
-        "${EIGEN3_INCLUDE_DIR}"
-)
-
-# Minimal project-owned executable wired to the imported baseline library.
-add_executable(baseline_runner
-    "${CMAKE_CURRENT_SOURCE_DIR}/src/baseline_runner.cpp"
-)
-
-target_link_libraries(baseline_runner
-    PRIVATE
-        baseline_sample_data
-        lambdatwist_baseline
-)
-
-# Minimal project-owned benchmark for the imported baseline solver.
-add_executable(baseline_benchmark
-    "${CMAKE_CURRENT_SOURCE_DIR}/bench/baseline_benchmark.cpp"
-)
-
-target_link_libraries(baseline_benchmark
-    PRIVATE
-        baseline_sample_data
-        lambdatwist_baseline
-)
-
 # Project-owned absolute pose benchmark family infrastructure.
 set(ABSOLUTE_POSE_SOLVERS_DIR
     "${CMAKE_CURRENT_SOURCE_DIR}/bench/families/geometric_pose_solvers/absolute_pose_solvers"

@@ -30,10 +30,8 @@ def _step(name: str, status: str) -> dict[str, object]:
 def _successful_steps() -> list[dict[str, object]]:
     return [
         _step("configure_cmake", "success"),
-        _step("build_baseline_runner", "success"),
         _step("build_absolute_pose_lambdatwist_adapter_validator", "success"),
         _step("build_absolute_pose_lambdatwist_benchmark", "success"),
-        _step("run_baseline_runner", "success"),
         _step("run_absolute_pose_lambdatwist_adapter_validator", "success"),
         _step("run_absolute_pose_lambdatwist_benchmark", "success"),
     ]
@@ -192,7 +190,6 @@ class BaselineParsePolicyTests(unittest.TestCase):
     def test_prior_benchmark_failure_skips_parse_step(self) -> None:
         steps = [
             _step("configure_cmake", "success"),
-            _step("build_baseline_runner", "success"),
             _step("build_absolute_pose_lambdatwist_adapter_validator", "success"),
             _step("build_absolute_pose_lambdatwist_benchmark", "failed"),
         ]

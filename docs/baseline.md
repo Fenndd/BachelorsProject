@@ -7,31 +7,25 @@ The current baseline is the imported Lambda Twist P3P solver wired into project-
 ## Code Ownership and Locations
 
 - External third-party baseline code: `cpp/external/lambdatwist/`
-- Project-owned runnable baseline entry point: `cpp/src/baseline_runner.cpp`
-- Old compatibility benchmark: `cpp/bench/baseline_benchmark.cpp`
 - New absolute-pose family benchmark: `cpp/bench/families/geometric_pose_solvers/absolute_pose_solvers/`
-- Project-owned shared fixed input case: `cpp/include/baseline_sample_data.h` and `cpp/src/baseline_sample_data.cpp`
 
 The external Lambda Twist code remains third-party source and is kept separate from project-owned code.
 
 ## Established Targets
 
 - `lambdatwist_baseline` (static library target)
-- `baseline_runner` (project-owned executable target linked against `lambdatwist_baseline`)
-- `baseline_benchmark` (old minimal benchmark target; kept building for compatibility)
 - `absolute_pose_lambdatwist_adapter_validator` (adapter validation gate for Lambda Twist P3P)
 - `absolute_pose_lambdatwist_benchmark` (new absolute-pose family benchmark executable)
 - `absolute_pose_correctness_policy_test` (unit test for `correctness_policy_passed` helper)
 
 ## Baseline CLI Flow
 
-The standard baseline CLI now configures CMake, builds the runner, adapter validator, and family benchmark, runs them, then parses the family benchmark output as an explicit internal step:
+The standard baseline CLI now configures CMake, builds the adapter validator and family benchmark, runs them, then parses the family benchmark output as an explicit internal step:
 
-1. `baseline_runner`
-2. `absolute_pose_lambdatwist_adapter_validator`
-3. `absolute_pose_lambdatwist_benchmark`
-4. `parse_absolute_pose_lambdatwist_benchmark`
-5. `benchmark_correctness_check`
+1. `absolute_pose_lambdatwist_adapter_validator`
+2. `absolute_pose_lambdatwist_benchmark`
+3. `parse_absolute_pose_lambdatwist_benchmark`
+4. `benchmark_correctness_check`
 
 The adapter validator runs before the family benchmark. If validation fails, the family benchmark run and parse steps are skipped. If the family benchmark build fails, `failed_step` remains `build_absolute_pose_lambdatwist_benchmark`. If the family benchmark run fails, `failed_step` remains `run_absolute_pose_lambdatwist_benchmark`. The parse step fails only when benchmark execution completed successfully but stdout could not be parsed into the required structured metrics.
 

@@ -80,3 +80,30 @@ def test_provider_and_model_are_extracted_from_llm_config(tmp_path: Path) -> Non
     assert summary.status == "ok"
     assert summary.providers == ["deepseek"]
     assert summary.models == ["deepseek-test"]
+
+
+def test_old_top_level_config_no_variants_returns_invalid_without_fallback(tmp_path: Path) -> None:
+    (tmp_path / ".git").mkdir()
+    config_dir = tmp_path / "configs" / "experiments"
+    config_dir.mkdir(parents=True)
+    llm_config = tmp_path / "configs" / "llm_old.json"
+    llm_config.write_text('{"provider": "old", "model": "old-model"}\n', encoding="utf-8")
+    old_config = config_dir / "old_top_level.json"
+    old_config.write_text(
+        """{
+  "experiment_name": "old_style",
+  "target_file": "cpp/external/lambdatwist/p3p.cc",
+  "llm_config": "configs/llm_old.json",
+  "iterations": 5
+}
+""",
+        encoding="utf-8",
+    )
+
+    summary = read_experiment_config_summary(old_config)
+
+    assert summary.status == "invalid"
+    assert summary.variants_count is None
+    assert summary.total_iterations is None
+    assert summary.providers == []
+    assert summary.models == []
