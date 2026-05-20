@@ -471,8 +471,9 @@ def test_collect_report_data_includes_process_metadata(tmp_path: Path) -> None:
     assert iteration.diff_stats.edit_count == 1
     assert report_data.experiment_metadata is not None
     assert report_data.experiment_metadata.repository["git_branch"] == "reportUpdatev2v3"
-    assert report_data.final_best_candidate.diff_stats is not None
-    assert report_data.final_best_candidate.diff_stats.files_changed == 1
+    final_best = report_data.final_best_candidate
+    assert final_best.diff_stats is not None
+    assert final_best.diff_stats.files_changed == 1
 
 
 def test_missing_optional_candidate_artifacts_do_not_fail(tmp_path: Path) -> None:
@@ -784,12 +785,6 @@ def test_a_collector_fills_config_and_llm_fields(tmp_path: Path) -> None:
         {
             "experiment_name": "My Experiment",
             "target_file": TARGET_FILE,
-            "candidate_format": {
-                "type": "line_range_edits",
-                "source_presentation": "line_numbered",
-                "require_original_verification": True,
-                "allow_exact_search_fallback": False,
-            },
             "baseline_run_dir": "results/runs/baseline",
             "variants": [
                 {
@@ -819,8 +814,6 @@ def test_a_collector_fills_config_and_llm_fields(tmp_path: Path) -> None:
 
     assert report_data.experiment.experiment_name == "My Experiment"
     assert report_data.experiment.model == "deepseek-v4-pro"
-    assert report_data.experiment.candidate_format == "line_range_edits"
-    assert report_data.experiment.source_presentation == "line_numbered"
     assert report_data.llm.provider == "deepseek"
     assert report_data.llm.model == "deepseek-v4-pro"
     assert report_data.llm.thinking_enabled is True

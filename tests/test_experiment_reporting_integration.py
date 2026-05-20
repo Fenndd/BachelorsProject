@@ -66,12 +66,6 @@ def _base_config_payload(
         "target_file": TARGET_FILE,
         "baseline_run_dir": str(root / "results" / "runs" / "baseline"),
         "candidate_generation": {"max_source_chars": 1000},
-        "candidate_format": {
-            "type": "line_range_edits",
-            "source_presentation": "line_numbered",
-            "require_original_verification": True,
-            "allow_exact_search_fallback": True,
-        },
         "variants": [
             {
                 "variant_id": "default",
@@ -159,7 +153,6 @@ def _patch_noop_closed_loop_stage(monkeypatch: pytest.MonkeyPatch, root: Path) -
         _write_json(
             candidate_dir / "candidate.json",
             {
-                "candidate_type": "line_range_edits",
                 "summary": "no-op candidate",
                 "rationale": "test",
                 "risk_level": "low",

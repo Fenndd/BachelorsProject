@@ -132,8 +132,6 @@ def _experiment_summary_panel(config_path: Path) -> Panel:
             f"Target: {summary.target_file or 'unknown'}",
             f"Baseline: {summary.baseline_run_dir or 'unknown'}",
             f"Iterations: {summary.total_iterations if summary.total_iterations is not None else 'unknown'}",
-            f"Candidate format: {summary.candidate_format or 'unknown'}",
-            f"Source presentation: {summary.source_presentation or 'unknown'}",
             "Mode: closed-loop optimization",
             f"Reporting: {_format_bool(summary.reporting_enabled)}",
             f"Providers: {_format_list(summary.providers)}",
@@ -399,7 +397,6 @@ def experiment_list() -> None:
     table.add_column("Experiment name")
     table.add_column("Baseline")
     table.add_column("Iterations")
-    table.add_column("Candidate format")
     table.add_column("Reporting")
     table.add_column("Provider/model")
     table.add_column("Status")
@@ -415,7 +412,6 @@ def experiment_list() -> None:
                 summary.name,
                 summary.baseline_run_dir or "unknown",
                 str(summary.total_iterations) if summary.total_iterations is not None else "unknown",
-                summary.candidate_format or "unknown",
                 _format_bool(summary.reporting_enabled),
                 f"{providers} / {models}",
                 status,
@@ -425,7 +421,6 @@ def experiment_list() -> None:
         table.add_row(
             "none",
             f"No JSON configs found under {_display_path(paths.experiments_config)}",
-            "unknown",
             "unknown",
             "unknown",
             "missing",

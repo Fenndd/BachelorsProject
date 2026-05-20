@@ -47,7 +47,7 @@ Data source rules:
 - Candidate benchmark verification metrics are loaded from `verification.json`.
 - Verified-candidate reference metrics are loaded from `verification.json`.
 - Selection consumes verified benchmark artifacts and is independent of raw LLM candidate format.
-- It works for both `unified_diff` and `line_range_edits` candidates as long as `verification.json` exists.
+- It works for generated candidates as long as `verification.json` exists.
 
 ## 4. Required benchmark fields
 

@@ -38,28 +38,15 @@ The main orchestration components are:
 
 Experiment runs use `workspace/` for isolated source copies and `results/` for persistent outputs. The main `cpp/` source tree is not modified by candidate materialization or closed-loop current-best promotion.
 
-## Candidate Edit Format Layer
+## Candidate Edit Layer
 
-The system does not assume every LLM candidate is a raw unified diff. Candidate format is selected through experiment config using `candidate_format`.
+The system uses one fixed LLM candidate representation: line-range edits. This is infrastructure behavior, not an experiment config option.
 
-### `unified_diff`
-
-- `schema_version`: `1.0`
-- Legacy/fallback format.
-- The LLM returns a `unified_diff` string.
-- `generate_candidate` writes `candidate.diff`.
-- The materializer applies the patch with `git apply`.
-- If normal hunk-count validation fails, the materializer can try `git apply --recount` and records whether the recount fallback was used.
-
-### `line_range_edits`
-
-- `schema_version`: `1.1`
-- Preferred robust format for full-cycle LLM experiments.
-- The LLM receives `line_numbered` source.
+- The LLM receives source with 1-based line numbers.
 - The LLM returns `edits[]` with `file`, `start_line`, `end_line`, `original`, and `replace`.
 - `original` is source text only and must not include line-number prefixes.
 - The materializer verifies the actual source text at the requested line range before applying.
-- If enabled, an exact-search fallback may be used only when the `original` text occurs exactly once.
+- An internal exact-search fallback may be used only when the `original` text occurs exactly once.
 - The system writes `candidate.generated.diff` after deterministic materialization.
 - The main `cpp/` source tree is never modified.
 
@@ -67,10 +54,7 @@ See `docs/candidate_edit_formats.md` for the dedicated format reference.
 
 ## Scope and Verification
 
-Configured experiments pass `optimization_scope.allowed_files` to candidate generation and materialization. The materializer enforces candidate `target_files` plus format-specific changed-file paths against that allowlist:
-
-- `unified_diff`: diff header paths are checked.
-- `line_range_edits`: `edits[].file` paths are checked.
+Configured experiments pass `optimization_scope.allowed_files` to candidate generation and materialization. The materializer enforces candidate `target_files` and `edits[].file` paths against that allowlist.
 
 Verification produces `verification.json` using the same absolute-pose benchmark family as the baseline. Verification does not compare against a reference; decisions and selection are separate stages that consume verified artifacts.
 

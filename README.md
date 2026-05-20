@@ -13,7 +13,7 @@ Implemented now:
 - Baseline automation through `orchestrator/cli/main.py`.
 - Absolute-pose benchmark family for Lambda Twist P3P, including adapter validation and parsed benchmark metrics.
 - LLM candidate generation through `orchestrator.llm.generate_candidate`.
-- Candidate edit formats for `unified_diff` and `line_range_edits`.
+- A single line-range edit schema for LLM-generated candidates.
 - Candidate materialization and verification in isolated workspaces.
 - Pairwise candidate decision for closed-loop promotion and reporting.
 - Closed-loop iterative optimization in the experiment runner with experiment-local `current_best_source`.
@@ -131,15 +131,7 @@ The existing baseline entry point remains `orchestrator/cli/main.py`, and the ne
 
 ## LLM Candidate Generation and Candidate Edit Formats
 
-LLM candidate generation is implemented by `orchestrator.llm.generate_candidate`. It supports two candidate formats selected with `--candidate-type` and experiment `candidate_format.type`.
-
-### `unified_diff`
-
-`unified_diff` is the legacy/fallback format. The LLM receives plain source and returns a `unified_diff` string. Generation writes `candidate.diff`; materialization applies it with `git apply` and can use a `git apply --recount` fallback for malformed hunk counts.
-
-### `line_range_edits`
-
-`line_range_edits` is the preferred robust format for full-cycle LLM experiments. The LLM receives `line_numbered` source and returns structured `edits[]` entries with `file`, `start_line`, `end_line`, `original`, and `replace`. Generation writes `candidate.edits.json`; materialization applies the edits deterministically and writes the system-generated `candidate.generated.diff`.
+LLM candidate generation is implemented by `orchestrator.llm.generate_candidate`. The LLM receives line-numbered source and returns structured `edits[]` entries with `file`, `start_line`, `end_line`, `original`, and `replace`. Generation writes `candidate.json` and `candidate.edits.json`; materialization applies the edits deterministically and writes the system-generated `candidate.generated.diff`.
 
 See `docs/candidate_edit_formats.md` for details.
 
@@ -149,8 +141,7 @@ Materialization runs only inside `workspace/candidates/<candidate_run_id>/`.
 
 The materializer enforces `optimization_scope.allowed_files` from experiment configs:
 
-- `unified_diff`: candidate `target_files` and diff header paths must remain allowed.
-- `line_range_edits`: candidate `target_files` and `edits[].file` must remain allowed.
+- Candidate `target_files` and `edits[].file` must remain allowed.
 
 Verification configures/builds/runs inside the isolated candidate workspace and writes `verification.json`. It does not call an LLM and does not modify the main `cpp/` source tree.
 

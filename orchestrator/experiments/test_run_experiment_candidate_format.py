@@ -1,4 +1,4 @@
-"""Tests for experiment-runner candidate format command wiring."""
+"""Tests for experiment-runner command wiring after format cleanup."""
 
 from __future__ import annotations
 
@@ -15,9 +15,9 @@ from orchestrator.experiments.run_experiment import (
 )
 
 
-def _base_config_payload(candidate_format: dict[str, Any] | None = None) -> dict[str, Any]:
-    payload: dict[str, Any] = {
-        "experiment_name": "candidate format command test",
+def _base_config_payload() -> dict[str, Any]:
+    return {
+        "experiment_name": "candidate command test",
         "target_file": "cpp/external/lambdatwist/p3p.cc",
         "baseline_run_dir": "results/runs/baseline",
         "candidate_generation": {"max_source_chars": 1000},
@@ -29,51 +29,26 @@ def _base_config_payload(candidate_format: dict[str, Any] | None = None) -> dict
             }
         ],
     }
-    if candidate_format is not None:
-        payload["candidate_format"] = candidate_format
-    return payload
 
 
-def _write_config(root: Path, candidate_format: dict[str, Any] | None = None) -> Path:
+def _write_config(root: Path, payload: dict[str, Any] | None = None) -> Path:
     config_path = root / "experiment_config.json"
     config_path.write_text(
-        json.dumps(_base_config_payload(candidate_format), indent=2, ensure_ascii=False) + "\n",
+        json.dumps(payload or _base_config_payload(), indent=2, ensure_ascii=False) + "\n",
         encoding="utf-8",
     )
     return config_path
 
 
 class RunExperimentCandidateFormatTests(unittest.TestCase):
-    def test_default_generation_command_passes_unified_diff_plain(self) -> None:
+    def test_generation_command_does_not_pass_format_flags(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             config = load_experiment_config(_write_config(Path(tmpdir)))
 
         command = _build_generation_command(config, "llm.json", None)
 
-        self.assertEqual(command[command.index("--candidate-type") + 1], "unified_diff")
-        self.assertEqual(command[command.index("--source-presentation") + 1], "plain")
-
-    def test_line_range_generation_command_passes_configured_format(self) -> None:
-        with tempfile.TemporaryDirectory() as tmpdir:
-            config = load_experiment_config(
-                _write_config(
-                    Path(tmpdir),
-                    {
-                        "type": "line_range_edits",
-                        "source_presentation": "line_numbered",
-                        "require_original_verification": True,
-                        "allow_exact_search_fallback": True,
-                    },
-                )
-            )
-
-        command = _build_generation_command(config, "llm.json", None)
-
-        self.assertEqual(command[command.index("--candidate-type") + 1], "line_range_edits")
-        self.assertEqual(
-            command[command.index("--source-presentation") + 1],
-            "line_numbered",
-        )
+        self.assertNotIn("--candidate-type", command)
+        self.assertNotIn("--source-presentation", command)
 
     def test_generation_command_can_pass_optional_source_root(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -91,7 +66,7 @@ class RunExperimentCandidateFormatTests(unittest.TestCase):
             "workspace/experiments/exp_001/current_best_source",
         )
 
-    def test_materialization_command_can_pass_optional_base_source_root(self) -> None:
+    def test_materialization_command_does_not_pass_format_fallback_flags(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             config = load_experiment_config(_write_config(Path(tmpdir)))
 
@@ -105,6 +80,8 @@ class RunExperimentCandidateFormatTests(unittest.TestCase):
             command[command.index("--base-source-root") + 1],
             "workspace/experiments/exp_001/current_best_source",
         )
+        self.assertNotIn("--allow-exact-search" + "-fallback", command)
+        self.assertNotIn("--no-allow-exact-search" + "-fallback", command)
 
 
 if __name__ == "__main__":

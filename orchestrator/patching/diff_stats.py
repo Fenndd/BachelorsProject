@@ -1,12 +1,12 @@
-"""Small unified-diff statistics helper for reporting artifacts."""
+"""Small generated-diff statistics helper for reporting artifacts."""
 
 from __future__ import annotations
 
 from typing import Any
 
 
-def parse_unified_diff_stats(diff_text: str) -> dict[str, Any]:
-    """Return compact statistics for unified diff text."""
+def parse_diff_stats(diff_text: str) -> dict[str, Any]:
+    """Return compact statistics for generated diff text."""
 
     files: set[str] = set()
     pending_old_path: str | None = None
@@ -54,4 +54,4 @@ def _strip_diff_prefix(path_text: str) -> str:
     return path_text
 
 
-__all__ = ["parse_unified_diff_stats"]
+__all__ = ["parse_diff_stats"]

@@ -50,8 +50,6 @@ def _format_summary(summary: ExperimentConfigSummary | None) -> str:
             f"Target: {summary.target_file or 'unknown'}",
             f"Baseline: {summary.baseline_run_dir or 'unknown'}",
             f"Iterations: {summary.total_iterations if summary.total_iterations is not None else 'unknown'}",
-            f"Candidate format: {summary.candidate_format or 'unknown'}",
-            f"Source presentation: {summary.source_presentation or 'unknown'}",
             "Mode: closed-loop optimization",
             f"Reporting: {_format_bool(summary.reporting_enabled)}",
             f"Providers: {_format_list(summary.providers)}",

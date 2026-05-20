@@ -121,12 +121,6 @@ def collect_report_data(
             ),
             target_file=_string_or_default(summary.get("target_file")),
             model=llm_info.model,
-            candidate_format=_string_or_none(
-                _nested_get(config_snapshot, "candidate_format", "type")
-            ),
-            source_presentation=_string_or_none(
-                _nested_get(config_snapshot, "candidate_format", "source_presentation")
-            ),
             total_iterations=_int_or_default(summary.get("total_iterations")),
             completed_iterations=_int_or_default(summary.get("completed_iterations")),
             experiment_mode="closed_loop",
@@ -340,7 +334,6 @@ def _build_experiment_config_details(
     if not config_snapshot:
         return ReportExperimentConfigDetails()
 
-    cf = config_snapshot.get("candidate_format") or {}
     sel = config_snapshot.get("selection") or {}
     scope = config_snapshot.get("optimization_scope") or {}
     rep = config_snapshot.get("reporting") or {}
@@ -357,14 +350,6 @@ def _build_experiment_config_details(
     return ReportExperimentConfigDetails(
         description=_string_or_none(config_snapshot.get("description")),
         candidate_generation_max_source_chars=_int_or_none(cg.get("max_source_chars")),
-        candidate_format_type=_string_or_none(cf.get("type")),
-        source_presentation=_string_or_none(cf.get("source_presentation")),
-        require_original_verification=_bool_or_none(
-            cf.get("require_original_verification")
-        ),
-        allow_exact_search_fallback=_bool_or_none(
-            cf.get("allow_exact_search_fallback")
-        ),
         baseline_run_dir=_display_path(baseline_run_dir, experiment_path)
         if baseline_run_dir
         else None,

@@ -64,8 +64,6 @@ def _line_candidate(
     (run_dir / "candidate.json").write_text(
         json.dumps(
             {
-                "schema_version": "1.1",
-                "candidate_type": "line_range_edits",
                 "summary": "test line range candidate",
                 "target_files": target_files or [TARGET_FILE],
                 "expected_effect": expected_effect,
@@ -74,21 +72,6 @@ def _line_candidate(
         ),
         encoding="utf-8",
     )
-
-
-def _unified_diff_candidate(run_dir: Path, diff_text: str) -> None:
-    run_dir.mkdir(parents=True, exist_ok=True)
-    (run_dir / "candidate.json").write_text(
-        json.dumps(
-            {
-                "summary": "legacy unified diff candidate",
-                "target_files": [TARGET_FILE],
-                "expected_effect": "runtime",
-            }
-        ),
-        encoding="utf-8",
-    )
-    (run_dir / "candidate.diff").write_text(diff_text, encoding="utf-8")
 
 
 def _materialize(
@@ -109,11 +92,6 @@ def _materialize(
             "--allowed-file",
             TARGET_FILE,
         ]
-    args.append(
-        "--allow-exact-search-fallback"
-        if allow_exact_search_fallback
-        else "--no-allow-exact-search-fallback"
-    )
     return materialize_main(args)
 
 
@@ -155,7 +133,6 @@ class MaterializeCandidateLineRangeEditsTests(unittest.TestCase):
             self.assertEqual(exit_code, 0)
             materialization = _read_materialization(run_dir)
             self.assertEqual(materialization["overall_status"], "success")
-            self.assertEqual(materialization["candidate_type"], "line_range_edits")
             self.assertEqual(materialization["patch_apply_strategy"], "line_range_edits")
             self.assertEqual(materialization["source_root"], str(source_root))
             self.assertEqual(materialization["base_source_root"], str(source_root.resolve()))
@@ -171,7 +148,6 @@ class MaterializeCandidateLineRangeEditsTests(unittest.TestCase):
             self.assertEqual((source_root / "example.cpp").read_text(encoding="utf-8"), "int value = 1;\n")
             self.assertEqual((REPO_ROOT / P3P_TARGET_FILE).read_text(encoding="utf-8"), repo_text_before)
             self.assertTrue((run_dir / "candidate.generated.diff").exists())
-            self.assertFalse((run_dir / "candidate.diff").exists())
             self.assertEqual(
                 materialization["diff_stats"],
                 {
@@ -741,7 +717,7 @@ class MaterializeCandidateLineRangeEditsTests(unittest.TestCase):
             self.assertFalse(result["line_range_valid"])
             self.assertEqual(result["fallback_match_count"], 1)
 
-    def test_line_range_mismatch_cli_fallback_disabled_fails(self) -> None:
+    def test_line_range_mismatch_uses_internal_exact_search_fallback(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             tmp_path = Path(tmpdir)
             source_root = tmp_path / "cpp"
@@ -760,22 +736,15 @@ class MaterializeCandidateLineRangeEditsTests(unittest.TestCase):
                 ],
             )
 
-            exit_code = _materialize(
-                tmp_path,
-                run_dir,
-                source_root,
-                allow_exact_search_fallback=False,
-            )
+            exit_code = _materialize(tmp_path, run_dir, source_root)
 
-            self.assertEqual(exit_code, 1)
+            self.assertEqual(exit_code, 0)
             materialization = _read_materialization(run_dir)
-            self.assertEqual(materialization["overall_status"], "failed")
-            self.assertEqual(materialization["failed_step"], "line_range_apply")
-            self.assertFalse(materialization["line_range_allow_exact_search_fallback"])
-            self.assertIn("fallback is disabled", materialization["error_message"])
-            failed = materialization["line_range_edit_results"][0]
-            self.assertEqual(failed["status"], "failed")
-            self.assertEqual(failed["failure_reason"], "fallback_not_allowed")
+            self.assertEqual(materialization["overall_status"], "success")
+            self.assertTrue(materialization["line_range_allow_exact_search_fallback"])
+            result = materialization["line_range_edit_results"][0]
+            self.assertEqual(result["status"], "success")
+            self.assertEqual(result["method"], "exact_search_fallback")
 
     def test_fallback_ambiguous_failure(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -912,7 +881,7 @@ class MaterializeCandidateLineRangeEditsTests(unittest.TestCase):
 
             self.assertEqual(exit_code, 1)
             materialization = _read_materialization(run_dir)
-            self.assertEqual(materialization["failed_step"], "validate_patch_scope")
+            self.assertEqual(materialization["failed_step"], "validate_candidate_scope")
             self.assertIn("not listed", materialization["error_message"])
 
     def test_line_range_noop_skipped_without_candidate_diff(self) -> None:
@@ -928,9 +897,7 @@ class MaterializeCandidateLineRangeEditsTests(unittest.TestCase):
             self.assertEqual(exit_code, 0)
             materialization = _read_materialization(run_dir)
             self.assertEqual(materialization["overall_status"], "skipped")
-            self.assertEqual(materialization["candidate_type"], "line_range_edits")
             self.assertEqual(materialization["patch_apply_strategy"], "not_run")
-            self.assertFalse((run_dir / "candidate.diff").exists())
 
     def test_repo_internal_base_source_root_paths_are_portable_in_materialization(self) -> None:
         workspace_parent = REPO_ROOT / "workspace"
@@ -1015,33 +982,6 @@ class MaterializeCandidateLineRangeEditsTests(unittest.TestCase):
             self.assertFalse(Path(materialization["source_root"]).is_absolute())
             self.assertFalse(Path(materialization["base_source_root"]).is_absolute())
             self.assertNotIn(str(base_source_root.resolve()), json.dumps(materialization))
-
-    def test_legacy_unified_diff_still_works(self) -> None:
-        diff_text = "\n".join(
-            [
-                "--- a/cpp/example.cpp",
-                "+++ b/cpp/example.cpp",
-                "@@ -1 +1 @@",
-                "-int value = 1;",
-                "+int value = 2;",
-                "",
-            ]
-        )
-        with tempfile.TemporaryDirectory() as tmpdir:
-            tmp_path = Path(tmpdir)
-            source_root = tmp_path / "cpp"
-            _write_source(source_root, "int value = 1;\n")
-            run_dir = tmp_path / "candidate_unified"
-            _unified_diff_candidate(run_dir, diff_text)
-
-            exit_code = _materialize(tmp_path, run_dir, source_root)
-
-            self.assertEqual(exit_code, 0)
-            materialization = _read_materialization(run_dir)
-            self.assertEqual(materialization["candidate_type"], "unified_diff")
-            self.assertEqual(materialization["patch_apply_strategy"], "git_apply")
-            self.assertIn(TARGET_FILE, materialization["changed_files"])
-
 
 if __name__ == "__main__":
     unittest.main()

@@ -26,8 +26,6 @@ class ExperimentConfigSummary:
     target_file: str | None
     variants_count: int | None
     total_iterations: int | None
-    candidate_format: str | None
-    source_presentation: str | None
     baseline_run_dir: str | None
     reporting_enabled: bool | None
     providers: list[str]
@@ -117,18 +115,6 @@ def _summary_from_payload(
     else:
         total_iterations = payload.get("iterations") if isinstance(payload.get("iterations"), int) else None
 
-    candidate_format = payload.get("candidate_format")
-    if isinstance(candidate_format, dict):
-        format_type = candidate_format.get("type") if isinstance(candidate_format.get("type"), str) else None
-        source_presentation = (
-            candidate_format.get("source_presentation")
-            if isinstance(candidate_format.get("source_presentation"), str)
-            else None
-        )
-    else:
-        format_type = "unified_diff"
-        source_presentation = "plain"
-
     reporting = payload.get("reporting")
     providers, models = _provider_models_from_payload(payload, path)
     return ExperimentConfigSummary(
@@ -138,8 +124,6 @@ def _summary_from_payload(
         target_file=payload.get("target_file") if isinstance(payload.get("target_file"), str) else None,
         variants_count=variants_count,
         total_iterations=total_iterations,
-        candidate_format=format_type,
-        source_presentation=source_presentation,
         baseline_run_dir=payload.get("baseline_run_dir") if isinstance(payload.get("baseline_run_dir"), str) else None,
         reporting_enabled=reporting.get("enabled") if isinstance(reporting, dict) and isinstance(reporting.get("enabled"), bool) else False,
         providers=providers,
@@ -162,8 +146,6 @@ def read_experiment_config_summary(path: Path) -> ExperimentConfigSummary:
             target_file=config.target_file,
             variants_count=len(config.variants),
             total_iterations=sum(variant.iterations for variant in config.variants),
-            candidate_format=config.candidate_format.type,
-            source_presentation=config.candidate_format.source_presentation,
             baseline_run_dir=config.baseline_run_dir,
             reporting_enabled=config.reporting.enabled,
             providers=providers,
@@ -182,8 +164,6 @@ def read_experiment_config_summary(path: Path) -> ExperimentConfigSummary:
                 target_file=None,
                 variants_count=None,
                 total_iterations=None,
-                candidate_format=None,
-                source_presentation=None,
                 baseline_run_dir=None,
                 reporting_enabled=None,
                 providers=[],

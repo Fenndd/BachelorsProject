@@ -23,14 +23,6 @@ class CandidateGenerationConfig:
 
 
 @dataclass(frozen=True)
-class CandidateFormatConfig:
-    type: str
-    source_presentation: str
-    require_original_verification: bool
-    allow_exact_search_fallback: bool
-
-
-@dataclass(frozen=True)
 class ReportingConfig:
     enabled: bool = False
     formats: list[str] = field(default_factory=lambda: ["html", "pdf"])
@@ -68,7 +60,6 @@ class ExperimentConfig:
     target_file: str
     baseline_run_dir: str
     candidate_generation: CandidateGenerationConfig
-    candidate_format: CandidateFormatConfig
     optimization_scope: OptimizationScopeConfig
     variants: list[ExperimentVariantConfig]
     reporting: ReportingConfig = field(default_factory=ReportingConfig)
@@ -111,7 +102,6 @@ def load_experiment_config(path: Path | str) -> ExperimentConfig:
         target_file=target_file,
         baseline_run_dir=_required_non_empty_string(payload, "baseline_run_dir"),
         candidate_generation=_load_candidate_generation(payload),
-        candidate_format=_load_candidate_format(payload),
         reporting=reporting,
         optimization_scope=optimization_scope,
         variants=variants,
@@ -250,61 +240,6 @@ def _load_candidate_generation(payload: dict[str, Any]) -> CandidateGenerationCo
         max_source_chars=_required_positive_int(
             candidate_generation, "max_source_chars"
         )
-    )
-
-
-def _load_candidate_format(payload: dict[str, Any]) -> CandidateFormatConfig:
-    candidate_format = payload.get("candidate_format")
-    if candidate_format is None:
-        return CandidateFormatConfig(
-            type="unified_diff",
-            source_presentation="plain",
-            require_original_verification=True,
-            allow_exact_search_fallback=True,
-        )
-
-    if not isinstance(candidate_format, dict):
-        raise ExperimentConfigError("Field 'candidate_format' must be an object.")
-
-    format_type = _required_non_empty_string(candidate_format, "type")
-    if format_type not in {"unified_diff", "line_range_edits"}:
-        raise ExperimentConfigError(
-            "Field 'candidate_format.type' must be one of: "
-            "unified_diff, line_range_edits."
-        )
-
-    source_presentation = _required_non_empty_string(
-        candidate_format,
-        "source_presentation",
-    )
-    if source_presentation not in {"plain", "line_numbered"}:
-        raise ExperimentConfigError(
-            "Field 'candidate_format.source_presentation' must be one of: "
-            "plain, line_numbered."
-        )
-
-    if format_type == "unified_diff" and source_presentation != "plain":
-        raise ExperimentConfigError(
-            "candidate_format.type='unified_diff' requires "
-            "candidate_format.source_presentation='plain'."
-        )
-    if format_type == "line_range_edits" and source_presentation != "line_numbered":
-        raise ExperimentConfigError(
-            "candidate_format.type='line_range_edits' requires "
-            "candidate_format.source_presentation='line_numbered'."
-        )
-
-    return CandidateFormatConfig(
-        type=format_type,
-        source_presentation=source_presentation,
-        require_original_verification=_required_bool(
-            candidate_format,
-            "require_original_verification",
-        ),
-        allow_exact_search_fallback=_required_bool(
-            candidate_format,
-            "allow_exact_search_fallback",
-        ),
     )
 
 

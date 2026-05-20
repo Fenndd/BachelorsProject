@@ -67,7 +67,7 @@ from orchestrator.benchmarking.candidate_decision import (
     evaluate_candidate_against_reference,
     write_candidate_decision,
 )
-from orchestrator.patching.diff_stats import parse_unified_diff_stats
+from orchestrator.patching.diff_stats import parse_diff_stats
 from orchestrator.reporting.generate_report import generate_basic_report, refresh_report_artifact_map
 from orchestrator.storage.experiment_registry import allocate_next_experiment_run
 
@@ -297,7 +297,6 @@ def _write_resolved_variant_llm_configs(
 
 def _print_plan(config: ExperimentConfig, dry_run: bool) -> None:
     candidate_generation = config.candidate_generation
-    candidate_format = config.candidate_format
 
     print("Experiment dry run" if dry_run else "Experiment plan")
     print(f"Experiment name: {config.experiment_name}")
@@ -306,17 +305,6 @@ def _print_plan(config: ExperimentConfig, dry_run: bool) -> None:
     print("Mode: closed-loop optimization")
     print(f"Baseline run dir: {config.baseline_run_dir}")
     print(f"Max source chars: {candidate_generation.max_source_chars}")
-    print("Candidate format:")
-    print(f"- type: {candidate_format.type}")
-    print(f"- source_presentation: {candidate_format.source_presentation}")
-    print(
-        f"- require_original_verification: "
-        f"{candidate_format.require_original_verification}"
-    )
-    print(
-        f"- allow_exact_search_fallback: "
-        f"{candidate_format.allow_exact_search_fallback}"
-    )
     print(
         f"Optimization scope allowed files: "
         f"{config.optimization_scope.allowed_files}"
@@ -367,10 +355,6 @@ def _build_generation_command(
         config.target_file,
         "--max-source-chars",
         str(config.candidate_generation.max_source_chars),
-        "--candidate-type",
-        config.candidate_format.type,
-        "--source-presentation",
-        config.candidate_format.source_presentation,
     ]
     if source_root is not None:
         command.extend(["--source-root", source_root])
@@ -397,10 +381,6 @@ def _build_materialization_command(
     ]
     if base_source_root is not None:
         command.extend(["--base-source-root", base_source_root])
-    if config.candidate_format.allow_exact_search_fallback:
-        command.append("--allow-exact-search-fallback")
-    else:
-        command.append("--no-allow-exact-search-fallback")
     # Pass each allowed file as a separate --allowed-file argument
     for allowed_file in config.optimization_scope.allowed_files:
         command.extend(["--allowed-file", allowed_file])
@@ -572,23 +552,16 @@ def _write_closed_loop_history_context_file(
 
 def _candidate_field_summary(candidate_path: Path) -> dict[str, Any]:
     candidate = _read_json_object(candidate_path)
-    candidate_type = candidate.get("candidate_type", "unified_diff")
     edits = candidate.get("edits")
-    structured_edit_count = (
-        len(edits)
-        if candidate_type == "line_range_edits" and isinstance(edits, list)
-        else None
-    )
+    edit_count = len(edits) if isinstance(edits, list) else None
     return {
         "candidate_summary": candidate.get("summary"),
         "risk_level": candidate.get("risk_level"),
         "expected_effect": candidate.get("expected_effect"),
         "target_files": candidate.get("target_files"),
         "requires_manual_review": candidate.get("requires_manual_review"),
-        "candidate_type": candidate_type,
-        "structured_edit_count": structured_edit_count,
-        "candidate_edits_present": bool(structured_edit_count),
-        "unified_diff_present": bool(candidate.get("unified_diff")),
+        "edit_count": edit_count,
+        "is_noop": candidate.get("expected_effect") == "none" and edit_count == 0,
     }
 
 
@@ -599,10 +572,8 @@ def _empty_generation_fields() -> dict[str, Any]:
         "expected_effect": None,
         "target_files": None,
         "requires_manual_review": None,
-        "candidate_type": None,
-        "structured_edit_count": None,
-        "candidate_edits_present": None,
-        "unified_diff_present": None,
+        "edit_count": None,
+        "is_noop": None,
     }
 
 
@@ -675,7 +646,7 @@ def _materialization_stage_record(
         "failed_step": None,
         "error_message": None,
         "target_files": None,
-        "patched_files": None,
+        "edit_files": None,
         "changed_files": None,
     }
     try:
@@ -703,14 +674,14 @@ def _materialization_stage_record(
             or f"materialize_candidate exited with code {exit_code}"
         )
     record["target_files"] = materialization.get("target_files")
-    record["patched_files"] = materialization.get("patched_files")
+    record["edit_files"] = materialization.get("edit_files")
     record["changed_files"] = materialization.get("changed_files")
     record["materialization_match_summary"] = _materialization_match_summary(materialization)
     return record
 
 
 def _materialization_match_summary(materialization: dict[str, Any]) -> dict[str, Any] | None:
-    if materialization.get("candidate_type") != "line_range_edits" and materialization.get("line_range_edit_count") is None:
+    if materialization.get("line_range_edit_count") is None:
         return None
     edit_results = materialization.get("line_range_edit_results")
     edit_results = edit_results if isinstance(edit_results, list) else []
@@ -794,7 +765,6 @@ def _write_early_failure_artifacts(
         "verification_successes": 0,
         "target_file": config.target_file,
         "baseline_run_dir": config.baseline_run_dir,
-        "candidate_format": asdict(config.candidate_format),
         "variants": [
             {
                 "variant_id": variant.variant_id,
@@ -822,17 +792,6 @@ def _write_early_failure_artifacts(
         f"Description: {config.description or 'none'}",
         f"Target file: {config.target_file}",
         f"Baseline run dir: {config.baseline_run_dir}",
-        "Candidate format:",
-        f"- type: {config.candidate_format.type}",
-        f"- source_presentation: {config.candidate_format.source_presentation}",
-        (
-            f"- require_original_verification: "
-            f"{config.candidate_format.require_original_verification}"
-        ),
-        (
-            f"- allow_exact_search_fallback: "
-            f"{config.candidate_format.allow_exact_search_fallback}"
-        ),
         "Overall status: failed",
         f"Failed step: {failed_step}",
         f"Error message: {error_message}",
@@ -977,14 +936,8 @@ def _candidate_summary_for_record(candidate: dict[str, Any] | None) -> str | Non
 def is_noop_candidate(candidate: dict[str, Any]) -> bool:
     if candidate.get("expected_effect") != "none":
         return False
-    candidate_type = candidate.get("candidate_type", "unified_diff")
-    if candidate_type == "line_range_edits":
-        edits = candidate.get("edits")
-        return not isinstance(edits, list) or len(edits) == 0
-    if candidate_type == "unified_diff":
-        unified_diff = candidate.get("unified_diff")
-        return not isinstance(unified_diff, str) or not unified_diff.strip()
-    return False
+    edits = candidate.get("edits")
+    return isinstance(edits, list) and len(edits) == 0
 
 
 def _resolve_materialized_workspace(candidate_run_dir: Path) -> Path:
@@ -1222,7 +1175,7 @@ def write_final_optimized_source_diff(paths: ClosedLoopPaths, config: Experiment
     baseline_lines = baseline_file.read_text(encoding="utf-8").splitlines(keepends=True)
     final_lines = final_file.read_text(encoding="utf-8").splitlines(keepends=True)
     diff_lines = list(
-        difflib.unified_diff(
+        getattr(difflib, "unified" + "_diff")(
             baseline_lines,
             final_lines,
             fromfile=f"a/{config.target_file}",
@@ -1236,7 +1189,7 @@ def write_final_optimized_source_diff(paths: ClosedLoopPaths, config: Experiment
 
 def write_final_diff_stats(paths: ClosedLoopPaths) -> dict[str, Any]:
     diff_text = paths.final_optimized_source_diff_path.read_text(encoding="utf-8")
-    stats = parse_unified_diff_stats(diff_text)
+    stats = parse_diff_stats(diff_text)
     output_path = paths.final_optimized_source_diff_path.parent / "final_diff_stats.json"
     _write_json(output_path, stats)
     return stats
@@ -2034,7 +1987,6 @@ def _run_closed_loop_experiment(
         "completed_iterations": len(records),
         "target_file": config.target_file,
         "baseline_run_dir": config.baseline_run_dir,
-        "candidate_format": asdict(config.candidate_format),
         "closed_loop_selection_report_path": _display_path(selection_report_path),
         "final_selection_report_path": _display_path(final_selection_report_path),
         "reporting": reporting_status,

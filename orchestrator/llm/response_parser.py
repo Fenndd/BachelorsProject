@@ -8,10 +8,6 @@ from json import JSONDecodeError
 from typing import Any
 
 
-SCHEMA_VERSION_BY_CANDIDATE_TYPE = {
-    "unified_diff": "1.0",
-    "line_range_edits": "1.1",
-}
 ALLOWED_RISK_LEVELS = {"low", "medium", "high"}
 ALLOWED_EXPECTED_EFFECTS = {"runtime", "memory", "both", "none"}
 
@@ -31,15 +27,12 @@ class LineRangeEdit:
 class OptimizationCandidate:
     """Validated LLM optimization candidate."""
 
-    schema_version: str
-    candidate_type: str
     summary: str
     rationale: str
     risk_level: str
     expected_effect: str
     target_files: list[str]
     correctness_notes: str
-    unified_diff: str
     edits: list[LineRangeEdit]
     requires_manual_review: bool
 
@@ -47,33 +40,19 @@ class OptimizationCandidate:
 def parse_optimization_candidate(raw_content: str) -> OptimizationCandidate:
     """Parse and validate one optimization candidate JSON object."""
     payload = _parse_json_object(raw_content)
-    candidate_type = _validate_candidate_type(payload)
-    schema_version = _validate_schema_version(payload, candidate_type)
     expected_effect = _validate_enum(
         payload, "expected_effect", ALLOWED_EXPECTED_EFFECTS
     )
     target_files = _validate_string_list(payload, "target_files")
-    if candidate_type == "unified_diff":
-        unified_diff, edits = _parse_unified_diff_fields(payload, expected_effect)
-    elif candidate_type == "line_range_edits":
-        unified_diff, edits = _parse_line_range_edits_fields(
-            payload,
-            expected_effect,
-            target_files,
-        )
-    else:
-        raise ValueError(f"Unsupported candidate_type: {candidate_type}")
+    edits = _parse_line_range_edits_fields(payload, expected_effect, target_files)
 
     return OptimizationCandidate(
-        schema_version=schema_version,
-        candidate_type=candidate_type,
         summary=_validate_string(payload, "summary"),
         rationale=_validate_string(payload, "rationale"),
         risk_level=_validate_enum(payload, "risk_level", ALLOWED_RISK_LEVELS),
         expected_effect=expected_effect,
         target_files=target_files,
         correctness_notes=_validate_string(payload, "correctness_notes"),
-        unified_diff=unified_diff,
         edits=edits,
         requires_manual_review=_validate_bool(payload, "requires_manual_review"),
     )
@@ -163,34 +142,6 @@ def _validate_string(
     return value
 
 
-def _validate_literal(
-    payload: dict[str, Any], field_name: str, expected_value: str
-) -> str:
-    value = _validate_string(payload, field_name)
-    if value != expected_value:
-        raise ValueError(
-            f"Field '{field_name}' must be {expected_value!r}, got {value!r}."
-        )
-    return value
-
-
-def _validate_candidate_type(payload: dict[str, Any]) -> str:
-    candidate_type = _validate_string(payload, "candidate_type")
-    if candidate_type not in SCHEMA_VERSION_BY_CANDIDATE_TYPE:
-        raise ValueError(f"Unsupported candidate_type: {candidate_type}")
-    return candidate_type
-
-
-def _validate_schema_version(payload: dict[str, Any], candidate_type: str) -> str:
-    schema_version = _validate_string(payload, "schema_version")
-    expected_schema_version = SCHEMA_VERSION_BY_CANDIDATE_TYPE[candidate_type]
-    if schema_version != expected_schema_version:
-        raise ValueError(
-            f"schema_version must be {expected_schema_version!r} for {candidate_type}."
-        )
-    return schema_version
-
-
 def _validate_enum(
     payload: dict[str, Any], field_name: str, allowed_values: set[str]
 ) -> str:
@@ -251,30 +202,11 @@ def _validate_edit_positive_int(
     return _validate_positive_int_value(edit[key], field_name)
 
 
-def _parse_unified_diff_fields(
-    payload: dict[str, Any],
-    expected_effect: str,
-) -> tuple[str, list[LineRangeEdit]]:
-    if "edits" in payload:
-        raise ValueError("Field 'edits' is not allowed for unified_diff candidates.")
-    unified_diff = _validate_string(payload, "unified_diff", allow_empty=True)
-    _validate_unified_diff(expected_effect, unified_diff)
-    return unified_diff, []
-
-
 def _parse_line_range_edits_fields(
     payload: dict[str, Any],
     expected_effect: str,
     target_files: list[str],
-) -> tuple[str, list[LineRangeEdit]]:
-    unified_diff = payload.get("unified_diff", "")
-    if not isinstance(unified_diff, str):
-        raise ValueError("Field 'unified_diff' must be a string if present.")
-    if unified_diff:
-        raise ValueError(
-            "Field 'unified_diff' must be empty for line_range_edits candidates."
-        )
-
+) -> list[LineRangeEdit]:
     edits_value = _require_field(payload, "edits")
     if not isinstance(edits_value, list):
         raise ValueError("Field 'edits' must be a list.")
@@ -287,7 +219,7 @@ def _parse_line_range_edits_fields(
         _validate_line_range_edit(edit, index, target_files)
         for index, edit in enumerate(edits_value)
     ]
-    return "", edits
+    return edits
 
 
 def _validate_line_range_edit(
@@ -333,58 +265,25 @@ def _validate_line_range_edit(
     )
 
 
-def _validate_unified_diff(expected_effect: str, unified_diff: str) -> None:
-    diff = unified_diff.strip()
-    if expected_effect != "none" and not diff:
-        raise ValueError(
-            "Field 'unified_diff' must be non-empty when expected_effect is not 'none'."
-        )
-    if not diff:
-        return
-
-    lowered = diff.lower()
-    placeholder_markers = [
-        "1234567..abcdefg",
-        "abcdefg",
-        "fake hash",
-        "fake_hash",
-        "<hash",
-        "placeholder hash",
-    ]
-    for marker in placeholder_markers:
-        if marker in lowered:
-            raise ValueError(
-                "Field 'unified_diff' contains placeholder or fake diff metadata."
-            )
-
-    if "--- " not in diff or "+++ " not in diff:
-        raise ValueError(
-            "Field 'unified_diff' must contain both '--- ' and '+++ ' file headers."
-        )
-    if "@@" not in diff:
-        raise ValueError("Field 'unified_diff' must contain at least one '@@' hunk.")
-
-
 def main() -> int:
     """Run an offline parser smoke test with one hardcoded valid candidate."""
     sample = json.dumps(
         {
-            "schema_version": "1.0",
-            "candidate_type": "unified_diff",
             "summary": "Avoid repeated temporary allocation in a hot helper.",
             "rationale": "Reusing a local value may reduce per-call overhead.",
             "risk_level": "low",
             "expected_effect": "runtime",
             "target_files": ["cpp/src/example.cpp"],
             "correctness_notes": "The proposed change preserves arithmetic order.",
-            "unified_diff": (
-                "diff --git a/cpp/src/example.cpp b/cpp/src/example.cpp\n"
-                "--- a/cpp/src/example.cpp\n"
-                "+++ b/cpp/src/example.cpp\n"
-                "@@ -1,3 +1,3 @@\n"
-                "-double value = make_value();\n"
-                "+const double value = make_value();\n"
-            ),
+            "edits": [
+                {
+                    "file": "cpp/src/example.cpp",
+                    "start_line": 1,
+                    "end_line": 1,
+                    "original": "double value = make_value();",
+                    "replace": "const double value = make_value();",
+                }
+            ],
             "requires_manual_review": True,
         }
     )
@@ -393,7 +292,7 @@ def main() -> int:
     print(f"Parsed summary: {candidate.summary}")
     print(f"Target files: {', '.join(candidate.target_files)}")
     print(f"Risk level: {candidate.risk_level}")
-    print(f"Unified diff present: {bool(candidate.unified_diff)}")
+    print(f"Edit count: {len(candidate.edits)}")
     return 0
 
 

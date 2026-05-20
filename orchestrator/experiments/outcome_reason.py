@@ -200,9 +200,6 @@ def _materialization_reason(
     elif "no target file hash changed" in error_text or "no_files_changed" in error_text:
         code = CODE_NO_FILES_CHANGED
         message = "Candidate applied without changing any target file."
-    elif "git_apply" in failed_step or "git apply" in error_text:
-        code = CODE_DIFF_APPLY_FAILED
-        message = "Candidate diff could not be applied."
     return OutcomeReason(
         CATEGORY_MATERIALIZATION,
         code,
@@ -322,12 +319,8 @@ def _line_range_failure_reason(materialization: dict[str, Any]) -> str | None:
 
 
 def _candidate_edit_payload_empty(candidate: dict[str, Any]) -> bool:
-    candidate_type = candidate.get("candidate_type", "unified_diff")
-    if candidate_type == "line_range_edits":
-        edits = candidate.get("edits")
-        return isinstance(edits, list) and len(edits) == 0
-    diff_text = candidate.get("unified_diff")
-    return not isinstance(diff_text, str) or not diff_text.strip()
+    edits = candidate.get("edits")
+    return isinstance(edits, list) and len(edits) == 0
 
 
 def _benchmark_metrics_missing(verification: dict[str, Any]) -> bool:

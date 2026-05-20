@@ -456,8 +456,6 @@ def test_f_html_contains_enriched_fields(tmp_path: Path) -> None:
 
     report_data = make_empty_report_data("exp_001", TARGET_FILE)
     report_data.experiment.model = "deepseek-v4-pro"
-    report_data.experiment.candidate_format = "line_range_edits"
-    report_data.experiment.source_presentation = "line_numbered"
     report_data.experiment.benchmark_family = "absolute_pose_solvers"
     report_data.final_result = ReportFinalResult(
         final_best_iteration=1,
@@ -478,8 +476,6 @@ def test_f_html_contains_enriched_fields(tmp_path: Path) -> None:
         max_tokens=8192,
     )
     report_data.experiment_config_details = ReportExperimentConfigDetails(
-        candidate_format_type="line_range_edits",
-        source_presentation="line_numbered",
         baseline_run_dir="results/runs/baseline",
     )
     report_data.benchmark_config = ReportBenchmarkConfig(
@@ -528,8 +524,6 @@ def test_f_html_contains_enriched_fields(tmp_path: Path) -> None:
     html = html_path.read_text(encoding="utf-8")
 
     assert "deepseek-v4-pro" in html
-    assert "line_range_edits" in html
-    assert "line_numbered" in html
     assert "absolute_pose_solvers" in html
     assert "lambdatwist_p3p" in html
     assert "Speedup vs Current Best" in html
@@ -539,7 +533,6 @@ def test_f_html_contains_enriched_fields(tmp_path: Path) -> None:
     assert "Best Verified Candidate Single-Run Runtime Reduction %" in html
     assert "Promotion Policy" in html
     assert "decision_vs_current_best.accepted_improvement_only" in html
-    assert "Closed-loop History Context" in html
     assert "Selection Enabled" not in html
     assert "History Policy Enabled" not in html
     assert "Final Best Candidate" in html

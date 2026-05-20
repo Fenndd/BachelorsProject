@@ -56,8 +56,6 @@ class ExperimentReportInfo:
     experiment_name: str | None = None
     target_file: str = ""
     model: str | None = None
-    candidate_format: str | None = None
-    source_presentation: str | None = None
     total_iterations: int = 0
     completed_iterations: int = 0
     experiment_mode: str = "closed_loop"
@@ -243,10 +241,6 @@ class ReportExperimentConfigDetails:
 
     description: str | None = None
     candidate_generation_max_source_chars: int | None = None
-    candidate_format_type: str | None = None
-    source_presentation: str | None = None
-    require_original_verification: bool | None = None
-    allow_exact_search_fallback: bool | None = None
     baseline_run_dir: str | None = None
     optimization_scope_allowed_files: list[str] = field(default_factory=list)
     reporting_enabled: bool | None = None

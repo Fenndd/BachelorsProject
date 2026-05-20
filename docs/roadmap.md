@@ -21,14 +21,14 @@
 
 - Introduce initial LLM-driven code modification and evaluation loop entry point.
 - Status: completed.
-- Current state: DeepSeek and mock LLM paths are available, controlled prompt builder is implemented, response parser supports `unified_diff` and `line_range_edits`, and candidate artifacts are stored under `results/runs/`.
+- Current state: DeepSeek and mock LLM paths are available, controlled prompt builder is implemented, response parser supports the single line-range edit schema, and candidate artifacts are stored under `results/runs/`.
 - Not complete: automatic promotion into the main `cpp/` source tree.
 
 ## 4b. Candidate Edit Format Layer
 
 - Separate semantic optimization from mechanical patch application.
 - Status: implemented.
-- Current state: `candidate_format` config support, `plain`/`unified_diff` path, `line_numbered`/`line_range_edits` path, `candidate.edits.json` artifact, `candidate.generated.diff` artifact, and the `line_range_edits` full-cycle path for mock and configured LLM runs.
+- Current state: line-numbered prompts, `edits[]` candidates, `candidate.edits.json`, `candidate.generated.diff`, and the full-cycle line-range materialization path for mock and configured LLM runs.
 
 ## 5. Iterative Optimization Pipeline
 

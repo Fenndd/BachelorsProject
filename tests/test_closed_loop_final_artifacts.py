@@ -13,7 +13,6 @@ from orchestrator.experiments.closed_loop_state import (
     write_current_best_state,
 )
 from orchestrator.experiments.experiment_config import (
-    CandidateFormatConfig,
     CandidateGenerationConfig,
     ExperimentConfig,
     ExperimentVariantConfig,
@@ -32,12 +31,6 @@ def _config(iterations: int = 2) -> ExperimentConfig:
         target_file=TARGET_FILE,
         baseline_run_dir="results/runs/baseline",
         candidate_generation=CandidateGenerationConfig(max_source_chars=1000),
-        candidate_format=CandidateFormatConfig(
-            type="line_range_edits",
-            source_presentation="line_numbered",
-            require_original_verification=True,
-            allow_exact_search_fallback=True,
-        ),
         optimization_scope=OptimizationScopeConfig(allowed_files=[TARGET_FILE]),
         variants=[
             ExperimentVariantConfig(

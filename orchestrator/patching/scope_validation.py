@@ -75,12 +75,12 @@ def validate_allowed_files_list(
     return normalized
 
 
-def validate_patch_scope(
+def validate_candidate_scope(
     target_files: list[str],
-    patched_files: list[str],
+    changed_files: list[str],
     allowed_files: list[str],
 ) -> None:
-    """Validate that a candidate patch stays within the allowed scope.
+    """Validate that a candidate stays within the allowed optimization scope.
 
     Raises ValueError with a descriptive message if any check fails.
     """
@@ -95,21 +95,21 @@ def validate_patch_scope(
             + ", ".join(outside_target)
         )
 
-    # Check 2: patched files from diff ⊆ candidate target_files
-    if patched_files:
-        patched_set = set(patched_files)
-        outside_candidate = sorted(patched_set - target_set)
+    # Check 2: changed files from edits ⊆ candidate target_files
+    if changed_files:
+        changed_set = set(changed_files)
+        outside_candidate = sorted(changed_set - target_set)
         if outside_candidate:
             raise ValueError(
-                "candidate.diff modifies files not listed in "
+                "candidate edits modify files not listed in "
                 "candidate.json['target_files']: "
                 + ", ".join(outside_candidate)
             )
 
-        # Check 3: patched files from diff ⊆ external allowed_files
-        outside_allowed = sorted(patched_set - allowed_set)
+        # Check 3: changed files from edits ⊆ external allowed_files
+        outside_allowed = sorted(changed_set - allowed_set)
         if outside_allowed:
             raise ValueError(
-                "candidate.diff modifies files outside allowed "
+                "candidate edits modify files outside allowed "
                 f"optimization scope: " + ", ".join(outside_allowed)
             )

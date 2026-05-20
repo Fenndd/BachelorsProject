@@ -121,7 +121,7 @@ results/experiments/<experiment_id>/report/
 
 ## Diff Statistics Checks
 
-- Final diff summary cards match `final_best_candidate.diff_stats` when available.
+- Final diff summary cards match final-best diff statistics when available.
 - Per-iteration rows match `iterations[*].diff_stats`.
 - Changed lines equal lines added plus lines removed in the plot.
 - Fallback usage is shown as Yes, No, or Not available.
