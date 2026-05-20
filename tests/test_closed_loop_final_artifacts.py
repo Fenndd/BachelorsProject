@@ -17,7 +17,6 @@ from orchestrator.experiments.experiment_config import (
     CandidateGenerationConfig,
     ExperimentConfig,
     ExperimentVariantConfig,
-    HistoryPolicyConfig,
     OptimizationScopeConfig,
 )
 from orchestrator.experiments import run_experiment
@@ -38,14 +37,6 @@ def _config(iterations: int = 2) -> ExperimentConfig:
             source_presentation="line_numbered",
             require_original_verification=True,
             allow_exact_search_fallback=True,
-        ),
-        history_policy=HistoryPolicyConfig(
-            enabled=False,
-            scope="variant",
-            max_previous_iterations=0,
-            include_failed_iterations=False,
-            include_materialization_results=True,
-            include_verification_results=True,
         ),
         optimization_scope=OptimizationScopeConfig(allowed_files=[TARGET_FILE]),
         variants=[

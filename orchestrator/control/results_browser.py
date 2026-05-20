@@ -232,11 +232,13 @@ def _read_experiment_item(path: Path) -> ResultItem:
         ),
         final_best_iteration=(
             _int_value(closed_loop_summary, "final_best_iteration")
-            or _int_value(closed_loop, "final_best_iteration")
+            if _int_value(closed_loop_summary, "final_best_iteration") is not None
+            else _int_value(closed_loop, "final_best_iteration")
         ),
         accepted_improvements=(
             _int_value(closed_loop, "accepted_improvements")
-            or (
+            if _int_value(closed_loop, "accepted_improvements") is not None
+            else (
                 closed_loop_summary.get("status_counts", {}).get("accepted_improvement")
                 if isinstance(closed_loop_summary, dict)
                 and isinstance(closed_loop_summary.get("status_counts"), dict)

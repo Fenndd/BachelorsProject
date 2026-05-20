@@ -20,7 +20,6 @@ class SolverRegistryTests(unittest.TestCase):
         self.assertEqual(desc.family, "absolute_pose_solvers")
         self.assertEqual(desc.benchmark_target, "absolute_pose_lambdatwist_benchmark")
         self.assertEqual(desc.adapter_validator_target, "absolute_pose_lambdatwist_adapter_validator")
-        self.assertEqual(desc.smoke_test_target, "baseline_smoke_test")
         self.assertEqual(desc.runtime_unit, "ns")
         self.assertEqual(desc.runtime_metric_key, "parsed_runtime_ns_per_problem_median")
 

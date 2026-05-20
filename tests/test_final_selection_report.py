@@ -63,6 +63,7 @@ def test_baseline_is_best_writes_skipped_report(tmp_path: Path) -> None:
         repo_root=tmp_path,
         baseline_run_dir=baseline,
         final_source_dir=src,
+        final_best_run_dir=baseline,
         target_file=TARGET_FILE,
         final_best_is_baseline=True,
     )
@@ -90,6 +91,7 @@ def test_baseline_is_best_sets_comparison_from_baseline_metrics(tmp_path: Path) 
         repo_root=tmp_path,
         baseline_run_dir=baseline,
         final_source_dir=src,
+        final_best_run_dir=baseline,
         target_file=TARGET_FILE,
         final_best_is_baseline=True,
     )
@@ -113,6 +115,7 @@ def test_non_baseline_without_eigen_fails_with_environment_error(
         repo_root=tmp_path,
         baseline_run_dir=baseline,
         final_source_dir=src,
+        final_best_run_dir=baseline,
         target_file=TARGET_FILE,
         final_best_is_baseline=False,
     )
@@ -134,6 +137,7 @@ def test_report_structure_has_required_fields(tmp_path: Path) -> None:
         repo_root=tmp_path,
         baseline_run_dir=baseline,
         final_source_dir=src,
+        final_best_run_dir=baseline,
         target_file=TARGET_FILE,
         final_best_is_baseline=True,
     )
@@ -159,6 +163,7 @@ def test_report_file_written_at_experiment_dir_root(tmp_path: Path) -> None:
         repo_root=tmp_path,
         baseline_run_dir=baseline,
         final_source_dir=src,
+        final_best_run_dir=baseline,
         target_file=TARGET_FILE,
         final_best_is_baseline=True,
     )
@@ -179,6 +184,7 @@ def test_baseline_missing_metrics_still_writes_report(tmp_path: Path) -> None:
         repo_root=tmp_path,
         baseline_run_dir=baseline,
         final_source_dir=src,
+        final_best_run_dir=baseline,
         target_file=TARGET_FILE,
         final_best_is_baseline=True,
     )

@@ -83,7 +83,7 @@ class ReportBaselineMetrics:
     gt_found_percent: float | None = None
     valid_solutions_percent: float | None = None
     total_solutions: int | None = None
-    solutions_per_problem: int | None = None
+    solutions_per_problem: float | None = None
     gt_found: int | None = None
     valid_solutions: int | None = None
     correctness_passed: bool | None = None
@@ -247,8 +247,6 @@ class ReportExperimentConfigDetails:
     source_presentation: str | None = None
     require_original_verification: bool | None = None
     allow_exact_search_fallback: bool | None = None
-    history_policy_enabled: bool | None = None
-    history_policy_scope: str | None = None
     baseline_run_dir: str | None = None
     optimization_scope_allowed_files: list[str] = field(default_factory=list)
     reporting_enabled: bool | None = None

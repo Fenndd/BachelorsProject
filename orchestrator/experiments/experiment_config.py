@@ -31,16 +31,6 @@ class CandidateFormatConfig:
 
 
 @dataclass(frozen=True)
-class HistoryPolicyConfig:
-    enabled: bool
-    scope: str
-    max_previous_iterations: int
-    include_failed_iterations: bool
-    include_materialization_results: bool
-    include_verification_results: bool
-
-
-@dataclass(frozen=True)
 class ReportingConfig:
     enabled: bool = False
     formats: list[str] = field(default_factory=lambda: ["html", "pdf"])
@@ -79,7 +69,6 @@ class ExperimentConfig:
     baseline_run_dir: str
     candidate_generation: CandidateGenerationConfig
     candidate_format: CandidateFormatConfig
-    history_policy: HistoryPolicyConfig
     optimization_scope: OptimizationScopeConfig
     variants: list[ExperimentVariantConfig]
     reporting: ReportingConfig = field(default_factory=ReportingConfig)
@@ -124,7 +113,6 @@ def load_experiment_config(path: Path | str) -> ExperimentConfig:
         baseline_run_dir=_required_non_empty_string(payload, "baseline_run_dir"),
         candidate_generation=_load_candidate_generation(payload),
         candidate_format=_load_candidate_format(payload),
-        history_policy=_load_history_policy(payload),
         reporting=reporting,
         optimization_scope=optimization_scope,
         variants=variants,
@@ -331,53 +319,6 @@ def _load_candidate_format(payload: dict[str, Any]) -> CandidateFormatConfig:
         allow_exact_search_fallback=_required_bool(
             candidate_format,
             "allow_exact_search_fallback",
-        ),
-    )
-
-
-def _load_history_policy(payload: dict[str, Any]) -> HistoryPolicyConfig:
-    history_policy = payload.get("history_policy")
-    if history_policy is None:
-        return HistoryPolicyConfig(
-            enabled=False,
-            scope="variant",
-            max_previous_iterations=0,
-            include_failed_iterations=False,
-            include_materialization_results=True,
-            include_verification_results=True,
-        )
-
-    if not isinstance(history_policy, dict):
-        raise ExperimentConfigError("Field 'history_policy' must be an object.")
-
-    enabled = _required_bool(history_policy, "enabled")
-    scope = _required_non_empty_string(history_policy, "scope")
-    if scope != "variant":
-        raise ExperimentConfigError(
-            "Field 'history_policy.scope' must be 'variant'."
-        )
-
-    max_previous_iterations = _required_non_negative_int(
-        history_policy, "max_previous_iterations"
-    )
-    if enabled and max_previous_iterations <= 0:
-        raise ExperimentConfigError(
-            "Field 'history_policy.max_previous_iterations' must be positive "
-            "when history_policy.enabled is true."
-        )
-
-    return HistoryPolicyConfig(
-        enabled=enabled,
-        scope=scope,
-        max_previous_iterations=max_previous_iterations,
-        include_failed_iterations=_required_bool(
-            history_policy, "include_failed_iterations"
-        ),
-        include_materialization_results=_required_bool(
-            history_policy, "include_materialization_results"
-        ),
-        include_verification_results=_required_bool(
-            history_policy, "include_verification_results"
         ),
     )
 

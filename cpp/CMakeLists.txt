@@ -49,17 +49,6 @@ target_link_libraries(baseline_runner
         lambdatwist_baseline
 )
 
-# Minimal project-owned smoke test for the imported baseline solver.
-add_executable(baseline_smoke_test
-    "${CMAKE_CURRENT_SOURCE_DIR}/tests/baseline_smoke_test.cpp"
-)
-
-target_link_libraries(baseline_smoke_test
-    PRIVATE
-        baseline_sample_data
-        lambdatwist_baseline
-)
-
 # Minimal project-owned benchmark for the imported baseline solver.
 add_executable(baseline_benchmark
     "${CMAKE_CURRENT_SOURCE_DIR}/bench/baseline_benchmark.cpp"
@@ -142,16 +131,6 @@ target_link_libraries(absolute_pose_lambdatwist_adapter_validator
 )
 
 # --- Tests ---
-add_executable(absolute_pose_adapter_smoke_test
-    "${CMAKE_CURRENT_SOURCE_DIR}/tests/absolute_pose_adapter_smoke_test.cpp"
-)
-
-target_link_libraries(absolute_pose_adapter_smoke_test
-    PRIVATE
-        absolute_pose_core
-        absolute_pose_lambdatwist_adapter
-)
-
 add_executable(absolute_pose_correctness_policy_test
     "${CMAKE_CURRENT_SOURCE_DIR}/tests/absolute_pose_correctness_policy_test.cpp"
 )

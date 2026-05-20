@@ -22,7 +22,7 @@ Experiment configs live under `configs/experiments/`. A config defines:
 - `baseline_run_dir`: required original baseline run directory containing `metrics.json`.
 - `candidate_generation`: generation limits such as `max_source_chars`.
 - `candidate_format`: selects candidate edit format and source presentation.
-- `history_policy`: retained config metadata; closed-loop prompts use the dedicated closed-loop history builder.
+- `history_policy`: removed; closed-loop prompts always include compact previous-iteration history internally.
 - `optimization_scope.allowed_files`: the strict set of repo-relative files candidates may modify.
 - `variants`: exactly one model/config/context/parameter setup.
 - `reporting`: optional report generation settings.

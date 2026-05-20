@@ -23,7 +23,6 @@ if str(REPO_ROOT) not in sys.path:
 
 from orchestrator.benchmarking.benchmark_artifacts import (
     benchmark_artifact_from_parse,
-    benchmark_required_fields,
     build_benchmark_correctness_error_message,
     empty_benchmark_artifact,
 )
@@ -35,7 +34,6 @@ from orchestrator.benchmarking.benchmark_runner import (
     run_command,
     write_step_log,
 )
-from orchestrator.benchmarking.family_benchmark_parser import parse_absolute_pose_benchmark_output
 from orchestrator.benchmarking.solver_registry import (
     SolverBenchmarkDescriptor,
     default_solver_descriptor,
@@ -50,10 +48,8 @@ SOURCE_FILE_SUFFIXES_FOR_PATH_DIAGNOSTICS = {".cpp", ".cc", ".cxx", ".h", ".hpp"
 
 EXPECTED_STEPS = [
     "configure_cmake",
-    "build_baseline_smoke_test",
     f"build_{DESCRIPTOR.adapter_validator_target}",
     f"build_{DESCRIPTOR.benchmark_target}",
-    "run_baseline_smoke_test",
     f"run_{DESCRIPTOR.adapter_validator_target}",
     f"run_{DESCRIPTOR.benchmark_target}",
     f"parse_{DESCRIPTOR.benchmark_target}",
@@ -249,7 +245,6 @@ def _build_summary(verification: dict[str, Any], logs_dir: Path) -> str:
         [
             "",
             f"Logs directory: {logs_dir}",
-            f"Smoke test status: {_status_for_step(steps, 'run_baseline_smoke_test')}",
             "Adapter validator status: "
             f"{_status_for_step(steps, f'run_{DESCRIPTOR.adapter_validator_target}')}",
             "Family benchmark status: "
@@ -417,7 +412,6 @@ def _critical_candidate_paths(source_dir: Path, build_dir: Path) -> list[Path]:
     object_roots = [
         build_dir / "CMakeFiles" / f"{target}.dir"
         for target in (
-            "baseline_smoke_test",
             DESCRIPTOR.adapter_validator_target,
             DESCRIPTOR.benchmark_target,
         )
@@ -579,13 +573,6 @@ def main(argv: list[str] | None = None) -> int:
             logs_dir / "configure_cmake.log",
         ),
         (
-            "build_baseline_smoke_test",
-            "Build baseline_smoke_test target",
-            build_cmake_build_command(args.cmake_exe, build_dir, "baseline_smoke_test", args.cmake_build_type),
-            workspace_path,
-            logs_dir / "build_baseline_smoke_test.log",
-        ),
-        (
             f"build_{DESCRIPTOR.adapter_validator_target}",
             f"Build {DESCRIPTOR.adapter_validator_target} target",
             build_cmake_build_command(args.cmake_exe, build_dir, DESCRIPTOR.adapter_validator_target, args.cmake_build_type),
@@ -612,12 +599,6 @@ def main(argv: list[str] | None = None) -> int:
             break
 
     run_targets = [
-        (
-            "run_baseline_smoke_test",
-            "Run baseline_smoke_test executable",
-            "baseline_smoke_test",
-            logs_dir / "run_baseline_smoke_test.log",
-        ),
         (
             f"run_{DESCRIPTOR.adapter_validator_target}",
             f"Run {DESCRIPTOR.adapter_validator_target} executable",
@@ -672,9 +653,9 @@ def main(argv: list[str] | None = None) -> int:
 
     if failed_step is None:
         parse_started = time.perf_counter()
-        parse_result = parse_absolute_pose_benchmark_output(benchmark_stdout)
+        parse_result = DESCRIPTOR.parser(benchmark_stdout)
         parse_duration = round(time.perf_counter() - parse_started, 3)
-        benchmark = benchmark_artifact_from_parse(benchmark_stdout, parse_result, DESCRIPTOR, args.cmake_build_type)
+        benchmark = benchmark_artifact_from_parse(parse_result, DESCRIPTOR, args.cmake_build_type)
         if parse_result["parse_success"]:
             step_statuses.append(
                 _step_status(

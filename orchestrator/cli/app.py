@@ -221,9 +221,13 @@ def _artifact_path(item: ResultItem, artifact: str) -> Path | None:
         return artifacts.final_optimized_source_dir
     if artifact == "final-diff":
         return artifacts.final_optimized_source_diff
+    if artifact == "final-selection-dir":
+        return artifacts.final_selection_dir
+    if artifact == "final-selection-report":
+        return artifacts.final_selection_report
     if artifact == "report":
         return artifacts.report_html or artifacts.report_pdf or artifacts.report_dir
-    return artifacts.directory
+    return None
 
 
 def _format_bytes(size: int) -> str:
@@ -555,7 +559,7 @@ def results_open(
     artifact: str = typer.Option(
         "directory",
         "--artifact",
-        help="Artifact to open: directory, summary, final-source, final-diff, report.",
+        help="Artifact to open: directory, summary, final-source, final-diff, final-selection-dir, final-selection-report, report.",
     ),
 ) -> None:
     """Open a result directory or artifact in the OS file explorer."""

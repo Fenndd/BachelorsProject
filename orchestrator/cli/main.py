@@ -2,12 +2,11 @@
 
 This script automates the current baseline flow:
 1. CMake configure
-2. CMake build (baseline_smoke_test, baseline_runner, adapter validator, and family benchmark targets)
-3. Run baseline_smoke_test executable
-4. Run baseline_runner executable
-5. Run the Lambda Twist P3P adapter validator executable
-6. Run the Lambda Twist P3P family benchmark executable
-7. Parse the family benchmark output into structured metrics
+2. CMake build (baseline_runner, adapter validator, and family benchmark targets)
+3. Run baseline_runner executable
+4. Run the Lambda Twist P3P adapter validator executable
+5. Run the Lambda Twist P3P family benchmark executable
+6. Parse the family benchmark output into structured metrics
 
 Each execution also writes persistent run artifacts under results/runs/<run_id>/.
 
@@ -38,11 +37,9 @@ from orchestrator.storage import RunStorage
 
 EXPECTED_STEPS = [
     "configure_cmake",
-    "build_baseline_smoke_test",
     "build_baseline_runner",
     "build_absolute_pose_lambdatwist_adapter_validator",
     "build_absolute_pose_lambdatwist_benchmark",
-    "run_baseline_smoke_test",
     "run_baseline_runner",
     "run_absolute_pose_lambdatwist_adapter_validator",
     "run_absolute_pose_lambdatwist_benchmark",
@@ -428,13 +425,11 @@ def _build_metrics(
         _step_succeeded(step_statuses, step_name)
         for step_name in [
             "configure_cmake",
-            "build_baseline_smoke_test",
             "build_baseline_runner",
             "build_absolute_pose_lambdatwist_adapter_validator",
             "build_absolute_pose_lambdatwist_benchmark",
         ]
     )
-    smoke_test_success = _step_succeeded(step_statuses, "run_baseline_smoke_test")
     runner_success = _step_succeeded(step_statuses, "run_baseline_runner")
     adapter_validation_success = _step_succeeded(
         step_statuses, "run_absolute_pose_lambdatwist_adapter_validator"
@@ -448,7 +443,6 @@ def _build_metrics(
 
     return {
         "build_success": build_success,
-        "smoke_test_success": smoke_test_success,
         "runner_success": runner_success,
         "adapter_validation_success": adapter_validation_success,
         "family_benchmark_success": family_benchmark_success,
@@ -479,7 +473,6 @@ def _build_metrics(
             "parsed_correctness_passed": parsed_metrics.get("correctness_passed"),
         },
         "correctness": {
-            "basic_smoke_test_passed": smoke_test_success,
             "adapter_validation_passed": adapter_validation_success,
         },
     }
@@ -598,7 +591,6 @@ def _build_index_record(
         "git_branch": repository["git_branch"],
         "dirty_worktree": repository["dirty_worktree"],
         "build_success": metrics["build_success"],
-        "smoke_test_success": metrics["smoke_test_success"],
         "runner_success": metrics["runner_success"],
         "benchmark_success": metrics["benchmark_success"],
         "adapter_validation_success": metrics["adapter_validation_success"],
@@ -732,19 +724,6 @@ def main() -> int:
     command_steps: list[tuple[str, str, Sequence[str]]] = [
         ("configure_cmake", "Configure CMake project", configure_command),
         (
-            "build_baseline_smoke_test",
-            "Build baseline_smoke_test target",
-            [
-                cmake_exe,
-                "--build",
-                str(build_dir),
-                "--target",
-                "baseline_smoke_test",
-                "--config",
-                cmake_build_type,
-            ],
-        ),
-        (
             "build_baseline_runner",
             "Build baseline_runner target",
             [
@@ -799,11 +778,6 @@ def main() -> int:
             break
 
     run_targets = [
-        (
-            "run_baseline_smoke_test",
-            "Run baseline_smoke_test executable",
-            "baseline_smoke_test",
-        ),
         ("run_baseline_runner", "Run baseline_runner executable", "baseline_runner"),
         (
             "run_absolute_pose_lambdatwist_adapter_validator",

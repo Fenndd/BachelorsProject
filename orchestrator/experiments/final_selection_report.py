@@ -30,7 +30,6 @@ from orchestrator.benchmarking.benchmark_runner import (
     run_command,
 )
 from orchestrator.benchmarking.candidate_decision import evaluate_candidate_against_baseline
-from orchestrator.benchmarking.family_benchmark_parser import parse_absolute_pose_benchmark_output
 from orchestrator.benchmarking.solver_registry import (
     SolverBenchmarkDescriptor,
     default_solver_descriptor,
@@ -55,6 +54,7 @@ def run_final_selection_report(
     repo_root: Path,
     baseline_run_dir: Path,
     final_source_dir: Path,
+    final_best_run_dir: Path | None,
     target_file: str,
     final_best_is_baseline: bool,
     build_type: str = "Release",
@@ -67,11 +67,19 @@ def run_final_selection_report(
     final_benchmark_run_dir = output_dir / FINAL_BENCHMARK_RUN_DIR_NAME
     logs_dir = output_dir / "logs"
     report_path = experiment_dir / FINAL_SELECTION_REPORT_FILENAME
+    output_dir.mkdir(parents=True, exist_ok=True)
 
     baseline_benchmark = _load_baseline_benchmark(baseline_run_dir)
     baseline_runtime = _runtime_ns(baseline_benchmark)
 
     if final_best_is_baseline:
+        logs_dir.mkdir(parents=True, exist_ok=True)
+        marker = {
+            "reused_baseline": True,
+            "note": "Final best is original baseline; no separate benchmark was run.",
+            "baseline_run_dir": _display_path(baseline_run_dir, repo_root),
+        }
+        _write_json(output_dir / "reused_baseline.json", marker)
         comparison = {
             "speedup": 1.0,
             "runtime_reduction_percent": 0.0,
@@ -84,7 +92,7 @@ def run_final_selection_report(
             target_file=target_file,
             baseline_run_dir=baseline_run_dir,
             final_source_dir=final_source_dir,
-            final_best_run_dir=None,
+            final_best_run_dir=final_best_run_dir,
             final_best_is_baseline=True,
             baseline_benchmark=baseline_benchmark,
             final_benchmark=baseline_benchmark,
@@ -119,7 +127,7 @@ def run_final_selection_report(
             target_file=target_file,
             baseline_run_dir=baseline_run_dir,
             final_source_dir=final_source_dir,
-            final_best_run_dir=None,
+            final_best_run_dir=final_best_run_dir,
             final_best_is_baseline=False,
             baseline_benchmark=baseline_benchmark,
             final_benchmark=empty_benchmark_artifact(_DESCRIPTOR, build_type=effective_build_type),
@@ -169,7 +177,7 @@ def run_final_selection_report(
             target_file=target_file,
             baseline_run_dir=baseline_run_dir,
             final_source_dir=final_source_dir,
-            final_best_run_dir=None,
+            final_best_run_dir=final_best_run_dir,
             final_best_is_baseline=False,
             baseline_benchmark=baseline_benchmark,
             final_benchmark=empty_benchmark_artifact(_DESCRIPTOR, build_type=effective_build_type),
@@ -203,7 +211,7 @@ def run_final_selection_report(
             target_file=target_file,
             baseline_run_dir=baseline_run_dir,
             final_source_dir=final_source_dir,
-            final_best_run_dir=None,
+            final_best_run_dir=final_best_run_dir,
             final_best_is_baseline=False,
             baseline_benchmark=baseline_benchmark,
             final_benchmark=empty_benchmark_artifact(_DESCRIPTOR, build_type=effective_build_type),
@@ -230,7 +238,7 @@ def run_final_selection_report(
             target_file=target_file,
             baseline_run_dir=baseline_run_dir,
             final_source_dir=final_source_dir,
-            final_best_run_dir=None,
+            final_best_run_dir=final_best_run_dir,
             final_best_is_baseline=False,
             baseline_benchmark=baseline_benchmark,
             final_benchmark=empty_benchmark_artifact(_DESCRIPTOR, build_type=effective_build_type),
@@ -266,7 +274,7 @@ def run_final_selection_report(
             target_file=target_file,
             baseline_run_dir=baseline_run_dir,
             final_source_dir=final_source_dir,
-            final_best_run_dir=None,
+            final_best_run_dir=final_best_run_dir,
             final_best_is_baseline=False,
             baseline_benchmark=baseline_benchmark,
             final_benchmark=empty_benchmark_artifact(_DESCRIPTOR, raw_output_available=False, build_type=effective_build_type),
@@ -285,8 +293,8 @@ def run_final_selection_report(
         _write_json(report_path, report)
         return report_path
 
-    parse_result = parse_absolute_pose_benchmark_output(stdout)
-    final_benchmark = benchmark_artifact_from_parse(stdout, parse_result, _DESCRIPTOR, effective_build_type)
+    parse_result = _DESCRIPTOR.parser(stdout)
+    final_benchmark = benchmark_artifact_from_parse(parse_result, _DESCRIPTOR, effective_build_type)
 
     verification = {
         "overall_status": "success" if parse_result["parse_success"] else "failed",
@@ -319,6 +327,14 @@ def run_final_selection_report(
             failed_step = "decision_vs_original_baseline"
             error_message = str(exc)
             status = "failed"
+        else:
+            if decision and decision.get("status") == "rejected":
+                status = "failed"
+                failed_step = "decision_vs_original_baseline"
+                error_message = (
+                    "Final benchmark artifact was rejected by comparison policy "
+                    "against original baseline."
+                )
 
     comp = (decision or {}).get("comparison", {})
     final_runtime = _runtime_ns(final_benchmark)
@@ -335,7 +351,7 @@ def run_final_selection_report(
         target_file=target_file,
         baseline_run_dir=baseline_run_dir,
         final_source_dir=final_source_dir,
-        final_best_run_dir=final_benchmark_run_dir,
+        final_best_run_dir=final_best_run_dir,
         final_best_is_baseline=False,
         baseline_benchmark=baseline_benchmark,
         final_benchmark=final_benchmark,

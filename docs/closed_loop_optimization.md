@@ -23,6 +23,13 @@ original baseline
 
 At the start of a closed-loop experiment, `current_best_source` is initialized from the clean baseline. Each planned iteration attempts to generate, materialize, and verify one candidate. If the candidate is a verified improvement over the current best, it is promoted into the experiment-local current best and becomes the source for the next iteration.
 
+## Closed-loop History in Prompts
+
+Closed-loop optimization always includes compact previous-iteration history in later LLM prompts. This is internal pipeline behavior, not a per-experiment config option. The history builder (`build_closed_loop_history_context`) provides each generation subprocess with:
+- The iteration number, status, per-iteration phase durations, llm response usage, source diffs, verification metrics.
+
+This helps later iterations understand what was attempted and avoid redundant or failing approaches.
+
 ## Source Roots
 
 Closed-loop mode separates logical repository paths from physical source roots:

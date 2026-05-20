@@ -76,7 +76,7 @@ class BenchmarkArtifactFromParseTests(unittest.TestCase):
     def test_builds_complete_artifact(self) -> None:
         stdout = _valid_benchmark_output()
         parse_result = parse_absolute_pose_benchmark_output(stdout)
-        artifact = benchmark_artifact_from_parse(stdout, parse_result, _DESCRIPTOR, "Release")
+        artifact = benchmark_artifact_from_parse(parse_result, _DESCRIPTOR, "Release")
 
         self.assertEqual(artifact["family"], "absolute_pose_solvers")
         self.assertEqual(artifact["solver"], "lambdatwist_p3p")
@@ -92,7 +92,7 @@ class BenchmarkArtifactFromParseTests(unittest.TestCase):
     def test_benchmark_options_present(self) -> None:
         stdout = _valid_benchmark_output()
         parse_result = parse_absolute_pose_benchmark_output(stdout)
-        artifact = benchmark_artifact_from_parse(stdout, parse_result, _DESCRIPTOR, "Release")
+        artifact = benchmark_artifact_from_parse(parse_result, _DESCRIPTOR, "Release")
         options = artifact["benchmark_options"]
         self.assertIsNotNone(options)
         self.assertEqual(options["num_problems"], 1000)
@@ -101,7 +101,7 @@ class BenchmarkArtifactFromParseTests(unittest.TestCase):
 
     def test_parse_failure_preserves_errors(self) -> None:
         parse_result = parse_absolute_pose_benchmark_output("garbage output")
-        artifact = benchmark_artifact_from_parse("garbage output", parse_result, _DESCRIPTOR, "Release")
+        artifact = benchmark_artifact_from_parse(parse_result, _DESCRIPTOR, "Release")
         self.assertFalse(artifact["parse_success"])
         self.assertTrue(len(artifact["missing_fields"]) > 0)
 

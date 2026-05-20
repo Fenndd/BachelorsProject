@@ -166,7 +166,7 @@ def _experiment_environment_info() -> dict[str, Any]:
         "os": os.name,
         "platform": platform.platform(),
         "python_version": platform.python_version(),
-        "cmake_build_type": os.environ.get("CMAKE_BUILD_TYPE") or "Release",
+        "cmake_build_type": os.environ.get("BENCHMARK_CMAKE_BUILD_TYPE") or os.environ.get("CMAKE_BUILD_TYPE") or "Release",
         "cmake_exe": os.environ.get("CMAKE_EXE"),
         "cmake_generator": os.environ.get("CMAKE_GENERATOR"),
         "cxx_compiler": os.environ.get("CMAKE_CXX_COMPILER"),
@@ -320,22 +320,6 @@ def _print_plan(config: ExperimentConfig, dry_run: bool) -> None:
     print(
         f"Optimization scope allowed files: "
         f"{config.optimization_scope.allowed_files}"
-    )
-    print("History policy:")
-    print(f"- enabled: {config.history_policy.enabled}")
-    print(f"- scope: {config.history_policy.scope}")
-    print(f"- max_previous_iterations: {config.history_policy.max_previous_iterations}")
-    print(
-        f"- include_failed_iterations: "
-        f"{config.history_policy.include_failed_iterations}"
-    )
-    print(
-        f"- include_materialization_results: "
-        f"{config.history_policy.include_materialization_results}"
-    )
-    print(
-        f"- include_verification_results: "
-        f"{config.history_policy.include_verification_results}"
     )
     print(f"Variants: {len(config.variants)}")
     for variant in config.variants:
@@ -811,7 +795,6 @@ def _write_early_failure_artifacts(
         "target_file": config.target_file,
         "baseline_run_dir": config.baseline_run_dir,
         "candidate_format": asdict(config.candidate_format),
-        "history_policy": asdict(config.history_policy),
         "variants": [
             {
                 "variant_id": variant.variant_id,
@@ -2020,6 +2003,7 @@ def _run_closed_loop_experiment(
         repo_root=REPO_ROOT,
         baseline_run_dir=state.original_baseline_run_dir,
         final_source_dir=closed_loop_paths.final_optimized_source_dir,
+        final_best_run_dir=state.current_best_run_dir,
         target_file=config.target_file,
         final_best_is_baseline=state.current_best_is_baseline,
     )

@@ -21,7 +21,6 @@ class SolverBenchmarkDescriptor:
     family: str
     benchmark_target: str
     adapter_validator_target: str | None
-    smoke_test_target: str | None
     benchmark_step_name: str
     adapter_validator_step_name: str | None
     parser: Callable[[str], dict[str, Any]]
@@ -35,7 +34,6 @@ _DESCRIPTORS: dict[str, SolverBenchmarkDescriptor] = {
         family="absolute_pose_solvers",
         benchmark_target="absolute_pose_lambdatwist_benchmark",
         adapter_validator_target="absolute_pose_lambdatwist_adapter_validator",
-        smoke_test_target="baseline_smoke_test",
         benchmark_step_name="absolute_pose_lambdatwist_benchmark",
         adapter_validator_step_name="absolute_pose_lambdatwist_adapter_validator",
         parser=parse_absolute_pose_benchmark_output,

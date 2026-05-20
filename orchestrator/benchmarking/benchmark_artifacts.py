@@ -60,12 +60,11 @@ def empty_benchmark_artifact(
 
 
 def benchmark_artifact_from_parse(
-    stdout: str,
     parse_result: dict[str, Any],
     descriptor: SolverBenchmarkDescriptor,
     build_type: str,
 ) -> dict[str, Any]:
-    """Build a normalized benchmark artifact from raw stdout and its parse result."""
+    """Build a normalized benchmark artifact from a parse result."""
     parsed_metrics = parse_result["metrics"]
 
     benchmark_options = None

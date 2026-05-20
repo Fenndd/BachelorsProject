@@ -341,7 +341,6 @@ def _build_experiment_config_details(
         return ReportExperimentConfigDetails()
 
     cf = config_snapshot.get("candidate_format") or {}
-    hp = config_snapshot.get("history_policy") or {}
     sel = config_snapshot.get("selection") or {}
     scope = config_snapshot.get("optimization_scope") or {}
     rep = config_snapshot.get("reporting") or {}
@@ -366,8 +365,6 @@ def _build_experiment_config_details(
         allow_exact_search_fallback=_bool_or_none(
             cf.get("allow_exact_search_fallback")
         ),
-        history_policy_enabled=_bool_or_none(hp.get("enabled")),
-        history_policy_scope=_string_or_none(hp.get("scope")),
         baseline_run_dir=_display_path(baseline_run_dir, experiment_path)
         if baseline_run_dir
         else None,
@@ -1265,19 +1262,19 @@ def _load_baseline_metrics_with_raw(
         ),
         total_solutions=_first_int(
             candidates,
-            ("total_solutions",),
+            ("total_solutions", "parsed_total_solutions"),
         ),
-        solutions_per_problem=_first_int(
+        solutions_per_problem=_first_number(
             candidates,
-            ("solutions_per_problem",),
+            ("solutions_per_problem", "parsed_solutions_per_problem"),
         ),
         gt_found=_first_int(
             candidates,
-            ("gt_found",),
+            ("gt_found", "parsed_gt_found"),
         ),
         valid_solutions=_first_int(
             candidates,
-            ("valid_solutions",),
+            ("valid_solutions", "parsed_valid_solutions"),
         ),
         correctness_passed=_first_bool(
             candidates,

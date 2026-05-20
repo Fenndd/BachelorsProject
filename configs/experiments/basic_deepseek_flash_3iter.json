@@ -10,14 +10,6 @@
     "require_original_verification": true,
     "allow_exact_search_fallback": true
   },
-  "history_policy": {
-    "enabled": false,
-    "scope": "variant",
-    "max_previous_iterations": 0,
-    "include_failed_iterations": false,
-    "include_materialization_results": true,
-    "include_verification_results": true
-  },
   "reporting": {"enabled": true, "formats": ["html"], "renderer": "auto", "fail_on_error": false},
   "optimization_scope": {"allowed_files": ["cpp/external/lambdatwist/p3p.cc"]},
   "variants": [

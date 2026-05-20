@@ -51,7 +51,7 @@ def _incorrect_benchmark_output() -> str:
 class CandidateBenchmarkCorrectnessPolicyTests(unittest.TestCase):
     def test_parse_success_correctness_false_fails_but_preserves_metrics(self) -> None:
         parse_result = parse_absolute_pose_benchmark_output(_incorrect_benchmark_output())
-        benchmark = benchmark_artifact_from_parse(_incorrect_benchmark_output(), parse_result, _DESCRIPTOR, "Release")
+        benchmark = benchmark_artifact_from_parse(parse_result, _DESCRIPTOR, "Release")
         steps = [
             _step_status("run_absolute_pose_lambdatwist_benchmark", "success", 0, 0.1),
             _step_status("parse_absolute_pose_lambdatwist_benchmark", "success", None, 0.1),
@@ -69,7 +69,7 @@ class CandidateBenchmarkCorrectnessPolicyTests(unittest.TestCase):
 
     def test_finalize_preserves_metrics_when_correctness_check_fails(self) -> None:
         parse_result = parse_absolute_pose_benchmark_output(_incorrect_benchmark_output())
-        benchmark = benchmark_artifact_from_parse(_incorrect_benchmark_output(), parse_result, _DESCRIPTOR, "Release")
+        benchmark = benchmark_artifact_from_parse(parse_result, _DESCRIPTOR, "Release")
         error_message = build_benchmark_correctness_error_message(benchmark)
 
         with tempfile.TemporaryDirectory() as tmpdir:

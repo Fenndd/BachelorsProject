@@ -10,14 +10,14 @@ The clean baseline path is:
 
 1. CMake configures the C++ project.
 2. The Lambda Twist baseline target and project-owned executables are built.
-3. A smoke test, runner, adapter validator, and absolute-pose family benchmark execute from `orchestrator/cli/main.py`.
+3. A runner, adapter validator, and absolute-pose family benchmark execute from `orchestrator/cli/main.py`.
 4. Parsed benchmark metrics are stored under `results/runs/<run_id>/` and indexed in `results/index.jsonl`.
 
 The C++ baseline boundary is:
 
 - `cpp/external/lambdatwist/`: imported third-party Lambda Twist source.
 - `lambdatwist_baseline`: project CMake target wrapping the imported solver.
-- `baseline_runner` and `baseline_smoke_test`: project-owned compatibility entry points.
+- `baseline_runner`: project-owned compatibility entry point.
 - `baseline_benchmark`: old compatibility benchmark target, still kept building.
 - `absolute_pose_lambdatwist_adapter_validator` and `absolute_pose_lambdatwist_benchmark`: project-owned benchmark-family evaluation entry points.
 
@@ -29,7 +29,7 @@ The main orchestration components are:
 
 - `orchestrator.llm.generate_candidate`: reads one source file from a configurable source root, builds a controlled prompt, calls the configured LLM or mock client, parses the response, and stores candidate artifacts.
 - `orchestrator.patching.materialize_candidate`: materializes a candidate inside `workspace/candidates/<candidate_run_id>/` only, optionally using an explicit `--base-source-root`.
-- `orchestrator.execution.verify_candidate`: runs deterministic smoke, adapter validation, family benchmark, and benchmark parsing inside a materialized candidate workspace.
+- `orchestrator.execution.verify_candidate`: runs deterministic adapter validation, family benchmark, and benchmark parsing inside a materialized candidate workspace.
 - `orchestrator.benchmarking.candidate_decision`: evaluates one verified candidate against either a baseline run or a verified-candidate reference. In closed-loop mode, this writes reference-vs-candidate decisions such as `decision_vs_current_best.json`.
 - `orchestrator.experiments.closed_loop_state`: manages experiment-local `current_best_source` and `current_best_state` metadata.
 - `orchestrator.experiments.closed_loop_history`: builds compact benchmark-aware history for later closed-loop generations.
