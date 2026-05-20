@@ -20,18 +20,18 @@ import sys
 from pathlib import Path
 from typing import Any, Sequence
 
-from orchestrator.benchmarking.benchmark_artifacts import (
+from orchestrator.core.benchmarking.benchmark_artifacts import (
     benchmark_artifact_from_parse,
     empty_benchmark_artifact,
 )
-from orchestrator.benchmarking.benchmark_runner import (
+from orchestrator.core.benchmarking.benchmark_runner import (
     build_cmake_build_command,
     configure_cmake_command,
     find_executable,
     run_command,
 )
-from orchestrator.benchmarking.candidate_decision import evaluate_candidate_against_baseline
-from orchestrator.benchmarking.solver_registry import (
+from orchestrator.core.benchmarking.candidate_decision import evaluate_candidate_against_baseline
+from orchestrator.core.benchmarking.solver_registry import (
     SolverBenchmarkDescriptor,
     default_solver_descriptor,
 )

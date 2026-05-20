@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from orchestrator.patching.diff_stats import parse_diff_stats
+from orchestrator.core.patching.diff_stats import parse_diff_stats
 
 
 def test_parse_diff_stats_counts_only_real_changes() -> None:

@@ -9,8 +9,8 @@ import unittest
 from datetime import datetime
 from pathlib import Path
 
-from orchestrator.llm import generate_candidate as generate_candidate_module
-from orchestrator.llm.generate_candidate import (
+from orchestrator.core.llm import generate_candidate as generate_candidate_module
+from orchestrator.core.llm.generate_candidate import (
     _build_index_record,
     _build_metadata,
     _build_status,
@@ -20,8 +20,8 @@ from orchestrator.llm.generate_candidate import (
     _print_final_summary,
     _save_candidate_artifacts,
 )
-from orchestrator.llm.base import LLMResponse
-from orchestrator.llm.response_parser import LineRangeEdit, OptimizationCandidate
+from orchestrator.core.llm.base import LLMResponse
+from orchestrator.core.llm.response_parser import LineRangeEdit, OptimizationCandidate
 
 
 TARGET_FILE = "cpp/src/example.cpp"

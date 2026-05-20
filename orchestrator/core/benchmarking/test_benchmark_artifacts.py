@@ -4,14 +4,14 @@ from __future__ import annotations
 
 import unittest
 
-from orchestrator.benchmarking.benchmark_artifacts import (
+from orchestrator.core.benchmarking.benchmark_artifacts import (
     benchmark_artifact_from_parse,
     benchmark_required_fields,
     build_benchmark_correctness_error_message,
     empty_benchmark_artifact,
 )
-from orchestrator.benchmarking.family_benchmark_parser import parse_absolute_pose_benchmark_output
-from orchestrator.benchmarking.solver_registry import default_solver_descriptor
+from orchestrator.core.benchmarking.family_benchmark_parser import parse_absolute_pose_benchmark_output
+from orchestrator.core.benchmarking.solver_registry import default_solver_descriptor
 
 
 _DESCRIPTOR = default_solver_descriptor()

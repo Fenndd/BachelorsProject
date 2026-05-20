@@ -8,7 +8,7 @@ import unittest
 from pathlib import Path
 from typing import Any
 
-from orchestrator.patching.materialize_candidate import main as materialize_main
+from orchestrator.core.patching.materialize_candidate import main as materialize_main
 
 
 TARGET_FILE = "cpp/external/lambdatwist/p3p.cc"

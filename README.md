@@ -12,7 +12,7 @@ Implemented now:
 
 - Baseline automation through `orchestrator/cli/main.py`.
 - Absolute-pose benchmark family for Lambda Twist P3P, including adapter validation and parsed benchmark metrics.
-- LLM candidate generation through `orchestrator.llm.generate_candidate`.
+- LLM candidate generation through `orchestrator.core.llm.generate_candidate`.
 - A single line-range edit schema for LLM-generated candidates.
 - Candidate materialization and verification in isolated workspaces.
 - Pairwise candidate decision for closed-loop promotion and reporting.
@@ -131,7 +131,7 @@ The existing baseline entry point remains `orchestrator/cli/main.py`, and the ne
 
 ## LLM Candidate Generation and Candidate Edit Schema
 
-LLM candidate generation is implemented by `orchestrator.llm.generate_candidate`. The LLM receives line-numbered source and returns structured `edits[]` entries with `file`, `start_line`, `end_line`, `original`, and `replace`. Generation writes `candidate.json` and `candidate.edits.json`; materialization applies the edits deterministically and writes the system-generated `candidate.generated.diff`.
+LLM candidate generation is implemented by `orchestrator.core.llm.generate_candidate`. The LLM receives line-numbered source and returns structured `edits[]` entries with `file`, `start_line`, `end_line`, `original`, and `replace`. Generation writes `candidate.json` and `candidate.edits.json`; materialization applies the edits deterministically and writes the system-generated `candidate.generated.diff`.
 
 See `docs/candidate_edit_formats.md` for details.
 

@@ -10,8 +10,8 @@ from io import StringIO
 from pathlib import Path
 from unittest.mock import patch
 
-from orchestrator.llm import generate_candidate
-from orchestrator.llm.generate_candidate import (
+from orchestrator.core.llm import generate_candidate
+from orchestrator.core.llm.generate_candidate import (
     CandidateGenerationFailure,
     REPO_ROOT,
     _read_source,

@@ -6,7 +6,7 @@ import json
 import unittest
 from typing import Any
 
-from orchestrator.llm.response_parser import parse_optimization_candidate
+from orchestrator.core.llm.response_parser import parse_optimization_candidate
 
 
 TARGET_FILE = "cpp/src/example.cpp"

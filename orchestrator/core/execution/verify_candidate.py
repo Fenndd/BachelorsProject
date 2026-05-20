@@ -2,7 +2,7 @@
 
 The public command intentionally remains:
 
-    py -m orchestrator.execution.verify_candidate --candidate-run ...
+    py -m orchestrator.core.execution.verify_candidate --candidate-run ...
 
 The implementation verifies a materialized candidate in its isolated workspace
 with the same smoke, adapter validator, family benchmark, and benchmark parser

@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from orchestrator.benchmarking.solver_registry import SolverBenchmarkDescriptor
+from orchestrator.core.benchmarking.solver_registry import SolverBenchmarkDescriptor
 
 
 def benchmark_required_fields() -> list[str]:

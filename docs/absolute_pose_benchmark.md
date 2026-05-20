@@ -4,7 +4,7 @@
 
 The project-owned absolute-pose benchmark lives under:
 
-`cpp/bench/families/geometric_pose_solvers/absolute_pose_solvers/`
+`cpp/bench/absolute_pose/`
 
 The current concrete scope is intentionally narrow: Lambda Twist P3P only. The
 `lambdatwist_p3p` runner follows the PoseLib `p3p_lambdatwist` benchmark

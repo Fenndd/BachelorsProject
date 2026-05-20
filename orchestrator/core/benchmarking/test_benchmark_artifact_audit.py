@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import unittest
 
-from orchestrator.benchmarking.benchmark_artifact_audit import (
+from orchestrator.core.benchmarking.benchmark_artifact_audit import (
     audit_comparable_benchmark_artifacts,
     audit_comparable_benchmark_pair,
     audit_single_benchmark_artifact,

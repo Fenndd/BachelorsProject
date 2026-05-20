@@ -7,7 +7,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from orchestrator.patching.scope_validation import (
+from orchestrator.core.patching.scope_validation import (
     normalize_repo_path,
     validate_allowed_files_list,
 )

@@ -63,11 +63,11 @@ from .final_selection_report import (
     run_final_selection_report,
 )
 from .outcome_reason import build_outcome_reason, outcome_reason_to_dict
-from orchestrator.benchmarking.candidate_decision import (
+from orchestrator.core.benchmarking.candidate_decision import (
     evaluate_candidate_against_reference,
     write_candidate_decision,
 )
-from orchestrator.patching.diff_stats import parse_diff_stats
+from orchestrator.core.patching.diff_stats import parse_diff_stats
 from orchestrator.reporting.generate_report import generate_basic_report, refresh_report_artifact_map
 from orchestrator.storage.experiment_registry import allocate_next_experiment_run
 
@@ -348,7 +348,7 @@ def _build_generation_command(
     command = [
         sys.executable,
         "-m",
-        "orchestrator.llm.generate_candidate",
+        "orchestrator.core.llm.generate_candidate",
         "--config",
         llm_config_path,
         "--source",
@@ -374,7 +374,7 @@ def _build_materialization_command(
     command = [
         sys.executable,
         "-m",
-        "orchestrator.patching.materialize_candidate",
+        "orchestrator.core.patching.materialize_candidate",
         "--candidate-run",
         candidate_run_dir,
         "--overwrite",
@@ -394,7 +394,7 @@ def _build_verification_command(candidate_run_dir: str) -> list[str]:
     return [
         sys.executable,
         "-m",
-        "orchestrator.execution.verify_candidate",
+        "orchestrator.core.execution.verify_candidate",
         "--candidate-run",
         candidate_run_dir,
     ]

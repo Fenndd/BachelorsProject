@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import unittest
 
-from orchestrator.benchmarking.solver_registry import (
+from orchestrator.core.benchmarking.solver_registry import (
     SolverBenchmarkDescriptor,
     default_solver_descriptor,
     get_solver_descriptor,

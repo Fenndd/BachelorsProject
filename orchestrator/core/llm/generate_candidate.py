@@ -17,21 +17,21 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-from orchestrator.llm.deepseek_client import DeepSeekClient, DeepSeekClientError
-from orchestrator.llm.mock_client import MockLLMClient, MockLLMClientError
-from orchestrator.llm.prompt_builder import build_optimization_prompt
-from orchestrator.llm.response_parser import (
+from orchestrator.core.llm.deepseek_client import DeepSeekClient, DeepSeekClientError
+from orchestrator.core.llm.mock_client import MockLLMClient, MockLLMClientError
+from orchestrator.core.llm.prompt_builder import build_optimization_prompt
+from orchestrator.core.llm.response_parser import (
     OptimizationCandidate,
     parse_optimization_candidate,
 )
-from orchestrator.patching.scope_validation import (
+from orchestrator.core.patching.scope_validation import (
     normalize_repo_path,
     validate_allowed_files_list,
 )
 from orchestrator.storage import RunStorage
 
 
-REPO_ROOT = Path(__file__).resolve().parents[2]
+REPO_ROOT = Path(__file__).resolve().parents[3]
 DEFAULT_MAX_SOURCE_CHARS = 120000
 
 

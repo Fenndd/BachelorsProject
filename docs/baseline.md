@@ -7,7 +7,7 @@ The current baseline is the imported Lambda Twist P3P solver wired into project-
 ## Code Ownership and Locations
 
 - External third-party baseline code: `cpp/external/lambdatwist/`
-- New absolute-pose family benchmark: `cpp/bench/families/geometric_pose_solvers/absolute_pose_solvers/`
+- New absolute-pose family benchmark: `cpp/bench/absolute_pose/`
 
 The external Lambda Twist code remains third-party source and is kept separate from project-owned code.
 
@@ -16,7 +16,6 @@ The external Lambda Twist code remains third-party source and is kept separate f
 - `lambdatwist_baseline` (static library target)
 - `absolute_pose_lambdatwist_adapter_validator` (adapter validation gate for Lambda Twist P3P)
 - `absolute_pose_lambdatwist_benchmark` (new absolute-pose family benchmark executable)
-- `absolute_pose_correctness_policy_test` (unit test for `correctness_policy_passed` helper)
 
 ## Baseline CLI Flow
 

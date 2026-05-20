@@ -10,7 +10,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Callable
 
-from orchestrator.benchmarking.family_benchmark_parser import parse_absolute_pose_benchmark_output
+from orchestrator.core.benchmarking.family_benchmark_parser import parse_absolute_pose_benchmark_output
 
 
 @dataclass(frozen=True)

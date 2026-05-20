@@ -8,7 +8,7 @@ import unittest
 from pathlib import Path
 from typing import Any
 
-from orchestrator.patching.materialize_candidate import (
+from orchestrator.core.patching.materialize_candidate import (
     REPO_ROOT,
     _apply_single_line_range_edit,
     main as materialize_main,

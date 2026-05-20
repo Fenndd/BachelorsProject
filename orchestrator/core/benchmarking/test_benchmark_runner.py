@@ -8,7 +8,7 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-from orchestrator.benchmarking.benchmark_runner import (
+from orchestrator.core.benchmarking.benchmark_runner import (
     build_cmake_build_command,
     configure_cmake_command,
     find_executable,
@@ -80,7 +80,7 @@ class FindExecutableTests(unittest.TestCase):
             exe.write_text("dummy")
 
             with mock.patch.object(sys, "platform", "win32" if sys.platform != "win32" else "win32"):
-                with mock.patch("orchestrator.benchmarking.benchmark_runner.platform") as mock_plat:
+                with mock.patch("orchestrator.core.benchmarking.benchmark_runner.platform") as mock_plat:
                     mock_plat.system.return_value = "Windows"
                     result = find_executable(build_dir, "my_target")
                     self.assertEqual(result.name, "my_target.exe")
@@ -92,7 +92,7 @@ class FindExecutableTests(unittest.TestCase):
             exe.parent.mkdir(parents=True)
             exe.write_text("dummy")
 
-            with mock.patch("orchestrator.benchmarking.benchmark_runner.platform") as mock_plat:
+            with mock.patch("orchestrator.core.benchmarking.benchmark_runner.platform") as mock_plat:
                 mock_plat.system.return_value = "Linux"
                 result = find_executable(build_dir, "my_target")
                 self.assertEqual(result.name, "my_target")

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import unittest
 
-from orchestrator.benchmarking.family_benchmark_parser import (
+from orchestrator.core.benchmarking.family_benchmark_parser import (
     parse_absolute_pose_benchmark_output,
 )
 

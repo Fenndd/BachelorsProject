@@ -15,10 +15,10 @@ Experiment configs describe closed-loop runs. Candidate representation is not co
 
 ## Candidate Generation
 
-The runner always invokes `orchestrator.llm.generate_candidate` with line-numbered source. The LLM always returns `edits[]` using the fixed line-range schema.
+The runner always invokes `orchestrator.core.llm.generate_candidate` with line-numbered source. The LLM always returns `edits[]` using the fixed line-range schema.
 
 ## Materialization
 
-The runner invokes `orchestrator.patching.materialize_candidate`, which applies the candidate `edits[]` in an isolated workspace. The main `cpp/` tree is never modified by the experiment runner.
+The runner invokes `orchestrator.core.patching.materialize_candidate`, which applies the candidate `edits[]` in an isolated workspace. The main `cpp/` tree is never modified by the experiment runner.
 
 The materializer writes `candidate.generated.diff` after applying edits so reviewers can inspect the resulting source change.

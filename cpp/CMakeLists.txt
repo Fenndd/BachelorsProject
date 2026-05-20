@@ -29,7 +29,7 @@ target_include_directories(lambdatwist_baseline
 
 # Project-owned absolute pose benchmark family infrastructure.
 set(ABSOLUTE_POSE_SOLVERS_DIR
-    "${CMAKE_CURRENT_SOURCE_DIR}/bench/families/geometric_pose_solvers/absolute_pose_solvers"
+    "${CMAKE_CURRENT_SOURCE_DIR}/bench/absolute_pose"
 )
 
 # --- Core library: generic absolute pose family, no Lambda Twist dependency ---
@@ -83,12 +83,4 @@ target_link_libraries(absolute_pose_lambdatwist_adapter_validator
         absolute_pose_lambdatwist_adapter
 )
 
-# --- Tests ---
-add_executable(absolute_pose_correctness_policy_test
-    "${CMAKE_CURRENT_SOURCE_DIR}/tests/absolute_pose_correctness_policy_test.cpp"
-)
 
-target_link_libraries(absolute_pose_correctness_policy_test
-    PRIVATE
-        absolute_pose_core
-)

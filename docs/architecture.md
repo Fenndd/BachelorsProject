@@ -25,10 +25,10 @@ The baseline Python entry point is `orchestrator/cli/main.py`. It remains separa
 
 The main orchestration components are:
 
-- `orchestrator.llm.generate_candidate`: reads one source file from a configurable source root, builds a controlled prompt, calls the configured LLM or mock client, parses the response, and stores candidate artifacts.
-- `orchestrator.patching.materialize_candidate`: materializes a candidate inside `workspace/candidates/<candidate_run_id>/` only, optionally using an explicit `--base-source-root`.
-- `orchestrator.execution.verify_candidate`: runs deterministic adapter validation, family benchmark, and benchmark parsing inside a materialized candidate workspace.
-- `orchestrator.benchmarking.candidate_decision`: evaluates one verified candidate against either a baseline run or a verified-candidate reference. In closed-loop mode, this writes reference-vs-candidate decisions such as `decision_vs_current_best.json`.
+- `orchestrator.core.llm.generate_candidate`: reads one source file from a configurable source root, builds a controlled prompt, calls the configured LLM or mock client, parses the response, and stores candidate artifacts.
+- `orchestrator.core.patching.materialize_candidate`: materializes a candidate inside `workspace/candidates/<candidate_run_id>/` only, optionally using an explicit `--base-source-root`.
+- `orchestrator.core.execution.verify_candidate`: runs deterministic adapter validation, family benchmark, and benchmark parsing inside a materialized candidate workspace.
+- `orchestrator.core.benchmarking.candidate_decision`: evaluates one verified candidate against either a baseline run or a verified-candidate reference. In closed-loop mode, this writes reference-vs-candidate decisions such as `decision_vs_current_best.json`.
 - `orchestrator.experiments.closed_loop_state`: manages experiment-local `current_best_source` and `current_best_state` metadata.
 - `orchestrator.experiments.closed_loop_history`: builds compact benchmark-aware history for later closed-loop generations.
 - `orchestrator.experiments.run_experiment`: runs configured closed-loop iterative optimization experiments.

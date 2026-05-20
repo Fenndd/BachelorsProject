@@ -30,12 +30,12 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
-from orchestrator.benchmarking.benchmark_artifacts import (
+from orchestrator.core.benchmarking.benchmark_artifacts import (
     benchmark_artifact_from_parse,
     benchmark_required_fields,
     empty_benchmark_artifact,
 )
-from orchestrator.benchmarking.solver_registry import (
+from orchestrator.core.benchmarking.solver_registry import (
     SolverBenchmarkDescriptor,
     default_solver_descriptor,
 )

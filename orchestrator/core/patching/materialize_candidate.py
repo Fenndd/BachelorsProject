@@ -19,15 +19,15 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-from orchestrator.patching.diff_stats import parse_diff_stats
-from orchestrator.patching.scope_validation import (
+from orchestrator.core.patching.diff_stats import parse_diff_stats
+from orchestrator.core.patching.scope_validation import (
     normalize_repo_path,
     validate_allowed_files_list,
     validate_candidate_scope,
 )
 
 
-REPO_ROOT = Path(__file__).resolve().parents[2]
+REPO_ROOT = Path(__file__).resolve().parents[3]
 DEFAULT_WORKSPACE_ROOT = "workspace/candidates"
 EXTERNAL_SCOPE_ENFORCEMENT = "external_allowed_files"
 

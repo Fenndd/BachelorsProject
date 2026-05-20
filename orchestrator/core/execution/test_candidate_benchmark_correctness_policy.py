@@ -6,14 +6,14 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from orchestrator.benchmarking import parse_absolute_pose_benchmark_output
-from orchestrator.benchmarking.benchmark_artifacts import (
+from orchestrator.core.benchmarking import parse_absolute_pose_benchmark_output
+from orchestrator.core.benchmarking.benchmark_artifacts import (
     benchmark_artifact_from_parse,
     build_benchmark_correctness_error_message,
     empty_benchmark_artifact,
 )
-from orchestrator.benchmarking.solver_registry import default_solver_descriptor
-from orchestrator.execution.candidate_benchmark_verification import (
+from orchestrator.core.benchmarking.solver_registry import default_solver_descriptor
+from orchestrator.core.execution.candidate_benchmark_verification import (
     BENCHMARK_CORRECTNESS_CHECK_STEP,
     _complete_steps,
     _finalize,

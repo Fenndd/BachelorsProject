@@ -7,7 +7,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from orchestrator.patching.scope_validation import (
+from orchestrator.core.patching.scope_validation import (
     normalize_repo_path,
     validate_allowed_files_list,
     validate_candidate_scope,

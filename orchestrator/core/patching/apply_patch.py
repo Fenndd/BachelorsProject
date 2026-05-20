@@ -1,7 +1,7 @@
 """Compatibility note for patch application.
 
 The current Step 9 implementation lives in
-orchestrator.patching.materialize_candidate. That command materializes generated
+orchestrator.core.patching.materialize_candidate. That command materializes generated
 candidate diffs into isolated workspace copies and never modifies the main
 project source tree.
 

@@ -17,23 +17,23 @@ from pathlib import Path
 from typing import Any, Sequence
 
 
-REPO_ROOT = Path(__file__).resolve().parents[2]
+REPO_ROOT = Path(__file__).resolve().parents[3]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
-from orchestrator.benchmarking.benchmark_artifacts import (
+from orchestrator.core.benchmarking.benchmark_artifacts import (
     benchmark_artifact_from_parse,
     build_benchmark_correctness_error_message,
     empty_benchmark_artifact,
 )
-from orchestrator.benchmarking.benchmark_runner import (
+from orchestrator.core.benchmarking.benchmark_runner import (
     build_cmake_build_command,
     configure_cmake_command,
     find_executable,
     run_command,
     write_step_log,
 )
-from orchestrator.benchmarking.solver_registry import (
+from orchestrator.core.benchmarking.solver_registry import (
     SolverBenchmarkDescriptor,
     default_solver_descriptor,
 )

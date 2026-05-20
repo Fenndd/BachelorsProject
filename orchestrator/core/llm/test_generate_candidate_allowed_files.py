@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import unittest
 
-from orchestrator.llm.generate_candidate import (
+from orchestrator.core.llm.generate_candidate import (
     CandidateGenerationFailure,
     _resolve_allowed_files,
 )

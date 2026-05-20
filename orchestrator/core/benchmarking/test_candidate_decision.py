@@ -8,7 +8,7 @@ import unittest
 from pathlib import Path
 from typing import Any
 
-from orchestrator.benchmarking.candidate_decision import (
+from orchestrator.core.benchmarking.candidate_decision import (
     evaluate_candidate_against_baseline,
     evaluate_candidate_against_reference,
     write_candidate_decision,

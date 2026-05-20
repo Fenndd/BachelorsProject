@@ -11,7 +11,7 @@ closed-loop optimization pipeline.
 Implementation status update:
 
 - Pairwise reference-vs-candidate decision is implemented in
-  `orchestrator/benchmarking/candidate_decision.py`.
+  `orchestrator/core/benchmarking/candidate_decision.py`.
 - The original baseline-vs-candidate API remains available as a compatibility
   wrapper for direct pairwise comparisons.
 - Closed-loop experiments use reference-vs-candidate decisions inside each

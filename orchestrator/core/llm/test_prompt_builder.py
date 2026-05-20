@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import unittest
 
-from orchestrator.llm.prompt_builder import (
+from orchestrator.core.llm.prompt_builder import (
     build_optimization_prompt,
     format_source_line_numbered,
 )
