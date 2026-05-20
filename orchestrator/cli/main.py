@@ -265,7 +265,14 @@ def _empty_benchmark_parse_result(
 
 
 def _benchmark_parse_result_from_output(output: str) -> dict[str, Any]:
-    return DESCRIPTOR.parser(output)
+    parse_result = DESCRIPTOR.parser(output)
+    return {
+        "raw_output_available": True,
+        "parse_success": parse_result["parse_success"],
+        "missing_fields": parse_result["missing_fields"],
+        "parse_errors": parse_result["parse_errors"],
+        "metrics": parse_result["metrics"],
+    }
 
 
 def _build_parse_error_message(benchmark_parse_result: dict[str, Any]) -> str:
@@ -409,7 +416,14 @@ def _build_metrics(
         step_statuses, f"run_{DESCRIPTOR.benchmark_target}"
     )
 
-    benchmark = benchmark_artifact_from_parse(benchmark_parse_result, DESCRIPTOR, cmake_build_type)
+    if benchmark_parse_result.get("raw_output_available") is not True:
+        benchmark = empty_benchmark_artifact(
+            DESCRIPTOR,
+            raw_output_available=benchmark_parse_result.get("raw_output_available", False),
+            build_type=cmake_build_type,
+        )
+    else:
+        benchmark = benchmark_artifact_from_parse(benchmark_parse_result, DESCRIPTOR, cmake_build_type)
 
     return {
         "build_success": build_success,

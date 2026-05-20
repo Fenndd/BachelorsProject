@@ -24,13 +24,6 @@
 - Current state: DeepSeek and mock LLM paths are available, controlled prompt builder is implemented, response parser supports `unified_diff` and `line_range_edits`, and candidate artifacts are stored under `results/runs/`.
 - Not complete: automatic promotion into the main `cpp/` source tree.
 
-## 4a. Candidate Materialization and Benchmark Verification
-
-- Materialize generated candidates only in isolated workspace copies and run deterministic benchmark-family verification.
-- Status: completed for the minimal P3P scenario.
-- Current state: `unified_diff` materialization works with `git apply` and `--recount` fallback. `line_range_edits` materialization works with deterministic line-range edits. Candidate verification runs adapter validator, benchmark, and benchmark parser.
-- Not complete: promotion.
-
 ## 4b. Candidate Edit Format Layer
 
 - Separate semantic optimization from mechanical patch application.
