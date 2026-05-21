@@ -11,6 +11,7 @@ from orchestrator.core.patching.scope_validation import (
     normalize_repo_path,
     validate_allowed_files_list,
 )
+from orchestrator.shared.io.json_io import read_json
 
 
 class ExperimentConfigError(ValueError):
@@ -75,7 +76,7 @@ def load_experiment_config(path: Path | str) -> ExperimentConfig:
         raise ExperimentConfigError(f"Experiment config path is not a file: {config_path}")
 
     try:
-        payload = json.loads(config_path.read_text(encoding="utf-8-sig"))
+        payload = read_json(config_path)
     except json.JSONDecodeError as exc:
         raise ExperimentConfigError(
             f"Experiment config is not valid JSON: {config_path}: {exc}"

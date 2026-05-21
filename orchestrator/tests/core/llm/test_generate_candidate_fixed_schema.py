@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import sys
 import tempfile
 import unittest
@@ -22,6 +23,8 @@ from orchestrator.core.llm.generate_candidate import (
 )
 from orchestrator.core.llm.base import LLMResponse
 from orchestrator.core.llm.response_parser import LineRangeEdit, OptimizationCandidate
+from orchestrator.logging_config import get_logger
+from orchestrator.paths import get_project_paths
 
 
 TARGET_FILE = "cpp/src/example.cpp"
@@ -106,7 +109,7 @@ class GenerateCandidateFixedSchemaTests(unittest.TestCase):
         self.assertNotIn("candidate" + "_type", record)
 
     def test_final_summary_prints_run_dir_before_unicode_candidate_summary(self) -> None:
-        class StrictAsciiStdout:
+        class StrictAsciiStream:
             encoding = "ascii"
 
             def __init__(self) -> None:
@@ -120,10 +123,15 @@ class GenerateCandidateFixedSchemaTests(unittest.TestCase):
             def flush(self) -> None:
                 pass
 
-        stdout = StrictAsciiStdout()
-        original_stdout = sys.stdout
+        stream = StrictAsciiStream()
+        handler = logging.StreamHandler(stream)
+        handler.setFormatter(logging.Formatter("%(message)s"))
+        logger = get_logger(
+            "orchestrator.core.llm.generate_candidate"
+        )
+        logger.addHandler(handler)
+        logger.setLevel(logging.INFO)
         try:
-            sys.stdout = stdout  # type: ignore[assignment]
             _print_final_summary(
                 _build_status("success", None, None),
                 Path("results/runs/llm_candidate_unicode"),
@@ -139,9 +147,9 @@ class GenerateCandidateFixedSchemaTests(unittest.TestCase):
                 ),
             )
         finally:
-            sys.stdout = original_stdout
+            logger.removeHandler(handler)
 
-        output = "".join(stdout.lines)
+        output = "".join(stream.lines)
         self.assertTrue(output.startswith("CANDIDATE_RUN_DIR="))
         self.assertIn("well-optimized", output)
         self.assertIn("Edit count: 0", output)
@@ -206,14 +214,18 @@ class GenerateCandidateFixedSchemaTests(unittest.TestCase):
                 ),
                 encoding="utf-8",
             )
-            original_root = generate_candidate_module.REPO_ROOT
+            (root / ".git").mkdir(exist_ok=True)
+            (root / "configs").mkdir(exist_ok=True)
+            (root / "cpp").mkdir(exist_ok=True)
+            (root / "orchestrator").mkdir(exist_ok=True)
+            original_paths = generate_candidate_module.paths
             try:
-                generate_candidate_module.REPO_ROOT = root
+                generate_candidate_module.paths = get_project_paths(root)
                 exit_code = generate_candidate_module.main(
                     ["--config", str(config_path), "--source", TARGET_FILE]
                 )
             finally:
-                generate_candidate_module.REPO_ROOT = original_root
+                generate_candidate_module.paths = original_paths
 
             self.assertEqual(exit_code, 0)
             run_dir = next((root / "results" / "runs").iterdir())

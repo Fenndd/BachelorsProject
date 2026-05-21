@@ -16,10 +16,10 @@ import time
 from pathlib import Path
 from typing import Any, Sequence
 
+from orchestrator.paths import paths
 
-REPO_ROOT = Path(__file__).resolve().parents[3]
-if str(REPO_ROOT) not in sys.path:
-    sys.path.insert(0, str(REPO_ROOT))
+if str(paths.repo_root) not in sys.path:
+    sys.path.insert(0, str(paths.repo_root))
 
 from orchestrator.core.benchmarking.benchmark_artifacts import (
     benchmark_artifact_from_parse,
@@ -115,13 +115,13 @@ def _parse_args(argv: list[str]) -> argparse.Namespace:
 def _resolve_repo_path(path_text: str) -> Path:
     path = Path(path_text)
     if not path.is_absolute():
-        path = REPO_ROOT / path
+        path = paths.repo_root / path
     return path.resolve()
 
 
 def _display_path(path: Path) -> str:
     try:
-        return path.resolve().relative_to(REPO_ROOT).as_posix()
+        return path.resolve().relative_to(paths.repo_root).as_posix()
     except ValueError:
         return str(path)
 

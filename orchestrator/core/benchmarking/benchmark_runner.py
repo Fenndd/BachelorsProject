@@ -9,16 +9,12 @@ verification and final-selection reporting.
 from __future__ import annotations
 
 import platform
-import subprocess
-import sys
-import time
 from pathlib import Path
 from typing import Any, Sequence
 
+from orchestrator.shared.process.step_runner import format_command, StepRunner
 
-def format_command(command: Sequence[str]) -> str:
-    """Format a command sequence as a shell-quoted string for display/logs."""
-    return " ".join(f'"{part}"' if " " in str(part) else str(part) for part in command)
+_runner = StepRunner()
 
 
 def write_step_log(
@@ -45,6 +41,7 @@ def write_step_log(
         stderr,
         "",
     ]
+    log_path.parent.mkdir(parents=True, exist_ok=True)
     log_path.write_text("\n".join(lines), encoding="utf-8")
 
 
@@ -61,56 +58,23 @@ def run_command(
         A tuple ``(step_status, error_message, stdout)`` where *error_message* is
         ``None`` when the command exits with code 0.
     """
-    print(f"\n[STEP] {title}")
-    print(f"[CMD ] {format_command(command)}")
-    print(f"[CWD ] {cwd}")
-
-    started = time.perf_counter()
-    try:
-        result = subprocess.run(
-            list(command),
-            cwd=str(cwd),
-            capture_output=True,
-            text=True,
-            check=False,
-        )
-        duration_seconds = round(time.perf_counter() - started, 3)
-        exit_code = result.returncode
-        stdout = result.stdout
-        stderr = result.stderr
-    except (OSError, ValueError) as exc:
-        duration_seconds = round(time.perf_counter() - started, 3)
-        exit_code = None
-        stdout = ""
-        if isinstance(exc, FileNotFoundError):
-            stderr = (
-                f"Required command not found: '{command[0]}'. "
-                "Make sure it is installed and available in PATH."
-            )
-        else:
-            stderr = f"Could not start command '{command[0]}': {exc}"
-
-    write_step_log(log_path, step_name, command, cwd, exit_code, stdout, stderr)
-
-    if stdout:
-        print(stdout, end="" if stdout.endswith("\n") else "\n")
-    if stderr:
-        print(stderr, end="" if stderr.endswith("\n") else "\n", file=sys.stderr)
-
-    status = "success" if exit_code == 0 else "failed"
-    error_message = None
-    if exit_code != 0:
-        error_message = f"Step failed with exit code {exit_code}: {format_command(command)}"
+    result = _runner.run_step(
+        label=step_name,
+        cmd=command,
+        cwd=cwd,
+        title=title,
+        log_path=log_path,
+    )
 
     return (
         {
             "name": step_name,
-            "status": status,
-            "exit_code": exit_code,
-            "duration_seconds": duration_seconds,
+            "status": result.status,
+            "exit_code": result.exit_code,
+            "duration_seconds": result.duration_seconds,
         },
-        error_message,
-        stdout,
+        result.error_message,
+        result.stdout,
     )
 
 

@@ -26,9 +26,11 @@ from pathlib import Path
 from typing import Any, Sequence
 
 
-REPO_ROOT = Path(__file__).resolve().parents[2]
-if str(REPO_ROOT) not in sys.path:
-    sys.path.insert(0, str(REPO_ROOT))
+_BOOTSTRAP_ROOT = Path(__file__).resolve().parents[2]
+if str(_BOOTSTRAP_ROOT) not in sys.path:
+    sys.path.insert(0, str(_BOOTSTRAP_ROOT))
+
+from orchestrator.paths import paths
 
 from orchestrator.core.benchmarking.benchmark_artifacts import (
     benchmark_artifact_from_parse,
@@ -39,7 +41,10 @@ from orchestrator.core.benchmarking.solver_registry import (
     SolverBenchmarkDescriptor,
     default_solver_descriptor,
 )
+from orchestrator.shared.process.step_runner import StepRunner
 from orchestrator.storage import RunStorage
+
+_shared_runner = StepRunner()
 
 DESCRIPTOR: SolverBenchmarkDescriptor = default_solver_descriptor()
 _REQUIRED_FIELDS: list[str] = benchmark_required_fields()
@@ -56,10 +61,6 @@ EXPECTED_STEPS = [
 
 PARSE_FAMILY_BENCHMARK_STEP = f"parse_{DESCRIPTOR.benchmark_target}"
 BENCHMARK_CORRECTNESS_CHECK_STEP = "benchmark_correctness_check"
-
-
-def _format_command(command: Sequence[str]) -> str:
-    return " ".join(f'"{part}"' if " " in part else str(part) for part in command)
 
 
 def _run_git_command(repo_root: Path, args: Sequence[str]) -> str | None:
@@ -108,7 +109,7 @@ def _build_metadata(
         "baseline": "lambda_twist",
         "started_at": started_at.isoformat(timespec="seconds"),
         "finished_at": None,
-        "repository": _get_repository_info(REPO_ROOT),
+        "repository": _get_repository_info(paths.repo_root),
         "environment": {
             "python_version": sys.version,
             "platform": platform.platform(),
@@ -130,65 +131,31 @@ def _run_step(
     command: Sequence[str],
     cwd: Path,
 ) -> tuple[dict[str, Any], str | None, str]:
-    print(f"\n[STEP] {title}")
-    print(f"[CMD ] {_format_command(command)}")
-    print(f"[CWD ] {cwd}")
-
-    started = time.perf_counter()
-    try:
-        result = subprocess.run(
-            list(command),
-            cwd=str(cwd),
-            capture_output=True,
-            text=True,
-            check=False,
-        )
-        duration_seconds = round(time.perf_counter() - started, 3)
-        stdout = result.stdout
-        stderr = result.stderr
-        exit_code = result.returncode
-    except FileNotFoundError:
-        duration_seconds = round(time.perf_counter() - started, 3)
-        stdout = ""
-        stderr = (
-            f"Required command not found: '{command[0]}'. "
-            "Make sure it is installed and available in PATH."
-        )
-        exit_code = None
-        storage.save_log(run_dir, step_name, command, cwd, exit_code, stdout, stderr)
-        return (
-            {
-                "name": step_name,
-                "status": "failed",
-                "exit_code": exit_code,
-                "duration_seconds": duration_seconds,
-            },
-            stderr,
-            stdout,
-        )
-
-    storage.save_log(run_dir, step_name, command, cwd, exit_code, stdout, stderr)
-
-    if stdout:
-        print(stdout, end="" if stdout.endswith("\n") else "\n")
-    if stderr:
-        print(stderr, end="" if stderr.endswith("\n") else "\n", file=sys.stderr)
-
-    status = "success" if exit_code == 0 else "failed"
-    error_message = None
-    if exit_code != 0:
-        error_message = f"Step failed with exit code {exit_code}: {_format_command(command)}"
-
-    return (
-        {
-            "name": step_name,
-            "status": status,
-            "exit_code": exit_code,
-            "duration_seconds": duration_seconds,
-        },
-        error_message,
-        stdout,
+    result = _shared_runner.run_step(
+        label=step_name,
+        cmd=command,
+        cwd=cwd,
+        title=title,
+        log_path=None,
     )
+
+    storage.save_log(
+        run_dir,
+        step_name,
+        command,
+        cwd,
+        result.exit_code,
+        result.stdout,
+        result.stderr,
+    )
+
+    step_status: dict[str, Any] = {
+        "name": step_name,
+        "status": result.status,
+        "exit_code": result.exit_code,
+        "duration_seconds": result.duration_seconds,
+    }
+    return step_status, result.error_message, result.stdout
 
 
 def _find_executable(build_dir: Path, executable_name: str) -> Path:
@@ -328,7 +295,7 @@ def _run_benchmark_parse_step(
         run_dir,
         PARSE_FAMILY_BENCHMARK_STEP,
         f"parse stdout from {input_log_path}",
-        REPO_ROOT,
+        paths.repo_root,
         None,
         log_stdout,
         "" if error_message is None else error_message,
@@ -367,7 +334,7 @@ def _run_benchmark_correctness_check_step(
         run_dir,
         BENCHMARK_CORRECTNESS_CHECK_STEP,
         "check parsed correctness_passed metric",
-        REPO_ROOT,
+        paths.repo_root,
         None,
         "\n".join(
             [
@@ -584,14 +551,14 @@ def _write_final_artifacts(
     storage.save_status(run_dir, status)
     storage.save_metrics(run_dir, metrics)
     storage.save_summary(run_dir, summary)
-    index_record = _build_index_record(metadata, status, metrics, run_dir, REPO_ROOT)
+    index_record = _build_index_record(metadata, status, metrics, run_dir, paths.repo_root)
     index_path = storage.append_index_record(index_record)
-    print(f"[Index] Appended run record to {_display_path(index_path, REPO_ROOT)}")
+    print(f"[Index] Appended run record to {_display_path(index_path, paths.repo_root)}")
     return status
 
 
 def main() -> int:
-    source_dir = REPO_ROOT / "cpp"
+    source_dir = paths.repo_root / "cpp"
     build_dir = source_dir / "build"
 
     cmake_exe = os.environ.get("CMAKE_EXE", "cmake")
@@ -604,7 +571,7 @@ def main() -> int:
         os.environ.get("CMAKE_BUILD_TYPE", "Release"),
     )
 
-    storage = RunStorage(REPO_ROOT / "results")
+    storage = RunStorage(paths.repo_root / "results")
     started_at = datetime.now().astimezone()
     run_id = storage.build_run_id("baseline", started_at)
     run_dir = storage.create_run_directory("baseline", run_id)
@@ -701,7 +668,7 @@ def main() -> int:
 
     for step_name, title, command in command_steps:
         step_status, step_error, _stdout = _run_step(
-            storage, run_dir, step_name, title, command, REPO_ROOT
+            storage, run_dir, step_name, title, command, paths.repo_root
         )
         step_statuses.append(step_status)
         if step_error:
@@ -734,7 +701,7 @@ def main() -> int:
                     run_dir,
                     step_name,
                     f"find executable {executable_name}",
-                    REPO_ROOT,
+                    paths.repo_root,
                     None,
                     "",
                     error_message,
@@ -752,7 +719,7 @@ def main() -> int:
                 break
 
             step_status, step_error, stdout = _run_step(
-                storage, run_dir, step_name, title, [str(executable)], REPO_ROOT
+                storage, run_dir, step_name, title, [str(executable)], paths.repo_root
             )
             step_statuses.append(step_status)
             if step_name == "run_absolute_pose_lambdatwist_benchmark":

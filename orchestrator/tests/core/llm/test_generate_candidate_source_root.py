@@ -13,10 +13,12 @@ from unittest.mock import patch
 from orchestrator.core.llm import generate_candidate
 from orchestrator.core.llm.generate_candidate import (
     CandidateGenerationFailure,
-    REPO_ROOT,
     _read_source,
     _resolve_logical_target_file,
 )
+from orchestrator.paths import paths
+
+REPO_ROOT = paths.repo_root
 from orchestrator.storage import RunStorage
 
 

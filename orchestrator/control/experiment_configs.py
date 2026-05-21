@@ -11,6 +11,7 @@ from orchestrator.experiments.experiment_config import (
     ExperimentConfigError,
     load_experiment_config,
 )
+from orchestrator.shared.io.json_io import read_json_object
 
 from .project_paths import get_project_paths, resolve_project_path
 
@@ -41,13 +42,6 @@ def list_experiment_config_paths(repo_root: Path | None = None) -> list[Path]:
     return sorted(paths.experiments_config.glob("*.json"))
 
 
-def _read_json_object(path: Path) -> dict[str, Any]:
-    payload = json.loads(path.read_text(encoding="utf-8-sig"))
-    if not isinstance(payload, dict):
-        raise ValueError("Experiment config must contain a JSON object.")
-    return payload
-
-
 def _resolve_config_path(path: Path) -> Path:
     if path.is_absolute():
         return path.resolve()
@@ -61,7 +55,7 @@ def _read_llm_config(path_text: str | None, config_path: Path) -> dict[str, Any]
     if not llm_path.is_absolute():
         llm_path = get_project_paths(config_path).repo_root / llm_path
     try:
-        return _read_json_object(llm_path)
+        return read_json_object(llm_path)
     except (OSError, json.JSONDecodeError, ValueError):
         return {}
 
@@ -137,7 +131,7 @@ def read_experiment_config_summary(path: Path) -> ExperimentConfigSummary:
     config_path = _resolve_config_path(path)
     try:
         config = load_experiment_config(config_path)
-        payload = _read_json_object(config_path)
+        payload = read_json_object(config_path)
         providers, models = _provider_models_from_payload(payload, config_path)
         return ExperimentConfigSummary(
             path=config_path,
@@ -155,7 +149,7 @@ def read_experiment_config_summary(path: Path) -> ExperimentConfigSummary:
         )
     except (ExperimentConfigError, OSError, json.JSONDecodeError, ValueError) as exc:
         try:
-            payload = _read_json_object(config_path)
+            payload = read_json_object(config_path)
         except (OSError, json.JSONDecodeError, ValueError):
             return ExperimentConfigSummary(
                 path=config_path,

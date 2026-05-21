@@ -32,9 +32,10 @@ from orchestrator.reporting.report_data import (
     default_status_counts,
     write_report_data,
 )
-from orchestrator.experiments.outcome_reason import build_outcome_reason, outcome_reason_to_dict
+from orchestrator.paths import paths
+from orchestrator.shared.io.json_io import read_json, read_json_object
 
-_REPO_ROOT = Path(__file__).resolve().parents[2]
+from orchestrator.experiments.outcome_reason import build_outcome_reason, outcome_reason_to_dict
 
 
 def collect_report_data(
@@ -52,7 +53,7 @@ def collect_report_data(
     _require_file(summary_path, "closed-loop summary")
     _require_file(iterations_path, "closed-loop iterations")
 
-    summary = _read_json_object(summary_path)
+    summary = read_json_object(summary_path)
     records = _read_jsonl_objects(iterations_path)
     report_data_path = (
         Path(output_path)
@@ -213,19 +214,19 @@ def _display_path(path: Any, experiment_dir: Path | None = None) -> str | None:
         if any(normalized.startswith(p) for p in _KNOWN_PREFIXES):
             return normalized
         try:
-            candidate = (_REPO_ROOT / normalized).resolve()
-            return candidate.relative_to(_REPO_ROOT).as_posix()
+            candidate = (paths.repo_root / normalized).resolve()
+            return candidate.relative_to(paths.repo_root).as_posix()
         except (ValueError, OSError):
             pass
         if experiment_dir is not None:
             try:
                 candidate = (experiment_dir / normalized).resolve()
-                return candidate.relative_to(_REPO_ROOT).as_posix()
+                return candidate.relative_to(paths.repo_root).as_posix()
             except (ValueError, OSError):
                 pass
         try:
             candidate = (Path.cwd() / normalized).resolve()
-            return candidate.relative_to(_REPO_ROOT).as_posix()
+            return candidate.relative_to(paths.repo_root).as_posix()
         except (ValueError, OSError):
             pass
         return normalized
@@ -236,11 +237,11 @@ def _display_path(path: Any, experiment_dir: Path | None = None) -> str | None:
         return path_text
 
     try:
-        return resolved.relative_to(_REPO_ROOT).as_posix()
+        return resolved.relative_to(paths.repo_root).as_posix()
     except ValueError:
         pass
 
-    workspace_root = _REPO_ROOT / "workspace"
+    workspace_root = paths.repo_root / "workspace"
     try:
         return (Path("workspace") / resolved.relative_to(workspace_root)).as_posix()
     except ValueError:
@@ -774,13 +775,6 @@ def _require_file(path: Path, label: str) -> None:
         raise FileNotFoundError(f"Missing required {label} artifact: {path}")
 
 
-def _read_json_object(path: Path) -> dict[str, Any]:
-    payload = json.loads(path.read_text(encoding="utf-8-sig"))
-    if not isinstance(payload, dict):
-        raise ValueError(f"Expected JSON object in: {path}")
-    return payload
-
-
 def _read_jsonl_objects(path: Path) -> list[dict[str, Any]]:
     records: list[dict[str, Any]] = []
     for line_number, line in enumerate(
@@ -1076,7 +1070,7 @@ def _safe_read_json_object(path: Path) -> dict[str, Any] | None:
     if not path.is_file():
         return None
     try:
-        payload = json.loads(path.read_text(encoding="utf-8-sig"))
+        payload = read_json(path)
     except (OSError, json.JSONDecodeError):
         return None
     return payload if isinstance(payload, dict) else None
@@ -1218,7 +1212,7 @@ def _load_baseline_metrics_with_raw(
         return ReportBaselineMetrics(), None
 
     try:
-        payload = json.loads(metrics_path.read_text(encoding="utf-8-sig"))
+        payload = read_json(metrics_path)
     except (OSError, json.JSONDecodeError):
         return ReportBaselineMetrics(), None
     if not isinstance(payload, dict):

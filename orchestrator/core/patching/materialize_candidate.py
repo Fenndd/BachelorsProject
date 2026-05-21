@@ -25,9 +25,14 @@ from orchestrator.core.patching.scope_validation import (
     validate_allowed_files_list,
     validate_candidate_scope,
 )
+from orchestrator.logging_config import configure_logging, get_logger
+from orchestrator.shared.io.json_io import read_json
+
+from orchestrator.paths import paths
+
+LOGGER = get_logger(__name__)
 
 
-REPO_ROOT = Path(__file__).resolve().parents[3]
 DEFAULT_WORKSPACE_ROOT = "workspace/candidates"
 EXTERNAL_SCOPE_ENFORCEMENT = "external_allowed_files"
 
@@ -90,7 +95,7 @@ def _parse_args(argv: list[str]) -> argparse.Namespace:
 def _resolve_path(path_text: str) -> Path:
     path = Path(path_text)
     if not path.is_absolute():
-        path = REPO_ROOT / path
+        path = paths.repo_root / path
     return path.resolve()
 
 
@@ -111,7 +116,7 @@ def _resolve_base_source_root(args: argparse.Namespace) -> tuple[Path, str]:
 
 def _display_path(path: Path) -> str:
     try:
-        return path.resolve().relative_to(REPO_ROOT).as_posix()
+        return path.resolve().relative_to(paths.repo_root).as_posix()
     except ValueError:
         return str(path)
 
@@ -1021,11 +1026,11 @@ def _fail(
         commands,
         materialization,
     )
-    print("Final status: failed")
-    print(f"Failed step: {failed_step}")
-    print(f"ERROR: {error_message}", file=sys.stderr)
-    print(f"Workspace removed on failure: {workspace_removed_on_failure}")
-    print(f"Logs saved to: {candidate_run_dir / 'apply_candidate.log'}")
+    LOGGER.info("Final status: failed")
+    LOGGER.info("Failed step: %s", failed_step)
+    LOGGER.error("ERROR: %s", error_message)
+    LOGGER.info("Workspace removed on failure: %s", workspace_removed_on_failure)
+    LOGGER.info("Logs saved to: %s", candidate_run_dir / "apply_candidate.log")
     return 1
 
 
@@ -1083,13 +1088,13 @@ def _skip_noop_candidate(
         [],
         materialization,
     )
-    print("Final status: skipped")
-    print(f"Candidate run id: {candidate_run_id}")
-    print(f"Workspace path: {workspace_path}")
-    print("Changed files: none")
-    print("No patch to materialize: candidate expected_effect is 'none'.")
-    print(f"Main source tree was not modified: {base_source_root_text}")
-    print(f"Logs saved to: {candidate_run_dir / 'apply_candidate.log'}")
+    LOGGER.info("Final status: skipped")
+    LOGGER.info("Candidate run id: %s", candidate_run_id)
+    LOGGER.info("Workspace path: %s", workspace_path)
+    LOGGER.info("Changed files: none")
+    LOGGER.info("No patch to materialize: candidate expected_effect is 'none'.")
+    LOGGER.info("Main source tree was not modified: %s", base_source_root_text)
+    LOGGER.info("Logs saved to: %s", candidate_run_dir / "apply_candidate.log")
     return 0
 
 
@@ -1105,17 +1110,17 @@ def main(argv: list[str] | None = None) -> int:
             _resolve_base_source_root(args)
         )
     except ValueError as exc:
-        print("Final status: failed")
-        print("Failed step: parse_args")
-        print(f"ERROR: {exc}", file=sys.stderr)
-        print("Workspace removed on failure: False")
+        LOGGER.info("Final status: failed")
+        LOGGER.info("Failed step: parse_args")
+        LOGGER.error("ERROR: %s", exc)
+        LOGGER.info("Workspace removed on failure: False")
         return 1
     candidate_json_path = candidate_run_dir / "candidate.json"
     patch_path = (candidate_run_dir / "candidate.generated.diff").resolve()
 
-    print(f"Candidate run id: {candidate_run_id}")
-    print(f"Workspace path: {workspace_path}")
-    print(f"Base source root: {base_source_root_display}")
+    LOGGER.info("Candidate run id: %s", candidate_run_id)
+    LOGGER.info("Workspace path: %s", workspace_path)
+    LOGGER.info("Base source root: %s", base_source_root_display)
 
     steps: list[dict[str, Any]] = []
     commands: list[dict[str, Any]] = []
@@ -1135,13 +1140,12 @@ def main(argv: list[str] | None = None) -> int:
 
     scope_enforcement = EXTERNAL_SCOPE_ENFORCEMENT
     if not candidate_run_dir.exists() or not candidate_run_dir.is_dir():
-        print("Final status: failed")
-        print("Failed step: validate_candidate_scope")
-        print(
-            f"ERROR: Candidate run directory not found: {candidate_run_dir}",
-            file=sys.stderr,
+        LOGGER.info("Final status: failed")
+        LOGGER.info("Failed step: validate_candidate_scope")
+        LOGGER.error(
+            "ERROR: %s", f"Candidate run directory not found: {candidate_run_dir}"
         )
-        print("Workspace removed on failure: False")
+        LOGGER.info("Workspace removed on failure: False")
         return 1
 
     validation_started = time.perf_counter()
@@ -1149,7 +1153,7 @@ def main(argv: list[str] | None = None) -> int:
         if not candidate_json_path.exists():
             raise FileNotFoundError(f"candidate.json not found: {candidate_json_path}")
 
-        candidate_data = json.loads(candidate_json_path.read_text(encoding="utf-8-sig"))
+        candidate_data = read_json(candidate_json_path)
         if not isinstance(candidate_data, dict):
             raise ValueError(f"candidate.json must contain a JSON object: {candidate_json_path}")
 
@@ -1204,7 +1208,7 @@ def main(argv: list[str] | None = None) -> int:
         steps.append(
             _step_status("validate_candidate_scope", "success", None, validation_duration)
         )
-        print(f"Patch file path: {patch_path}")
+        LOGGER.info("Patch file path: %s", patch_path)
     except (OSError, ValueError, json.JSONDecodeError) as exc:
         validation_duration = round(time.perf_counter() - validation_started, 3)
         steps.extend(
@@ -1504,16 +1508,17 @@ def main(argv: list[str] | None = None) -> int:
             materialization,
         )
 
-        print("Final status: success")
-        print(f"Candidate run id: {candidate_run_id}")
-        print(f"Workspace path: {workspace_path}")
-        print("Changed files:")
+        LOGGER.info("Final status: success")
+        LOGGER.info("Candidate run id: %s", candidate_run_id)
+        LOGGER.info("Workspace path: %s", workspace_path)
+        LOGGER.info("Changed files:")
         for changed_file in changed_files:
-            print(f"- {changed_file}")
-        print(f"Generated diff: {generated_diff_path}")
-        print(f"Base source root was not modified: {base_source_root_display}")
-        print(f"Artifact log: {candidate_run_dir / 'apply_candidate.log'}")
+            LOGGER.info("- %s", changed_file)
+        LOGGER.info("Generated diff: %s", generated_diff_path)
+        LOGGER.info("Base source root was not modified: %s", base_source_root_display)
+        LOGGER.info("Artifact log: %s", candidate_run_dir / "apply_candidate.log")
         return 0
 
 if __name__ == "__main__":
+    configure_logging()
     raise SystemExit(main())

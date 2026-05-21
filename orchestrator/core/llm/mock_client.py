@@ -13,9 +13,7 @@ from pathlib import Path
 from typing import Any
 
 from .base import LLMConfig, LLMResponse
-
-
-REPO_ROOT = Path(__file__).resolve().parents[3]
+from orchestrator.paths import paths
 
 
 class MockLLMClientError(RuntimeError):
@@ -50,7 +48,7 @@ class MockLLMClient:
             response_file = (
                 config_relative_response_file
                 if config_relative_response_file.exists()
-                else REPO_ROOT / response_file
+                else paths.repo_root / response_file
             )
         response_file = response_file.resolve()
         if not response_file.exists():

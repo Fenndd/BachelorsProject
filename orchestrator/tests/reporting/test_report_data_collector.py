@@ -957,8 +957,15 @@ def test_e_artifact_paths_end_with_known_segments(
 
     import orchestrator.reporting.report_data_collector as rdc
 
+    from orchestrator.paths import get_project_paths
+
+    (tmp_path / ".git").mkdir(exist_ok=True)
+    (tmp_path / "configs").mkdir(exist_ok=True)
+    (tmp_path / "cpp").mkdir(exist_ok=True)
+    (tmp_path / "orchestrator").mkdir(exist_ok=True)
+
     # Make tmp_path the fake repo root so display paths come out relative
-    monkeypatch.setattr(rdc, "_REPO_ROOT", tmp_path)
+    monkeypatch.setattr(rdc, "paths", get_project_paths(tmp_path))
 
     experiment_dir = _experiment_dir(tmp_path)
     write_json(experiment_dir / "closed_loop_summary.json", _summary())

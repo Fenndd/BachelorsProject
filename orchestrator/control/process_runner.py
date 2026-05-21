@@ -1,4 +1,9 @@
-"""Generic subprocess streaming helpers for control-layer commands."""
+"""Generic subprocess streaming helpers for control-layer commands.
+
+This module provides *streaming* execution via ``subprocess.Popen`` with
+line-by-line stdout/stderr callbacks.  For non-streaming step execution with
+structured StepResult returns, see :mod:`orchestrator.shared.process.step_runner`.
+"""
 
 from __future__ import annotations
 

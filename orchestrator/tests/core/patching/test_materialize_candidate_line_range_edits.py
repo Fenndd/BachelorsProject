@@ -9,10 +9,12 @@ from pathlib import Path
 from typing import Any
 
 from orchestrator.core.patching.materialize_candidate import (
-    REPO_ROOT,
     _apply_single_line_range_edit,
     main as materialize_main,
 )
+from orchestrator.paths import paths
+
+REPO_ROOT = paths.repo_root
 
 
 TARGET_FILE = "cpp/example.cpp"

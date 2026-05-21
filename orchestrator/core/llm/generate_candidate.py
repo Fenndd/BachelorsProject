@@ -28,10 +28,13 @@ from orchestrator.core.patching.scope_validation import (
     normalize_repo_path,
     validate_allowed_files_list,
 )
+from orchestrator.logging_config import configure_logging, get_logger
+from orchestrator.paths import paths
+from orchestrator.shared.io.json_io import read_json
 from orchestrator.storage import RunStorage
 
+LOGGER = get_logger(__name__)
 
-REPO_ROOT = Path(__file__).resolve().parents[3]
 DEFAULT_MAX_SOURCE_CHARS = 120000
 
 
@@ -46,19 +49,6 @@ def _configure_text_streams() -> None:
             reconfigure(encoding="utf-8", errors="replace")
         except (OSError, ValueError, TypeError):
             continue
-
-
-def _safe_print(*values: Any, file: Any | None = None, **kwargs: Any) -> None:
-    """Print without allowing UnicodeEncodeError to fail candidate generation."""
-
-    output = sys.stdout if file is None else file
-    try:
-        print(*values, file=output, **kwargs)
-    except UnicodeEncodeError:
-        text = " ".join(str(value) for value in values)
-        encoding = getattr(output, "encoding", None) or "utf-8"
-        safe_text = text.encode(encoding, errors="replace").decode(encoding, errors="replace")
-        print(safe_text, file=output, **kwargs)
 
 
 class CandidateGenerationFailure(RuntimeError):
@@ -112,13 +102,13 @@ def _parse_args(argv: list[str]) -> argparse.Namespace:
 def _resolve_path(path_text: str) -> Path:
     path = Path(path_text)
     if not path.is_absolute():
-        path = REPO_ROOT / path
+        path = paths.repo_root / path
     return path.resolve()
 
 
 def _resolve_source_root(source_root_text: str | None) -> Path:
     if source_root_text is None:
-        return REPO_ROOT
+        return paths.repo_root
     return _resolve_path(source_root_text)
 
 
@@ -141,7 +131,7 @@ def _resolve_logical_target_file(
 
     if source_path.is_absolute():
         try:
-            return source_path.resolve().relative_to(REPO_ROOT).as_posix()
+            return source_path.resolve().relative_to(paths.repo_root).as_posix()
         except ValueError as exc:
             raise CandidateGenerationFailure(
                 "parse_args",
@@ -158,7 +148,7 @@ def _resolve_logical_target_file(
 
 def _display_path(path: Path) -> str:
     try:
-        return path.resolve().relative_to(REPO_ROOT).as_posix()
+        return path.resolve().relative_to(paths.repo_root).as_posix()
     except ValueError:
         return str(path)
 
@@ -167,7 +157,7 @@ def _run_git_command(args: list[str]) -> str | None:
     try:
         result = subprocess.run(
             ["git", *args],
-            cwd=str(REPO_ROOT),
+            cwd=str(paths.repo_root),
             capture_output=True,
             text=True,
             check=False,
@@ -392,22 +382,22 @@ def _print_final_summary(
     candidate: OptimizationCandidate | None,
 ) -> None:
     if run_dir is not None:
-        _safe_print(f"CANDIDATE_RUN_DIR={_display_path(run_dir)}")
+        LOGGER.info("CANDIDATE_RUN_DIR=%s", _display_path(run_dir))
 
-    _safe_print(f"Final status: {status['overall_status']}")
+    LOGGER.info("Final status: %s", status["overall_status"])
     if status["overall_status"] == "success" and candidate is not None:
         field_summary = _candidate_field_summary(candidate)
-        _safe_print(f"Candidate summary: {candidate.summary}")
-        _safe_print(f"Risk level: {candidate.risk_level}")
-        _safe_print(f"Expected effect: {candidate.expected_effect}")
-        _safe_print(f"Edit count: {field_summary['edit_count']}")
-        _safe_print(f"No-op: {field_summary['is_noop']}")
+        LOGGER.info("Candidate summary: %s", candidate.summary)
+        LOGGER.info("Risk level: %s", candidate.risk_level)
+        LOGGER.info("Expected effect: %s", candidate.expected_effect)
+        LOGGER.info("Edit count: %s", field_summary["edit_count"])
+        LOGGER.info("No-op: %s", field_summary["is_noop"])
     else:
-        _safe_print(f"Failed step: {status['failed_step']}")
-        _safe_print(f"Error message: {status['error_message']}")
+        LOGGER.info("Failed step: %s", status["failed_step"])
+        LOGGER.info("Error message: %s", status["error_message"])
 
     if run_dir is not None:
-        _safe_print(f"Artifacts saved to: {_display_path(run_dir)}")
+        LOGGER.info("Artifacts saved to: %s", _display_path(run_dir))
 
 
 def _classify_client_response_error(error_message: str) -> str:
@@ -430,7 +420,7 @@ def _load_config_provider(config_path: Path) -> str:
             "load_config", f"LLM config file not found: {config_path}"
         )
     try:
-        payload = json.loads(config_path.read_text(encoding="utf-8-sig"))
+        payload = read_json(config_path)
     except json.JSONDecodeError as exc:
         raise CandidateGenerationFailure(
             "load_config", f"Invalid JSON in LLM config {config_path}: {exc}"
@@ -504,6 +494,7 @@ def _resolve_allowed_files(
 
 def main(argv: list[str] | None = None) -> int:
     _configure_text_streams()
+    configure_logging()
     args = _parse_args(sys.argv[1:] if argv is None else argv)
     config_path = _resolve_path(args.config)
     source_root = _resolve_source_root(args.source_root)
@@ -522,19 +513,19 @@ def main(argv: list[str] | None = None) -> int:
 
     # Resolve allowed files early
     allowed_files = _resolve_allowed_files(args.allowed_files, target_file)
-    print(f"Allowed files for LLM: {', '.join(allowed_files)}")
+    LOGGER.info("Allowed files for LLM: %s", ", ".join(allowed_files))
 
-    storage = RunStorage(REPO_ROOT / "results")
+    storage = RunStorage(paths.repo_root / "results")
     started_at = datetime.now().astimezone()
     run_id = storage.build_run_id("llm_candidate", started_at)
     run_dir = _create_run_directory(storage, run_id)
     if run_dir is None:
         return 1
 
-    print(f"Target file: {target_file}")
-    print(f"Source root: {source_root_display}")
-    print(f"Physical source path: {physical_source_path_display}")
-    print(f"Run directory: {run_dir}")
+    LOGGER.info("Target file: %s", target_file)
+    LOGGER.info("Source root: %s", source_root_display)
+    LOGGER.info("Physical source path: %s", physical_source_path_display)
+    LOGGER.info("Run directory: %s", run_dir)
 
     client: DeepSeekClient | None = None
     metadata = _build_metadata(
@@ -559,7 +550,7 @@ def main(argv: list[str] | None = None) -> int:
             client,
             started_at,
         )
-        print(f"Provider/model: {client.config.provider}/{client.config.model}")
+        LOGGER.info("Provider/model: %s/%s", client.config.provider, client.config.model)
 
         try:
             source_code = _read_source(source_path, args.max_source_chars)
@@ -637,7 +628,7 @@ def main(argv: list[str] | None = None) -> int:
         _print_final_summary(status, run_dir, candidate)
         return 1
 
-    print(f"[Index] Appended run record to {_display_path(index_path)}")
+    LOGGER.info("[Index] Appended run record to %s", _display_path(index_path))
     _print_final_summary(status, run_dir, candidate)
     return 0 if status["overall_status"] == "success" else 1
 

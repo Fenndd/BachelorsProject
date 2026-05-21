@@ -16,10 +16,10 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any
 
+from orchestrator.paths import paths
 
-REPO_ROOT = Path(__file__).resolve().parents[3]
-if str(REPO_ROOT) not in sys.path:
-    sys.path.insert(0, str(REPO_ROOT))
+if str(paths.repo_root) not in sys.path:
+    sys.path.insert(0, str(paths.repo_root))
 
 from orchestrator.core.benchmarking.benchmark_artifact_audit import (
     audit_comparable_benchmark_artifacts,
@@ -318,7 +318,7 @@ def _parse_args(argv: list[str]) -> argparse.Namespace:
 def _resolve_path(path_text: str) -> Path:
     path = Path(path_text)
     if not path.is_absolute():
-        path = REPO_ROOT / path
+        path = paths.repo_root / path
     return path.resolve()
 
 
