@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 import json
 from pathlib import Path
@@ -33,7 +33,7 @@ from orchestrator.reporting import (
 )
 
 
-TARGET_FILE = "cpp/external/lambdatwist/p3p.cc"
+from orchestrator.tests.conftest import TARGET_FILE
 EXPECTED_PLOTS = {
     "runtime_progress": "runtime_progress.svg",
     "candidate_runtime_by_iteration": "candidate_runtime_by_iteration.svg",
@@ -654,7 +654,7 @@ def test_report_template_packaging_renders_real_template(tmp_path: Path) -> None
     """report_v1.html.j2 exists on disk and generate_basic_report renders report.html."""
 
     from pathlib import Path as _Path
-    template_path = _Path(__file__).resolve().parents[1] / "orchestrator" / "reporting" / "templates" / "report_v1.html.j2"
+    template_path = _Path(__file__).resolve().parents[2] / "orchestrator" / "reporting" / "templates" / "report_v1.html.j2"
     assert template_path.is_file(), f"Template missing: {template_path}"
 
     experiment_dir = tmp_path / "results" / "experiments" / "exp_tpl"

@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 from pathlib import Path
 
@@ -10,14 +10,7 @@ from orchestrator.control.environment import (
 )
 
 
-def _clear_managed_env(monkeypatch) -> None:
-    for spec in get_env_specs():
-        monkeypatch.delenv(spec.name, raising=False)
-
-
-def _repo_root(tmp_path: Path) -> Path:
-    (tmp_path / ".git").mkdir()
-    return tmp_path
+from orchestrator.tests.conftest import repo_root, clear_managed_env
 
 
 def _status_by_name(statuses):
@@ -36,8 +29,8 @@ def test_mask_secret_does_not_reveal_full_secret() -> None:
 
 
 def test_env_local_values_are_loaded(tmp_path: Path, monkeypatch) -> None:
-    _clear_managed_env(monkeypatch)
-    root = _repo_root(tmp_path)
+    clear_managed_env(monkeypatch)
+    root = repo_root(tmp_path)
     eigen_dir = tmp_path / "eigen"
     eigen_dir.mkdir()
     (root / ".env.local").write_text(
@@ -55,8 +48,8 @@ def test_env_local_values_are_loaded(tmp_path: Path, monkeypatch) -> None:
 
 
 def test_process_environment_overrides_env_local(tmp_path: Path, monkeypatch) -> None:
-    _clear_managed_env(monkeypatch)
-    root = _repo_root(tmp_path)
+    clear_managed_env(monkeypatch)
+    root = repo_root(tmp_path)
     env_local_dir = tmp_path / "env-local-eigen"
     process_dir = tmp_path / "process-eigen"
     env_local_dir.mkdir()
@@ -74,8 +67,8 @@ def test_process_environment_overrides_env_local(tmp_path: Path, monkeypatch) ->
 
 
 def test_defaults_are_applied(tmp_path: Path, monkeypatch) -> None:
-    _clear_managed_env(monkeypatch)
-    root = _repo_root(tmp_path)
+    clear_managed_env(monkeypatch)
+    root = repo_root(tmp_path)
 
     statuses = _status_by_name(load_environment(root))
 
@@ -86,8 +79,8 @@ def test_defaults_are_applied(tmp_path: Path, monkeypatch) -> None:
 
 
 def test_missing_required_eigen_dir_is_reported(tmp_path: Path, monkeypatch) -> None:
-    _clear_managed_env(monkeypatch)
-    root = _repo_root(tmp_path)
+    clear_managed_env(monkeypatch)
+    root = repo_root(tmp_path)
 
     statuses = _status_by_name(load_environment(root))
 
@@ -98,8 +91,8 @@ def test_missing_required_eigen_dir_is_reported(tmp_path: Path, monkeypatch) -> 
 
 
 def test_invalid_required_path_is_reported(tmp_path: Path, monkeypatch) -> None:
-    _clear_managed_env(monkeypatch)
-    root = _repo_root(tmp_path)
+    clear_managed_env(monkeypatch)
+    root = repo_root(tmp_path)
     (root / ".env.local").write_text(
         f"EIGEN3_INCLUDE_DIR={tmp_path / 'missing'}\n",
         encoding="utf-8",
@@ -112,8 +105,8 @@ def test_invalid_required_path_is_reported(tmp_path: Path, monkeypatch) -> None:
 
 
 def test_optional_missing_secrets_do_not_fail_hard(tmp_path: Path, monkeypatch) -> None:
-    _clear_managed_env(monkeypatch)
-    root = _repo_root(tmp_path)
+    clear_managed_env(monkeypatch)
+    root = repo_root(tmp_path)
     eigen_dir = tmp_path / "eigen"
     eigen_dir.mkdir()
     (root / ".env.local").write_text(

@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 from datetime import datetime
 from pathlib import Path
@@ -6,13 +6,10 @@ from pathlib import Path
 import pytest
 
 import orchestrator.control.experiment_launcher as experiment_launcher
-from orchestrator.control.environment import get_env_specs
 from orchestrator.control.process_runner import ProcessResult
 
 
-def _clear_managed_env(monkeypatch) -> None:
-    for spec in get_env_specs():
-        monkeypatch.delenv(spec.name, raising=False)
+from orchestrator.tests.conftest import clear_managed_env
 
 
 def _write_valid_experiment(root: Path, provider: str = "mock") -> Path:
@@ -68,7 +65,7 @@ def test_build_experiment_command_includes_dry_run_when_requested() -> None:
 
 
 def test_dry_run_does_not_require_api_key(tmp_path: Path, monkeypatch) -> None:
-    _clear_managed_env(monkeypatch)
+    clear_managed_env(monkeypatch)
     config = _write_valid_experiment(tmp_path, provider="deepseek")
 
     def fake_run_streaming_command(command, cwd, env=None, on_stdout=None, on_stderr=None):
@@ -104,7 +101,7 @@ def test_real_run_preflight_fails_when_provider_api_key_is_missing(
     tmp_path: Path,
     monkeypatch,
 ) -> None:
-    _clear_managed_env(monkeypatch)
+    clear_managed_env(monkeypatch)
     config = _write_valid_experiment(tmp_path, provider=provider)
 
     result = experiment_launcher.run_experiment_control(
@@ -118,7 +115,7 @@ def test_real_run_preflight_fails_when_provider_api_key_is_missing(
 
 
 def test_launcher_success_detects_latest_experiment_dir(tmp_path: Path, monkeypatch) -> None:
-    _clear_managed_env(monkeypatch)
+    clear_managed_env(monkeypatch)
     config = _write_valid_experiment(tmp_path, provider="mock")
 
     def fake_run_streaming_command(command, cwd, env=None, on_stdout=None, on_stderr=None):
@@ -148,7 +145,7 @@ def test_launcher_success_detects_latest_experiment_dir(tmp_path: Path, monkeypa
 
 
 def test_launcher_failed_process_reports_failure(tmp_path: Path, monkeypatch) -> None:
-    _clear_managed_env(monkeypatch)
+    clear_managed_env(monkeypatch)
     config = _write_valid_experiment(tmp_path, provider="mock")
 
     def fake_run_streaming_command(command, cwd, env=None, on_stdout=None, on_stderr=None):

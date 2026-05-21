@@ -1,4 +1,4 @@
-"""Tests for the single-run final benchmark comparison module."""
+﻿"""Tests for the single-run final benchmark comparison module."""
 
 from __future__ import annotations
 
@@ -14,29 +14,12 @@ from orchestrator.experiments.final_selection_report import (
 )
 
 
-TARGET_FILE = "cpp/external/lambdatwist/p3p.cc"
-
-
-def _write_json(path: Path, payload: dict) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
-
-
-def _benchmark_payload(runtime: float = 1000.0, correctness: bool = True) -> dict:
-    return {
-        "benchmark": {
-            "family": "absolute_pose_solvers",
-            "solver": "lambdatwist_p3p",
-            "parse_success": True,
-            "parsed_runtime_ns_per_problem_median": runtime,
-            "parsed_correctness_passed": correctness,
-        }
-    }
+from orchestrator.tests.conftest import TARGET_FILE, write_json, make_benchmark_payload
 
 
 def _baseline_dir(tmp_path: Path, runtime: float = 1000.0) -> Path:
     baseline = tmp_path / "results" / "runs" / "baseline"
-    _write_json(baseline / "metrics.json", _benchmark_payload(runtime))
+    write_json(baseline / "metrics.json", make_benchmark_payload(runtime))
     return baseline
 
 

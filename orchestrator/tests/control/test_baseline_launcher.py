@@ -1,28 +1,19 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 import os
 from datetime import datetime
 from pathlib import Path
 
-from orchestrator.control.environment import get_env_specs
 from orchestrator.control.process_runner import ProcessResult
 import orchestrator.control.baseline_launcher as baseline_launcher
 
 
-def _clear_managed_env(monkeypatch) -> None:
-    for spec in get_env_specs():
-        monkeypatch.delenv(spec.name, raising=False)
-
-
-def _repo_root(tmp_path: Path) -> Path:
-    (tmp_path / ".git").mkdir()
-    (tmp_path / "results" / "runs").mkdir(parents=True)
-    return tmp_path
+from orchestrator.tests.conftest import repo_root, clear_managed_env
 
 
 def test_baseline_preflight_fails_when_eigen_missing(tmp_path: Path, monkeypatch) -> None:
-    _clear_managed_env(monkeypatch)
-    root = _repo_root(tmp_path)
+    clear_managed_env(monkeypatch)
+    root = repo_root(tmp_path)
 
     result = baseline_launcher.run_baseline(root)
 
@@ -32,8 +23,8 @@ def test_baseline_preflight_fails_when_eigen_missing(tmp_path: Path, monkeypatch
 
 
 def test_baseline_preflight_fails_when_eigen_invalid(tmp_path: Path, monkeypatch) -> None:
-    _clear_managed_env(monkeypatch)
-    root = _repo_root(tmp_path)
+    clear_managed_env(monkeypatch)
+    root = repo_root(tmp_path)
     (root / ".env.local").write_text(
         f"EIGEN3_INCLUDE_DIR={tmp_path / 'missing'}\n",
         encoding="utf-8",
@@ -50,8 +41,8 @@ def test_build_baseline_environment_preserves_process_priority(
     tmp_path: Path,
     monkeypatch,
 ) -> None:
-    _clear_managed_env(monkeypatch)
-    root = _repo_root(tmp_path)
+    clear_managed_env(monkeypatch)
+    root = repo_root(tmp_path)
     file_value = tmp_path / "file-eigen"
     process_value = tmp_path / "process-eigen"
     file_value.mkdir()
@@ -68,7 +59,7 @@ def test_build_baseline_environment_preserves_process_priority(
 
 
 def test_build_baseline_environment_sets_python_unbuffered(tmp_path: Path) -> None:
-    root = _repo_root(tmp_path)
+    root = repo_root(tmp_path)
 
     env = baseline_launcher.build_baseline_environment(root)
 
@@ -85,8 +76,8 @@ def test_baseline_launcher_builds_expected_command_without_real_baseline(
     tmp_path: Path,
     monkeypatch,
 ) -> None:
-    _clear_managed_env(monkeypatch)
-    root = _repo_root(tmp_path)
+    clear_managed_env(monkeypatch)
+    root = repo_root(tmp_path)
     eigen_dir = tmp_path / "eigen"
     eigen_dir.mkdir()
     (root / ".env.local").write_text(
@@ -125,8 +116,8 @@ def test_baseline_launcher_reports_failed_process_and_latest_run(
     tmp_path: Path,
     monkeypatch,
 ) -> None:
-    _clear_managed_env(monkeypatch)
-    root = _repo_root(tmp_path)
+    clear_managed_env(monkeypatch)
+    root = repo_root(tmp_path)
     eigen_dir = tmp_path / "eigen"
     eigen_dir.mkdir()
     (root / ".env.local").write_text(

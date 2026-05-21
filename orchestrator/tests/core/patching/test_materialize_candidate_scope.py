@@ -1,4 +1,4 @@
-"""Focused tests for materialize_candidate scope enforcement artifacts."""
+﻿"""Focused tests for materialize_candidate scope enforcement artifacts."""
 
 from __future__ import annotations
 
@@ -11,7 +11,7 @@ from typing import Any
 from orchestrator.core.patching.materialize_candidate import main as materialize_main
 
 
-TARGET_FILE = "cpp/external/lambdatwist/p3p.cc"
+from orchestrator.tests.conftest import TARGET_FILE
 
 
 def _write_candidate(

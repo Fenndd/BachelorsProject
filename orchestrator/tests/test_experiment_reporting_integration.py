@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 import json
 from pathlib import Path
@@ -13,47 +13,7 @@ from orchestrator.experiments.experiment_config import (
 )
 
 
-TARGET_FILE = "cpp/external/lambdatwist/p3p.cc"
-
-
-def _write_json(path: Path, payload: dict[str, Any]) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(
-        json.dumps(payload, indent=2, ensure_ascii=False) + "\n",
-        encoding="utf-8",
-    )
-
-
-def _benchmark_payload() -> dict[str, Any]:
-    return {
-        "benchmark": {
-            "family": "absolute_pose_solvers",
-            "solver": "lambdatwist_p3p",
-            "runtime_unit": "ns",
-            "build_type": "Release",
-            "benchmark_options": {
-                "num_problems": 1000,
-                "tolerance": 1e-6,
-                "camera_fov": 75.0,
-                "n_point_point": 3,
-                "n_point_line": 0,
-                "timed_iterations": 10,
-                "runtime_unit": "ns",
-                "build_type": "Release",
-            },
-            "parse_success": True,
-            "parsed_num_problems": 1000,
-            "parsed_total_solutions": 3000,
-            "parsed_solutions_per_problem": 3.0,
-            "parsed_valid_solutions": 3000,
-            "parsed_valid_solutions_percent": 100.0,
-            "parsed_gt_found": 1000,
-            "parsed_gt_found_percent": 100.0,
-            "parsed_runtime_ns_total_median": 1_000_000.0,
-            "parsed_runtime_ns_per_problem_median": 1000.0,
-            "parsed_correctness_passed": True,
-        }
-    }
+from orchestrator.tests.conftest import TARGET_FILE, write_json, make_benchmark_payload
 
 
 def _base_config_payload(
@@ -81,7 +41,7 @@ def _base_config_payload(
 
 def _write_config(root: Path, payload: dict[str, Any]) -> Path:
     config_path = root / "config.json"
-    _write_json(config_path, payload)
+    write_json(config_path, payload)
     return config_path
 
 
@@ -93,7 +53,7 @@ def _create_repo_layout(root: Path) -> None:
     target_path = root / TARGET_FILE
     target_path.parent.mkdir(parents=True, exist_ok=True)
     target_path.write_text("baseline\n", encoding="utf-8")
-    _write_json(root / "results" / "runs" / "baseline" / "metrics.json", _benchmark_payload())
+    write_json(root / "results" / "runs" / "baseline" / "metrics.json", make_benchmark_payload())
 
 
 def _patch_runner_roots(monkeypatch: pytest.MonkeyPatch, root: Path) -> None:
@@ -117,7 +77,7 @@ def _fake_final_selection_report(**kwargs: Any) -> Path:
     experiment_dir = Path(kwargs["experiment_dir"])
     final_best_is_baseline = kwargs.get("final_best_is_baseline", True)
     report_path = experiment_dir / "final_selection_report.json"
-    _write_json(
+    write_json(
         report_path,
         {
             "report_type": "single_run_final_selection_report",
@@ -149,8 +109,8 @@ def _patch_noop_closed_loop_stage(monkeypatch: pytest.MonkeyPatch, root: Path) -
             raise AssertionError(f"Unexpected stage for no-op candidate: {stage_name}")
         candidate_dir = root / "results" / "runs" / f"candidate_{variant_iteration}"
         candidate_dir.mkdir(parents=True, exist_ok=True)
-        _write_json(candidate_dir / "status.json", {"overall_status": "success"})
-        _write_json(
+        write_json(candidate_dir / "status.json", {"overall_status": "success"})
+        write_json(
             candidate_dir / "candidate.json",
             {
                 "summary": "no-op candidate",
@@ -280,7 +240,7 @@ def test_closed_loop_status_warns_when_final_selection_failed(
     def failed_selection(**kwargs: Any) -> Path:
         experiment_dir = Path(kwargs["experiment_dir"])
         report_path = experiment_dir / "final_selection_report.json"
-        _write_json(
+        write_json(
             report_path,
             {
                 "report_type": "single_run_final_selection_report",

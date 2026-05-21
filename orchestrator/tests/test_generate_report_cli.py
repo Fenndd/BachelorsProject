@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 import json
 from pathlib import Path
@@ -9,7 +9,8 @@ from orchestrator.reporting import generate_basic_report
 from orchestrator.reporting import generate_report
 
 
-TARGET_FILE = "cpp/external/lambdatwist/p3p.cc"
+from orchestrator.tests.conftest import TARGET_FILE, write_json, write_jsonl
+
 EXPECTED_PLOTS = (
     "runtime_progress.svg",
     "candidate_runtime_by_iteration.svg",
@@ -23,22 +24,6 @@ EXPECTED_PLOTS = (
     "failure_reason_breakdown.svg",
     "diff_stats_by_iteration.svg",
 )
-
-
-def _write_json(path: Path, payload: dict) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(
-        json.dumps(payload, indent=2, ensure_ascii=False) + "\n",
-        encoding="utf-8",
-    )
-
-
-def _write_jsonl(path: Path, records: list[dict]) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(
-        "".join(json.dumps(record, ensure_ascii=False) + "\n" for record in records),
-        encoding="utf-8",
-    )
 
 
 def _summary() -> dict:
@@ -60,8 +45,8 @@ def _summary() -> dict:
 
 def _experiment_dir(tmp_path: Path) -> Path:
     experiment_dir = tmp_path / "results" / "experiments" / "exp_001"
-    _write_json(experiment_dir / "closed_loop_summary.json", _summary())
-    _write_jsonl(
+    write_json(experiment_dir / "closed_loop_summary.json", _summary())
+    write_jsonl(
         experiment_dir / "closed_loop_iterations.jsonl",
         [
             {
@@ -146,7 +131,7 @@ def test_refresh_report_artifact_map_updates_final_status_and_summary(tmp_path: 
     assert payload["artifacts"]["experiment_status"] is None
     assert payload["artifacts"]["summary_txt"] is None
 
-    _write_json(experiment_dir / "experiment_status.json", {"overall_status": "completed"})
+    write_json(experiment_dir / "experiment_status.json", {"overall_status": "completed"})
     (experiment_dir / "summary.txt").write_text("summary\n", encoding="utf-8")
 
     html_path = generate_report.refresh_report_artifact_map(experiment_dir)

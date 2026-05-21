@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 import os
 from pathlib import Path
@@ -13,9 +13,7 @@ from orchestrator.control.results_browser import (
 )
 
 
-def _repo_root(tmp_path: Path) -> Path:
-    (tmp_path / ".git").mkdir()
-    return tmp_path
+from orchestrator.tests.conftest import repo_root
 
 
 def _write_run(root: Path, name: str, status: str = "success") -> Path:
@@ -53,14 +51,14 @@ def _write_experiment(root: Path, name: str) -> Path:
 
 
 def test_empty_results_directory_returns_empty_list(tmp_path: Path) -> None:
-    root = _repo_root(tmp_path)
-    (root / "results").mkdir()
+    root = repo_root(tmp_path)
+    (root / "results").mkdir(exist_ok=True)
 
     assert list_result_items(root) == []
 
 
 def test_synthetic_run_is_listed(tmp_path: Path) -> None:
-    root = _repo_root(tmp_path)
+    root = repo_root(tmp_path)
     _write_run(root, "run_001")
 
     items = list_result_items(root)
@@ -72,7 +70,7 @@ def test_synthetic_run_is_listed(tmp_path: Path) -> None:
 
 
 def test_synthetic_experiment_is_listed(tmp_path: Path) -> None:
-    root = _repo_root(tmp_path)
+    root = repo_root(tmp_path)
     _write_experiment(root, "exp_001")
 
     item = list_result_items(root)[0]
@@ -90,7 +88,7 @@ def test_synthetic_experiment_is_listed(tmp_path: Path) -> None:
 
 
 def test_experiment_does_not_fallback_to_single_run_closed_loop_metrics(tmp_path: Path) -> None:
-    root = _repo_root(tmp_path)
+    root = repo_root(tmp_path)
     exp_dir = _write_experiment(root, "exp_old")
     (exp_dir / "closed_loop_summary.json").write_text(
         '{"final_speedup_vs_original_baseline": 9.9, "final_runtime_reduction_percent": 89.9, "final_best_iteration": 3}\n',
@@ -104,7 +102,7 @@ def test_experiment_does_not_fallback_to_single_run_closed_loop_metrics(tmp_path
 
 
 def test_invalid_json_is_captured_in_read_errors(tmp_path: Path) -> None:
-    root = _repo_root(tmp_path)
+    root = repo_root(tmp_path)
     run_dir = root / "results" / "runs" / "bad_run"
     run_dir.mkdir(parents=True)
     (run_dir / "status.json").write_text("{bad json", encoding="utf-8")
@@ -116,7 +114,7 @@ def test_invalid_json_is_captured_in_read_errors(tmp_path: Path) -> None:
 
 
 def test_latest_result_uses_newest_modified_directory(tmp_path: Path) -> None:
-    root = _repo_root(tmp_path)
+    root = repo_root(tmp_path)
     old_run = _write_run(root, "old_run")
     new_exp = _write_experiment(root, "new_exp")
     os.utime(old_run, (1000, 1000))
@@ -129,7 +127,7 @@ def test_latest_result_uses_newest_modified_directory(tmp_path: Path) -> None:
 
 
 def test_selector_latest_works(tmp_path: Path) -> None:
-    root = _repo_root(tmp_path)
+    root = repo_root(tmp_path)
     _write_run(root, "run_001")
 
     item = resolve_result_selector("latest", root)
@@ -139,7 +137,7 @@ def test_selector_latest_works(tmp_path: Path) -> None:
 
 
 def test_selector_by_unique_directory_name_works(tmp_path: Path) -> None:
-    root = _repo_root(tmp_path)
+    root = repo_root(tmp_path)
     _write_run(root, "run_001")
 
     item = resolve_result_selector("run_001", root)
@@ -154,7 +152,7 @@ def test_open_path_raises_clear_error_for_missing_path(tmp_path: Path) -> None:
 
 
 def test_experiment_artifacts_include_final_selection_when_present(tmp_path: Path) -> None:
-    root = _repo_root(tmp_path)
+    root = repo_root(tmp_path)
     exp_dir = _write_experiment(root, "exp_fs")
     (exp_dir / "final_selection").mkdir()
     (exp_dir / "final_selection_report.json").write_text("{}\n", encoding="utf-8")
@@ -167,7 +165,7 @@ def test_experiment_artifacts_include_final_selection_when_present(tmp_path: Pat
 
 
 def test_experiment_artifacts_final_selection_absent_when_missing(tmp_path: Path) -> None:
-    root = _repo_root(tmp_path)
+    root = repo_root(tmp_path)
     _write_experiment(root, "exp_no_fs")
 
     items = list_result_items(root)

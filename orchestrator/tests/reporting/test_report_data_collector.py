@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 import json
 from pathlib import Path
@@ -12,23 +12,7 @@ from orchestrator.reporting import (
 )
 
 
-TARGET_FILE = "cpp/external/lambdatwist/p3p.cc"
-
-
-def _write_json(path: Path, payload: dict) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(
-        json.dumps(payload, indent=2, ensure_ascii=False) + "\n",
-        encoding="utf-8",
-    )
-
-
-def _write_jsonl(path: Path, records: list[dict]) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(
-        "".join(json.dumps(record, ensure_ascii=False) + "\n" for record in records),
-        encoding="utf-8",
-    )
+from orchestrator.tests.conftest import TARGET_FILE, write_json, write_jsonl
 
 
 def _summary(**overrides: object) -> dict:
@@ -56,10 +40,10 @@ def _experiment_dir(tmp_path: Path) -> Path:
 
 def test_collect_report_data_maps_minimal_closed_loop_summary(tmp_path: Path) -> None:
     experiment_dir = _experiment_dir(tmp_path)
-    _write_json(experiment_dir / "closed_loop_summary.json", _summary())
-    _write_jsonl(experiment_dir / "closed_loop_iterations.jsonl", [])
-    _write_json(experiment_dir / "experiment_config_snapshot.json", {"raw": True})
-    _write_json(experiment_dir / "experiment_config_effective.json", {"effective": True})
+    write_json(experiment_dir / "closed_loop_summary.json", _summary())
+    write_jsonl(experiment_dir / "closed_loop_iterations.jsonl", [])
+    write_json(experiment_dir / "experiment_config_snapshot.json", {"raw": True})
+    write_json(experiment_dir / "experiment_config_effective.json", {"effective": True})
 
     report_data = collect_report_data(experiment_dir)
 
@@ -81,9 +65,9 @@ def test_collect_report_data_maps_minimal_closed_loop_summary(tmp_path: Path) ->
 
 def test_collect_report_data_does_not_apply_overrides_when_final_selection_failed(tmp_path: Path) -> None:
     experiment_dir = _experiment_dir(tmp_path)
-    _write_json(experiment_dir / "closed_loop_summary.json", _summary())
-    _write_jsonl(experiment_dir / "closed_loop_iterations.jsonl", [])
-    _write_json(
+    write_json(experiment_dir / "closed_loop_summary.json", _summary())
+    write_jsonl(experiment_dir / "closed_loop_iterations.jsonl", [])
+    write_json(
         experiment_dir / "final_selection_report.json",
         {
             "report_type": "single_run_final_selection_report",
@@ -107,9 +91,9 @@ def test_collect_report_data_does_not_apply_overrides_when_final_selection_faile
 
 def test_collect_report_data_uses_final_selection_metrics_when_available(tmp_path: Path) -> None:
     experiment_dir = _experiment_dir(tmp_path)
-    _write_json(experiment_dir / "closed_loop_summary.json", _summary())
-    _write_jsonl(experiment_dir / "closed_loop_iterations.jsonl", [])
-    _write_json(
+    write_json(experiment_dir / "closed_loop_summary.json", _summary())
+    write_jsonl(experiment_dir / "closed_loop_iterations.jsonl", [])
+    write_json(
         experiment_dir / "final_selection_report.json",
         {
             "report_type": "single_run_final_selection_report",
@@ -152,8 +136,8 @@ def test_collect_report_data_uses_final_selection_metrics_when_available(tmp_pat
 
 def test_collect_report_data_maps_iteration_records(tmp_path: Path) -> None:
     experiment_dir = _experiment_dir(tmp_path)
-    _write_json(experiment_dir / "closed_loop_summary.json", _summary())
-    _write_jsonl(
+    write_json(experiment_dir / "closed_loop_summary.json", _summary())
+    write_jsonl(
         experiment_dir / "closed_loop_iterations.jsonl",
         [
             {
@@ -193,8 +177,8 @@ def test_collect_report_data_maps_iteration_records(tmp_path: Path) -> None:
 
 def test_collect_report_data_reads_existing_outcome_reason(tmp_path: Path) -> None:
     experiment_dir = _experiment_dir(tmp_path)
-    _write_json(experiment_dir / "closed_loop_summary.json", _summary())
-    _write_jsonl(
+    write_json(experiment_dir / "closed_loop_summary.json", _summary())
+    write_jsonl(
         experiment_dir / "closed_loop_iterations.jsonl",
         [
             {
@@ -223,8 +207,8 @@ def test_collect_report_data_reads_existing_outcome_reason(tmp_path: Path) -> No
 def test_collect_report_data_reconstructs_missing_outcome_reason(tmp_path: Path) -> None:
     experiment_dir = _experiment_dir(tmp_path)
     candidate_dir = tmp_path / "results" / "runs" / "candidate_001"
-    _write_json(experiment_dir / "closed_loop_summary.json", _summary())
-    _write_jsonl(
+    write_json(experiment_dir / "closed_loop_summary.json", _summary())
+    write_jsonl(
         experiment_dir / "closed_loop_iterations.jsonl",
         [
             {
@@ -234,7 +218,7 @@ def test_collect_report_data_reconstructs_missing_outcome_reason(tmp_path: Path)
             }
         ],
     )
-    _write_json(
+    write_json(
         candidate_dir / "verification.json",
         {
             "overall_status": "failed",
@@ -253,8 +237,8 @@ def test_collect_report_data_reconstructs_missing_outcome_reason(tmp_path: Path)
 
 def test_reason_code_counts_group_iterations(tmp_path: Path) -> None:
     experiment_dir = _experiment_dir(tmp_path)
-    _write_json(experiment_dir / "closed_loop_summary.json", _summary())
-    _write_jsonl(
+    write_json(experiment_dir / "closed_loop_summary.json", _summary())
+    write_jsonl(
         experiment_dir / "closed_loop_iterations.jsonl",
         [
             {
@@ -304,8 +288,8 @@ def test_reason_code_counts_group_iterations(tmp_path: Path) -> None:
 def test_iteration_metrics_are_enriched_from_verification_json(tmp_path: Path) -> None:
     experiment_dir = _experiment_dir(tmp_path)
     candidate_dir = tmp_path / "results" / "runs" / "candidate_001"
-    _write_json(experiment_dir / "closed_loop_summary.json", _summary())
-    _write_jsonl(
+    write_json(experiment_dir / "closed_loop_summary.json", _summary())
+    write_jsonl(
         experiment_dir / "closed_loop_iterations.jsonl",
         [
             {
@@ -315,7 +299,7 @@ def test_iteration_metrics_are_enriched_from_verification_json(tmp_path: Path) -
             },
         ],
     )
-    _write_json(
+    write_json(
         candidate_dir / "verification.json",
         {
             "benchmark": {
@@ -335,8 +319,8 @@ def test_iteration_metrics_are_enriched_from_verification_json(tmp_path: Path) -
 def test_speedup_and_reason_are_enriched_from_decision_files(tmp_path: Path) -> None:
     experiment_dir = _experiment_dir(tmp_path)
     candidate_dir = tmp_path / "results" / "runs" / "candidate_001"
-    _write_json(experiment_dir / "closed_loop_summary.json", _summary())
-    _write_jsonl(
+    write_json(experiment_dir / "closed_loop_summary.json", _summary())
+    write_jsonl(
         experiment_dir / "closed_loop_iterations.jsonl",
         [
             {
@@ -346,7 +330,7 @@ def test_speedup_and_reason_are_enriched_from_decision_files(tmp_path: Path) -> 
             },
         ],
     )
-    _write_json(
+    write_json(
         candidate_dir / "decision_vs_original_baseline.json",
         {
             "status": "valid_not_improved",
@@ -368,8 +352,8 @@ def test_speedup_and_reason_are_enriched_from_decision_files(tmp_path: Path) -> 
 def test_candidate_summary_fields_fall_back_to_candidate_json(tmp_path: Path) -> None:
     experiment_dir = _experiment_dir(tmp_path)
     candidate_dir = tmp_path / "results" / "runs" / "candidate_001"
-    _write_json(experiment_dir / "closed_loop_summary.json", _summary())
-    _write_jsonl(
+    write_json(experiment_dir / "closed_loop_summary.json", _summary())
+    write_jsonl(
         experiment_dir / "closed_loop_iterations.jsonl",
         [
             {
@@ -379,7 +363,7 @@ def test_candidate_summary_fields_fall_back_to_candidate_json(tmp_path: Path) ->
             },
         ],
     )
-    _write_json(
+    write_json(
         candidate_dir / "candidate.json",
         {
             "summary": "Hoist invariant expression.",
@@ -400,11 +384,11 @@ def test_candidate_summary_fields_fall_back_to_candidate_json(tmp_path: Path) ->
 def test_collect_report_data_includes_process_metadata(tmp_path: Path) -> None:
     experiment_dir = _experiment_dir(tmp_path)
     candidate_dir = tmp_path / "results" / "runs" / "candidate_001"
-    _write_json(
+    write_json(
         experiment_dir / "closed_loop_summary.json",
         _summary(final_diff_stats={"files_changed": 1, "lines_added": 2, "lines_removed": 1, "changed_blocks": 1}),
     )
-    _write_jsonl(
+    write_jsonl(
         experiment_dir / "closed_loop_iterations.jsonl",
         [
             {
@@ -421,7 +405,7 @@ def test_collect_report_data_includes_process_metadata(tmp_path: Path) -> None:
             }
         ],
     )
-    _write_json(
+    write_json(
         candidate_dir / "llm_response.json",
         {
             "llm_usage": {
@@ -435,7 +419,7 @@ def test_collect_report_data_includes_process_metadata(tmp_path: Path) -> None:
             }
         },
     )
-    _write_json(
+    write_json(
         candidate_dir / "materialization.json",
         {
             "diff_stats": {
@@ -448,7 +432,7 @@ def test_collect_report_data_includes_process_metadata(tmp_path: Path) -> None:
             }
         },
     )
-    _write_json(
+    write_json(
         experiment_dir / "experiment_metadata.json",
         {
             "schema_version": "experiment_metadata.v1",
@@ -480,8 +464,8 @@ def test_missing_optional_candidate_artifacts_do_not_fail(tmp_path: Path) -> Non
     experiment_dir = _experiment_dir(tmp_path)
     candidate_dir = tmp_path / "results" / "runs" / "candidate_001"
     candidate_dir.mkdir(parents=True)
-    _write_json(experiment_dir / "closed_loop_summary.json", _summary())
-    _write_jsonl(
+    write_json(experiment_dir / "closed_loop_summary.json", _summary())
+    write_jsonl(
         experiment_dir / "closed_loop_iterations.jsonl",
         [
             {
@@ -511,8 +495,8 @@ def test_bad_optional_candidate_json_does_not_fail(tmp_path: Path) -> None:
     candidate_dir = tmp_path / "results" / "runs" / "candidate_001"
     candidate_dir.mkdir(parents=True)
     (candidate_dir / "verification.json").write_text("{not json", encoding="utf-8")
-    _write_json(experiment_dir / "closed_loop_summary.json", _summary())
-    _write_jsonl(
+    write_json(experiment_dir / "closed_loop_summary.json", _summary())
+    write_jsonl(
         experiment_dir / "closed_loop_iterations.jsonl",
         [
             {
@@ -532,8 +516,8 @@ def test_valid_not_improved_uses_default_reason_when_none_available(
     tmp_path: Path,
 ) -> None:
     experiment_dir = _experiment_dir(tmp_path)
-    _write_json(experiment_dir / "closed_loop_summary.json", _summary())
-    _write_jsonl(
+    write_json(experiment_dir / "closed_loop_summary.json", _summary())
+    write_jsonl(
         experiment_dir / "closed_loop_iterations.jsonl",
         [{"iteration": 1, "status": "valid_not_improved"}],
     )
@@ -550,8 +534,8 @@ def test_repo_relative_candidate_run_dir_is_resolved_for_artifacts(
     experiment_dir = _experiment_dir(tmp_path)
     candidate_dir = tmp_path / "results" / "runs" / "candidate_001"
     monkeypatch.chdir(tmp_path)
-    _write_json(experiment_dir / "closed_loop_summary.json", _summary())
-    _write_jsonl(
+    write_json(experiment_dir / "closed_loop_summary.json", _summary())
+    write_jsonl(
         experiment_dir / "closed_loop_iterations.jsonl",
         [
             {
@@ -561,7 +545,7 @@ def test_repo_relative_candidate_run_dir_is_resolved_for_artifacts(
             },
         ],
     )
-    _write_json(
+    write_json(
         candidate_dir / "verification.json",
         {"metrics": {"runtime_ns_per_problem_median": 615.0}},
     )
@@ -573,8 +557,8 @@ def test_repo_relative_candidate_run_dir_is_resolved_for_artifacts(
 
 def test_collect_report_data_extracts_reason_from_decision_lists(tmp_path: Path) -> None:
     experiment_dir = _experiment_dir(tmp_path)
-    _write_json(experiment_dir / "closed_loop_summary.json", _summary())
-    _write_jsonl(
+    write_json(experiment_dir / "closed_loop_summary.json", _summary())
+    write_jsonl(
         experiment_dir / "closed_loop_iterations.jsonl",
         [
             {
@@ -601,8 +585,8 @@ def test_collect_report_data_extracts_reason_from_decision_lists(tmp_path: Path)
 
 def test_reason_summary_ignores_original_baseline_decision(tmp_path: Path) -> None:
     experiment_dir = _experiment_dir(tmp_path)
-    _write_json(experiment_dir / "closed_loop_summary.json", _summary())
-    _write_jsonl(
+    write_json(experiment_dir / "closed_loop_summary.json", _summary())
+    write_jsonl(
         experiment_dir / "closed_loop_iterations.jsonl",
         [
             {
@@ -626,8 +610,8 @@ def test_reason_summary_ignores_original_baseline_decision(tmp_path: Path) -> No
 
 def test_valid_not_improved_uses_current_best_specific_reason(tmp_path: Path) -> None:
     experiment_dir = _experiment_dir(tmp_path)
-    _write_json(experiment_dir / "closed_loop_summary.json", _summary())
-    _write_jsonl(
+    write_json(experiment_dir / "closed_loop_summary.json", _summary())
+    write_jsonl(
         experiment_dir / "closed_loop_iterations.jsonl",
         [
             {
@@ -652,11 +636,11 @@ def test_valid_not_improved_uses_current_best_specific_reason(tmp_path: Path) ->
 
 def test_summary_status_counts_are_completed_with_zero_defaults(tmp_path: Path) -> None:
     experiment_dir = _experiment_dir(tmp_path)
-    _write_json(
+    write_json(
         experiment_dir / "closed_loop_summary.json",
         _summary(status_counts={"accepted_improvement": 1}),
     )
-    _write_jsonl(experiment_dir / "closed_loop_iterations.jsonl", [])
+    write_jsonl(experiment_dir / "closed_loop_iterations.jsonl", [])
 
     report_data = collect_report_data(experiment_dir)
 
@@ -670,8 +654,8 @@ def test_status_counts_fall_back_to_jsonl_when_summary_has_none(tmp_path: Path) 
     experiment_dir = _experiment_dir(tmp_path)
     summary = _summary()
     summary.pop("status_counts")
-    _write_json(experiment_dir / "closed_loop_summary.json", summary)
-    _write_jsonl(
+    write_json(experiment_dir / "closed_loop_summary.json", summary)
+    write_jsonl(
         experiment_dir / "closed_loop_iterations.jsonl",
         [
             {"iteration": 1, "status": "accepted_improvement"},
@@ -689,8 +673,8 @@ def test_status_counts_fall_back_to_jsonl_when_summary_has_none(tmp_path: Path) 
 
 def test_collect_and_write_report_data_writes_default_report_data_path(tmp_path: Path) -> None:
     experiment_dir = _experiment_dir(tmp_path)
-    _write_json(experiment_dir / "closed_loop_summary.json", _summary())
-    _write_jsonl(experiment_dir / "closed_loop_iterations.jsonl", [])
+    write_json(experiment_dir / "closed_loop_summary.json", _summary())
+    write_jsonl(experiment_dir / "closed_loop_iterations.jsonl", [])
 
     output_path = collect_and_write_report_data(experiment_dir)
 
@@ -704,11 +688,11 @@ def test_collect_and_write_report_data_writes_default_report_data_path(tmp_path:
 
 def test_missing_baseline_metrics_file_keeps_metrics_empty(tmp_path: Path) -> None:
     experiment_dir = _experiment_dir(tmp_path)
-    _write_json(
+    write_json(
         experiment_dir / "closed_loop_summary.json",
         _summary(original_baseline_metrics_path=str(tmp_path / "missing.json")),
     )
-    _write_jsonl(experiment_dir / "closed_loop_iterations.jsonl", [])
+    write_jsonl(experiment_dir / "closed_loop_iterations.jsonl", [])
 
     report_data = collect_report_data(experiment_dir)
 
@@ -721,7 +705,7 @@ def test_missing_baseline_metrics_file_keeps_metrics_empty(tmp_path: Path) -> No
 def test_existing_baseline_metrics_are_loaded_best_effort(tmp_path: Path) -> None:
     experiment_dir = _experiment_dir(tmp_path)
     metrics_path = tmp_path / "results" / "runs" / "baseline" / "metrics.json"
-    _write_json(
+    write_json(
         metrics_path,
         {
             "runtime_ns_per_problem_median": 1000.0,
@@ -734,11 +718,11 @@ def test_existing_baseline_metrics_are_loaded_best_effort(tmp_path: Path) -> Non
             "correctness_passed": True,
         },
     )
-    _write_json(
+    write_json(
         experiment_dir / "closed_loop_summary.json",
         _summary(original_baseline_metrics_path=str(metrics_path)),
     )
-    _write_jsonl(experiment_dir / "closed_loop_iterations.jsonl", [])
+    write_jsonl(experiment_dir / "closed_loop_iterations.jsonl", [])
 
     report_data = collect_report_data(experiment_dir)
 
@@ -754,7 +738,7 @@ def test_existing_baseline_metrics_are_loaded_best_effort(tmp_path: Path) -> Non
 
 def test_missing_closed_loop_summary_raises_file_not_found(tmp_path: Path) -> None:
     experiment_dir = _experiment_dir(tmp_path)
-    _write_jsonl(experiment_dir / "closed_loop_iterations.jsonl", [])
+    write_jsonl(experiment_dir / "closed_loop_iterations.jsonl", [])
 
     with pytest.raises(FileNotFoundError, match="closed_loop_summary.json"):
         collect_report_data(experiment_dir)
@@ -762,7 +746,7 @@ def test_missing_closed_loop_summary_raises_file_not_found(tmp_path: Path) -> No
 
 def test_missing_closed_loop_iterations_raises_file_not_found(tmp_path: Path) -> None:
     experiment_dir = _experiment_dir(tmp_path)
-    _write_json(experiment_dir / "closed_loop_summary.json", _summary())
+    write_json(experiment_dir / "closed_loop_summary.json", _summary())
 
     with pytest.raises(FileNotFoundError, match="closed_loop_iterations.jsonl"):
         collect_report_data(experiment_dir)
@@ -777,10 +761,10 @@ def test_a_collector_fills_config_and_llm_fields(tmp_path: Path) -> None:
     """Collector reads experiment_config_snapshot.json and variant LLM config."""
 
     experiment_dir = _experiment_dir(tmp_path)
-    _write_json(experiment_dir / "closed_loop_summary.json", _summary())
-    _write_jsonl(experiment_dir / "closed_loop_iterations.jsonl", [])
+    write_json(experiment_dir / "closed_loop_summary.json", _summary())
+    write_jsonl(experiment_dir / "closed_loop_iterations.jsonl", [])
 
-    _write_json(
+    write_json(
         experiment_dir / "experiment_config_snapshot.json",
         {
             "experiment_name": "My Experiment",
@@ -800,7 +784,7 @@ def test_a_collector_fills_config_and_llm_fields(tmp_path: Path) -> None:
         },
     )
 
-    _write_json(
+    write_json(
         experiment_dir / "variant_configs" / "deepseek_pro_max_llm_config.json",
         {
             "provider": "deepseek",
@@ -827,7 +811,7 @@ def test_b_collector_fills_benchmark_config(tmp_path: Path) -> None:
 
     experiment_dir = _experiment_dir(tmp_path)
     metrics_path = tmp_path / "results" / "runs" / "baseline" / "metrics.json"
-    _write_json(
+    write_json(
         metrics_path,
         {
             "benchmark": {
@@ -850,11 +834,11 @@ def test_b_collector_fills_benchmark_config(tmp_path: Path) -> None:
             }
         },
     )
-    _write_json(
+    write_json(
         experiment_dir / "closed_loop_summary.json",
         _summary(original_baseline_metrics_path=str(metrics_path)),
     )
-    _write_jsonl(experiment_dir / "closed_loop_iterations.jsonl", [])
+    write_jsonl(experiment_dir / "closed_loop_iterations.jsonl", [])
 
     report_data = collect_report_data(experiment_dir)
 
@@ -868,8 +852,8 @@ def test_b_collector_fills_benchmark_config(tmp_path: Path) -> None:
 
 def test_benchmark_config_build_type_falls_back_to_release(tmp_path: Path) -> None:
     experiment_dir = _experiment_dir(tmp_path)
-    _write_json(experiment_dir / "closed_loop_summary.json", _summary())
-    _write_jsonl(experiment_dir / "closed_loop_iterations.jsonl", [])
+    write_json(experiment_dir / "closed_loop_summary.json", _summary())
+    write_jsonl(experiment_dir / "closed_loop_iterations.jsonl", [])
 
     report_data = collect_report_data(experiment_dir)
 
@@ -880,11 +864,11 @@ def test_c_correctness_preserved_not_inferred_from_promoted_iteration(tmp_path: 
     """headline correctness_preserved comes only from final selection."""
 
     experiment_dir = _experiment_dir(tmp_path)
-    _write_json(
+    write_json(
         experiment_dir / "closed_loop_summary.json",
         _summary(final_best_iteration=2),
     )
-    _write_jsonl(
+    write_jsonl(
         experiment_dir / "closed_loop_iterations.jsonl",
         [
             {
@@ -911,9 +895,9 @@ def test_d_pdf_display_when_html_only_formats(tmp_path: Path) -> None:
     """pdf_display shows 'Not generated' message when formats=["html"] and no PDF file."""
 
     experiment_dir = _experiment_dir(tmp_path)
-    _write_json(experiment_dir / "closed_loop_summary.json", _summary())
-    _write_jsonl(experiment_dir / "closed_loop_iterations.jsonl", [])
-    _write_json(
+    write_json(experiment_dir / "closed_loop_summary.json", _summary())
+    write_jsonl(experiment_dir / "closed_loop_iterations.jsonl", [])
+    write_json(
         experiment_dir / "experiment_config_snapshot.json",
         {
             "experiment_name": "Html Only",
@@ -933,11 +917,11 @@ def test_d_pdf_display_when_html_only_formats(tmp_path: Path) -> None:
 
 def test_reason_summary_groups_non_accepted_iterations(tmp_path: Path) -> None:
     experiment_dir = _experiment_dir(tmp_path)
-    _write_json(
+    write_json(
         experiment_dir / "closed_loop_summary.json",
         _summary(total_iterations=5, completed_iterations=5),
     )
-    _write_jsonl(
+    write_jsonl(
         experiment_dir / "closed_loop_iterations.jsonl",
         [
             {"iteration": 1, "status": "valid_not_improved"},
@@ -977,8 +961,8 @@ def test_e_artifact_paths_end_with_known_segments(
     monkeypatch.setattr(rdc, "_REPO_ROOT", tmp_path)
 
     experiment_dir = _experiment_dir(tmp_path)
-    _write_json(experiment_dir / "closed_loop_summary.json", _summary())
-    _write_jsonl(experiment_dir / "closed_loop_iterations.jsonl", [])
+    write_json(experiment_dir / "closed_loop_summary.json", _summary())
+    write_jsonl(experiment_dir / "closed_loop_iterations.jsonl", [])
 
     report_data = collect_report_data(experiment_dir)
 
@@ -999,8 +983,8 @@ def test_e_artifact_paths_end_with_known_segments(
 
 def test_artifact_map_includes_extended_existing_artifacts(tmp_path: Path) -> None:
     experiment_dir = _experiment_dir(tmp_path)
-    _write_json(experiment_dir / "closed_loop_summary.json", _summary())
-    _write_jsonl(experiment_dir / "closed_loop_iterations.jsonl", [])
+    write_json(experiment_dir / "closed_loop_summary.json", _summary())
+    write_jsonl(experiment_dir / "closed_loop_iterations.jsonl", [])
     for name in (
         "experiment_metadata.json",
         "final_diff_stats.json",
@@ -1008,8 +992,8 @@ def test_artifact_map_includes_extended_existing_artifacts(tmp_path: Path) -> No
         "closed_loop_selection_report.json",
         "experiment_status.json",
     ):
-        _write_json(experiment_dir / name, {})
-    _write_json(experiment_dir / "final_selection_report.json", {})
+        write_json(experiment_dir / name, {})
+    write_json(experiment_dir / "final_selection_report.json", {})
     (experiment_dir / "final_selection").mkdir(parents=True, exist_ok=True)
     (experiment_dir / "summary.txt").write_text("summary\n", encoding="utf-8")
 
@@ -1031,19 +1015,19 @@ def test_llm_usage_summary_is_aggregated(tmp_path: Path) -> None:
     experiment_dir = _experiment_dir(tmp_path)
     candidate_1 = tmp_path / "results" / "runs" / "candidate_001"
     candidate_2 = tmp_path / "results" / "runs" / "candidate_002"
-    _write_json(experiment_dir / "closed_loop_summary.json", _summary())
-    _write_jsonl(
+    write_json(experiment_dir / "closed_loop_summary.json", _summary())
+    write_jsonl(
         experiment_dir / "closed_loop_iterations.jsonl",
         [
             {"iteration": 1, "status": "valid_not_improved", "candidate_run_dir": str(candidate_1)},
             {"iteration": 2, "status": "valid_not_improved", "candidate_run_dir": str(candidate_2)},
         ],
     )
-    _write_json(
+    write_json(
         candidate_1 / "llm_response.json",
         {"llm_usage": {"prompt_tokens": 10, "completion_tokens": 5, "total_tokens": 15, "api_latency_seconds": 1.0}},
     )
-    _write_json(
+    write_json(
         candidate_2 / "llm_response.json",
         {"llm_usage": {"prompt_tokens": 20, "completion_tokens": 10, "total_tokens": 30, "api_latency_seconds": 3.0}},
     )
@@ -1065,19 +1049,19 @@ def test_llm_usage_summary_computes_missing_total_tokens(tmp_path: Path) -> None
     experiment_dir = _experiment_dir(tmp_path)
     candidate_1 = tmp_path / "results" / "runs" / "candidate_001"
     candidate_2 = tmp_path / "results" / "runs" / "candidate_002"
-    _write_json(experiment_dir / "closed_loop_summary.json", _summary())
-    _write_jsonl(
+    write_json(experiment_dir / "closed_loop_summary.json", _summary())
+    write_jsonl(
         experiment_dir / "closed_loop_iterations.jsonl",
         [
             {"iteration": 1, "status": "valid_not_improved", "candidate_run_dir": str(candidate_1)},
             {"iteration": 2, "status": "valid_not_improved", "candidate_run_dir": str(candidate_2)},
         ],
     )
-    _write_json(
+    write_json(
         candidate_1 / "llm_response.json",
         {"llm_usage": {"prompt_tokens": 10, "completion_tokens": 5}},
     )
-    _write_json(
+    write_json(
         candidate_2 / "llm_response.json",
         {"llm_usage": {"prompt_tokens": 20, "completion_tokens": 10}},
     )
@@ -1097,8 +1081,8 @@ def test_reporting_status_paths_always_populated(tmp_path: Path) -> None:
     """report_data_path and report_html_path are set even before files exist."""
 
     experiment_dir = _experiment_dir(tmp_path)
-    _write_json(experiment_dir / "closed_loop_summary.json", _summary())
-    _write_jsonl(experiment_dir / "closed_loop_iterations.jsonl", [])
+    write_json(experiment_dir / "closed_loop_summary.json", _summary())
+    write_jsonl(experiment_dir / "closed_loop_iterations.jsonl", [])
 
     assert not (experiment_dir / "report" / "report_data.json").exists()
     assert not (experiment_dir / "report" / "report.html").exists()
@@ -1120,9 +1104,9 @@ def test_reporting_formats_override(tmp_path: Path) -> None:
     """collect_report_data accepts reporting_formats_override and overrides config."""
 
     experiment_dir = _experiment_dir(tmp_path)
-    _write_json(experiment_dir / "closed_loop_summary.json", _summary())
-    _write_jsonl(experiment_dir / "closed_loop_iterations.jsonl", [])
-    _write_json(
+    write_json(experiment_dir / "closed_loop_summary.json", _summary())
+    write_jsonl(experiment_dir / "closed_loop_iterations.jsonl", [])
+    write_json(
         experiment_dir / "experiment_config_snapshot.json",
         {
             "experiment_name": "Override Test",
@@ -1146,9 +1130,9 @@ def test_reporting_pdf_pending_when_pdf_absent_but_requested(tmp_path: Path) -> 
     """pdf_display shows 'generation pending' when formats include pdf but file missing."""
 
     experiment_dir = _experiment_dir(tmp_path)
-    _write_json(experiment_dir / "closed_loop_summary.json", _summary())
-    _write_jsonl(experiment_dir / "closed_loop_iterations.jsonl", [])
-    _write_json(
+    write_json(experiment_dir / "closed_loop_summary.json", _summary())
+    write_jsonl(experiment_dir / "closed_loop_iterations.jsonl", [])
+    write_json(
         experiment_dir / "experiment_config_snapshot.json",
         {
             "experiment_name": "PDF Pending",
@@ -1176,13 +1160,13 @@ def test_runtime_difference_unavailable_without_final_selection_report(tmp_path:
 
     experiment_dir = _experiment_dir(tmp_path)
     metrics_path = tmp_path / "results" / "runs" / "baseline" / "metrics.json"
-    _write_json(
+    write_json(
         metrics_path,
         {
             "benchmark": {"parsed_runtime_ns_per_problem_median": 100.0},
         },
     )
-    _write_json(
+    write_json(
         experiment_dir / "closed_loop_summary.json",
         _summary(
             original_baseline_metrics_path=str(metrics_path),
@@ -1191,7 +1175,7 @@ def test_runtime_difference_unavailable_without_final_selection_report(tmp_path:
             final_runtime_reduction_percent=20.0,
         ),
     )
-    _write_jsonl(
+    write_jsonl(
         experiment_dir / "closed_loop_iterations.jsonl",
         [
             {

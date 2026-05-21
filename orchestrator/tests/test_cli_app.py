@@ -8,7 +8,7 @@ from pathlib import Path
 from orchestrator.control.environment import get_env_specs
 
 
-REPO_ROOT = Path(__file__).resolve().parents[1]
+REPO_ROOT = Path(__file__).resolve().parents[2]
 
 
 def run_cli(

@@ -1,4 +1,4 @@
-"""Tests for generate_candidate logical source path vs physical source root."""
+﻿"""Tests for generate_candidate logical source path vs physical source root."""
 
 from __future__ import annotations
 
@@ -20,7 +20,7 @@ from orchestrator.core.llm.generate_candidate import (
 from orchestrator.storage import RunStorage
 
 
-TARGET_FILE = "cpp/external/lambdatwist/p3p.cc"
+from orchestrator.tests.conftest import TARGET_FILE
 DISTINCTIVE_SOURCE = "int distinctive_current_best_source = 42;\n"
 
 

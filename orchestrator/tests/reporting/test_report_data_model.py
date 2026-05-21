@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 import json
 from pathlib import Path
@@ -15,7 +15,7 @@ from orchestrator.reporting import (
 )
 
 
-TARGET_FILE = "cpp/external/lambdatwist/p3p.cc"
+from orchestrator.tests.conftest import TARGET_FILE
 
 
 def test_make_empty_report_data_uses_current_report_schema() -> None:

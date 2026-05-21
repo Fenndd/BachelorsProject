@@ -8,7 +8,7 @@ from orchestrator.control.experiment_configs import (
 )
 
 
-REPO_ROOT = Path(__file__).resolve().parents[1]
+REPO_ROOT = Path(__file__).resolve().parents[2]
 
 
 def _write_valid_experiment(root: Path, provider: str = "deepseek", model: str = "model-x") -> Path:

@@ -1,4 +1,4 @@
-"""Tests for closed-loop experiment orchestration."""
+﻿"""Tests for closed-loop experiment orchestration."""
 
 from __future__ import annotations
 
@@ -19,19 +19,14 @@ from orchestrator.experiments.closed_loop_state import (
 from orchestrator.experiments.experiment_config import load_experiment_config
 
 
-TARGET_FILE = "cpp/external/lambdatwist/p3p.cc"
-
-
-def _write_json(path: Path, payload: dict[str, Any]) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
+from orchestrator.tests.conftest import TARGET_FILE, write_json, make_benchmark_payload
 
 
 def _fake_final_selection_report(**kwargs: Any) -> Path:
     experiment_dir = Path(kwargs["experiment_dir"])
     report_path = experiment_dir / "final_selection_report.json"
     final_best_is_baseline = kwargs.get("final_best_is_baseline", False)
-    _write_json(
+    write_json(
         report_path,
         {
             "report_type": "single_run_final_selection_report",
@@ -50,36 +45,7 @@ def _fake_final_selection_report(**kwargs: Any) -> Path:
     return report_path
 
 
-def _benchmark_payload(runtime: float = 1000.0) -> dict[str, Any]:
-    return {
-        "benchmark": {
-            "family": "absolute_pose_solvers",
-            "solver": "lambdatwist_p3p",
-            "runtime_unit": "ns",
-            "build_type": "Release",
-            "benchmark_options": {
-                "num_problems": 10,
-                "tolerance": 1e-6,
-                "camera_fov": 75.0,
-                "n_point_point": 3,
-                "n_point_line": 0,
-                "timed_iterations": 10,
-                "runtime_unit": "ns",
-                "build_type": "Release",
-            },
-            "parse_success": True,
-            "parsed_num_problems": 10,
-            "parsed_total_solutions": 30,
-            "parsed_solutions_per_problem": 3.0,
-            "parsed_valid_solutions": 30,
-            "parsed_valid_solutions_percent": 100.0,
-            "parsed_gt_found": 10,
-            "parsed_gt_found_percent": 100.0,
-            "parsed_runtime_ns_total_median": runtime * 10,
-            "parsed_runtime_ns_per_problem_median": runtime,
-            "parsed_correctness_passed": True,
-        }
-    }
+
 
 
 def _config_payload(root: Path, *, iterations: int = 1) -> dict[str, Any]:
@@ -101,7 +67,7 @@ def _config_payload(root: Path, *, iterations: int = 1) -> dict[str, Any]:
 
 def _write_config(root: Path, *, iterations: int = 1) -> Path:
     path = root / "config.json"
-    _write_json(path, _config_payload(root, iterations=iterations))
+    write_json(path, _config_payload(root, iterations=iterations))
     return path
 
 
@@ -110,7 +76,7 @@ def _create_repo_layout(root: Path, source_text: str = "baseline\n") -> None:
     (root / TARGET_FILE).write_text(source_text, encoding="utf-8")
     baseline = root / "results" / "runs" / "baseline"
     baseline.mkdir(parents=True, exist_ok=True)
-    _write_json(baseline / "metrics.json", _benchmark_payload(1000.0))
+    write_json(baseline / "metrics.json", make_benchmark_payload(1000.0))
 
 
 def _candidate_payload(*, expected_effect: str = "runtime", edits: list[dict[str, Any]] | None = None) -> dict[str, Any]:
@@ -153,21 +119,21 @@ class _ClosedLoopHarness:
             self.candidate_dirs.append(candidate_dir)
             if status == "generation_failed":
                 return {"exit_code": 1, "stdout": f"CANDIDATE_RUN_DIR={candidate_dir}\n", "stderr": "", "duration_seconds": 0.1}
-            _write_json(candidate_dir / "status.json", {"overall_status": "success"})
+            write_json(candidate_dir / "status.json", {"overall_status": "success"})
             candidate = _candidate_payload(expected_effect="none" if status == "no_op" else "runtime")
             candidate["summary"] = f"candidate summary {variant_iteration}"
             if status != "no_op":
                 candidate["edits"] = [
                     {"file": TARGET_FILE, "start_line": 1, "end_line": 1, "original": "baseline", "replace": f"candidate {variant_iteration}"}
                 ]
-            _write_json(candidate_dir / "candidate.json", candidate)
+            write_json(candidate_dir / "candidate.json", candidate)
             return {"exit_code": 0, "stdout": f"CANDIDATE_RUN_DIR={candidate_dir}\n", "stderr": "", "duration_seconds": 0.1}
 
         candidate_dir = self.root / "results" / "runs" / f"candidate_{variant_iteration}"
         if stage_name == "materialize_candidate":
             self.materialization_commands.append(command)
             if status == "materialization_failed":
-                _write_json(candidate_dir / "materialization.json", {
+                write_json(candidate_dir / "materialization.json", {
                     "overall_status": "failed",
                     "failed_step": "apply",
                     "error_message": "fallback_no_match: original text was not found by exact-search fallback",
@@ -185,7 +151,7 @@ class _ClosedLoopHarness:
             workspace = self.root / "workspace" / "candidates" / f"candidate_{variant_iteration}"
             (workspace / TARGET_FILE).parent.mkdir(parents=True, exist_ok=True)
             (workspace / TARGET_FILE).write_text(f"candidate {variant_iteration}\n", encoding="utf-8")
-            _write_json(candidate_dir / "materialization.json", {
+            write_json(candidate_dir / "materialization.json", {
                 "overall_status": "success",
                 "workspace_path": str(workspace),
                 "changed_files": [TARGET_FILE],
@@ -203,9 +169,9 @@ class _ClosedLoopHarness:
 
         if stage_name == "verify_candidate":
             if status == "verification_failed":
-                _write_json(candidate_dir / "verification.json", {"overall_status": "failed", "failed_step": "benchmark", "error_message": "bad benchmark"})
+                write_json(candidate_dir / "verification.json", {"overall_status": "failed", "failed_step": "benchmark", "error_message": "bad benchmark"})
                 return {"exit_code": 1, "stdout": "", "stderr": "", "duration_seconds": 0.1}
-            _write_json(candidate_dir / "verification.json", {"overall_status": "success", **_benchmark_payload(900.0)})
+            write_json(candidate_dir / "verification.json", {"overall_status": "success", **make_benchmark_payload(900.0)})
             return {"exit_code": 0, "stdout": "", "stderr": "", "duration_seconds": 0.1}
 
         raise AssertionError(f"Unexpected stage {stage_name}")
@@ -448,19 +414,19 @@ class RunExperimentClosedLoopTests(unittest.TestCase):
         runner.REPO_ROOT = root
         fallback_run = root / "results" / "runs" / "candidate_2"
         fallback_run.mkdir(parents=True)
-        _write_json(fallback_run / "candidate.json", _candidate_payload())
+        write_json(fallback_run / "candidate.json", _candidate_payload())
         fallback_request_run = root / "results" / "runs" / "candidate_3"
         fallback_request_run.mkdir(parents=True)
-        _write_json(fallback_request_run / "llm_request.json", {"ok": True})
+        write_json(fallback_request_run / "llm_request.json", {"ok": True})
         empty_run = root / "results" / "runs" / "empty"
         empty_run.mkdir(parents=True)
         baseline_like = root / "results" / "runs" / "baseline"
         baseline_like.mkdir(parents=True)
-        _write_json(baseline_like / "metrics.json", _benchmark_payload())
+        write_json(baseline_like / "metrics.json", make_benchmark_payload())
         wrong_status = root / "results" / "runs" / "wrong_status"
         wrong_status.mkdir(parents=True)
-        _write_json(wrong_status / "candidate.json", _candidate_payload())
-        _write_json(wrong_status / "status.json", {"scenario": "baseline"})
+        write_json(wrong_status / "candidate.json", _candidate_payload())
+        write_json(wrong_status / "status.json", {"scenario": "baseline"})
 
         self.assertEqual(
             runner._parse_candidate_run_dir("CANDIDATE_RUN_DIR=results/runs/candidate_1\n"),
@@ -554,7 +520,7 @@ class RunExperimentClosedLoopTests(unittest.TestCase):
             if stage_name == "generate_candidate":
                 generated_commands.append(command)
                 candidate_dir.mkdir(parents=True, exist_ok=True)
-                _write_json(candidate_dir / "status.json", {"overall_status": "success"})
+                write_json(candidate_dir / "status.json", {"overall_status": "success"})
                 if variant_iteration == 3:
                     candidate = _candidate_payload(expected_effect="none", edits=[])
                     candidate["summary"] = "No useful change"
@@ -573,7 +539,7 @@ class RunExperimentClosedLoopTests(unittest.TestCase):
                         ]
                     )
                     candidate["summary"] = f"Change marker to {replacement}"
-                _write_json(candidate_dir / "candidate.json", candidate)
+                write_json(candidate_dir / "candidate.json", candidate)
                 return {"exit_code": 0, "stdout": f"CANDIDATE_RUN_DIR={candidate_dir}\n", "stderr": "", "duration_seconds": 0.1}
 
             if stage_name == "materialize_candidate":
@@ -581,12 +547,12 @@ class RunExperimentClosedLoopTests(unittest.TestCase):
                 workspace = root / "workspace" / "candidates" / f"candidate_{variant_iteration}"
                 (workspace / TARGET_FILE).parent.mkdir(parents=True, exist_ok=True)
                 (workspace / TARGET_FILE).write_text(f"{replacement}\n", encoding="utf-8")
-                _write_json(candidate_dir / "materialization.json", {"overall_status": "success", "workspace_path": str(workspace), "changed_files": [TARGET_FILE]})
+                write_json(candidate_dir / "materialization.json", {"overall_status": "success", "workspace_path": str(workspace), "changed_files": [TARGET_FILE]})
                 return {"exit_code": 0, "stdout": "", "stderr": "", "duration_seconds": 0.1}
 
             if stage_name == "verify_candidate":
                 runtime = 800.0 if variant_iteration == 1 else 900.0
-                _write_json(candidate_dir / "verification.json", {"overall_status": "success", **_benchmark_payload(runtime)})
+                write_json(candidate_dir / "verification.json", {"overall_status": "success", **make_benchmark_payload(runtime)})
                 return {"exit_code": 0, "stdout": "", "stderr": "", "duration_seconds": 0.1}
 
             raise AssertionError(f"Unexpected stage {stage_name}")

@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 from pathlib import Path
 
@@ -10,13 +10,11 @@ from orchestrator.control.workspace_manager import (
 )
 
 
-def _repo_root(tmp_path: Path) -> Path:
-    (tmp_path / ".git").mkdir()
-    return tmp_path
+from orchestrator.tests.conftest import repo_root
 
 
 def test_workspace_status_when_workspace_missing(tmp_path: Path) -> None:
-    root = _repo_root(tmp_path)
+    root = repo_root(tmp_path)
 
     status = get_workspace_status(root)
 
@@ -27,7 +25,7 @@ def test_workspace_status_when_workspace_missing(tmp_path: Path) -> None:
 
 
 def test_workspace_status_counts_synthetic_files_and_dirs(tmp_path: Path) -> None:
-    root = _repo_root(tmp_path)
+    root = repo_root(tmp_path)
     workspace = root / "workspace"
     nested = workspace / "candidates" / "candidate_001"
     nested.mkdir(parents=True)
@@ -43,7 +41,7 @@ def test_workspace_status_counts_synthetic_files_and_dirs(tmp_path: Path) -> Non
 
 
 def test_cleanup_candidates_deletes_only_candidate_workspaces(tmp_path: Path) -> None:
-    root = _repo_root(tmp_path)
+    root = repo_root(tmp_path)
     candidate = root / "workspace" / "candidates" / "candidate_001"
     experiment = root / "workspace" / "experiments" / "experiment_001"
     candidate.mkdir(parents=True)
@@ -57,7 +55,7 @@ def test_cleanup_candidates_deletes_only_candidate_workspaces(tmp_path: Path) ->
 
 
 def test_cleanup_experiments_deletes_only_experiment_workspaces(tmp_path: Path) -> None:
-    root = _repo_root(tmp_path)
+    root = repo_root(tmp_path)
     candidate = root / "workspace" / "candidates" / "candidate_001"
     experiment = root / "workspace" / "experiments" / "experiment_001"
     candidate.mkdir(parents=True)
@@ -71,7 +69,7 @@ def test_cleanup_experiments_deletes_only_experiment_workspaces(tmp_path: Path) 
 
 
 def test_clean_all_deletes_only_inside_workspace_and_preserves_gitkeep(tmp_path: Path) -> None:
-    root = _repo_root(tmp_path)
+    root = repo_root(tmp_path)
     workspace = root / "workspace"
     candidate = workspace / "candidates" / "candidate_001"
     experiment = workspace / "experiments" / "experiment_001"
@@ -82,7 +80,7 @@ def test_clean_all_deletes_only_inside_workspace_and_preserves_gitkeep(tmp_path:
     gitkeep = workspace / ".gitkeep"
     gitkeep.write_text("", encoding="utf-8")
     results = root / "results"
-    results.mkdir()
+    results.mkdir(exist_ok=True)
 
     result = clean_workspace_all(root)
 
@@ -96,7 +94,7 @@ def test_clean_all_deletes_only_inside_workspace_and_preserves_gitkeep(tmp_path:
 
 
 def test_cleanup_never_deletes_synthetic_results_directory(tmp_path: Path) -> None:
-    root = _repo_root(tmp_path)
+    root = repo_root(tmp_path)
     (root / "workspace" / "candidates" / "candidate_001").mkdir(parents=True)
     (root / "results" / "runs" / "run_001").mkdir(parents=True)
 
@@ -106,7 +104,7 @@ def test_cleanup_never_deletes_synthetic_results_directory(tmp_path: Path) -> No
 
 
 def test_path_safety_reports_outside_workspace_entry(tmp_path: Path) -> None:
-    root = _repo_root(tmp_path)
+    root = repo_root(tmp_path)
     workspace = root / "workspace"
     workspace.mkdir()
     outside = root / "outside"

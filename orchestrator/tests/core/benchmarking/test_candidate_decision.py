@@ -1,4 +1,4 @@
-"""Unit tests for pairwise baseline-vs-candidate decision logic."""
+﻿"""Unit tests for pairwise baseline-vs-candidate decision logic."""
 
 from __future__ import annotations
 
@@ -15,40 +15,7 @@ from orchestrator.core.benchmarking.candidate_decision import (
 )
 
 
-def _benchmark_payload(**overrides: Any) -> dict[str, Any]:
-    benchmark = {
-        "family": "absolute_pose_solvers",
-        "solver": "lambdatwist_p3p",
-        "runtime_unit": "ns",
-        "build_type": "Release",
-        "benchmark_options": {
-            "num_problems": 1000,
-            "tolerance": 1e-6,
-            "camera_fov": 75.0,
-            "n_point_point": 3,
-            "n_point_line": 0,
-            "timed_iterations": 10,
-            "runtime_unit": "ns",
-            "build_type": "Release",
-        },
-        "parse_success": True,
-        "parsed_num_problems": 1000,
-        "parsed_total_solutions": 3000,
-        "parsed_solutions_per_problem": 3.0,
-        "parsed_valid_solutions": 3000,
-        "parsed_valid_solutions_percent": 100.0,
-        "parsed_gt_found": 1000,
-        "parsed_gt_found_percent": 100.0,
-        "parsed_runtime_ns_total_median": 1_000_000.0,
-        "parsed_runtime_ns_per_problem_median": 1000.0,
-        "parsed_correctness_passed": True,
-    }
-    benchmark.update(overrides)
-    return {"benchmark": benchmark}
-
-
-def _write_json(path: Path, payload: dict[str, Any]) -> None:
-    path.write_text(json.dumps(payload, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+from orchestrator.tests.conftest import write_json, make_benchmark_payload
 
 
 def _evaluate(
@@ -65,8 +32,8 @@ def _evaluate(
         baseline_run.mkdir()
         candidate_run.mkdir()
 
-        _write_json(baseline_run / "metrics.json", _benchmark_payload(**baseline_overrides))
-        _write_json(candidate_run / "verification.json", _benchmark_payload(**candidate_overrides))
+        write_json(baseline_run / "metrics.json", make_benchmark_payload(**baseline_overrides))
+        write_json(candidate_run / "verification.json", make_benchmark_payload(**candidate_overrides))
 
         return evaluate_candidate_against_baseline(baseline_run, candidate_run)
 
@@ -129,10 +96,10 @@ class CandidateDecisionTests(unittest.TestCase):
             candidate_run = root / "candidate"
             reference_run.mkdir()
             candidate_run.mkdir()
-            _write_json(reference_run / "verification.json", _benchmark_payload())
-            _write_json(
+            write_json(reference_run / "verification.json", make_benchmark_payload())
+            write_json(
                 candidate_run / "verification.json",
-                _benchmark_payload(parsed_runtime_ns_per_problem_median=750.0),
+                make_benchmark_payload(parsed_runtime_ns_per_problem_median=750.0),
             )
 
             decision = evaluate_candidate_against_reference(

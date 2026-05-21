@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 import json
 from datetime import datetime
@@ -21,7 +21,7 @@ from orchestrator.experiments.experiment_config import (
 from orchestrator.experiments import run_experiment
 
 
-TARGET_FILE = "cpp/external/lambdatwist/p3p.cc"
+from orchestrator.tests.conftest import TARGET_FILE
 
 
 def _config(iterations: int = 2) -> ExperimentConfig:
