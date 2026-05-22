@@ -57,7 +57,13 @@ target_include_directories(absolute_pose_core
 # ---------------------------------------------------------------------------
 set(_GEN_DIR "${CMAKE_CURRENT_BINARY_DIR}/generated")
 
-file(GLOB _SOLVER_MANIFESTS "${ABSOLUTE_POSE_SOLVERS_DIR}/solvers/*.json")
+file(GLOB _SOLVER_MANIFESTS CONFIGURE_DEPENDS
+     "${ABSOLUTE_POSE_SOLVERS_DIR}/solvers/*.json")
+
+if(NOT _SOLVER_MANIFESTS)
+    message(FATAL_ERROR "No solver manifest JSON files found under "
+                        "${ABSOLUTE_POSE_SOLVERS_DIR}/solvers/")
+endif()
 
 foreach(_MANIFEST_PATH ${_SOLVER_MANIFESTS})
     file(READ "${_MANIFEST_PATH}" _M)
@@ -65,6 +71,7 @@ foreach(_MANIFEST_PATH ${_SOLVER_MANIFESTS})
     # --- top-level strings ------------------------------------------------
     _manifest_string(_family           "${_M}" "family")
     _manifest_string(_solver_id        "${_M}" "solver_id")
+    _manifest_string(_adapter_dir      "${_M}" "adapter_dir")
     _manifest_string(_adapter_class    "${_M}" "adapter_class")
     _manifest_string(_adapter_ns       "${_M}" "adapter_namespace")
     _manifest_string(_adapter_header   "${_M}" "adapter_header")
@@ -75,47 +82,54 @@ foreach(_MANIFEST_PATH ${_SOLVER_MANIFESTS})
     string(JSON _meta_def_pts  GET "${_M}" "metadata" "default_case_points")
     string(JSON _meta_ret_ms   GET "${_M}" "metadata" "returns_multiple_solutions")
 
+    # Normalize to valid C++ boolean literal (true / false)
+    string(TOLOWER "${_meta_ret_ms}" _meta_ret_ms)
+    if(_meta_ret_ms STREQUAL "true")
+        set(_meta_ret_ms "true")
+    else()
+        set(_meta_ret_ms "false")
+    endif()
+
     # --- targets -----------------------------------------------------------
     _manifest_string(_tgt_adapter      "${_M}" "targets" "adapter")
     _manifest_string(_tgt_benchmark    "${_M}" "targets" "benchmark")
     _manifest_string(_tgt_validator    "${_M}" "targets" "adapter_validator")
 
-    # --- adapter sources (array iteration via error-based bounds check) ----
+    # --- adapter sources (array iteration) ---------------------------------
     set(_adapter_srcs "")
-    set(_src_idx 0)
-    while(TRUE)
-        string(JSON _src ERROR_VARIABLE _src_err
-               MEMBER "${_M}" "adapter_sources" ${_src_idx})
-        if(_src_err)
-            break()
-        endif()
-        string(REGEX REPLACE "^\"(.*)\"$" "\\1" _src_stripped "${_src}")
-        string(REPLACE "cpp/" "" _src_relative "${_src_stripped}")
-        list(APPEND _adapter_srcs "${_src_relative}")
-        math(EXPR _src_idx "${_src_idx} + 1")
-    endwhile()
+    string(JSON _src_len LENGTH "${_M}" "adapter_sources")
+    if(_src_len GREATER 0)
+        math(EXPR _src_max "${_src_len} - 1")
+        foreach(_src_idx RANGE 0 ${_src_max})
+            string(JSON _src GET "${_M}" "adapter_sources" ${_src_idx})
+            string(REGEX REPLACE "^\"(.*)\"$" "\\1" _src_stripped "${_src}")
+            string(REPLACE "cpp/" "" _src_relative "${_src_stripped}")
+            list(APPEND _adapter_srcs "${_src_relative}")
+        endforeach()
+    endif()
 
     # --- extra libs (array iteration) --------------------------------------
     set(_extra_libs "")
-    set(_lib_idx 0)
-    while(TRUE)
-        string(JSON _lib ERROR_VARIABLE _lib_err
-               MEMBER "${_M}" "extra_libs" ${_lib_idx})
-        if(_lib_err)
-            break()
-        endif()
-        string(REGEX REPLACE "^\"(.*)\"$" "\\1" _lib_stripped "${_lib}")
-        list(APPEND _extra_libs "${_lib_stripped}")
-        math(EXPR _lib_idx "${_lib_idx} + 1")
-    endwhile()
+    string(JSON _lib_len LENGTH "${_M}" "extra_libs")
+    if(_lib_len GREATER 0)
+        math(EXPR _lib_max "${_lib_len} - 1")
+        foreach(_lib_idx RANGE 0 ${_lib_max})
+            string(JSON _lib GET "${_M}" "extra_libs" ${_lib_idx})
+            string(REGEX REPLACE "^\"(.*)\"$" "\\1" _lib_stripped "${_lib}")
+            list(APPEND _extra_libs "${_lib_stripped}")
+        endforeach()
+    endif()
 
     # --- adapter library ---------------------------------------------------
+    string(REPLACE "cpp/" "" _adapter_dir_relative "${_adapter_dir}")
+    set(_adapter_dir_cmake "${CMAKE_CURRENT_SOURCE_DIR}/${_adapter_dir_relative}")
+
     add_library(${_tgt_adapter} STATIC ${_adapter_srcs})
 
     target_include_directories(${_tgt_adapter}
         PUBLIC
             "${ABSOLUTE_POSE_SOLVERS_DIR}/core"
-            "${ABSOLUTE_POSE_SOLVERS_DIR}/adapters/${_solver_id}"
+            "${_adapter_dir_cmake}"
             "${EIGEN3_INCLUDE_DIR}"
     )
     target_link_libraries(${_tgt_adapter}
@@ -158,7 +172,7 @@ foreach(_MANIFEST_PATH ${_SOLVER_MANIFESTS})
         target_include_directories(${_tgt_benchmark}
             PRIVATE
                 "${ABSOLUTE_POSE_SOLVERS_DIR}/core"
-                "${ABSOLUTE_POSE_SOLVERS_DIR}/adapters/${_solver_id}"
+                "${_adapter_dir_cmake}"
         )
         target_link_libraries(${_tgt_benchmark}
             PRIVATE
@@ -206,7 +220,7 @@ foreach(_MANIFEST_PATH ${_SOLVER_MANIFESTS})
         target_include_directories(${_tgt_validator}
             PRIVATE
                 "${ABSOLUTE_POSE_SOLVERS_DIR}/core"
-                "${ABSOLUTE_POSE_SOLVERS_DIR}/adapters/${_solver_id}"
+                "${_adapter_dir_cmake}"
         )
         target_link_libraries(${_tgt_validator}
             PRIVATE
@@ -218,6 +232,13 @@ foreach(_MANIFEST_PATH ${_SOLVER_MANIFESTS})
                        "(adapter=${_tgt_adapter} "
                        "benchmark=${_tgt_benchmark} "
                        "validator=${_tgt_validator})")
+    elseif(_runner_mode STREQUAL "static")
+        message(STATUS "Registered solver '${_solver_id}' "
+                       "(adapter=${_tgt_adapter}, runner_mode=static)")
+    else()
+        message(FATAL_ERROR "Solver '${_solver_id}' has unsupported "
+                            "runner_mode '${_runner_mode}'. "
+                            "Supported modes: generated_absolute_pose")
     endif()
 
     unset(SOLVER_ID)

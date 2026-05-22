@@ -49,6 +49,54 @@ class SolverRegistryTests(unittest.TestCase):
         with self.assertRaises(Exception):
             desc.solver_id = "other"  # type: ignore[misc]
 
+    def test_default_solver_missing_raises_clear_error(self) -> None:
+        from orchestrator.core.benchmarking import solver_registry
+
+        original_cache = solver_registry._descriptors_cache
+        solver_registry._descriptors_cache = {}
+        try:
+            with self.assertRaises(RuntimeError) as ctx:
+                solver_registry.default_solver_descriptor()
+            self.assertIn("lambdatwist_p3p", str(ctx.exception))
+            self.assertIn("not registered", str(ctx.exception))
+        finally:
+            solver_registry._descriptors_cache = original_cache
+
+    def test_require_string_rejects_missing_key(self) -> None:
+        from pathlib import Path
+
+        from orchestrator.core.benchmarking.solver_registry import (
+            _require_string,
+        )
+
+        with self.assertRaises(ValueError) as ctx:
+            _require_string({}, "key", Path("test.json"))
+        self.assertIn("key", str(ctx.exception))
+        self.assertIn("test.json", str(ctx.exception))
+
+    def test_require_string_rejects_empty_string(self) -> None:
+        from pathlib import Path
+
+        from orchestrator.core.benchmarking.solver_registry import (
+            _require_string,
+        )
+
+        with self.assertRaises(ValueError) as ctx:
+            _require_string({"key": ""}, "key", Path("test.json"))
+        self.assertIn("key", str(ctx.exception))
+
+    def test_require_dict_rejects_non_dict(self) -> None:
+        from pathlib import Path
+
+        from orchestrator.core.benchmarking.solver_registry import (
+            _require_dict,
+        )
+
+        with self.assertRaises(ValueError) as ctx:
+            _require_dict({"key": "not_a_dict"}, "key", Path("test.json"))
+        self.assertIn("key", str(ctx.exception))
+        self.assertIn("JSON object", str(ctx.exception))
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -59,6 +59,24 @@ def _family_descriptor_label(family: str) -> str:
     raise ValueError(f"Unsupported solver family: {family!r}")
 
 
+def _require_string(obj: dict[str, Any], key: str, source: Path) -> str:
+    value = obj.get(key)
+    if not isinstance(value, str) or not value:
+        raise ValueError(
+            f"Manifest {source}: field {key!r} must be a non-empty string"
+        )
+    return value
+
+
+def _require_dict(obj: dict[str, Any], key: str, source: Path) -> dict[str, Any]:
+    value = obj.get(key)
+    if not isinstance(value, dict):
+        raise ValueError(
+            f"Manifest {source}: field {key!r} must be a JSON object"
+        )
+    return value
+
+
 def _load_manifests() -> dict[str, SolverBenchmarkDescriptor]:
     """Discover and parse solver manifest files."""
     paths = get_project_paths()
@@ -66,12 +84,39 @@ def _load_manifests() -> dict[str, SolverBenchmarkDescriptor]:
     manifest_dir = paths.cpp / "bench"
     descriptors: dict[str, SolverBenchmarkDescriptor] = {}
 
-    for manifest_path in manifest_dir.glob(pattern):
+    for manifest_path in sorted(manifest_dir.glob(pattern)):
         data = json.loads(manifest_path.read_text(encoding="utf-8"))
 
-        solver_id: str = data["solver_id"]
-        family: str = data["family"]
-        targets: dict[str, str] = data["targets"]
+        solver_id = _require_string(data, "solver_id", manifest_path)
+        family = _require_string(data, "family", manifest_path)
+        targets = _require_dict(data, "targets", manifest_path)
+        runner_mode = data.get("runner_mode")
+
+        _require_string(targets, "benchmark", manifest_path)
+
+        if solver_id in descriptors:
+            raise ValueError(
+                f"Duplicate solver_id {solver_id!r} in {manifest_path}. "
+                f"Already registered from another manifest."
+            )
+
+        if family not in ("absolute_pose",):
+            raise ValueError(
+                f"Unsupported family {family!r} in {manifest_path}. "
+                f"Supported families: absolute_pose"
+            )
+
+        if runner_mode is not None and not isinstance(runner_mode, str):
+            raise ValueError(
+                f"runner_mode must be a string in {manifest_path}"
+            )
+
+        if runner_mode == "generated_absolute_pose":
+            if "adapter_validator" not in targets or not isinstance(targets["adapter_validator"], str):
+                raise ValueError(
+                    f"Manifest {manifest_path}: targets.adapter_validator is required "
+                    f"for runner_mode=generated_absolute_pose"
+                )
 
         descriptors[solver_id] = SolverBenchmarkDescriptor(
             solver_id=solver_id,
@@ -120,10 +165,11 @@ def default_solver_descriptor() -> SolverBenchmarkDescriptor:
     descriptors = _descriptors()
     if _DEFAULT_SOLVER_ID in descriptors:
         return descriptors[_DEFAULT_SOLVER_ID]
-    # Fallback: return the first registered solver
-    if descriptors:
-        return next(iter(descriptors.values()))
-    raise RuntimeError("No solver manifests found")
+    raise RuntimeError(
+        f"Default solver {_DEFAULT_SOLVER_ID!r} is not registered. "
+        f"Ensure a manifest exists with solver_id={_DEFAULT_SOLVER_ID!r} "
+        f"under cpp/bench/*/solvers/"
+    )
 
 
 def list_solver_descriptors() -> list[SolverBenchmarkDescriptor]:

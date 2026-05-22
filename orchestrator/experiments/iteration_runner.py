@@ -660,8 +660,8 @@ def run_closed_loop_iterations(
         candidate_run_dir: Path | None = None
 
         iteration_dir_name = format_iteration_dir(iteration)
-        candidate_run_dir_path = env.RESULTS_ROOT / "runs" / experiment_id / iteration_dir_name
-        candidate_workspace_dir_path = env.WORKSPACE_ROOT / "candidates" / experiment_id / iteration_dir_name
+        candidate_run_dir_path = closed_loop_paths.candidate_runs_root / iteration_dir_name
+        candidate_workspace_dir_path = closed_loop_paths.candidate_workspaces_root / iteration_dir_name
 
         closed_loop_history_context = build_closed_loop_history_context(
             [to_plain_dict(record) for record in records]

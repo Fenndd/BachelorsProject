@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import subprocess
 import sys
 import time
@@ -222,9 +223,10 @@ def _build_metadata(
     physical_source_path: str,
     client: DeepSeekClient | None,
     started_at: datetime,
+    **extra_fields: Any,
 ) -> dict[str, Any]:
     config = client.config if client is not None else None
-    return {
+    metadata: dict[str, Any] = {
         "run_id": run_id,
         "scenario": "llm_candidate",
         "target_file": target_file,
@@ -238,6 +240,8 @@ def _build_metadata(
         "finished_at": None,
         "repository": _repository_info(),
     }
+    metadata.update(extra_fields)
+    return metadata
 
 
 def _build_status(
@@ -509,6 +513,31 @@ def _resolve_allowed_files(
         ) from exc
 
 
+_ITERATION_DIR_RE_STR = r"it_\d+"
+
+
+def _derive_group_metadata(run_dir: Path) -> tuple[dict[str, Any], str | None]:
+    """When *run_dir* looks like ``results/runs/<experiment_id>/it_XX``,
+    return extra metadata fields and a compact display id."""
+    name = run_dir.name
+    parent = run_dir.parent
+    parent_name = parent.name if parent != run_dir else None
+    if not re.match(_ITERATION_DIR_RE_STR, name):
+        return {}, None
+    if parent_name is None or parent_name in ("runs",):
+        return {}, None
+    candidate_group_path = f"{parent_name}/{name}"
+    return {
+        "experiment_id": parent_name,
+        "iteration_dir": name,
+        "candidate_run_display_id": candidate_group_path,
+    }, candidate_group_path
+
+
+def _is_candidate_group_path(metadata: dict[str, Any], run_dir: Path) -> bool:
+    return "experiment_id" in metadata and "iteration_dir" in metadata
+
+
 def main(argv: list[str] | None = None) -> int:
     _configure_text_streams()
     configure_logging()
@@ -535,10 +564,14 @@ def main(argv: list[str] | None = None) -> int:
     storage = RunStorage(paths.repo_root / "results")
     started_at = datetime.now().astimezone()
 
+    _extra_metadata: dict[str, Any] = {}
     if args.candidate_run_dir is not None:
         run_dir = _resolve_path(args.candidate_run_dir)
         run_dir = storage.create_explicit_run_directory(run_dir)
         run_id = _display_path(run_dir)
+        _extra_metadata, _candidate_group_path = _derive_group_metadata(run_dir)
+        if _candidate_group_path is not None:
+            _extra_metadata["candidate_group_path"] = _candidate_group_path
     else:
         run_id = storage.build_run_id("llm_candidate", started_at)
         run_dir = _create_run_directory(storage, run_id)
@@ -558,6 +591,7 @@ def main(argv: list[str] | None = None) -> int:
         physical_source_path_display,
         client,
         started_at,
+        **_extra_metadata,
     )
     candidate: OptimizationCandidate | None = None
 
@@ -572,6 +606,7 @@ def main(argv: list[str] | None = None) -> int:
             physical_source_path_display,
             client,
             started_at,
+            **_extra_metadata,
         )
         LOGGER.info("Provider/model: %s/%s", client.config.provider, client.config.model)
 

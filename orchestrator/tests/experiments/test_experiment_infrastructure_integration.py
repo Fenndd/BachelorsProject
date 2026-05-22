@@ -75,3 +75,19 @@ def test_parse_candidate_run_dir_from_generation_stdout(monkeypatch, tmp_path: P
         assert iteration_runner._parse_candidate_run_dir(stdout) == str(candidate_run)
     finally:
         monkeypatch.setattr(env, "REPO_ROOT", original_repo_root)
+
+
+def test_format_iteration_dir_1() -> None:
+    assert iteration_runner.format_iteration_dir(1) == "it_01"
+
+
+def test_format_iteration_dir_9() -> None:
+    assert iteration_runner.format_iteration_dir(9) == "it_09"
+
+
+def test_format_iteration_dir_10() -> None:
+    assert iteration_runner.format_iteration_dir(10) == "it_10"
+
+
+def test_format_iteration_dir_100() -> None:
+    assert iteration_runner.format_iteration_dir(100) == "it_100"

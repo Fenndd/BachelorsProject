@@ -346,7 +346,10 @@ def _item_for_path(path: Path, repo_root: Path | None = None) -> ResultItem | No
     try:
         resolved.relative_to(paths.result_runs.resolve())
         if resolved.is_dir():
-            return _read_run_item(resolved)
+            if _looks_like_experiment_group(resolved):
+                return None
+            if _looks_like_run_dir(resolved):
+                return _read_run_item(resolved)
     except ValueError:
         pass
     try:
