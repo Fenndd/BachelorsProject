@@ -33,11 +33,17 @@ from orchestrator.shared.process.step_runner import StepRunner, format_command
 _STEP_RUNNER = StepRunner()
 
 
+def format_iteration_dir(iteration: int) -> str:
+    """Return a short iteration directory name like 'it_01', 'it_99', 'it_100'."""
+    return f"it_{iteration:02d}"
+
+
 def _build_generation_command(
     config: ExperimentConfig,
     llm_config_path: str,
     context_text: str | None,
     source_root: str | None = None,
+    candidate_run_dir: str | None = None,
 ) -> list[str]:
     command = [
         sys.executable,
@@ -52,6 +58,8 @@ def _build_generation_command(
     ]
     if source_root is not None:
         command.extend(["--source-root", source_root])
+    if candidate_run_dir is not None:
+        command.extend(["--candidate-run-dir", candidate_run_dir])
     if context_text is not None:
         command.extend(["--context", context_text])
     for allowed_file in config.optimization_scope.allowed_files:
@@ -63,6 +71,7 @@ def _build_materialization_command(
     candidate_run_dir: str,
     config: ExperimentConfig,
     base_source_root: str | None = None,
+    candidate_workspace_dir: str | None = None,
 ) -> list[str]:
     command = [
         sys.executable,
@@ -74,6 +83,8 @@ def _build_materialization_command(
     ]
     if base_source_root is not None:
         command.extend(["--base-source-root", base_source_root])
+    if candidate_workspace_dir is not None:
+        command.extend(["--candidate-workspace-dir", candidate_workspace_dir])
     for allowed_file in config.optimization_scope.allowed_files:
         command.extend(["--allowed-file", allowed_file])
     return command
@@ -648,6 +659,10 @@ def run_closed_loop_iterations(
         candidate: dict[str, Any] | None = None
         candidate_run_dir: Path | None = None
 
+        iteration_dir_name = format_iteration_dir(iteration)
+        candidate_run_dir_path = env.RESULTS_ROOT / "runs" / experiment_id / iteration_dir_name
+        candidate_workspace_dir_path = env.WORKSPACE_ROOT / "candidates" / experiment_id / iteration_dir_name
+
         closed_loop_history_context = build_closed_loop_history_context(
             [to_plain_dict(record) for record in records]
         )
@@ -672,6 +687,7 @@ def run_closed_loop_iterations(
                 llm_metadata["resolved_config"],
                 generation_context,
                 source_root=str(closed_loop_paths.current_best_source_dir),
+                candidate_run_dir=str(candidate_run_dir_path),
             ),
         )
         generation_record, candidate_run_dir_text = _generation_stage_record(generation_result)
@@ -773,6 +789,7 @@ def run_closed_loop_iterations(
                 str(candidate_run_dir),
                 config,
                 base_source_root=str(closed_loop_paths.current_best_source_dir),
+                candidate_workspace_dir=str(candidate_workspace_dir_path),
             ),
         )
         materialization_record = _materialization_stage_record(materialization_result, str(candidate_run_dir))

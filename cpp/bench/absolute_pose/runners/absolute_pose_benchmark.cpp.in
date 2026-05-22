@@ -2,22 +2,22 @@
 #include <iostream>
 
 #include "absolute_pose_benchmark.hpp"
-#include "lambdatwist_p3p_adapter.hpp"
+#include "@ADAPTER_HEADER@"
 
 int main() {
     using benchmark::geometric_pose::absolute_pose::AbsolutePoseBenchmarkMetrics;
     using benchmark::geometric_pose::absolute_pose::BenchmarkOptions;
     using benchmark::geometric_pose::absolute_pose::run_absolute_pose_benchmark;
-    using benchmark::geometric_pose::absolute_pose::adapters::LambdaTwistP3PAdapter;
+    using @ADAPTER_NAMESPACE@::@ADAPTER_CLASS@;
 
-    const LambdaTwistP3PAdapter adapter;
+    const @ADAPTER_CLASS@ adapter;
     BenchmarkOptions options;
-    options.camera_fov = 75.0;
-    options.n_point_point = 3;
-    options.n_point_line = 0;
-    options.tolerance = 1e-6;
-    options.num_problems = 100000;
-    options.timed_iterations = 10;
+    options.camera_fov = @BENCHMARK_CAMERA_FOV@;
+    options.n_point_point = @BENCHMARK_N_POINT_POINT@;
+    options.n_point_line = @BENCHMARK_N_POINT_LINE@;
+    options.tolerance = @BENCHMARK_TOLERANCE@;
+    options.num_problems = @BENCHMARK_NUM_PROBLEMS@;
+    options.timed_iterations = @BENCHMARK_TIMED_ITERATIONS@;
 
     const AbsolutePoseBenchmarkMetrics metrics =
         run_absolute_pose_benchmark(adapter, options);

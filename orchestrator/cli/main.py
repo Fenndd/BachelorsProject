@@ -718,7 +718,7 @@ def main() -> int:
                 storage, run_dir, step_name, title, [str(executable)], paths.repo_root
             )
             step_statuses.append(step_status)
-            if step_name == "run_absolute_pose_lambdatwist_benchmark":
+            if step_name == f"run_{DESCRIPTOR.benchmark_target}":
                 benchmark_stdout = stdout
                 benchmark_parse_result = _empty_benchmark_parse_result(
                     True, ["family benchmark output was not parsed"]

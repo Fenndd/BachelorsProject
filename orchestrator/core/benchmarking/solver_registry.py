@@ -1,16 +1,24 @@
-"""Minimal solver descriptor registry for project-owned benchmark targets.
+"""Solver descriptor registry loaded from per-solver JSON manifests.
 
 Each solver family registers one descriptor that maps a human-readable solver
 identifier to the CMake target names, family label, runtime metadata, and
 stdout parser needed for benchmark verification and final-selection reporting.
+
+Manifests are discovered under ``cpp/bench/*/solvers/*.json`` relative to the
+repository root.
 """
 
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any, Callable
 
-from orchestrator.core.benchmarking.family_benchmark_parser import parse_absolute_pose_benchmark_output
+from orchestrator.core.benchmarking.family_benchmark_parser import (
+    parse_absolute_pose_benchmark_output,
+)
+from orchestrator.paths import get_project_paths
 
 
 @dataclass(frozen=True)
@@ -28,21 +36,69 @@ class SolverBenchmarkDescriptor:
     runtime_unit: str = "ns"
 
 
-_DESCRIPTORS: dict[str, SolverBenchmarkDescriptor] = {
-    "lambdatwist_p3p": SolverBenchmarkDescriptor(
-        solver_id="lambdatwist_p3p",
-        family="absolute_pose_solvers",
-        benchmark_target="absolute_pose_lambdatwist_benchmark",
-        adapter_validator_target="absolute_pose_lambdatwist_adapter_validator",
-        benchmark_step_name="absolute_pose_lambdatwist_benchmark",
-        adapter_validator_step_name="absolute_pose_lambdatwist_adapter_validator",
-        parser=parse_absolute_pose_benchmark_output,
-        runtime_metric_key="parsed_runtime_ns_per_problem_median",
-        runtime_unit="ns",
-    ),
-}
+# ---------------------------------------------------------------------------
+# Manifest loading
+# ---------------------------------------------------------------------------
 
 _DEFAULT_SOLVER_ID = "lambdatwist_p3p"
+
+_descriptors_cache: dict[str, SolverBenchmarkDescriptor] | None = None
+
+
+def _family_parser(family: str) -> Callable[[str], dict[str, Any]]:
+    """Return the stdout parser for a solver family."""
+    if family == "absolute_pose":
+        return parse_absolute_pose_benchmark_output
+    raise ValueError(f"Unsupported solver family: {family!r}")
+
+
+def _family_descriptor_label(family: str) -> str:
+    """Map manifest family to descriptor family label."""
+    if family == "absolute_pose":
+        return "absolute_pose_solvers"
+    raise ValueError(f"Unsupported solver family: {family!r}")
+
+
+def _load_manifests() -> dict[str, SolverBenchmarkDescriptor]:
+    """Discover and parse solver manifest files."""
+    paths = get_project_paths()
+    pattern = "*/solvers/*.json"
+    manifest_dir = paths.cpp / "bench"
+    descriptors: dict[str, SolverBenchmarkDescriptor] = {}
+
+    for manifest_path in manifest_dir.glob(pattern):
+        data = json.loads(manifest_path.read_text(encoding="utf-8"))
+
+        solver_id: str = data["solver_id"]
+        family: str = data["family"]
+        targets: dict[str, str] = data["targets"]
+
+        descriptors[solver_id] = SolverBenchmarkDescriptor(
+            solver_id=solver_id,
+            family=_family_descriptor_label(family),
+            benchmark_target=targets["benchmark"],
+            adapter_validator_target=targets.get("adapter_validator"),
+            benchmark_step_name=targets["benchmark"],
+            adapter_validator_step_name=targets.get("adapter_validator"),
+            parser=_family_parser(family),
+            runtime_metric_key="parsed_runtime_ns_per_problem_median",
+            runtime_unit="ns",
+        )
+
+    return descriptors
+
+
+def _descriptors() -> dict[str, SolverBenchmarkDescriptor]:
+    """Lazy-initialized cache of solver descriptors."""
+    global _descriptors_cache
+    if _descriptors_cache is None:
+        _descriptors_cache = _load_manifests()
+    return _descriptors_cache
+
+
+# ---------------------------------------------------------------------------
+# Public API
+# ---------------------------------------------------------------------------
 
 
 def get_solver_descriptor(solver_id: str) -> SolverBenchmarkDescriptor:
@@ -50,19 +106,26 @@ def get_solver_descriptor(solver_id: str) -> SolverBenchmarkDescriptor:
 
     Raises :class:`KeyError` when the solver is not registered.
     """
-    if solver_id not in _DESCRIPTORS:
+    descriptors = _descriptors()
+    if solver_id not in descriptors:
         raise KeyError(
             f"Unknown solver id {solver_id!r}. Registered solvers: "
-            f"{sorted(_DESCRIPTORS.keys())}"
+            f"{sorted(descriptors.keys())}"
         )
-    return _DESCRIPTORS[solver_id]
+    return descriptors[solver_id]
 
 
 def default_solver_descriptor() -> SolverBenchmarkDescriptor:
     """Return the default solver descriptor used by the current pipeline."""
-    return _DESCRIPTORS[_DEFAULT_SOLVER_ID]
+    descriptors = _descriptors()
+    if _DEFAULT_SOLVER_ID in descriptors:
+        return descriptors[_DEFAULT_SOLVER_ID]
+    # Fallback: return the first registered solver
+    if descriptors:
+        return next(iter(descriptors.values()))
+    raise RuntimeError("No solver manifests found")
 
 
 def list_solver_descriptors() -> list[SolverBenchmarkDescriptor]:
     """Return every registered solver descriptor."""
-    return list(_DESCRIPTORS.values())
+    return list(_descriptors().values())

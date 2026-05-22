@@ -89,6 +89,15 @@ def _parse_args(argv: list[str]) -> argparse.Namespace:
             "must be a subset of these allowed files."
         ),
     )
+    parser.add_argument(
+        "--candidate-workspace-dir",
+        default=None,
+        help=(
+            "Explicit workspace directory for closed-loop experiment candidates. "
+            "When provided, this exact path is used instead of deriving the "
+            "workspace path from the candidate run directory name."
+        ),
+    )
     return parser.parse_args(argv)
 
 
@@ -1104,7 +1113,10 @@ def main(argv: list[str] | None = None) -> int:
     candidate_run_dir = _resolve_path(args.candidate_run)
     candidate_run_id = candidate_run_dir.name
     workspace_root = _resolve_path(args.workspace_root)
-    workspace_path = workspace_root / candidate_run_id
+    if args.candidate_workspace_dir is not None:
+        workspace_path = _resolve_path(args.candidate_workspace_dir)
+    else:
+        workspace_path = workspace_root / candidate_run_id
     try:
         base_source_root_path, base_source_root_display = (
             _resolve_base_source_root(args)

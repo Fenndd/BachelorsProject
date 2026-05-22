@@ -96,6 +96,15 @@ def _parse_args(argv: list[str]) -> argparse.Namespace:
             "Defaults to the --source path if not provided."
         ),
     )
+    parser.add_argument(
+        "--candidate-run-dir",
+        default=None,
+        help=(
+            "Explicit run directory for closed-loop experiment candidates. "
+            "When provided, the directory is created at this exact path "
+            "(no timestamp-based run id) and results/index.jsonl is NOT appended."
+        ),
+    )
     return parser.parse_args(argv)
 
 
@@ -327,14 +336,17 @@ def _save_final_artifacts(
     metadata: dict[str, Any],
     status: dict[str, Any],
     candidate: OptimizationCandidate | None,
-) -> Path:
+    append_index: bool = True,
+) -> Path | None:
     metadata["finished_at"] = datetime.now().astimezone().isoformat(timespec="seconds")
     storage.save_metadata(run_dir, metadata)
     storage.save_status(run_dir, status)
     storage.save_summary(run_dir, _build_summary(run_dir, metadata, status, candidate))
-    return storage.append_index_record(
-        _build_index_record(metadata, status, candidate, run_dir)
-    )
+    if append_index:
+        return storage.append_index_record(
+            _build_index_record(metadata, status, candidate, run_dir)
+        )
+    return None
 
 
 def _save_candidate_artifacts(run_dir: Path, candidate: OptimizationCandidate) -> None:
@@ -522,8 +534,14 @@ def main(argv: list[str] | None = None) -> int:
 
     storage = RunStorage(paths.repo_root / "results")
     started_at = datetime.now().astimezone()
-    run_id = storage.build_run_id("llm_candidate", started_at)
-    run_dir = _create_run_directory(storage, run_id)
+
+    if args.candidate_run_dir is not None:
+        run_dir = _resolve_path(args.candidate_run_dir)
+        run_dir = storage.create_explicit_run_directory(run_dir)
+        run_id = _display_path(run_dir)
+    else:
+        run_id = storage.build_run_id("llm_candidate", started_at)
+        run_dir = _create_run_directory(storage, run_id)
     if run_dir is None:
         return 1
 
@@ -627,13 +645,17 @@ def main(argv: list[str] | None = None) -> int:
         status = _build_status("failed", exc.failed_step, exc.error_message)
 
     try:
-        index_path = _save_final_artifacts(storage, run_dir, metadata, status, candidate)
+        index_path = _save_final_artifacts(
+            storage, run_dir, metadata, status, candidate,
+            append_index=(args.candidate_run_dir is None),
+        )
     except OSError as exc:
         status = _build_status("failed", "save_artifacts", str(exc))
         _print_final_summary(status, run_dir, candidate)
         return 1
 
-    LOGGER.info("[Index] Appended run record to %s", _display_path(index_path))
+    if index_path is not None:
+        LOGGER.info("[Index] Appended run record to %s", _display_path(index_path))
     _print_final_summary(status, run_dir, candidate)
     return 0 if status["overall_status"] == "success" else 1
 

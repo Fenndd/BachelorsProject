@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Literal
@@ -11,6 +12,8 @@ from .project_paths import get_project_paths, resolve_project_path
 
 
 ResultKind = Literal["run", "experiment"]
+
+_ITERATION_DIR_RE = re.compile(r"^it_\d+$")
 
 
 @dataclass(frozen=True)
@@ -251,15 +254,66 @@ def _read_experiment_item(path: Path) -> ResultItem:
     )
 
 
+def _looks_like_run_dir(path: Path) -> bool:
+    return (path / "status.json").exists() or (path / "candidate.json").exists()
+
+
+def _looks_like_experiment_group(path: Path) -> bool:
+    if not path.is_dir():
+        return False
+    if _looks_like_run_dir(path):
+        return False
+    for child in path.iterdir():
+        if child.is_dir() and _ITERATION_DIR_RE.match(child.name):
+            return True
+    return False
+
+
+def _read_nested_run_item(raw: ResultItem, group_name: str) -> ResultItem:
+    return ResultItem(
+        kind=raw.kind,
+        name=f"{group_name}/{raw.name}",
+        path=raw.path,
+        modified_time=raw.modified_time,
+        status=raw.status,
+        started_at=raw.started_at,
+        finished_at=raw.finished_at,
+        summary_text=raw.summary_text,
+        final_speedup_vs_baseline=raw.final_speedup_vs_baseline,
+        final_runtime_reduction_percent=raw.final_runtime_reduction_percent,
+        final_best_iteration=raw.final_best_iteration,
+        accepted_improvements=raw.accepted_improvements,
+        artifacts=raw.artifacts,
+        read_errors=raw.read_errors,
+    )
+
+
 def list_run_items(repo_root: Path | None = None) -> list[ResultItem]:
     paths = get_project_paths(repo_root)
     if not paths.result_runs.is_dir():
         return []
-    return sorted(
-        [_read_run_item(path) for path in paths.result_runs.iterdir() if path.is_dir()],
-        key=lambda item: item.modified_time,
-        reverse=True,
-    )
+    items: list[ResultItem] = []
+    for entry in sorted(paths.result_runs.iterdir()):
+        if not entry.is_dir():
+            continue
+        if _looks_like_experiment_group(entry):
+            group_name = entry.name
+            for subentry in sorted(entry.iterdir()):
+                if not subentry.is_dir() or not _looks_like_run_dir(subentry):
+                    continue
+                try:
+                    raw = _read_run_item(subentry)
+                except (OSError, json.JSONDecodeError):
+                    continue
+                items.append(_read_nested_run_item(raw, group_name))
+            continue
+        if not _looks_like_run_dir(entry):
+            continue
+        try:
+            items.append(_read_run_item(entry))
+        except (OSError, json.JSONDecodeError):
+            continue
+    return sorted(items, key=lambda item: item.modified_time, reverse=True)
 
 
 def list_experiment_items(repo_root: Path | None = None) -> list[ResultItem]:
