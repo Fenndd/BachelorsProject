@@ -82,9 +82,11 @@ foreach(_MANIFEST_PATH ${_SOLVER_MANIFESTS})
     string(JSON _meta_def_pts  GET "${_M}" "metadata" "default_case_points")
     string(JSON _meta_ret_ms   GET "${_M}" "metadata" "returns_multiple_solutions")
 
-    # Normalize to valid C++ boolean literal (true / false)
+    # Normalize to valid C++ boolean literal (true / false).
+    # CMake's string(JSON GET) for booleans may return true/false/ON/OFF/1/0
+    # depending on CMake version; accept all truthy forms, reject everything else.
     string(TOLOWER "${_meta_ret_ms}" _meta_ret_ms)
-    if(_meta_ret_ms STREQUAL "true")
+    if(_meta_ret_ms MATCHES "^(true|on|1|yes)$")
         set(_meta_ret_ms "true")
     else()
         set(_meta_ret_ms "false")
