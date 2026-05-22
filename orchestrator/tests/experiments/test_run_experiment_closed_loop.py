@@ -13,6 +13,10 @@ from pathlib import Path
 from typing import Any
 
 from orchestrator.experiments import run_experiment as runner
+from orchestrator.experiments import experiment_environment as env
+from orchestrator.experiments import experiment_artifacts as artifacts
+from orchestrator.experiments import experiment_planner as planner
+from orchestrator.experiments import iteration_runner
 from orchestrator.experiments.closed_loop_state import (
     ClosedLoopIterationRecord,
     ClosedLoopPaths,
@@ -205,31 +209,31 @@ class RunExperimentClosedLoopTests(unittest.TestCase):
         config = load_experiment_config(config_path)
         harness = _ClosedLoopHarness(self, root, statuses)
 
-        original_repo_root = runner.REPO_ROOT
-        original_results_root = runner.RESULTS_ROOT
-        original_experiments_root = runner.EXPERIMENTS_ROOT
-        original_workspace_root = runner.WORKSPACE_ROOT
-        original_run_stage = runner._run_stage
-        original_decision = runner.evaluate_candidate_against_reference
-        original_resolve_variant_llm_config = runner._resolve_variant_llm_config
-        original_run_final_selection_report = runner.run_final_selection_report
-        self.addCleanup(setattr, runner, "REPO_ROOT", original_repo_root)
-        self.addCleanup(setattr, runner, "RESULTS_ROOT", original_results_root)
-        self.addCleanup(setattr, runner, "EXPERIMENTS_ROOT", original_experiments_root)
-        self.addCleanup(setattr, runner, "WORKSPACE_ROOT", original_workspace_root)
-        self.addCleanup(setattr, runner, "_run_stage", original_run_stage)
-        self.addCleanup(setattr, runner, "evaluate_candidate_against_reference", original_decision)
-        self.addCleanup(setattr, runner, "_resolve_variant_llm_config", original_resolve_variant_llm_config)
-        self.addCleanup(setattr, runner, "run_final_selection_report", original_run_final_selection_report)
+        original_repo_root = env.REPO_ROOT
+        original_results_root = env.RESULTS_ROOT
+        original_experiments_root = env.EXPERIMENTS_ROOT
+        original_workspace_root = env.WORKSPACE_ROOT
+        original_run_stage = iteration_runner._run_stage
+        original_decision = iteration_runner.evaluate_candidate_against_reference
+        original_resolve_variant_llm_config = planner._resolve_variant_llm_config
+        original_run_final_selection_report = artifacts.run_final_selection_report
+        self.addCleanup(setattr, env, "REPO_ROOT", original_repo_root)
+        self.addCleanup(setattr, env, "RESULTS_ROOT", original_results_root)
+        self.addCleanup(setattr, env, "EXPERIMENTS_ROOT", original_experiments_root)
+        self.addCleanup(setattr, env, "WORKSPACE_ROOT", original_workspace_root)
+        self.addCleanup(setattr, iteration_runner, "_run_stage", original_run_stage)
+        self.addCleanup(setattr, iteration_runner, "evaluate_candidate_against_reference", original_decision)
+        self.addCleanup(setattr, planner, "_resolve_variant_llm_config", original_resolve_variant_llm_config)
+        self.addCleanup(setattr, artifacts, "run_final_selection_report", original_run_final_selection_report)
 
-        runner.REPO_ROOT = root
-        runner.RESULTS_ROOT = root / "results"
-        runner.EXPERIMENTS_ROOT = root / "results" / "experiments"
-        runner.WORKSPACE_ROOT = root / "workspace"
-        runner._run_stage = harness.fake_run_stage  # type: ignore[method-assign]
-        runner.evaluate_candidate_against_reference = harness.fake_decision  # type: ignore[assignment]
-        runner._resolve_variant_llm_config = lambda variant: {"provider": "mock", "model": "mock"}  # type: ignore[assignment]
-        runner.run_final_selection_report = _fake_final_selection_report  # type: ignore[assignment]
+        env.REPO_ROOT = root
+        env.RESULTS_ROOT = root / "results"
+        env.EXPERIMENTS_ROOT = root / "results" / "experiments"
+        env.WORKSPACE_ROOT = root / "workspace"
+        iteration_runner._run_stage = harness.fake_run_stage  # type: ignore[method-assign]
+        iteration_runner.evaluate_candidate_against_reference = harness.fake_decision  # type: ignore[assignment]
+        planner._resolve_variant_llm_config = lambda variant: {"provider": "mock", "model": "mock"}  # type: ignore[assignment]
+        artifacts.run_final_selection_report = _fake_final_selection_report  # type: ignore[assignment]
 
         exit_code = runner._run_experiment(config, _config_payload(root, iterations=len(statuses)))
         self.assertEqual(exit_code, 0)
@@ -339,7 +343,7 @@ class RunExperimentClosedLoopTests(unittest.TestCase):
         config_path = _write_config(root)
         config = load_experiment_config(config_path)
 
-        command = runner._build_materialization_command(
+        command = iteration_runner._build_materialization_command(
             "results/runs/candidate_1",
             config,
             base_source_root="workspace/experiments/exp/current_best_source",
@@ -354,15 +358,15 @@ class RunExperimentClosedLoopTests(unittest.TestCase):
         self.addCleanup(temp.cleanup)
         root = Path(temp.name)
         _create_repo_layout(root)
-        original_repo_root = runner.REPO_ROOT
-        original_results_root = runner.RESULTS_ROOT
-        original_workspace_root = runner.WORKSPACE_ROOT
-        self.addCleanup(setattr, runner, "REPO_ROOT", original_repo_root)
-        self.addCleanup(setattr, runner, "RESULTS_ROOT", original_results_root)
-        self.addCleanup(setattr, runner, "WORKSPACE_ROOT", original_workspace_root)
-        runner.REPO_ROOT = root
-        runner.RESULTS_ROOT = root / "results"
-        runner.WORKSPACE_ROOT = root / "workspace"
+        original_repo_root = env.REPO_ROOT
+        original_results_root = env.RESULTS_ROOT
+        original_workspace_root = env.WORKSPACE_ROOT
+        self.addCleanup(setattr, env, "REPO_ROOT", original_repo_root)
+        self.addCleanup(setattr, env, "RESULTS_ROOT", original_results_root)
+        self.addCleanup(setattr, env, "WORKSPACE_ROOT", original_workspace_root)
+        env.REPO_ROOT = root
+        env.RESULTS_ROOT = root / "results"
+        env.WORKSPACE_ROOT = root / "workspace"
         paths = ClosedLoopPaths.from_roots(root / "workspace", root / "results", "exp_001")
         baseline_run_dir = root / "results" / "runs" / "baseline"
         candidate_run_dir = root / "results" / "runs" / "candidate_1"
@@ -396,7 +400,7 @@ class RunExperimentClosedLoopTests(unittest.TestCase):
             current_best_iteration_after=0,
         )
 
-        runner._append_closed_loop_record_and_state(paths, state, record)
+        iteration_runner._append_closed_loop_record_and_state(paths, state, record)
 
         text = paths.closed_loop_iterations_path.read_text(encoding="utf-8")
         payload = json.loads(text)
@@ -413,9 +417,9 @@ class RunExperimentClosedLoopTests(unittest.TestCase):
         temp = tempfile.TemporaryDirectory()
         self.addCleanup(temp.cleanup)
         root = Path(temp.name)
-        original_repo_root = runner.REPO_ROOT
-        self.addCleanup(setattr, runner, "REPO_ROOT", original_repo_root)
-        runner.REPO_ROOT = root
+        original_repo_root = env.REPO_ROOT
+        self.addCleanup(setattr, env, "REPO_ROOT", original_repo_root)
+        env.REPO_ROOT = root
         fallback_run = root / "results" / "runs" / "candidate_2"
         fallback_run.mkdir(parents=True)
         write_json(fallback_run / "candidate.json", _candidate_payload())
@@ -433,22 +437,22 @@ class RunExperimentClosedLoopTests(unittest.TestCase):
         write_json(wrong_status / "status.json", {"scenario": "baseline"})
 
         self.assertEqual(
-            runner._parse_candidate_run_dir("CANDIDATE_RUN_DIR=results/runs/candidate_1\n"),
+            iteration_runner._parse_candidate_run_dir("CANDIDATE_RUN_DIR=results/runs/candidate_1\n"),
             "results/runs/candidate_1",
         )
         self.assertEqual(
-            runner._parse_candidate_run_dir("Final status: success\nRun directory: results/runs/candidate_2\n"),
+            iteration_runner._parse_candidate_run_dir("Final status: success\nRun directory: results/runs/candidate_2\n"),
             "results/runs/candidate_2",
         )
         self.assertEqual(
-            runner._parse_candidate_run_dir("Artifacts saved to: results/runs/candidate_3\n"),
+            iteration_runner._parse_candidate_run_dir("Artifacts saved to: results/runs/candidate_3\n"),
             "results/runs/candidate_3",
         )
-        self.assertIsNone(runner._parse_candidate_run_dir("Run directory: results/runs/missing\n"))
-        self.assertIsNone(runner._parse_candidate_run_dir("Run directory: results/runs/empty\n"))
-        self.assertIsNone(runner._parse_candidate_run_dir("Run directory: results/runs/baseline\n"))
-        self.assertIsNone(runner._parse_candidate_run_dir("Run directory: results/runs/wrong_status\n"))
-        self.assertIsNone(runner._parse_candidate_run_dir("Run directory: workspace/not_a_candidate\n"))
+        self.assertIsNone(iteration_runner._parse_candidate_run_dir("Run directory: results/runs/missing\n"))
+        self.assertIsNone(iteration_runner._parse_candidate_run_dir("Run directory: results/runs/empty\n"))
+        self.assertIsNone(iteration_runner._parse_candidate_run_dir("Run directory: results/runs/baseline\n"))
+        self.assertIsNone(iteration_runner._parse_candidate_run_dir("Run directory: results/runs/wrong_status\n"))
+        self.assertIsNone(iteration_runner._parse_candidate_run_dir("Run directory: workspace/not_a_candidate\n"))
 
     def test_initialization_creates_current_best_source_and_state(self) -> None:
         root, _harness = self._run_with_statuses(["no_op"])
@@ -576,25 +580,30 @@ class RunExperimentClosedLoopTests(unittest.TestCase):
             }
 
         originals = {
-            "REPO_ROOT": runner.REPO_ROOT,
-            "RESULTS_ROOT": runner.RESULTS_ROOT,
-            "EXPERIMENTS_ROOT": runner.EXPERIMENTS_ROOT,
-            "WORKSPACE_ROOT": runner.WORKSPACE_ROOT,
-            "_run_stage": runner._run_stage,
-            "evaluate_candidate_against_reference": runner.evaluate_candidate_against_reference,
-            "_resolve_variant_llm_config": runner._resolve_variant_llm_config,
-            "run_final_selection_report": runner.run_final_selection_report,
+            "REPO_ROOT": env.REPO_ROOT,
+            "RESULTS_ROOT": env.RESULTS_ROOT,
+            "EXPERIMENTS_ROOT": env.EXPERIMENTS_ROOT,
+            "WORKSPACE_ROOT": env.WORKSPACE_ROOT,
+            "_run_stage": iteration_runner._run_stage,
+            "evaluate_candidate_against_reference": iteration_runner.evaluate_candidate_against_reference,
+            "_resolve_variant_llm_config": planner._resolve_variant_llm_config,
+            "run_final_selection_report": artifacts.run_final_selection_report,
         }
         for name, value in originals.items():
-            self.addCleanup(setattr, runner, name, value)
-        runner.REPO_ROOT = root
-        runner.RESULTS_ROOT = root / "results"
-        runner.EXPERIMENTS_ROOT = root / "results" / "experiments"
-        runner.WORKSPACE_ROOT = root / "workspace"
-        runner._run_stage = fake_run_stage  # type: ignore[assignment]
-        runner.evaluate_candidate_against_reference = fake_decision  # type: ignore[assignment]
-        runner._resolve_variant_llm_config = lambda variant: {"provider": "mock", "model": "mock"}  # type: ignore[assignment]
-        runner.run_final_selection_report = _fake_final_selection_report  # type: ignore[assignment]
+            target_mod = env if name in ("REPO_ROOT", "RESULTS_ROOT", "EXPERIMENTS_ROOT", "WORKSPACE_ROOT") else (
+                iteration_runner if name in ("_run_stage", "evaluate_candidate_against_reference") else (
+                    planner if name == "_resolve_variant_llm_config" else artifacts
+                )
+            )
+            self.addCleanup(setattr, target_mod, name, value)
+        env.REPO_ROOT = root
+        env.RESULTS_ROOT = root / "results"
+        env.EXPERIMENTS_ROOT = root / "results" / "experiments"
+        env.WORKSPACE_ROOT = root / "workspace"
+        iteration_runner._run_stage = fake_run_stage  # type: ignore[assignment]
+        iteration_runner.evaluate_candidate_against_reference = fake_decision  # type: ignore[assignment]
+        planner._resolve_variant_llm_config = lambda variant: {"provider": "mock", "model": "mock"}  # type: ignore[assignment]
+        artifacts.run_final_selection_report = _fake_final_selection_report  # type: ignore[assignment]
 
         exit_code = runner._run_experiment(config, _config_payload(root, iterations=3))
 

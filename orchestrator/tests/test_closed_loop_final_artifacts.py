@@ -1,4 +1,4 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 import pytest
 
@@ -8,6 +8,9 @@ import json
 from datetime import datetime
 from pathlib import Path
 
+from orchestrator.experiments import experiment_artifacts as artifacts
+from orchestrator.experiments import experiment_environment as env
+from orchestrator.experiments import experiment_planner as planner
 from orchestrator.experiments.closed_loop_state import (
     ClosedLoopIterationRecord,
     ClosedLoopPaths,
@@ -22,9 +25,6 @@ from orchestrator.experiments.experiment_config import (
     ExperimentVariantConfig,
     OptimizationScopeConfig,
 )
-from orchestrator.experiments import run_experiment
-
-
 from orchestrator.tests.conftest import TARGET_FILE
 
 
@@ -169,9 +169,9 @@ def _record(iteration: int, status: IterationStatus) -> ClosedLoopIterationRecor
 
 
 def _patch_roots(monkeypatch, repo_root: Path, workspace_root: Path) -> None:
-    monkeypatch.setattr(run_experiment, "REPO_ROOT", repo_root)
-    monkeypatch.setattr(run_experiment, "WORKSPACE_ROOT", workspace_root)
-    monkeypatch.setattr(run_experiment, "RESULTS_ROOT", repo_root / "results")
+    monkeypatch.setattr(env, "REPO_ROOT", repo_root)
+    monkeypatch.setattr(env, "WORKSPACE_ROOT", workspace_root)
+    monkeypatch.setattr(env, "RESULTS_ROOT", repo_root / "results")
 
 
 def test_final_source_copy_diff_summary_and_state_for_baseline_only(
@@ -189,7 +189,7 @@ def test_final_source_copy_diff_summary_and_state_for_baseline_only(
     state = _state(root=repo_root, paths=paths)
     write_current_best_state(paths.current_best_state_path, state)
 
-    summary, results_state_path = run_experiment.finalize_closed_loop_artifacts(
+    summary, results_state_path = artifacts.finalize_closed_loop_artifacts(
         paths=paths,
         experiment_id="exp_001",
         config=_config(iterations=2),
@@ -274,7 +274,7 @@ def test_final_diff_and_summary_use_accepted_candidate_decision(
     )
     write_current_best_state(paths.current_best_state_path, state)
 
-    summary, results_state_path = run_experiment.finalize_closed_loop_artifacts(
+    summary, results_state_path = artifacts.finalize_closed_loop_artifacts(
         paths=paths,
         experiment_id="exp_001",
         config=_config(iterations=3),
@@ -315,7 +315,7 @@ def test_final_diff_and_summary_use_accepted_candidate_decision(
         "lines_removed": 1,
         "changed_blocks": 1,
     }
-    status_block = run_experiment._closed_loop_status_block(
+    status_block = artifacts._closed_loop_status_block(
         paths,
         summary,
         results_state_path,
@@ -330,7 +330,7 @@ def test_final_diff_and_summary_use_accepted_candidate_decision(
     assert "final_speedup_vs_original_baseline" not in status_block
     assert "final_runtime_reduction_percent" not in status_block
 
-    text = run_experiment._build_closed_loop_summary_text(
+    text = artifacts._build_closed_loop_summary_text(
         experiment_id="exp_001",
         config=_config(iterations=3),
         summary=summary,
@@ -359,7 +359,7 @@ def test_current_best_initialization_promotion_and_final_copy_ignore_build_artif
     repo_target = _write_source(repo_root, "int repo = 1;\n")
     _write_build_artifacts(repo_root)
 
-    run_experiment.initialize_current_best_source(paths, config)
+    env.initialize_current_best_source(paths, config)
 
     assert (paths.current_best_source_dir / TARGET_FILE).exists()
     _assert_build_artifacts_excluded(paths.current_best_source_dir)
@@ -369,12 +369,12 @@ def test_current_best_initialization_promotion_and_final_copy_ignore_build_artif
     candidate_workspace = tmp_path / "candidate_workspace"
     _write_source(candidate_workspace, "int candidate = 2;\n")
     _write_build_artifacts(candidate_workspace)
-    run_experiment.update_current_best_source_from_workspace(paths, candidate_workspace, config)
+    env.update_current_best_source_from_workspace(paths, candidate_workspace, config)
 
     assert (paths.current_best_source_dir / TARGET_FILE).read_text(encoding="utf-8") == "int candidate = 2;\n"
     _assert_build_artifacts_excluded(paths.current_best_source_dir)
 
-    run_experiment.copy_final_optimized_source(paths, config)
+    artifacts.copy_final_optimized_source(paths, config)
     assert (paths.final_optimized_source_dir / TARGET_FILE).read_text(encoding="utf-8") == "int candidate = 2;\n"
     _assert_build_artifacts_excluded(paths.final_optimized_source_dir)
     assert repo_target.read_text(encoding="utf-8") == "int repo = 1;\n"
@@ -430,7 +430,7 @@ def test_closed_loop_selection_report_is_reporting_only(
         finished_at="2026-05-10T05:10:00+02:00",
     )
 
-    report_path = run_experiment.write_closed_loop_selection_report(
+    report_path = artifacts.write_closed_loop_selection_report(
         repo_root / "results" / "experiments" / "exp_001",
         state,
         summary,
@@ -539,7 +539,7 @@ def test_selection_report_best_verified_match_false_and_none(tmp_path: Path, mon
     }
     better_non_final.speedup_vs_current_best = None
     better_non_final.speedup_vs_original_baseline = None
-    report_path = run_experiment.write_closed_loop_selection_report(
+    report_path = artifacts.write_closed_loop_selection_report(
         repo_root / "results" / "experiments" / "exp_001",
         state,
         summary,
@@ -561,7 +561,7 @@ def test_selection_report_best_verified_match_false_and_none(tmp_path: Path, mon
         "non_acceptance_reasons": ["runtime_improvement_below_minimum_threshold"],
     }
     below_threshold.speedup_vs_original_baseline = 1.001
-    below_path = run_experiment.write_closed_loop_selection_report(
+    below_path = artifacts.write_closed_loop_selection_report(
         repo_root / "results" / "experiments" / "exp_003",
         state,
         summary,
@@ -578,7 +578,7 @@ def test_selection_report_best_verified_match_false_and_none(tmp_path: Path, mon
         "runtime_reduction_percent": 28.6,
     }
     legacy.speedup_vs_original_baseline = None
-    legacy_path = run_experiment.write_closed_loop_selection_report(
+    legacy_path = artifacts.write_closed_loop_selection_report(
         repo_root / "results" / "experiments" / "exp_004",
         state,
         summary,
@@ -588,7 +588,7 @@ def test_selection_report_best_verified_match_false_and_none(tmp_path: Path, mon
     assert legacy_report["best_verified_candidate_vs_original_baseline"]["speedup"] == 1.4
     assert legacy_report["best_verified_candidate_vs_original_baseline"]["runtime_reduction_percent"] == 28.6
 
-    no_best_path = run_experiment.write_closed_loop_selection_report(
+    no_best_path = artifacts.write_closed_loop_selection_report(
         repo_root / "results" / "experiments" / "exp_002",
         state,
         summary,
@@ -607,7 +607,7 @@ def test_result_side_closed_loop_json_paths_are_portable(tmp_path: Path, monkeyp
     _write_source(paths.current_best_source_dir, "int value = 1;\n")
     state = _state(root=repo_root, paths=paths)
     write_current_best_state(paths.current_best_state_path, state)
-    summary, results_state_path = run_experiment.finalize_closed_loop_artifacts(
+    summary, results_state_path = artifacts.finalize_closed_loop_artifacts(
         paths=paths,
         experiment_id="exp_001",
         config=_config(iterations=1),
@@ -616,15 +616,15 @@ def test_result_side_closed_loop_json_paths_are_portable(tmp_path: Path, monkeyp
         started_at=datetime.fromisoformat("2026-05-10T05:00:00+02:00"),
         finished_at="2026-05-10T05:10:00+02:00",
     )
-    report_path = run_experiment.write_closed_loop_selection_report(
+    report_path = artifacts.write_closed_loop_selection_report(
         repo_root / "results" / "experiments" / "exp_001",
         state,
         summary,
         [_record(1, IterationStatus.NO_OP)],
     )
     status = {
-        "closed_loop": run_experiment._closed_loop_status_block(paths, summary, results_state_path, 0),
-        "closed_loop_selection_report_path": run_experiment._display_path(report_path),
+        "closed_loop": artifacts._closed_loop_status_block(paths, summary, results_state_path, 0),
+        "closed_loop_selection_report_path": env._display_path(report_path),
     }
     status_path = repo_root / "results" / "experiments" / "exp_001" / "experiment_status.json"
     status_path.write_text(json.dumps(status), encoding="utf-8")

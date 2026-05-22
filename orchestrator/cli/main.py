@@ -132,6 +132,7 @@ def _run_step(
         cwd=cwd,
         title=title,
         log_path=None,
+        echo=True,
     )
 
     storage.save_log(

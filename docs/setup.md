@@ -45,7 +45,6 @@ Use `python orchestrator/cli/main.py` instead if `python` is the available launc
 ## LLM Experiment Environment
 
 - `DEEPSEEK_API_KEY` is required for real DeepSeek runs.
-- Mock configs do not require an API key.
 - `EIGEN3_INCLUDE_DIR` is required for baseline and candidate verification.
 - `CMAKE_BUILD_TYPE` defaults to `Release` and should remain `Release` for performance comparison.
 
@@ -60,3 +59,29 @@ $env:CMAKE_MAKE_PROGRAM = "C:\Users\<user>\AppData\Local\Programs\CLion\bin\ninj
 $env:CMAKE_BUILD_TYPE = "Release"
 $env:DEEPSEEK_API_KEY = "..."
 ```
+
+## Build Type Override
+
+Baseline and candidate benchmarks default to `Release` builds for accurate
+runtime metrics. Debug builds are not suitable for performance comparisons.
+
+Override `CMAKE_BUILD_TYPE` to `Debug` for debugging only:
+
+```powershell
+$env:CMAKE_BUILD_TYPE = "Debug"
+py orchestrator/cli/main.py
+```
+
+```bash
+export CMAKE_BUILD_TYPE=Debug
+python orchestrator/cli/main.py
+```
+
+The resolved build type is:
+
+- passed to CMake configure as `-DCMAKE_BUILD_TYPE=<value>`
+- passed to `cmake --build` as `--config <value>`
+- recorded in `metadata.json` and `metrics.json` for reproducibility
+
+Baseline and candidate benchmarks must use the same build type for valid
+comparison. The benchmark artifact audit enforces this check.

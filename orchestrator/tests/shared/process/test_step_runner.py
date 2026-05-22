@@ -118,6 +118,7 @@ class TestStepRunner:
             cmd=[sys.executable, "-c", "print('ok')"],
             cwd=tmp_path,
             title="Display Title",
+            echo=True,
         )
 
         captured = capsys.readouterr()
@@ -191,6 +192,36 @@ class TestStepRunner:
         assert "Could not start command" in result.stderr
         assert result.error_message is not None
         assert "Could not start command" in result.error_message
+
+    def test_default_echo_false_produces_no_console_output(self, tmp_path: Path, capsys) -> None:
+        runner = StepRunner()
+        result = runner.run_step(
+            label="silent_step",
+            cmd=[sys.executable, "-c", "print('output'); import sys; print('errors', file=sys.stderr)"],
+            cwd=tmp_path,
+        )
+
+        captured = capsys.readouterr()
+        assert "[STEP]" not in captured.out
+        assert "[CMD ]" not in captured.out
+        assert "[CWD ]" not in captured.out
+        assert "output" in result.stdout
+        assert "errors" in result.stderr
+
+    def test_echo_true_prints_step_headers_and_output(self, tmp_path: Path, capsys) -> None:
+        runner = StepRunner()
+        runner.run_step(
+            label="loud_step",
+            cmd=[sys.executable, "-c", "print('hello_world')"],
+            cwd=tmp_path,
+            echo=True,
+        )
+
+        captured = capsys.readouterr()
+        assert "[STEP] loud_step" in captured.out
+        assert "[CMD ]" in captured.out
+        assert "[CWD ]" in captured.out
+        assert "hello_world" in captured.out
 
 
 

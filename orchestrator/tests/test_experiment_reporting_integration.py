@@ -1,4 +1,4 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 import pytest
 
@@ -11,6 +11,10 @@ from typing import Any
 import pytest
 
 from orchestrator.experiments import run_experiment
+from orchestrator.experiments import experiment_environment as env
+from orchestrator.experiments import experiment_artifacts as artifacts
+from orchestrator.experiments import experiment_planner as planner
+from orchestrator.experiments import iteration_runner
 from orchestrator.experiments.experiment_config import (
     ExperimentConfigError,
     load_experiment_config,
@@ -61,20 +65,16 @@ def _create_repo_layout(root: Path) -> None:
 
 
 def _patch_runner_roots(monkeypatch: pytest.MonkeyPatch, root: Path) -> None:
-    monkeypatch.setattr(run_experiment, "REPO_ROOT", root)
-    monkeypatch.setattr(run_experiment, "RESULTS_ROOT", root / "results")
+    monkeypatch.setattr(env, "REPO_ROOT", root)
+    monkeypatch.setattr(env, "RESULTS_ROOT", root / "results")
+    monkeypatch.setattr(env, "EXPERIMENTS_ROOT", root / "results" / "experiments")
+    monkeypatch.setattr(env, "WORKSPACE_ROOT", root / "workspace")
     monkeypatch.setattr(
-        run_experiment,
-        "EXPERIMENTS_ROOT",
-        root / "results" / "experiments",
-    )
-    monkeypatch.setattr(run_experiment, "WORKSPACE_ROOT", root / "workspace")
-    monkeypatch.setattr(
-        run_experiment,
+        planner,
         "_resolve_variant_llm_config",
         lambda variant: {"provider": "mock", "model": "mock"},
     )
-    monkeypatch.setattr(run_experiment, "run_final_selection_report", _fake_final_selection_report)
+    monkeypatch.setattr(artifacts, "run_final_selection_report", _fake_final_selection_report)
 
 
 def _fake_final_selection_report(**kwargs: Any) -> Path:
@@ -133,7 +133,7 @@ def _patch_noop_closed_loop_stage(monkeypatch: pytest.MonkeyPatch, root: Path) -
             "duration_seconds": 0.1,
         }
 
-    monkeypatch.setattr(run_experiment, "_run_stage", fake_run_stage)
+    monkeypatch.setattr(iteration_runner, "_run_stage", fake_run_stage)
 
 
 def _run_noop_closed_loop_experiment(
@@ -176,9 +176,9 @@ def test_final_selection_report_runs_after_finalization_before_reporting(
     config = load_experiment_config(_write_config(root, payload))
     call_order: list[str] = []
     metadata_final_order: list[list[str]] = []
-    original_finalize = run_experiment.finalize_closed_loop_artifacts
-    original_reporting = run_experiment._run_final_reporting
-    original_write_metadata = run_experiment._write_experiment_metadata
+    original_finalize = artifacts.finalize_closed_loop_artifacts
+    original_reporting = artifacts._run_final_reporting
+    original_write_metadata = env._write_experiment_metadata
 
     def wrapped_finalize(*args: Any, **kwargs: Any):
         call_order.append("finalize")
@@ -200,10 +200,10 @@ def test_final_selection_report_runs_after_finalization_before_reporting(
             metadata_final_order.append(list(call_order))
         return original_write_metadata(*args, **kwargs)
 
-    monkeypatch.setattr(run_experiment, "finalize_closed_loop_artifacts", wrapped_finalize)
-    monkeypatch.setattr(run_experiment, "run_final_selection_report", wrapped_selection)
-    monkeypatch.setattr(run_experiment, "_run_final_reporting", wrapped_reporting)
-    monkeypatch.setattr(run_experiment, "_write_experiment_metadata", wrapped_write_metadata)
+    monkeypatch.setattr(artifacts, "finalize_closed_loop_artifacts", wrapped_finalize)
+    monkeypatch.setattr(artifacts, "run_final_selection_report", wrapped_selection)
+    monkeypatch.setattr(artifacts, "_run_final_reporting", wrapped_reporting)
+    monkeypatch.setattr(env, "_write_experiment_metadata", wrapped_write_metadata)
 
     exit_code = run_experiment._run_experiment(config, payload)
 
@@ -259,7 +259,7 @@ def test_closed_loop_status_warns_when_final_selection_failed(
         )
         return report_path
 
-    monkeypatch.setattr(run_experiment, "run_final_selection_report", failed_selection)
+    monkeypatch.setattr(artifacts, "run_final_selection_report", failed_selection)
     payload = _base_config_payload(root, reporting=None)
     config = load_experiment_config(_write_config(root, payload))
 
@@ -367,9 +367,7 @@ def test_enabled_reporting_runs_after_final_closed_loop_artifacts_exist(
         calls.append((experiment_dir, formats, renderer))
         return {"report_data": report_data, "html": html}
 
-    monkeypatch.setattr(
-        run_experiment,
-        "generate_basic_report",
+    monkeypatch.setattr(artifacts, "generate_basic_report",
         fake_generate_basic_report,
     )
 
@@ -435,9 +433,7 @@ def test_disabled_reporting_does_not_call_generator(
     def fail_generate_basic_report(*args: object, **kwargs: object) -> dict[str, Path]:
         raise AssertionError("reporting generator should not be called")
 
-    monkeypatch.setattr(
-        run_experiment,
-        "generate_basic_report",
+    monkeypatch.setattr(artifacts, "generate_basic_report",
         fail_generate_basic_report,
     )
 
@@ -470,9 +466,7 @@ def test_reporting_failure_is_recorded_when_not_fail_on_error(
     def fail_generate_basic_report(*args: object, **kwargs: object) -> dict[str, Path]:
         raise RuntimeError("renderer unavailable")
 
-    monkeypatch.setattr(
-        run_experiment,
-        "generate_basic_report",
+    monkeypatch.setattr(artifacts, "generate_basic_report",
         fail_generate_basic_report,
     )
 
@@ -502,9 +496,7 @@ def test_reporting_failure_propagates_when_fail_on_error(
     def fail_generate_basic_report(*args: object, **kwargs: object) -> dict[str, Path]:
         raise RuntimeError("hard reporting failure")
 
-    monkeypatch.setattr(
-        run_experiment,
-        "generate_basic_report",
+    monkeypatch.setattr(artifacts, "generate_basic_report",
         fail_generate_basic_report,
     )
 
@@ -542,9 +534,7 @@ def test_reporting_integration_preserves_closed_loop_inputs_and_writes_under_rep
         plot.write_text("<svg></svg>", encoding="utf-8")
         return {"report_data": report_data, "html": html}
 
-    monkeypatch.setattr(
-        run_experiment,
-        "generate_basic_report",
+    monkeypatch.setattr(artifacts, "generate_basic_report",
         fake_generate_basic_report,
     )
 
@@ -565,7 +555,7 @@ def test_reporting_integration_preserves_closed_loop_inputs_and_writes_under_rep
 
     # Re-run only the reporting integration helper to verify it does not touch
     # persisted closed-loop inputs.
-    reporting_status = run_experiment._run_final_reporting(experiment_dir, _load_config(
+    reporting_status = artifacts._run_final_reporting(experiment_dir, _load_config(
         tmp_path / "config_root",
         _base_config_payload(
             tmp_path / "config_root",

@@ -4,6 +4,12 @@ This module provides a reusable StepRunner for executing subprocess commands
 with consistent output formatting, log writing, and error handling. It is the
 non-streaming counterpart to :mod:`orchestrator.control.process_runner`, which
 provides streaming execution via ``subprocess.Popen``.
+
+Output policy:
+  - Machine-readable stdout contracts use plain ``print``.
+  - Diagnostics use ``logging``.
+  - Low-level subprocess execution is quiet by default (``echo=False``).
+  - Visible CLI progress must be explicitly requested (``echo=True``).
 """
 
 from __future__ import annotations
@@ -47,20 +53,23 @@ class StepRunner:
         env: dict[str, str] | None = None,
         log_path: Path | None = None,
         stream: bool = False,
+        echo: bool = False,
     ) -> StepResult:
         """Execute a single step, returning a structured result.
 
-        Prints ``[STEP]`` / ``[CMD ]`` / ``[CWD ]`` headers to stdout and
-        captures stdout/stderr.  If *log_path* is provided a step log is
-        written in the format used by :func:`write_step_log`.
+        When *echo* is ``True`` prints ``[STEP]`` / ``[CMD ]`` / ``[CWD ]``
+        headers and captured stdout/stderr.  When *echo* is ``False`` (the
+        default) the step runs silently — stdout/stderr are still captured in
+        the returned ``StepResult`` and written to *log_path* when provided.
 
         *stream* is reserved for future streaming support; this implementation
         always uses ``subprocess.run`` (non-streaming).
         """
         display_title = title if title is not None else label
-        print(f"\n[STEP] {display_title}")
-        print(f"[CMD ] {format_command(cmd)}")
-        print(f"[CWD ] {cwd}")
+        if echo:
+            print(f"\n[STEP] {display_title}")
+            print(f"[CMD ] {format_command(cmd)}")
+            print(f"[CWD ] {cwd}")
 
         started = time.perf_counter()
         try:
@@ -93,10 +102,11 @@ class StepRunner:
         if log_path is not None:
             self._write_log(log_path, label, cmd, cwd, exit_code, stdout, stderr)
 
-        if stdout:
-            print(stdout, end="" if stdout.endswith("\n") else "\n")
-        if stderr:
-            print(stderr, end="" if stderr.endswith("\n") else "\n", file=sys.stderr)
+        if echo:
+            if stdout:
+                print(stdout, end="" if stdout.endswith("\n") else "\n")
+            if stderr:
+                print(stderr, end="" if stderr.endswith("\n") else "\n", file=sys.stderr)
 
         status = "success" if exit_code == 0 else "failed"
         error_message = None

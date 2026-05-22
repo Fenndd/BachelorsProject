@@ -4,7 +4,7 @@ import pytest
 
 pytestmark = pytest.mark.integration
 
-from orchestrator.experiments.run_experiment import _experiment_environment_info
+from orchestrator.experiments.experiment_environment import _experiment_environment_info
 
 
 def test_experiment_environment_info_defaults_build_type_to_release(monkeypatch) -> None:  # type: ignore[no-untyped-def]

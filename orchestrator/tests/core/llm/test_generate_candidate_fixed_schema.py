@@ -114,7 +114,7 @@ class GenerateCandidateFixedSchemaTests(unittest.TestCase):
         self.assertFalse(record["is_noop"])
         self.assertNotIn("candidate" + "_type", record)
 
-    def test_final_summary_prints_run_dir_before_unicode_candidate_summary(self) -> None:
+    def test_final_summary_prints_run_dir_first(self) -> None:
         class StrictAsciiStream:
             encoding = "ascii"
 

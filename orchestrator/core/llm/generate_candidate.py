@@ -381,6 +381,11 @@ def _print_final_summary(
     run_dir: Path | None,
     candidate: OptimizationCandidate | None,
 ) -> None:
+    """Print candidate summary adhering to the output policy.
+
+    Machine-readable stdout contracts (``CANDIDATE_RUN_DIR=...``) use plain
+    ``print`` so they can be parsed cleanly.  Diagnostics use ``logging``.
+    """
     if run_dir is not None:
         print(f"CANDIDATE_RUN_DIR={_display_path(run_dir)}")
 

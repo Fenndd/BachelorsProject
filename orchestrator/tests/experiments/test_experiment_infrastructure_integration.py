@@ -10,7 +10,6 @@ from pathlib import Path
 from orchestrator import paths as project_paths
 from orchestrator.experiments import experiment_environment as env
 from orchestrator.experiments import iteration_runner
-from orchestrator.experiments import run_experiment
 
 
 def test_experiment_environment_roots_use_canonical_project_paths() -> None:
@@ -65,14 +64,14 @@ def test_experiment_json_file_object_reads_utf8_bom(tmp_path: Path) -> None:
 
 
 def test_parse_candidate_run_dir_from_generation_stdout(monkeypatch, tmp_path: Path) -> None:  # type: ignore[no-untyped-def]
-    original_repo_root = run_experiment.REPO_ROOT
-    monkeypatch.setattr(run_experiment, "REPO_ROOT", tmp_path)
+    original_repo_root = env.REPO_ROOT
+    monkeypatch.setattr(env, "REPO_ROOT", tmp_path)
     candidate_run = tmp_path / "results" / "runs" / "candidate_001"
     candidate_run.mkdir(parents=True)
     env._write_json(candidate_run / "candidate.json", {"summary": "ok"})
 
     try:
         stdout = f"before\nCANDIDATE_RUN_DIR={candidate_run}\nafter\n"
-        assert run_experiment._parse_candidate_run_dir(stdout) == str(candidate_run)
+        assert iteration_runner._parse_candidate_run_dir(stdout) == str(candidate_run)
     finally:
-        monkeypatch.setattr(run_experiment, "REPO_ROOT", original_repo_root)
+        monkeypatch.setattr(env, "REPO_ROOT", original_repo_root)
