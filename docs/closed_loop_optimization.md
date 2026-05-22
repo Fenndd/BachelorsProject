@@ -86,10 +86,17 @@ reserved for hard rejection/correctness/audit failures.
 
 ## Decision Artifacts
 
-Closed-loop verified candidates write two reference decision artifacts in the candidate run directory:
+For each verified candidate, the closed-loop runner records the
+`decision_vs_current_best` outcome as a field on the iteration record
+(stored in `closed_loop_iterations.jsonl`). It also writes
+`decision_vs_original_baseline.json` as a file in the candidate run directory.
 
-- `decision_vs_current_best.json`: controls promotion. If its status is `accepted_improvement`, the candidate becomes the new experiment-local current best.
-- `decision_vs_original_baseline.json`: compares the candidate against the original clean baseline for reporting/control. It does not control promotion.
+- `decision_vs_current_best` (iteration record field): controls promotion. If
+  its value is `accepted_improvement`, the candidate becomes the new
+  experiment-local current best.
+- `decision_vs_original_baseline.json` (file): compares the candidate against
+  the original clean baseline for reporting/control. It does not control
+  promotion.
 
 Closed-loop final analysis is written to `closed_loop_selection_report.json`. It reports the final state and safety flags, but it never promotes candidates or modifies source trees.
 

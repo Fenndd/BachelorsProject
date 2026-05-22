@@ -11,13 +11,13 @@ closed-loop optimization pipeline.
 Implementation status update:
 
 - Pairwise reference-vs-candidate decision is implemented in
-  `orchestrator/benchmarking/candidate_decision.py`.
+  `orchestrator/core/benchmarking/candidate_decision.py`.
 - The original baseline-vs-candidate API remains available as a compatibility
   wrapper for direct pairwise comparisons.
 - Closed-loop experiments use reference-vs-candidate decisions inside each
   iteration.
 - Experiment-local current-best promotion is implemented through
-  `decision_vs_current_best.json`.
+  the `decision_vs_current_best` outcome recorded on each iteration record.
 - Promotion into the main `cpp/` source tree is still not implemented and remains
   out of scope for selection/reporting.
 
@@ -154,65 +154,32 @@ Where:
 - `reference_runtime = reference parsed_runtime_ns_per_problem_median`
 - `candidate_runtime = candidate parsed_runtime_ns_per_problem_median`
 
-## 11. Best candidate selection rule
+## 11. Closed-loop selection outcome
 
-Among all candidates with status `accepted_improvement`, select the candidate
-with the lowest `parsed_runtime_ns_per_problem_median`.
+Closed-loop mode does not maintain a global candidate pool from which a single
+best is picked by runtime ranking. Instead, each iteration is evaluated
+independently against the current experiment-local best using the pairwise
+decision policy defined in §5–§10. An `accepted_improvement` decision promotes
+the candidate into the experiment-local `current_best_source` for the next
+iteration.
 
-Tie-break order (deterministic):
+At experiment completion, `orchestrator/experiments/final_selection_report.py`
+produces `final_selection_report.json` under
+`results/experiments/<experiment_id>/`. This artifact reports the final best
+iteration selected after closed-loop completion, with a single benchmark run
+comparing the final optimized source against the original baseline. It does not
+use an `overall_status` field or a global ranking across all iterations.
 
-1. Earlier candidate/run order
+Per-iteration decision outcomes are recorded in `closed_loop_iterations.jsonl`
+using `IterationStatus` values (see `orchestrator/experiments/closed_loop_state.py`):
 
-## 12. Output of selector
-
-The selector emits a structured JSON summary with the following fields:
-
-Top-level:
-
-| Field | Type | Description |
-|---|---|---|
-| `baseline_run_dir` | string | Path to the baseline run directory |
-| `candidate_run_dirs` | string[] | Paths to all candidate run directories |
-| `overall_status` | string | One of `best_candidate_found`, `no_improvement_found`, `all_candidates_rejected`, `no_candidates` |
-| `best_candidate_run_dir` | string\|null | Path of the selected best candidate, or null |
-| `best_candidate_decision_path` | string\|null | Path to the best candidate's `candidate_decision.json`, or null |
-| `counts` | object | Counts summary (see below) |
-| `best_metrics` | object | Metrics of the selected best candidate, or all-null if none (see below) |
-| `decisions` | object[] | Per-candidate decision summaries (see below) |
-
-`counts`:
-
-| Field | Type | Description |
-|---|---|---|
-| `total` | int | Total number of candidates |
-| `rejected` | int | Candidates with status `rejected` |
-| `valid_not_improved` | int | Candidates with status `valid_not_improved` |
-| `accepted_improvement` | int | Candidates with status `accepted_improvement` |
-
-`best_metrics`:
-
-| Field | Type | Description |
-|---|---|---|
-| `runtime_ns_per_problem_median` | number\|null | Median runtime of the best candidate in nanoseconds per problem |
-| `speedup` | number\|null | Speedup vs baseline |
-| `runtime_reduction_percent` | number\|null | Runtime reduction percent vs baseline |
-| `valid_solutions_percent` | number\|null | Valid-solution percentage reported by the benchmark |
-| `gt_found_percent` | number\|null | GT-found percentage reported by the benchmark |
-
-Each entry in `decisions`:
-
-| Field | Type | Description |
-|---|---|---|
-| `candidate_run_dir` | string | Path to the candidate run directory |
-| `status` | string | One of `rejected`, `valid_not_improved`, `accepted_improvement` |
-| `candidate_decision_path` | string\|null | Path to `candidate_decision.json` if written, or null |
-| `runtime_ns_per_problem_median` | number\|null | Median runtime in nanoseconds per problem |
-| `speedup` | number\|null | Speedup vs baseline |
-| `runtime_reduction_percent` | number\|null | Runtime reduction percent vs baseline |
-| `valid_solutions_percent` | number\|null | Valid-solution percentage reported by the benchmark |
-| `gt_found_percent` | number\|null | GT-found percentage reported by the benchmark |
-| `rejection_reasons` | string[] | List of rejection reasons (empty for non-rejected) |
-| `non_acceptance_reasons` | string[] | Reasons a valid non-rejected candidate was not accepted, when present |
+- `accepted_improvement`
+- `valid_not_improved`
+- `rejected`
+- `materialization_failed`
+- `verification_failed`
+- `no_op`
+- `generation_failed`
 
 ## 13. Non-goals
 
@@ -232,14 +199,14 @@ The comparator can compare a new verified candidate against either:
 2. a previously accepted verified candidate run used as the current best
    (`reference_kind="verified_candidate"`).
 
-The closed-loop runner writes two decision artifacts for each verified candidate:
+For each verified candidate, the closed-loop runner writes
+`decision_vs_original_baseline.json` to the candidate run directory and
+records the `decision_vs_current_best` outcome as a field on the iteration
+record (stored in `closed_loop_iterations.jsonl`).
 
-- `decision_vs_current_best.json`
-- `decision_vs_original_baseline.json`
-
-Only `decision_vs_current_best.json` decides whether the candidate becomes the
-new experiment-local current best. If it reports `accepted_improvement`, the
-closed-loop runner promotes the materialized candidate workspace into
+Only the `decision_vs_current_best` outcome controls promotion. If it is
+`accepted_improvement`, the closed-loop runner promotes the materialized
+candidate workspace into
 `workspace/experiments/<experiment_id>/current_best_source/` and updates
 `current_best_state.json`.
 

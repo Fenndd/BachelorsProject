@@ -4,7 +4,7 @@
 
 The project-owned absolute-pose benchmark lives under:
 
-`cpp/bench/families/geometric_pose_solvers/absolute_pose_solvers/`
+`cpp/bench/absolute_pose/`
 
 The current concrete scope is intentionally narrow: Lambda Twist P3P only. The
 `lambdatwist_p3p` runner follows the PoseLib `p3p_lambdatwist` benchmark
@@ -71,3 +71,36 @@ The Python parser stores normalized fields such as
 `parsed_valid_solutions_percent`, and
 `parsed_runtime_ns_per_problem_median`. Old reprojection fields are no longer
 part of this benchmark protocol.
+
+## Baseline CLI Steps
+
+The baseline automation entry point (`orchestrator/cli/main.py`) runs these
+steps in order:
+
+1. `configure_cmake`
+2. `build_absolute_pose_lambdatwist_adapter_validator`
+3. `build_absolute_pose_lambdatwist_benchmark`
+4. `run_absolute_pose_lambdatwist_adapter_validator`
+5. `run_absolute_pose_lambdatwist_benchmark`
+6. `parse_absolute_pose_lambdatwist_benchmark`
+7. `benchmark_correctness_check`
+
+The step name is written as `failed_step` in `status.json` and `index.jsonl`
+when a step fails and the CLI exits with code 1.
+
+Step-failure semantics:
+
+- If the adapter validator build or run fails, the benchmark build and run are
+  skipped.
+- If the benchmark build fails, `failed_step` is
+  `build_absolute_pose_lambdatwist_benchmark`.
+- If the benchmark run fails, `failed_step` is
+  `run_absolute_pose_lambdatwist_benchmark`.
+- If the benchmark run succeeds but stdout cannot be parsed into required
+  structured metrics, `failed_step` is
+  `parse_absolute_pose_lambdatwist_benchmark`. `metrics.json` still preserves
+  `parse_success`, `missing_fields`, `parse_errors`, and any partially parsed
+  values for diagnosis.
+- If parsing succeeds but `correctness_passed` is false, `failed_step` is
+  `benchmark_correctness_check`. All parsed metrics are still written to
+  `metrics.json`, `summary.txt`, and `index.jsonl`.

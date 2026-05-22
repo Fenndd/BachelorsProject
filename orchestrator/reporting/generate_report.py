@@ -10,10 +10,11 @@ from pathlib import Path
 from orchestrator.reporting.figure_builder import PLOT_FILENAMES, build_report_figures
 from orchestrator.reporting.html_renderer import render_report_html
 from orchestrator.reporting.pdf_exporter import export_pdf_from_html
+from orchestrator.paths import paths
 from orchestrator.reporting.report_data_collector import collect_and_write_report_data
+from orchestrator.shared.io.json_io import read_json
 
 
-REPO_ROOT = Path(__file__).resolve().parents[2]
 SUPPORTED_FORMATS = {"html", "pdf"}
 
 
@@ -34,7 +35,7 @@ def generate_basic_report(
         reporting_formats_override=tuple(requested_formats),
         reporting_renderer_override=renderer,
     )
-    report_data = json.loads(report_data_path.read_text(encoding="utf-8"))
+    report_data = read_json(report_data_path)
     plot_paths = build_report_figures(report_data, report_dir / "plots")
     html_path = report_dir / "report.html"
 
@@ -114,7 +115,7 @@ def refresh_report_artifact_map(experiment_dir: Path | str) -> Path | None:
     if not report_data_path.is_file() or not html_path.exists():
         return None
 
-    payload = json.loads(report_data_path.read_text(encoding="utf-8"))
+    payload = read_json(report_data_path)
     if not isinstance(payload, dict):
         raise ValueError("report_data.json must contain a JSON object")
 
@@ -187,7 +188,7 @@ def _finalize_reporting_status(
     error: str | None = None,
     assume_pdf_generated: bool = False,
 ) -> dict:
-    payload = json.loads(report_data_path.read_text(encoding="utf-8"))
+    payload = read_json(report_data_path)
     if not isinstance(payload, dict):
         raise ValueError("report_data.json must contain a JSON object")
 
@@ -234,7 +235,7 @@ def _display_path(path: Path | None) -> str | None:
     if path is None:
         return None
     try:
-        return path.resolve().relative_to(REPO_ROOT).as_posix()
+        return path.resolve().relative_to(paths.repo_root).as_posix()
     except ValueError:
         return str(path)
 
@@ -270,7 +271,7 @@ def _parse_args(argv: list[str]) -> argparse.Namespace:
 def _resolve_experiment_dir(path_text: str) -> Path:
     path = Path(path_text)
     if not path.is_absolute():
-        path = REPO_ROOT / path
+        path = paths.repo_root / path
     return path.resolve()
 
 

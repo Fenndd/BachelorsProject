@@ -37,7 +37,7 @@ Experiments:
 
 ```powershell
 py -m orchestrator.cli.app experiment list
-py -m orchestrator.cli.app experiment run --config configs/experiments/mock_p3p_basic.json --dry-run
+py -m orchestrator.cli.app experiment run --config configs/experiments/<file>.json --dry-run
 py -m orchestrator.cli.app experiment run --config configs/experiments/<file>.json --yes
 ```
 

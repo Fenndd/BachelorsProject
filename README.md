@@ -8,11 +8,11 @@ The project combines a clean C++ baseline and benchmark layer under `cpp/`, a Py
 
 ## Current Status
 
-Implemented now:
+Implemented:
 
 - Baseline automation through `orchestrator/cli/main.py`.
 - Absolute-pose benchmark family for Lambda Twist P3P, including adapter validation and parsed benchmark metrics.
-- LLM candidate generation through `orchestrator.llm.generate_candidate`.
+- LLM candidate generation through `orchestrator.core.llm.generate_candidate`.
 - A single line-range edit schema for LLM-generated candidates.
 - Candidate materialization and verification in isolated workspaces.
 - Pairwise candidate decision for closed-loop promotion and reporting.
@@ -20,7 +20,7 @@ Implemented now:
 - Compact benchmark-aware closed-loop history for later generations.
 - Final closed-loop artifacts and analysis-only selector/reporting.
 - Automatic final repeated benchmark validation after closed-loop completion and before report generation.
-- Single unified current single-experiment HTML/PDF report with runtime, correctness, final repeated validation, failure analysis, phase timing, LLM usage, reproducibility metadata, diff statistics, iteration appendix sections, and a read-only report inspector.
+- Single unified HTML/PDF report with runtime, correctness, final repeated validation, failure analysis, phase timing, LLM usage, reproducibility metadata, diff statistics, iteration appendix sections, and a read-only report inspector.
 
 Not implemented yet:
 
@@ -37,7 +37,7 @@ Not implemented yet:
 .
 |- cpp/            # C++ algorithm layer, tests, benchmark targets, external baselines
 |- orchestrator/   # Python baseline, LLM, materialization, verification, selection, experiments
-|- configs/        # LLM, mock candidate, and experiment configs
+|- configs/        # LLM and experiment configs
 |- workspace/      # Isolated candidate and experiment-local current-best workspaces
 |- results/        # Persistent baseline, candidate, verification, decision, experiment artifacts
 |- docs/           # Project documentation
@@ -50,38 +50,11 @@ The baseline CLI and the LLM experiment runner are separate entry points:
 
 - `orchestrator/cli/main.py` prepares and records clean baseline runs.
 - `orchestrator.experiments.run_experiment` runs configured LLM optimization experiments.
+- `orchestrator/cli/app.py` (Typer) is the control layer: it launches these existing entry points and reads existing artifacts without reimplementing pipeline logic.
 
 Experiment runs use `workspace/` for isolated source copies and `results/` for persistent outputs. Candidate materialization and closed-loop promotion never modify the main `cpp/` source tree automatically.
 
-Closed-loop mode uses this control flow:
-
-```text
-clean baseline
-  -> workspace/experiments/<experiment_id>/current_best_source/
-  -> candidate generation from current_best_source
-  -> candidate materialization against current_best_source
-  -> verification
-  -> decision_vs_current_best
-  -> optional current_best_source update
-  -> next iteration
-```
-
-The logical `target_file` remains repo-relative, for example `cpp/external/lambdatwist/p3p.cc`. Generation reads the physical file from the active source tree through `--source-root`, and materialization applies candidates against the same active source tree through `--base-source-root`.
-
-`decision_vs_current_best.json` controls whether a candidate is promoted into the experiment-local `current_best_source`. `decision_vs_original_baseline.json` is retained for reporting/control against the original baseline. Final selector/reporting artifacts analyze the completed run only; they do not promote candidates or modify source trees.
-
-Key closed-loop artifacts are written under `results/experiments/<experiment_id>/`:
-
-- `final_optimized_source/`
-- `final_optimized_source.diff`
-- `closed_loop_summary.json`
-- `closed_loop_iterations.jsonl`
-- `closed_loop_selection_report.json`
-- `final_selection_report.json`
-- `final_selection/`
-- `current_best_state.json`
-
-See `docs/architecture.md`, `docs/experiment_runner.md`, `docs/closed_loop_optimization.md`, `docs/result_storage_format.md`, `docs/candidate_edit_formats.md`, and `docs/best_result_selection_policy.md`.
+See `docs/closed_loop_optimization.md` for the full closed-loop control flow.
 
 ## Baseline Automation
 
@@ -92,26 +65,20 @@ $env:EIGEN3_INCLUDE_DIR="C:\path\to\eigen"
 py orchestrator/cli/main.py
 ```
 
-The flow configures CMake, builds/runs `absolute_pose_lambdatwist_adapter_validator` and `absolute_pose_lambdatwist_benchmark`, parses metrics, and checks `correctness_passed`. Benchmark and evaluation builds default to **Release**. Build type is recorded as reproducibility metadata in reports.
-
-The user-facing report is a single unified current report, not separate v1/v2 modes. It focuses on closed-loop optimization; closed-loop promotion policy is `decision_vs_current_best.accepted_improvement_only`. Verification time includes benchmark execution, so `benchmark_seconds` is not separately shown in the main report. Missing PDF is valid for HTML-only reports; when PDF is requested, it is exported from the final completed HTML. After closed-loop completion a single final benchmark run compares the final optimized source against the original baseline; this produces `final_selection_report.json` and feeds the report headline metrics. Report headline baseline/final runtimes, speedup, runtime reduction, and correctness preserved come from the final single-run comparison; if that run fails, headline metrics are unavailable. Single-run closed-loop selection metrics are iteration analytics only. Build type is reproducibility metadata; `Release` is the default benchmark build type.
+The flow configures CMake, builds/runs `absolute_pose_lambdatwist_adapter_validator` and `absolute_pose_lambdatwist_benchmark`, parses metrics, and checks `correctness_passed`. Benchmark and evaluation builds default to **Release**.
 
 ## Experimental Terminal Control Layer
 
-The first skeleton of the Interactive Terminal Control Layer is available through a new Typer/Rich CLI and Textual TUI. It is currently a thin control surface for basic project status, local environment diagnostics, and placeholders only; real baseline and experiment launching from this layer will be connected in later steps.
-
-The repository includes a safe `.env.example` template. Local machine paths and API keys belong in `.env.local`, which is ignored by Git along with `.env`.
+The Typer/Rich CLI and Textual TUI provide a control surface for project status, diagnostics, and launching baseline and experiment runs.
 
 ```powershell
-copy .env.example .env.local
-```
+copy .env.example .env.local   # fill in local paths and API keys
 
-```powershell
 python -m orchestrator.cli.app --help
 python -m orchestrator.cli.app doctor
 python -m orchestrator.cli.app baseline run
 python -m orchestrator.cli.app experiment list
-python -m orchestrator.cli.app experiment run --config configs/experiments/mock_p3p_basic.json --dry-run
+python -m orchestrator.cli.app experiment run --config configs/experiments/basic_deepseek_flash_3iter.json --dry-run
 python -m orchestrator.cli.app experiment run --config configs/experiments/<file>.json --yes
 python -m orchestrator.cli.app results list
 python -m orchestrator.cli.app results latest
@@ -120,38 +87,23 @@ python -m orchestrator.cli.app results open latest
 python -m orchestrator.cli.app tui
 ```
 
-The `doctor` command currently checks project structure and environment variables, masks API keys, and reports missing or invalid local paths.
-The `baseline run` command launches the existing baseline automation entry point through the new control layer and streams logs to the terminal. It requires `EIGEN3_INCLUDE_DIR` to be configured in `.env.local` or the process environment. The TUI also exposes an experimental Run Baseline screen with live logs.
-The `experiment run --dry-run` command is safe and does not call an LLM. Real experiment runs may use API tokens configured in `.env.local`; the CLI asks for confirmation unless `--yes` is supplied. The TUI provides experiment config selection with dry-run/real-run controls and live logs.
-The results browser is read-only. It lists saved artifacts and opens existing result directories/files, but it does not recalculate metrics, decisions, reports, or modify artifacts. The TUI Browse Results screen provides the same read-only navigation.
+The results browser is read-only. Workspace cleanup only affects `workspace/`; it does not delete `results/`. API keys and other secrets are masked in CLI/TUI diagnostics.
 
-See `docs/interactive_terminal_control_layer.md` for the full CLI/TUI command reference and safety notes.
-
-The existing baseline entry point remains `orchestrator/cli/main.py`, and the new command layer does not change optimization, benchmark, validation, materialization, or closed-loop experiment behavior.
+See `docs/interactive_terminal_control_layer.md` for the full command reference and TUI screen list.
 
 ## LLM Candidate Generation and Candidate Edit Schema
 
-LLM candidate generation is implemented by `orchestrator.llm.generate_candidate`. The LLM receives line-numbered source and returns structured `edits[]` entries with `file`, `start_line`, `end_line`, `original`, and `replace`. Generation writes `candidate.json` and `candidate.edits.json`; materialization applies the edits deterministically and writes the system-generated `candidate.generated.diff`.
+LLM candidate generation is implemented by `orchestrator.core.llm.generate_candidate`. The LLM receives line-numbered source and returns structured `edits[]` entries with `file`, `start_line`, `end_line`, `original`, and `replace`. Generation writes `candidate.json` and `candidate.edits.json`; materialization applies the edits deterministically and writes `candidate.generated.diff`.
 
 See `docs/candidate_edit_formats.md` for details.
 
 ## Candidate Materialization and Verification
 
-Materialization runs only inside `workspace/candidates/<candidate_run_id>/`.
-
-The materializer enforces `optimization_scope.allowed_files` from experiment configs:
-
-- Candidate `target_files` and `edits[].file` must remain allowed.
-
-Verification configures/builds/runs inside the isolated candidate workspace and writes `verification.json`. It does not call an LLM and does not modify the main `cpp/` source tree.
+Materialization runs only inside `workspace/candidates/<candidate_run_id>/` using the `optimization_scope.allowed_files` allowlist from the experiment config. Verification configures/builds/runs inside the isolated candidate workspace and writes `verification.json`.
 
 ## Selection and Reporting
 
-Pairwise candidate decisions consume verified benchmark artifacts and explicit references. The closed-loop runner uses reference-vs-candidate decisions against the current best for promotion and against the original baseline for reporting.
-
-Selection and final reporting do not promote, merge, copy, or commit candidates into the main source tree.
-
-Generated reports are read-only visualizations under `results/experiments/<experiment_id>/report/`. The single-experiment report uses `schema_version: "report.v2"` and extends the original report with Outcome and Failure Analysis, Phase Timings, LLM Usage, Diff Statistics, Final Comparison vs Original Baseline, and an Iteration Appendix. Final selection metrics come from a single-run comparison of the final optimized source against the original baseline. Older or incomplete artifacts are handled through graceful degradation where possible, with missing fields or plots marked as unavailable.
+Pairwise candidate decisions consume verified benchmark artifacts and explicit references. The closed-loop runner uses the `decision_vs_current_best` outcome on each iteration record to control promotion into the experiment-local current best. `decision_vs_original_baseline.json` is retained for reporting and traceability only.
 
 Completed reports can be checked without regenerating anything:
 
@@ -159,11 +111,22 @@ Completed reports can be checked without regenerating anything:
 python -m orchestrator.reporting.report_inspector --experiment-dir results/experiments/<experiment_id>
 ```
 
-See `docs/report_v2_checklist.md` for the manual current-report verification checklist.
+See `docs/best_result_selection_policy.md` for the full decision policy and improvement thresholds.
 
 ## External Baseline Code
 
 - `cpp/external/lambdatwist/` contains imported third-party baseline P3P solver code.
 - This code is not original project source code.
 - Clean baseline files are expected to remain unchanged in repository baseline state.
-- Candidate changes are materialized only in isolated workspace copies unless future main-source promotion support is implemented.
+- Candidate changes are materialized only in isolated workspace copies.
+
+## Documentation
+
+- `docs/architecture.md` — pipeline components and module boundaries
+- `docs/setup.md` — toolchain targets, env vars, build-type override
+- `docs/closed_loop_optimization.md` — closed-loop control flow, artifacts, safety
+- `docs/candidate_edit_formats.md` — LLM edit schema
+- `docs/result_storage_format.md` — artifact paths and storage layout
+- `docs/best_result_selection_policy.md` — pairwise decision rules, thresholds, statuses
+- `docs/absolute_pose_benchmark.md` — benchmark protocol, output keys, baseline CLI steps
+- `docs/interactive_terminal_control_layer.md` — Typer CLI and TUI reference
