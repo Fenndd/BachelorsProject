@@ -124,7 +124,7 @@ def sample_baseline_run(tmp_path: Path) -> Path:
     results_root = tmp_path / "results"
     run_dir = results_root / "runs" / "2026-01-01_00-00-00_baseline"
     run_dir.mkdir(parents=True, exist_ok=True)
-    write_json(run_dir / "metrics.json", {"benchmark": {"parsed_runtime_ns_per_problem_median": 1000.0}})
+    write_json(run_dir / "metrics.json", make_benchmark_payload(runtime=1000.0))
     write_json(run_dir / "metadata.json", {"scenario": "baseline"})
     write_json(run_dir / "status.json", {"status": "success"})
     return run_dir
@@ -136,7 +136,29 @@ def sample_candidate_run(tmp_path: Path) -> Path:
     results_root = tmp_path / "results"
     run_dir = results_root / "runs" / "2026-01-01_00-00-01_candidate"
     run_dir.mkdir(parents=True, exist_ok=True)
-    write_json(run_dir / "verification.json", {"passed": True})
-    write_json(run_dir / "candidate.json", {"iteration": 1})
+    write_json(run_dir / "verification.json", make_benchmark_payload(runtime=950.0))
+    write_json(
+        run_dir / "candidate.json",
+        {
+            "schema_version": "1.0",
+            "candidate_type": "line_range_edits",
+            "summary": "Reshape arithmetic in p3p pose estimation to reduce multiplications.",
+            "rationale": "Eliminate redundant scalar multiplications in the pose construction block.",
+            "risk_level": "low",
+            "expected_effect": "faster",
+            "target_files": ["cpp/external/lambdatwist/p3p.cc"],
+            "correctness_notes": "Algebraically equivalent; no numerical precision change expected.",
+            "edits": [
+                {
+                    "target_file": "cpp/external/lambdatwist/p3p.cc",
+                    "start_line": 100,
+                    "end_line": 110,
+                    "original": "// placeholder original snippet",
+                    "modified": "// placeholder modified snippet",
+                }
+            ],
+            "requires_manual_review": False,
+        },
+    )
     write_json(run_dir / "status.json", {"status": "success"})
     return run_dir

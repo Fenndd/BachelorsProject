@@ -7,8 +7,6 @@ pytestmark = pytest.mark.unit
 import json
 from pathlib import Path
 
-import pytest
-
 from orchestrator.shared.io.json_io import read_json, read_json_object, write_json
 
 

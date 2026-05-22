@@ -6,7 +6,6 @@ pytestmark = pytest.mark.integration
 
 import json
 from pathlib import Path
-import pytest
 
 from orchestrator.experiments.closed_loop_state import (
     ClosedLoopIterationRecord,

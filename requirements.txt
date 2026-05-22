@@ -1,4 +1,6 @@
+# Direct runtime dependencies.
 # Preferred dev setup: python -m pip install -e ".[dev]"
+# For reproducible installs: python -m pip install -r requirements-lock.txt
 # Playwright PDF renderer also requires:
 # python -m playwright install chromium
 matplotlib

@@ -7,9 +7,8 @@ from __future__ import annotations
 
 import importlib
 import inspect
-import pytest
 
-from types import SimpleNamespace
+import pytest
 
 pytestmark = pytest.mark.unit
 

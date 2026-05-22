@@ -7,8 +7,6 @@ pytestmark = pytest.mark.unit
 import logging
 from io import StringIO
 
-import pytest
-
 from orchestrator.logging_config import configure_logging, get_logger
 
 

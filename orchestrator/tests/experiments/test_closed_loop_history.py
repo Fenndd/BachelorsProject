@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-pytestmark = pytest.mark.integration
+pytestmark = pytest.mark.unit
 
 from orchestrator.experiments.closed_loop_history import (
     build_closed_loop_history_context,

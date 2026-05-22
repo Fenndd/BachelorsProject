@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-pytestmark = pytest.mark.integration
+pytestmark = pytest.mark.unit
 
 from orchestrator.experiments.outcome_reason import build_outcome_reason
 

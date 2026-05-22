@@ -8,8 +8,6 @@ pytestmark = pytest.mark.unit
 
 from pathlib import Path
 
-import pytest
-
 from orchestrator.paths import (
     ProjectPaths,
     find_repo_root,

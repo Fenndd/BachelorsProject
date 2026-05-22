@@ -10,8 +10,6 @@ import os
 import sys
 from pathlib import Path
 
-import pytest
-
 from orchestrator.shared.process.step_runner import (
     StepResult,
     StepRunner,
