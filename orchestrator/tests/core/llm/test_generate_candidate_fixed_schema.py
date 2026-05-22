@@ -8,6 +8,7 @@ import sys
 import tempfile
 import unittest
 from datetime import datetime
+from io import StringIO
 from pathlib import Path
 
 from orchestrator.core.llm import generate_candidate as generate_candidate_module
@@ -23,6 +24,7 @@ from orchestrator.core.llm.generate_candidate import (
 )
 from orchestrator.core.llm.base import LLMResponse
 from orchestrator.core.llm.response_parser import LineRangeEdit, OptimizationCandidate
+from orchestrator.experiments.iteration_runner import _parse_candidate_run_dir
 from orchestrator.logging_config import get_logger
 from orchestrator.paths import get_project_paths
 
@@ -124,6 +126,8 @@ class GenerateCandidateFixedSchemaTests(unittest.TestCase):
                 pass
 
         stream = StrictAsciiStream()
+        saved_stdout = sys.stdout
+        sys.stdout = stream
         handler = logging.StreamHandler(stream)
         handler.setFormatter(logging.Formatter("%(message)s"))
         logger = get_logger(
@@ -148,9 +152,13 @@ class GenerateCandidateFixedSchemaTests(unittest.TestCase):
             )
         finally:
             logger.removeHandler(handler)
+            sys.stdout = saved_stdout
 
         output = "".join(stream.lines)
         self.assertTrue(output.startswith("CANDIDATE_RUN_DIR="))
+        run_dir_line = output.splitlines()[0]
+        parsed = _parse_candidate_run_dir(run_dir_line)
+        self.assertIsNotNone(parsed)
         self.assertIn("well-optimized", output)
         self.assertIn("Edit count: 0", output)
         self.assertIn("No-op: True", output)
@@ -219,12 +227,16 @@ class GenerateCandidateFixedSchemaTests(unittest.TestCase):
             (root / "cpp").mkdir(exist_ok=True)
             (root / "orchestrator").mkdir(exist_ok=True)
             original_paths = generate_candidate_module.paths
+            stdout_capture = StringIO()
+            saved_stdout = sys.stdout
             try:
                 generate_candidate_module.paths = get_project_paths(root)
+                sys.stdout = stdout_capture
                 exit_code = generate_candidate_module.main(
                     ["--config", str(config_path), "--source", TARGET_FILE]
                 )
             finally:
+                sys.stdout = saved_stdout
                 generate_candidate_module.paths = original_paths
 
             self.assertEqual(exit_code, 0)
@@ -234,6 +246,12 @@ class GenerateCandidateFixedSchemaTests(unittest.TestCase):
             self.assertEqual(payload["llm_usage"]["finish_reason"], "stop")
             self.assertIsNone(payload["llm_usage"]["prompt_tokens"])
             self.assertIsInstance(payload["llm_usage"]["api_latency_seconds"], float)
+
+            stdout_text = stdout_capture.getvalue()
+            self.assertIn("CANDIDATE_RUN_DIR=", stdout_text)
+            parsed = _parse_candidate_run_dir(stdout_text)
+            self.assertIsNotNone(parsed)
+            self.assertEqual(Path(parsed).name, run_dir.name)
 
 
 if __name__ == "__main__":

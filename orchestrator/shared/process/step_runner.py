@@ -100,10 +100,12 @@ class StepRunner:
 
         status = "success" if exit_code == 0 else "failed"
         error_message = None
-        if exit_code != 0:
+        if exit_code is not None and exit_code != 0:
             error_message = (
                 f"Step failed with exit code {exit_code}: {format_command(cmd)}"
             )
+        elif exit_code is None:
+            error_message = stderr
 
         return StepResult(
             name=label,

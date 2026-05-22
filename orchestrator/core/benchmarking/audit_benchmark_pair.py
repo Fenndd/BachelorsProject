@@ -7,6 +7,10 @@ import json
 import sys
 from pathlib import Path
 
+_BOOTSTRAP_ROOT = Path(__file__).resolve().parents[3]
+if str(_BOOTSTRAP_ROOT) not in sys.path:
+    sys.path.insert(0, str(_BOOTSTRAP_ROOT))
+
 from orchestrator.paths import paths
 
 if str(paths.repo_root) not in sys.path:

@@ -382,7 +382,7 @@ def _print_final_summary(
     candidate: OptimizationCandidate | None,
 ) -> None:
     if run_dir is not None:
-        LOGGER.info("CANDIDATE_RUN_DIR=%s", _display_path(run_dir))
+        print(f"CANDIDATE_RUN_DIR={_display_path(run_dir)}")
 
     LOGGER.info("Final status: %s", status["overall_status"])
     if status["overall_status"] == "success" and candidate is not None:

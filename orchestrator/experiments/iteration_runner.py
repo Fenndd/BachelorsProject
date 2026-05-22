@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import json
-import subprocess
 import sys
 import time
 from pathlib import Path
@@ -28,10 +27,10 @@ from orchestrator.core.benchmarking.candidate_decision import (
     evaluate_candidate_against_reference,
     write_candidate_decision,
 )
+from orchestrator.shared.process.step_runner import StepRunner, format_command
 
 
-def _format_command(command: Sequence[str]) -> str:
-    return " ".join(f'"{part}"' if " " in str(part) else str(part) for part in command)
+_STEP_RUNNER = StepRunner()
 
 
 def _build_generation_command(
@@ -108,7 +107,7 @@ def _write_stage_log(
         f"VARIANT_ID: {variant_id}",
         f"VARIANT_ITERATION: {variant_iteration}",
         f"STAGE: {stage_name}",
-        f"COMMAND: {_format_command(command)}",
+        f"COMMAND: {format_command(command)}",
         f"CWD: {cwd}",
         f"EXIT_CODE: {exit_code}",
         f"DURATION_SECONDS: {duration_seconds:.3f}",
@@ -120,6 +119,7 @@ def _write_stage_log(
         stderr,
         "",
     ]
+    log_path.parent.mkdir(parents=True, exist_ok=True)
     log_path.write_text("\n".join(lines), encoding="utf-8")
 
 
@@ -132,24 +132,16 @@ def _run_stage(
     command: Sequence[str],
 ) -> dict[str, Any]:
     log_path = experiment_dir / "logs" / f"iteration_{global_iteration:03d}_{stage_name}.log"
-    started = time.perf_counter()
-    try:
-        result = subprocess.run(
-            list(command),
-            cwd=str(env.REPO_ROOT),
-            capture_output=True,
-            text=True,
-            check=False,
-        )
-        duration_seconds = round(time.perf_counter() - started, 3)
-        exit_code = result.returncode
-        stdout = result.stdout
-        stderr = result.stderr
-    except OSError as exc:
-        duration_seconds = round(time.perf_counter() - started, 3)
-        exit_code = None
-        stdout = ""
-        stderr = f"Could not start {stage_name} subprocess: {exc}"
+    result = _STEP_RUNNER.run_step(
+        stage_name,
+        list(command),
+        env.REPO_ROOT,
+        title=f"iteration {global_iteration:03d} {stage_name}",
+    )
+    exit_code = result.exit_code
+    stdout = result.stdout
+    stderr = result.stderr
+    duration_seconds = result.duration_seconds
 
     _write_stage_log(
         log_path,

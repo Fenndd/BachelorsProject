@@ -20,12 +20,15 @@ from .closed_loop_state import (
     write_current_best_state,
 )
 from .experiment_config import ExperimentConfig, ExperimentConfigError
+from orchestrator.paths import get_project_paths
+from orchestrator.shared.io.json_io import read_json_object, write_json
 
 
-REPO_ROOT = Path(__file__).resolve().parents[2]
-RESULTS_ROOT = REPO_ROOT / "results"
-EXPERIMENTS_ROOT = RESULTS_ROOT / "experiments"
-WORKSPACE_ROOT = REPO_ROOT / "workspace"
+_PROJECT_PATHS = get_project_paths()
+REPO_ROOT = _PROJECT_PATHS.repo_root
+RESULTS_ROOT = _PROJECT_PATHS.results
+EXPERIMENTS_ROOT = _PROJECT_PATHS.result_experiments
+WORKSPACE_ROOT = _PROJECT_PATHS.workspace
 
 
 def _resolve_path(path_text: str) -> Path:
@@ -49,18 +52,11 @@ def _display_path(path: Path) -> str:
 
 
 def _write_json(path: Path, payload: dict[str, Any]) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(
-        json.dumps(payload, indent=2, ensure_ascii=False) + "\n",
-        encoding="utf-8",
-    )
+    write_json(path, payload)
 
 
 def _read_json_object(path: Path) -> dict[str, Any]:
-    payload = json.loads(path.read_text(encoding="utf-8-sig"))
-    if not isinstance(payload, dict):
-        raise ValueError(f"Expected JSON object in: {path}")
-    return payload
+    return read_json_object(path)
 
 
 def _read_json_file_object(path: Path, label: str) -> dict[str, Any]:

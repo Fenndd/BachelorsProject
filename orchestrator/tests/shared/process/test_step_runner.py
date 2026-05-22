@@ -72,6 +72,8 @@ class TestStepRunner:
         assert result.status == "failed"
         assert result.exit_code is None
         assert "not found" in result.stderr.lower()
+        assert result.error_message is not None
+        assert "not found" in result.error_message.lower()
 
     def test_log_file_written(self, tmp_path: Path) -> None:
         log_path = tmp_path / "logs" / "test_step.log"
@@ -185,6 +187,8 @@ class TestStepRunner:
         assert result.status == "failed"
         assert result.exit_code is None
         assert "Could not start command" in result.stderr
+        assert result.error_message is not None
+        assert "Could not start command" in result.error_message
 
 
 
