@@ -1,5 +1,9 @@
 from __future__ import annotations
 
+import pytest
+
+pytestmark = pytest.mark.unit
+
 from orchestrator.core.patching.diff_stats import parse_diff_stats
 
 

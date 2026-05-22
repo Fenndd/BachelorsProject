@@ -1,8 +1,11 @@
 ﻿from __future__ import annotations
 
 import os
+import pytest
 from datetime import datetime
 from pathlib import Path
+
+pytestmark = pytest.mark.integration
 
 from orchestrator.control.process_runner import ProcessResult
 import orchestrator.control.baseline_launcher as baseline_launcher

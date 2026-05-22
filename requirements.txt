@@ -1,3 +1,4 @@
+# Preferred dev setup: python -m pip install -e ".[dev]"
 # Playwright PDF renderer also requires:
 # python -m playwright install chromium
 matplotlib

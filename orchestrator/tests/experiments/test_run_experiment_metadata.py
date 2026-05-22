@@ -1,5 +1,9 @@
 from __future__ import annotations
 
+import pytest
+
+pytestmark = pytest.mark.integration
+
 from orchestrator.experiments.run_experiment import _experiment_environment_info
 
 

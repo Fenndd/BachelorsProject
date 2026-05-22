@@ -7,6 +7,9 @@ no Textual App, no subprocess, no real experiments.
 from __future__ import annotations
 
 import inspect
+import pytest
+
+pytestmark = pytest.mark.unit
 
 
 def _src(module) -> str:

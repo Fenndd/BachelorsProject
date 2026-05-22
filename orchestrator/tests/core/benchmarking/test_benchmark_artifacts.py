@@ -2,6 +2,10 @@
 
 from __future__ import annotations
 
+import pytest
+
+pytestmark = pytest.mark.unit
+
 import unittest
 
 from orchestrator.core.benchmarking.benchmark_artifacts import (

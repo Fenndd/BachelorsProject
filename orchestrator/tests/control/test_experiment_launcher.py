@@ -5,6 +5,8 @@ from pathlib import Path
 
 import pytest
 
+pytestmark = pytest.mark.integration
+
 import orchestrator.control.experiment_launcher as experiment_launcher
 from orchestrator.control.process_runner import ProcessResult
 

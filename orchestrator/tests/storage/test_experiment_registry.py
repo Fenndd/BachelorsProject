@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+import pytest
 from pathlib import Path
+
+pytestmark = pytest.mark.unit
 
 from orchestrator.storage.experiment_registry import allocate_next_experiment_run
 

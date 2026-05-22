@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+import pytest
 import unittest
+
+pytestmark = pytest.mark.unit
 
 from orchestrator.core.llm.prompt_builder import (
     build_optimization_prompt,

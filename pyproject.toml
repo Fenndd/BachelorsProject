@@ -1,0 +1,39 @@
+[build-system]
+requires = ["setuptools", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "bachelors-project"
+version = "0.1.0"
+description = "Python orchestration tools for the Bachelor Project optimizer."
+requires-python = ">=3.11"
+dependencies = [
+    "matplotlib",
+    "jinja2",
+    "weasyprint",
+    "playwright",
+    "typer",
+    "rich",
+    "textual",
+    "python-dotenv",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest",
+]
+
+[tool.setuptools.packages.find]
+include = ["orchestrator*"]
+namespaces = true
+
+[tool.setuptools.package-data]
+"orchestrator.reporting" = ["templates/*.j2"]
+
+[tool.pytest.ini_options]
+testpaths = ["orchestrator/tests"]
+markers = [
+    "unit: fast isolated tests",
+    "integration: tests involving multiple components, filesystem artifacts, subprocess wrappers, report generation, or orchestration flows",
+    "slow: long-running tests",
+]

@@ -1,9 +1,12 @@
 from __future__ import annotations
 
+import os
+import pytest
 import subprocess
 import sys
-import os
 from pathlib import Path
+
+pytestmark = pytest.mark.integration
 
 from orchestrator.control.environment import get_env_specs
 

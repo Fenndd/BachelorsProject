@@ -1,8 +1,11 @@
 from __future__ import annotations
 
 import json
+import pytest
 from datetime import datetime
 from pathlib import Path
+
+pytestmark = pytest.mark.unit
 
 from orchestrator.storage.run_storage import RunStorage
 
@@ -154,3 +157,48 @@ def test_append_index_record_creates_parent_dir(tmp_path: Path) -> None:
     storage.append_index_record({"run_id": "r1"})
 
     assert (results / "index.jsonl").exists()
+
+
+def test_create_run_directory_raises_on_duplicate(tmp_path: Path) -> None:
+    results = tmp_path / "results"
+    storage = RunStorage(results_root=results)
+
+    storage.create_run_directory("test", run_id="my_run")
+
+    with pytest.raises(FileExistsError):
+        storage.create_run_directory("test", run_id="my_run")
+
+
+def test_save_summary_writes_utf8_text(tmp_path: Path) -> None:
+    storage = RunStorage(results_root=tmp_path / "results")
+    run_dir = storage.create_run_directory("test")
+    text = "r\u00e9sum\u00e9 \u2013 test \u2603"
+
+    saved = storage.save_summary(run_dir, text)
+
+    assert saved.name == "summary.txt"
+    loaded = saved.read_text(encoding="utf-8")
+    assert loaded == text
+
+
+def test_sanitize_name_falls_back_to_run(tmp_path: Path) -> None:
+    storage = RunStorage(results_root=tmp_path / "results")
+
+    assert storage._sanitize_name("!!!") == "run"
+    assert storage._sanitize_name("--") == "run"
+    assert storage._sanitize_name("_-_") == "run"
+    assert storage._sanitize_name("??") == "run"
+
+
+def test_append_index_record_preserves_unicode(tmp_path: Path) -> None:
+    results = tmp_path / "results"
+    storage = RunStorage(results_root=results)
+
+    storage.append_index_record({"name": "na\u00efve", "emoji": "caf\u00e9"})
+
+    index_path = results / "index.jsonl"
+    lines = index_path.read_text(encoding="utf-8").strip().split("\n")
+    assert len(lines) == 1
+    record = json.loads(lines[0])
+    assert record["name"] == "na\u00efve"
+    assert record["emoji"] == "caf\u00e9"

@@ -1,5 +1,9 @@
 from __future__ import annotations
 
+import pytest
+
+pytestmark = pytest.mark.integration
+
 from orchestrator.experiments.outcome_reason import build_outcome_reason
 
 

@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+import pytest
 from types import SimpleNamespace
+
+pytestmark = pytest.mark.unit
 
 from orchestrator.tui import debug_log
 from orchestrator.tui.app import OptimizerTuiApp

@@ -16,14 +16,7 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any
 
-_BOOTSTRAP_ROOT = Path(__file__).resolve().parents[3]
-if str(_BOOTSTRAP_ROOT) not in sys.path:
-    sys.path.insert(0, str(_BOOTSTRAP_ROOT))
-
 from orchestrator.paths import paths
-
-if str(paths.repo_root) not in sys.path:
-    sys.path.insert(0, str(paths.repo_root))
 
 from orchestrator.core.benchmarking.benchmark_artifact_audit import (
     audit_comparable_benchmark_artifacts,

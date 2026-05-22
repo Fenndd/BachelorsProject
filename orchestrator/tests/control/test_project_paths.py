@@ -1,5 +1,9 @@
 from __future__ import annotations
 
+import pytest
+
+pytestmark = pytest.mark.unit
+
 from orchestrator.control import get_project_paths, read_project_status
 from orchestrator.control.project_paths import find_repo_root
 

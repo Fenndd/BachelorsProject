@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+import pytest
 import sys
+
+pytestmark = pytest.mark.unit
 import tempfile
 import unittest
 from pathlib import Path
