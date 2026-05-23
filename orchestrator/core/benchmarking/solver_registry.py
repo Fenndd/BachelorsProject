@@ -17,6 +17,7 @@ from typing import Any, Callable
 
 from orchestrator.core.benchmarking.family_benchmark_parser import (
     parse_absolute_pose_benchmark_output,
+    parse_poselib_native_benchmark_output,
 )
 from orchestrator.paths import get_project_paths
 
@@ -34,6 +35,13 @@ class SolverBenchmarkDescriptor:
     parser: Callable[[str], dict[str, Any]]
     runtime_metric_key: str = "parsed_runtime_ns_per_problem_median"
     runtime_unit: str = "ns"
+    benchmark_backend: str = "absolute_pose"
+    benchmark_solver_key: str | None = None
+    benchmark_kind: str | None = None
+    default_target_file: str | None = None
+    default_allowed_files: tuple[str, ...] = ()
+    min_gt_found_percent: float = 99.0
+    min_valid_solutions_percent: float = 99.0
 
 
 # ---------------------------------------------------------------------------
@@ -45,10 +53,21 @@ _DEFAULT_SOLVER_ID = "lambdatwist_p3p"
 _descriptors_cache: dict[str, SolverBenchmarkDescriptor] | None = None
 
 
-def _family_parser(family: str) -> Callable[[str], dict[str, Any]]:
+def _family_parser(
+    family: str,
+    *,
+    min_gt_found_percent: float = 99.0,
+    min_valid_solutions_percent: float = 99.0,
+) -> Callable[[str], dict[str, Any]]:
     """Return the stdout parser for a solver family."""
     if family == "absolute_pose":
         return parse_absolute_pose_benchmark_output
+    if family == "poselib_native":
+        return lambda text: parse_poselib_native_benchmark_output(
+            text,
+            min_gt_found_percent=min_gt_found_percent,
+            min_valid_solutions_percent=min_valid_solutions_percent,
+        )
     raise ValueError(f"Unsupported solver family: {family!r}")
 
 
@@ -56,6 +75,8 @@ def _family_descriptor_label(family: str) -> str:
     """Map manifest family to descriptor family label."""
     if family == "absolute_pose":
         return "absolute_pose_solvers"
+    if family == "poselib_native":
+        return "poselib_native"
     raise ValueError(f"Unsupported solver family: {family!r}")
 
 
@@ -77,6 +98,36 @@ def _require_dict(obj: dict[str, Any], key: str, source: Path) -> dict[str, Any]
     return value
 
 
+def _optional_float(
+    obj: dict[str, Any],
+    key: str,
+    default: float,
+    source: Path,
+) -> float:
+    value = obj.get(key, default)
+    if not isinstance(value, (int, float)) or isinstance(value, bool):
+        raise ValueError(
+            f"Manifest {source}: field {key!r} must be a number"
+        )
+    return float(value)
+
+
+def _require_string_list(obj: dict[str, Any], key: str, source: Path) -> tuple[str, ...]:
+    value = obj.get(key)
+    if not isinstance(value, list) or not value:
+        raise ValueError(
+            f"Manifest {source}: field {key!r} must be a non-empty list"
+        )
+    parsed: list[str] = []
+    for index, item in enumerate(value):
+        if not isinstance(item, str) or not item:
+            raise ValueError(
+                f"Manifest {source}: field {key!r}[{index}] must be a non-empty string"
+            )
+        parsed.append(item)
+    return tuple(parsed)
+
+
 def _load_manifests() -> dict[str, SolverBenchmarkDescriptor]:
     """Discover and parse solver manifest files."""
     paths = get_project_paths()
@@ -91,6 +142,11 @@ def _load_manifests() -> dict[str, SolverBenchmarkDescriptor]:
         family = _require_string(data, "family", manifest_path)
         targets = _require_dict(data, "targets", manifest_path)
         runner_mode = data.get("runner_mode")
+        benchmark_backend = data.get("benchmark_backend", family)
+        if not isinstance(benchmark_backend, str) or not benchmark_backend:
+            raise ValueError(
+                f"Manifest {manifest_path}: field 'benchmark_backend' must be a non-empty string"
+            )
 
         _require_string(targets, "benchmark", manifest_path)
 
@@ -100,16 +156,54 @@ def _load_manifests() -> dict[str, SolverBenchmarkDescriptor]:
                 f"Already registered from another manifest."
             )
 
-        if family not in ("absolute_pose",):
+        if family not in ("absolute_pose", "poselib_native"):
             raise ValueError(
                 f"Unsupported family {family!r} in {manifest_path}. "
-                f"Supported families: absolute_pose"
+                f"Supported families: absolute_pose, poselib_native"
             )
 
         if runner_mode is not None and not isinstance(runner_mode, str):
             raise ValueError(
                 f"runner_mode must be a string in {manifest_path}"
             )
+
+        if family == "poselib_native":
+            if benchmark_backend != "poselib_native":
+                raise ValueError(
+                    f"Manifest {manifest_path}: poselib_native manifests must use "
+                    "benchmark_backend='poselib_native'"
+                )
+            benchmark_target = _require_string(data, "benchmark_target", manifest_path)
+            benchmark_solver_key = _require_string(data, "benchmark_solver_key", manifest_path)
+            benchmark_kind = _require_string(data, "benchmark_kind", manifest_path)
+            default_target_file = _require_string(data, "default_target_file", manifest_path)
+            default_allowed_files = _require_string_list(data, "default_allowed_files", manifest_path)
+            if targets.get("benchmark") != benchmark_target:
+                raise ValueError(
+                    f"Manifest {manifest_path}: targets.benchmark must match benchmark_target"
+                )
+            metrics = data.get("metrics")
+            metrics = metrics if isinstance(metrics, dict) else {}
+            min_gt_found_percent = _optional_float(
+                metrics, "min_gt_found_percent", 99.0, manifest_path
+            )
+            min_valid_solutions_percent = _optional_float(
+                metrics, "min_valid_solutions_percent", 99.0, manifest_path
+            )
+            parser = _family_parser(
+                family,
+                min_gt_found_percent=min_gt_found_percent,
+                min_valid_solutions_percent=min_valid_solutions_percent,
+            )
+        else:
+            benchmark_target = targets["benchmark"]
+            benchmark_solver_key = data.get("benchmark_solver_key")
+            benchmark_kind = data.get("benchmark_kind")
+            default_target_file = data.get("default_target_file")
+            default_allowed_files = tuple(data.get("default_allowed_files", ()))
+            min_gt_found_percent = 99.0
+            min_valid_solutions_percent = 0.0
+            parser = _family_parser(family)
 
         if runner_mode == "generated_absolute_pose":
             if "adapter_validator" not in targets or not isinstance(targets["adapter_validator"], str):
@@ -121,13 +215,20 @@ def _load_manifests() -> dict[str, SolverBenchmarkDescriptor]:
         descriptors[solver_id] = SolverBenchmarkDescriptor(
             solver_id=solver_id,
             family=_family_descriptor_label(family),
-            benchmark_target=targets["benchmark"],
+            benchmark_target=benchmark_target,
             adapter_validator_target=targets.get("adapter_validator"),
-            benchmark_step_name=targets["benchmark"],
+            benchmark_step_name=benchmark_target,
             adapter_validator_step_name=targets.get("adapter_validator"),
-            parser=_family_parser(family),
+            parser=parser,
             runtime_metric_key="parsed_runtime_ns_per_problem_median",
             runtime_unit="ns",
+            benchmark_backend=benchmark_backend,
+            benchmark_solver_key=benchmark_solver_key if isinstance(benchmark_solver_key, str) else None,
+            benchmark_kind=benchmark_kind if isinstance(benchmark_kind, str) else None,
+            default_target_file=default_target_file if isinstance(default_target_file, str) else None,
+            default_allowed_files=default_allowed_files,
+            min_gt_found_percent=min_gt_found_percent,
+            min_valid_solutions_percent=min_valid_solutions_percent,
         )
 
     return descriptors

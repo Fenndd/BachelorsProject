@@ -70,7 +70,7 @@ def test_dry_run_does_not_require_api_key(tmp_path: Path, monkeypatch) -> None:
     clear_managed_env(monkeypatch)
     config = _write_valid_experiment(tmp_path, provider="deepseek")
 
-    def fake_run_streaming_command(command, cwd, env=None, on_stdout=None, on_stderr=None):
+    def fake_run_streaming_command(command, cwd, env=None, on_stdout=None, on_stderr=None, cancel_event=None, on_process_started=None):
         now = datetime.now().astimezone()
         return ProcessResult(command, cwd, 0, now, now, 0.0)
 
@@ -120,7 +120,7 @@ def test_launcher_success_detects_latest_experiment_dir(tmp_path: Path, monkeypa
     clear_managed_env(monkeypatch)
     config = _write_valid_experiment(tmp_path, provider="mock")
 
-    def fake_run_streaming_command(command, cwd, env=None, on_stdout=None, on_stderr=None):
+    def fake_run_streaming_command(command, cwd, env=None, on_stdout=None, on_stderr=None, cancel_event=None, on_process_started=None):
         run_dir = tmp_path / "results" / "experiments" / "fake_experiment"
         run_dir.mkdir()
         if on_stdout is not None:
@@ -150,7 +150,7 @@ def test_launcher_failed_process_reports_failure(tmp_path: Path, monkeypatch) ->
     clear_managed_env(monkeypatch)
     config = _write_valid_experiment(tmp_path, provider="mock")
 
-    def fake_run_streaming_command(command, cwd, env=None, on_stdout=None, on_stderr=None):
+    def fake_run_streaming_command(command, cwd, env=None, on_stdout=None, on_stderr=None, cancel_event=None, on_process_started=None):
         now = datetime.now().astimezone()
         return ProcessResult(command, cwd, 5, now, now, 0.0)
 

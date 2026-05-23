@@ -14,6 +14,7 @@ Build type for candidate verification:
 from __future__ import annotations
 
 import argparse
+import json
 import sys
 from datetime import datetime
 from typing import Any
@@ -27,6 +28,7 @@ from .experiment_config import (
     ExperimentConfigError,
     load_experiment_config,
 )
+from orchestrator.core.benchmarking.solver_registry import get_solver_descriptor
 from orchestrator.storage.experiment_registry import allocate_next_experiment_run
 
 
@@ -59,6 +61,17 @@ def _run_closed_loop_experiment(
     baseline_metrics_path = baseline_run_dir / "metrics.json"
     if not baseline_metrics_path.exists():
         raise ExperimentConfigError(f"Closed-loop baseline metrics not found: {baseline_metrics_path}")
+    try:
+        metrics_payload = env._read_json_object(baseline_metrics_path)
+    except (OSError, ValueError, json.JSONDecodeError) as exc:
+        raise ExperimentConfigError(f"Could not read baseline metrics: {exc}") from exc
+    benchmark = metrics_payload.get("benchmark")
+    benchmark = benchmark if isinstance(benchmark, dict) else {}
+    if benchmark.get("solver") != config.solver_id:
+        raise ExperimentConfigError(
+            "Closed-loop baseline solver does not match experiment solver_id: "
+            f"baseline={benchmark.get('solver')!r}, config={config.solver_id!r}"
+        )
 
     closed_loop_paths, state, records, closed_loop_finished_at = iteration_runner.run_closed_loop_iterations(
         config,
@@ -85,6 +98,7 @@ def _run_closed_loop_experiment(
         final_best_run_dir=state.current_best_run_dir,
         target_file=config.target_file,
         final_best_is_baseline=state.current_best_is_baseline,
+        descriptor=get_solver_descriptor(config.solver_id),
     )
     final_selection_status = artifacts._update_closed_loop_summary_with_final_selection(
         closed_loop_paths,

@@ -1,9 +1,49 @@
 #pragma once
 
-#include "PoseLib/poselib.h"
 #include "problem_generator.h"
 
 #include <Eigen/Dense>
+#include <PoseLib/camera_pose.h>
+#include <PoseLib/solvers/gen_relpose_5p1pt.h>
+#include <PoseLib/solvers/gen_relpose_6pt.h>
+#include <PoseLib/solvers/gen_relpose_upright_4pt.h>
+#include <PoseLib/solvers/gp3p.h>
+#include <PoseLib/solvers/gp4ps.h>
+#include <PoseLib/solvers/homography_4pt.h>
+#include <PoseLib/solvers/p1p2ll.h>
+#include <PoseLib/solvers/p1p3llf.h>
+#include <PoseLib/solvers/p2p1ll.h>
+#include <PoseLib/solvers/p2p2llf.h>
+#include <PoseLib/solvers/p2p2pl.h>
+#include <PoseLib/solvers/p35pf.h>
+#include <PoseLib/solvers/p3ll.h>
+#include <PoseLib/solvers/p3p.h>
+#include <PoseLib/solvers/p3p_lambdatwist.h>
+#include <PoseLib/solvers/p3p1llf.h>
+#include <PoseLib/solvers/p4llf.h>
+#include <PoseLib/solvers/p4pf.h>
+#include <PoseLib/solvers/p5lp_radial.h>
+#include <PoseLib/solvers/p5pf.h>
+#include <PoseLib/solvers/p5pfr.h>
+#include <PoseLib/solvers/p6lp.h>
+#include <PoseLib/solvers/relpose_5pt.h>
+#include <PoseLib/solvers/relpose_6pt_focal.h>
+#include <PoseLib/solvers/relpose_8pt.h>
+#include <PoseLib/solvers/relpose_k2Fk1_10pt.h>
+#include <PoseLib/solvers/relpose_kFk_9pt.h>
+#include <PoseLib/solvers/relpose_monodepth_3pt.h>
+#include <PoseLib/solvers/relpose_monodepth_3pt_shared_focal.h>
+#include <PoseLib/solvers/relpose_monodepth_3pt_varying_focal.h>
+#include <PoseLib/solvers/relpose_upright_3pt.h>
+#include <PoseLib/solvers/relpose_upright_planar_2pt.h>
+#include <PoseLib/solvers/relpose_upright_planar_3pt.h>
+#include <PoseLib/solvers/ugp2p.h>
+#include <PoseLib/solvers/ugp3ps.h>
+#include <PoseLib/solvers/ugp4pl.h>
+#include <PoseLib/solvers/up1p1ll.h>
+#include <PoseLib/solvers/up1p2pl.h>
+#include <PoseLib/solvers/up2p.h>
+#include <PoseLib/solvers/up4pl.h>
 #include <iostream>
 #include <stdint.h>
 #include <string>
@@ -18,7 +58,7 @@ struct BenchmarkResult {
     int solutions_ = 0;
     int valid_solutions_ = 0;
     int found_gt_pose_ = 0;
-    int runtime_ns_ = 0;
+    long long runtime_ns_ = 0;
 };
 
 // Wrappers for the Benchmarking code

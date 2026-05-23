@@ -16,6 +16,7 @@ from .benchmark_artifacts import (
     empty_benchmark_artifact,
 )
 from .benchmark_runner import (
+    build_benchmark_run_command,
     build_cmake_build_command,
     configure_cmake_command,
     find_executable,
@@ -29,7 +30,10 @@ from .candidate_decision import (
     evaluate_candidate_against_reference,
     write_candidate_decision,
 )
-from .family_benchmark_parser import parse_absolute_pose_benchmark_output
+from .family_benchmark_parser import (
+    parse_absolute_pose_benchmark_output,
+    parse_poselib_native_benchmark_output,
+)
 from .solver_registry import (
     SolverBenchmarkDescriptor,
     default_solver_descriptor,
@@ -44,6 +48,7 @@ __all__ = [
     "benchmark_artifact_from_parse",
     "benchmark_required_fields",
     "build_benchmark_correctness_error_message",
+    "build_benchmark_run_command",
     "build_cmake_build_command",
     "CandidateDecisionThresholds",
     "configure_cmake_command",
@@ -60,6 +65,7 @@ __all__ = [
     "load_reference_benchmark_artifact",
     "load_verified_candidate_benchmark_artifact",
     "parse_absolute_pose_benchmark_output",
+    "parse_poselib_native_benchmark_output",
     "run_command",
     "SolverBenchmarkDescriptor",
     "write_candidate_decision",

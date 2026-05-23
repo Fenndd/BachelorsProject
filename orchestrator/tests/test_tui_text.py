@@ -47,24 +47,13 @@ def test_main_screen_subtitle_updated():
     assert "Interactive control layer for LLM optimization experiments" in src
 
 
-def test_experiment_screen_preflight_failed_messages():
+def test_experiment_screen_uses_active_run_screen():
     import orchestrator.tui.screens.experiment_screen as m
 
     src = _src(m)
-    assert "No subprocess was started." in src
-    assert "Experiment subprocess was not started." in src
-    assert "Preflight failed." in src
-
-
-def test_experiment_screen_initial_log_text():
-    import orchestrator.tui.screens.experiment_screen as m
-
-    src = _src(m)
-    assert "Starting experiment launcher..." in src
-    assert "Running preflight checks before subprocess execution..." in src
-    assert "Starting experiment subprocess..." not in src, (
-        "Old misleading log line 'Starting experiment subprocess...' should be removed"
-    )
-    assert "Waiting for output..." not in src, (
-        "Old misleading log line 'Waiting for output...' should be removed"
-    )
+    assert "ActiveRunScreen" in src
+    assert "active_runs_manager" in src
+    assert "manager.start" in src
+    assert "dry_run" in src
+    assert "Confirmation required" in src
+    assert "paid LLM API" in src

@@ -1,0 +1,23 @@
+{
+  "family": "poselib_native",
+  "solver_id": "poselib_ugp4pl",
+  "display_name": "PoseLib ugP4PL",
+  "vendor": "poselib",
+  "benchmark_backend": "poselib_native",
+  "benchmark_target": "poselib_solver_benchmark",
+  "benchmark_solver_key": "ugp4pl",
+  "benchmark_kind": "absolute_pose",
+  "default_target_file": "cpp/external/poselib/PoseLib/solvers/ugp4pl.cc",
+  "default_allowed_files": [
+    "cpp/external/poselib/PoseLib/solvers/ugp4pl.cc"
+  ],
+  "targets": {
+    "benchmark": "poselib_solver_benchmark"
+  },
+  "metrics": {
+    "runtime_metric_key": "parsed_runtime_ns_per_problem_median",
+    "runtime_unit": "ns",
+    "min_gt_found_percent": 99.0,
+    "min_valid_solutions_percent": 99.0
+  }
+}

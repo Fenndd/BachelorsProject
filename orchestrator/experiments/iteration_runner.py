@@ -90,13 +90,15 @@ def _build_materialization_command(
     return command
 
 
-def _build_verification_command(candidate_run_dir: str) -> list[str]:
+def _build_verification_command(candidate_run_dir: str, config: ExperimentConfig) -> list[str]:
     return [
         sys.executable,
         "-m",
         "orchestrator.core.execution.verify_candidate",
         "--candidate-run",
         candidate_run_dir,
+        "--solver",
+        config.solver_id,
     ]
 
 
@@ -833,7 +835,7 @@ def run_closed_loop_iterations(
             variant.variant_id,
             iteration,
             "verify_candidate",
-            _build_verification_command(str(candidate_run_dir)),
+            _build_verification_command(str(candidate_run_dir), config),
         )
         verification_record = _verification_stage_record(verification_result, str(candidate_run_dir))
         if verification_record["status"] != "success":

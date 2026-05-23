@@ -11,6 +11,10 @@ from orchestrator.core.patching.scope_validation import (
     normalize_repo_path,
     validate_allowed_files_list,
 )
+from orchestrator.core.benchmarking.solver_registry import (
+    default_solver_descriptor,
+    get_solver_descriptor,
+)
 from orchestrator.shared.io.json_io import read_json
 
 
@@ -64,6 +68,7 @@ class ExperimentConfig:
     optimization_scope: OptimizationScopeConfig
     variants: list[ExperimentVariantConfig]
     reporting: ReportingConfig = field(default_factory=ReportingConfig)
+    solver_id: str = "lambdatwist_p3p"
 
 
 def load_experiment_config(path: Path | str) -> ExperimentConfig:
@@ -89,9 +94,35 @@ def load_experiment_config(path: Path | str) -> ExperimentConfig:
     if not isinstance(payload, dict):
         raise ExperimentConfigError("Experiment config must contain a JSON object.")
 
-    target_file_raw = _required_non_empty_string(payload, "target_file")
-    target_file = normalize_repo_path(target_file_raw)
-    optimization_scope = _load_optimization_scope(payload, target_file)
+    solver_id = _optional_string(payload, "solver_id")
+    try:
+        solver_descriptor = (
+            get_solver_descriptor(solver_id)
+            if solver_id is not None
+            else default_solver_descriptor()
+        )
+    except KeyError as exc:
+        raise ExperimentConfigError(str(exc)) from exc
+    target_file_raw = payload.get("target_file")
+    if target_file_raw is None:
+        if not solver_descriptor.default_target_file:
+            raise ExperimentConfigError(
+                "Field 'target_file' is required when the selected solver descriptor "
+                "does not define default_target_file."
+            )
+        target_file = normalize_repo_path(solver_descriptor.default_target_file)
+    else:
+        if not isinstance(target_file_raw, str) or not target_file_raw.strip():
+            raise ExperimentConfigError(
+                "Field 'target_file' must be a non-empty string."
+            )
+        target_file = normalize_repo_path(target_file_raw)
+    default_allowed_files = list(solver_descriptor.default_allowed_files) or [target_file]
+    optimization_scope = _load_optimization_scope(
+        payload,
+        target_file,
+        default_allowed_files,
+    )
     reporting = _load_reporting(payload)
     variants = _load_variants(payload)
 
@@ -100,6 +131,7 @@ def load_experiment_config(path: Path | str) -> ExperimentConfig:
     return ExperimentConfig(
         experiment_name=_required_non_empty_string(payload, "experiment_name"),
         description=_optional_string(payload, "description"),
+        solver_id=solver_descriptor.solver_id,
         target_file=target_file,
         baseline_run_dir=_required_non_empty_string(payload, "baseline_run_dir"),
         candidate_generation=_load_candidate_generation(payload),
@@ -336,6 +368,7 @@ def _load_variants(payload: dict[str, Any]) -> list[ExperimentVariantConfig]:
 def _load_optimization_scope(
     payload: dict[str, Any],
     target_file: str,
+    default_allowed_files: list[str],
 ) -> OptimizationScopeConfig:
     """Load and validate the optional optimization_scope block.
 
@@ -344,7 +377,13 @@ def _load_optimization_scope(
     """
     scope_raw = payload.get("optimization_scope")
     if scope_raw is None:
-        return OptimizationScopeConfig(allowed_files=[target_file])
+        allowed_files = validate_allowed_files_list(
+            default_allowed_files,
+            label="solver default_allowed_files",
+        )
+        if target_file not in allowed_files:
+            allowed_files = [target_file, *allowed_files]
+        return OptimizationScopeConfig(allowed_files=allowed_files)
 
     if not isinstance(scope_raw, dict):
         raise ExperimentConfigError("Field 'optimization_scope' must be an object if present.")
@@ -372,3 +411,52 @@ def _load_optimization_scope(
         )
 
     return OptimizationScopeConfig(allowed_files=allowed_files)
+
+
+def experiment_config_to_payload(config: ExperimentConfig) -> dict[str, Any]:
+    """Convert an :class:`ExperimentConfig` to a JSON-serializable dict."""
+    reporting = config.reporting
+    variant = config.variants[0]
+
+    payload: dict[str, Any] = {
+        "experiment_name": config.experiment_name,
+        "description": config.description,
+        "solver_id": config.solver_id,
+        "target_file": config.target_file,
+        "baseline_run_dir": config.baseline_run_dir,
+        "candidate_generation": {
+            "max_source_chars": config.candidate_generation.max_source_chars,
+        },
+        "optimization_scope": {
+            "allowed_files": list(config.optimization_scope.allowed_files),
+        },
+        "reporting": {
+            "enabled": reporting.enabled,
+            "formats": list(reporting.formats),
+            "renderer": reporting.renderer,
+            "fail_on_error": reporting.fail_on_error,
+        },
+        "variants": [
+            {
+                "variant_id": variant.variant_id,
+                "description": variant.description,
+                "llm_config": variant.llm_config,
+                "llm_overrides": variant.llm_overrides,
+                "iterations": variant.iterations,
+                "additional_context": variant.additional_context,
+            }
+        ],
+    }
+    return payload
+
+
+def dump_experiment_config(config: ExperimentConfig, path: Path | str) -> Path:
+    """Serialize *config* to JSON, creating parent directories.
+
+    The output can be read back with :func:`load_experiment_config`.
+    Returns the written :class:`~pathlib.Path`.
+    """
+    from orchestrator.shared.io.json_io import write_json
+
+    payload = experiment_config_to_payload(config)
+    return write_json(path, payload)

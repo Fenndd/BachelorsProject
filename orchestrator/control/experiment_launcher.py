@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import subprocess
 import sys
+import threading
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
@@ -100,6 +102,8 @@ def run_experiment_control(
     require_api_key: bool = True,
     on_stdout: Callable[[str], None] | None = None,
     on_stderr: Callable[[str], None] | None = None,
+    cancel_event: threading.Event | None = None,
+    on_process_started: Callable[[subprocess.Popen], None] | None = None,
 ) -> ExperimentRunResult:
     paths = get_project_paths(repo_root)
     resolved_config = resolve_project_path(config_path, paths.repo_root)
@@ -136,6 +140,8 @@ def run_experiment_control(
             env=build_baseline_environment(paths.repo_root),
             on_stdout=on_stdout,
             on_stderr=on_stderr,
+            cancel_event=cancel_event,
+            on_process_started=on_process_started,
         )
     except ProcessLaunchError as exc:
         return ExperimentRunResult(

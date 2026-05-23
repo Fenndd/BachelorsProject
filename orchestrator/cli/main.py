@@ -16,6 +16,7 @@ CMAKE_MAKE_PROGRAM.
 
 from __future__ import annotations
 
+import argparse
 import os
 import platform
 import subprocess
@@ -32,9 +33,11 @@ from orchestrator.core.benchmarking.benchmark_artifacts import (
     benchmark_required_fields,
     empty_benchmark_artifact,
 )
+from orchestrator.core.benchmarking.benchmark_runner import build_benchmark_run_command
 from orchestrator.core.benchmarking.solver_registry import (
     SolverBenchmarkDescriptor,
     default_solver_descriptor,
+    get_solver_descriptor,
 )
 from orchestrator.shared.process.step_runner import StepRunner
 from orchestrator.storage import RunStorage
@@ -56,6 +59,36 @@ EXPECTED_STEPS = [
 
 PARSE_FAMILY_BENCHMARK_STEP = f"parse_{DESCRIPTOR.benchmark_target}"
 BENCHMARK_CORRECTNESS_CHECK_STEP = "benchmark_correctness_check"
+
+
+def _parse_args(argv: list[str]) -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description="Run a descriptor-backed baseline benchmark.")
+    parser.add_argument(
+        "--solver",
+        default=None,
+        help="Optional solver_id from the solver registry. Defaults to lambdatwist_p3p.",
+    )
+    return parser.parse_args(argv)
+
+
+def _activate_descriptor(descriptor: SolverBenchmarkDescriptor) -> None:
+    global DESCRIPTOR, EXPECTED_STEPS, PARSE_FAMILY_BENCHMARK_STEP
+    DESCRIPTOR = descriptor
+    steps = ["configure_cmake"]
+    if DESCRIPTOR.adapter_validator_target is not None:
+        steps.append(f"build_{DESCRIPTOR.adapter_validator_target}")
+    steps.append(f"build_{DESCRIPTOR.benchmark_target}")
+    if DESCRIPTOR.adapter_validator_target is not None:
+        steps.append(f"run_{DESCRIPTOR.adapter_validator_target}")
+    steps.extend(
+        [
+            f"run_{DESCRIPTOR.benchmark_target}",
+            f"parse_{DESCRIPTOR.benchmark_target}",
+            BENCHMARK_CORRECTNESS_CHECK_STEP,
+        ]
+    )
+    EXPECTED_STEPS = steps
+    PARSE_FAMILY_BENCHMARK_STEP = f"parse_{DESCRIPTOR.benchmark_target}"
 
 
 def _run_git_command(repo_root: Path, args: Sequence[str]) -> str | None:
@@ -100,8 +133,11 @@ def _build_metadata(
     return {
         "run_id": run_id,
         "scenario": "baseline",
-        "case_study": "p3p_solver",
-        "baseline": "lambda_twist",
+        "case_study": DESCRIPTOR.family,
+        "baseline": DESCRIPTOR.solver_id,
+        "solver_id": DESCRIPTOR.solver_id,
+        "benchmark_backend": DESCRIPTOR.benchmark_backend,
+        "benchmark_solver_key": DESCRIPTOR.benchmark_solver_key,
         "started_at": started_at.isoformat(timespec="seconds"),
         "finished_at": None,
         "repository": _get_repository_info(paths.repo_root),
@@ -359,16 +395,14 @@ def _build_metrics(
     cmake_build_type: str,
     benchmark_parse_result: dict[str, Any],
 ) -> dict[str, Any]:
-    build_success = all(
-        _step_succeeded(step_statuses, step_name)
-        for step_name in [
-            "configure_cmake",
-            f"build_{DESCRIPTOR.adapter_validator_target}",
-            f"build_{DESCRIPTOR.benchmark_target}",
-        ]
-    )
-    adapter_validation_success = _step_succeeded(
-        step_statuses, f"run_{DESCRIPTOR.adapter_validator_target}"
+    build_step_names = ["configure_cmake", f"build_{DESCRIPTOR.benchmark_target}"]
+    if DESCRIPTOR.adapter_validator_target is not None:
+        build_step_names.append(f"build_{DESCRIPTOR.adapter_validator_target}")
+    build_success = all(_step_succeeded(step_statuses, step_name) for step_name in build_step_names)
+    adapter_validation_success = (
+        None
+        if DESCRIPTOR.adapter_validator_target is None
+        else _step_succeeded(step_statuses, f"run_{DESCRIPTOR.adapter_validator_target}")
     )
     family_benchmark_success = _step_succeeded(
         step_statuses, f"run_{DESCRIPTOR.benchmark_target}"
@@ -409,9 +443,11 @@ def _build_summary(
     cmake_build_type: str,
 ) -> str:
     step_by_name = {step["name"]: step for step in status["steps"]}
-    adapter_validation_status = step_by_name[
-        f"run_{DESCRIPTOR.adapter_validator_target}"
-    ]["status"]
+    adapter_validation_status = (
+        "not_applicable"
+        if DESCRIPTOR.adapter_validator_target is None
+        else step_by_name[f"run_{DESCRIPTOR.adapter_validator_target}"]["status"]
+    )
     family_benchmark_status = step_by_name[
         f"run_{DESCRIPTOR.benchmark_target}"
     ]["status"]
@@ -419,7 +455,7 @@ def _build_summary(
     lines = [
         f"Run: {metadata['run_id']}",
         "Scenario: baseline",
-        "Case study: p3p_solver",
+        f"Case study: {DESCRIPTOR.family}",
         f"Baseline: {DESCRIPTOR.solver_id}",
         f"Overall status: {status['overall_status']}",
         f"Failed step: {status['failed_step'] or 'none'}",
@@ -464,6 +500,12 @@ def _build_summary(
             "",
         ]
     )
+    if DESCRIPTOR.adapter_validator_target is None:
+        lines = [
+            line
+            for line in lines
+            if "Adapter validation log:" not in line
+        ]
     if benchmark["missing_fields"]:
         lines.append(f"- missing fields: {', '.join(benchmark['missing_fields'])}")
     if benchmark["parse_errors"]:
@@ -554,6 +596,17 @@ def _write_final_artifacts(
 
 
 def main() -> int:
+    args = _parse_args(sys.argv[1:])
+    try:
+        _activate_descriptor(
+            get_solver_descriptor(args.solver)
+            if args.solver is not None
+            else default_solver_descriptor()
+        )
+    except KeyError as exc:
+        print(f"ERROR: {exc}", file=sys.stderr)
+        return 2
+
     source_dir = paths.repo_root / "cpp"
     build_dir = source_dir / "build"
 
@@ -632,19 +685,6 @@ def main() -> int:
     command_steps: list[tuple[str, str, Sequence[str]]] = [
         ("configure_cmake", "Configure CMake project", configure_command),
         (
-            f"build_{DESCRIPTOR.adapter_validator_target}",
-            f"Build {DESCRIPTOR.adapter_validator_target} target",
-            [
-                cmake_exe,
-                "--build",
-                str(build_dir),
-                "--target",
-                DESCRIPTOR.adapter_validator_target,
-                "--config",
-                cmake_build_type,
-            ],
-        ),
-        (
             f"build_{DESCRIPTOR.benchmark_target}",
             f"Build {DESCRIPTOR.benchmark_target} target",
             [
@@ -658,6 +698,23 @@ def main() -> int:
             ],
         ),
     ]
+    if DESCRIPTOR.adapter_validator_target is not None:
+        command_steps.insert(
+            1,
+            (
+                f"build_{DESCRIPTOR.adapter_validator_target}",
+                f"Build {DESCRIPTOR.adapter_validator_target} target",
+                [
+                    cmake_exe,
+                    "--build",
+                    str(build_dir),
+                    "--target",
+                    DESCRIPTOR.adapter_validator_target,
+                    "--config",
+                    cmake_build_type,
+                ],
+            ),
+        )
 
     failed_step: str | None = None
     error_message: str | None = None
@@ -672,22 +729,28 @@ def main() -> int:
             error_message = step_error
             break
 
-    run_targets = [
-        (
-            f"run_{DESCRIPTOR.adapter_validator_target}",
-            f"Run {DESCRIPTOR.adapter_validator_target} executable",
-            DESCRIPTOR.adapter_validator_target,
-        ),
+    run_targets = []
+    if DESCRIPTOR.adapter_validator_target is not None:
+        run_targets.append(
+            (
+                f"run_{DESCRIPTOR.adapter_validator_target}",
+                f"Run {DESCRIPTOR.adapter_validator_target} executable",
+                DESCRIPTOR.adapter_validator_target,
+                False,
+            )
+        )
+    run_targets.append(
         (
             f"run_{DESCRIPTOR.benchmark_target}",
             f"Run {DESCRIPTOR.benchmark_target} executable",
             DESCRIPTOR.benchmark_target,
+            True,
         ),
-    ]
+    )
 
     if failed_step is None:
         benchmark_stdout = ""
-        for step_name, title, executable_name in run_targets:
+        for step_name, title, executable_name, is_benchmark in run_targets:
             try:
                 executable = _find_executable(build_dir, executable_name)
             except RuntimeError as exc:
@@ -714,8 +777,9 @@ def main() -> int:
                 print(f"ERROR: {error_message}", file=sys.stderr)
                 break
 
+            command = build_benchmark_run_command(executable, DESCRIPTOR) if is_benchmark else [str(executable)]
             step_status, step_error, stdout = _run_step(
-                storage, run_dir, step_name, title, [str(executable)], paths.repo_root
+                storage, run_dir, step_name, title, command, paths.repo_root
             )
             step_statuses.append(step_status)
             if step_name == f"run_{DESCRIPTOR.benchmark_target}":

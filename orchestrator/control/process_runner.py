@@ -49,8 +49,14 @@ def run_streaming_command(
     env: dict[str, str] | None = None,
     on_stdout: Callable[[str], None] | None = None,
     on_stderr: Callable[[str], None] | None = None,
+    cancel_event: threading.Event | None = None,
+    on_process_started: Callable[[subprocess.Popen], None] | None = None,
 ) -> ProcessResult:
-    """Run a command and stream stdout/stderr line-by-line."""
+    """Run a command and stream stdout/stderr line-by-line.
+
+    When *cancel_event* is set during execution the process is terminated,
+    then killed if it does not stop within a short grace period.
+    """
 
     started_at = datetime.now().astimezone()
     started = time.perf_counter()
@@ -74,6 +80,9 @@ def run_streaming_command(
     except OSError as exc:
         raise ProcessLaunchError(f"Could not start command: {exc}") from exc
 
+    if on_process_started is not None:
+        on_process_started(process)
+
     output_queue: queue.Queue[tuple[str, str]] = queue.Queue()
     threads = [
         threading.Thread(
@@ -90,7 +99,16 @@ def run_streaming_command(
     for thread in threads:
         thread.start()
 
+    _terminated = False
     while process.poll() is None or any(thread.is_alive() for thread in threads):
+        if cancel_event is not None and cancel_event.is_set() and not _terminated and process.poll() is None:
+            process.terminate()
+            try:
+                process.wait(timeout=2.0)
+            except subprocess.TimeoutExpired:
+                process.kill()
+                process.wait()
+            _terminated = True
         try:
             stream_name, line = output_queue.get(timeout=0.05)
         except queue.Empty:
@@ -100,8 +118,8 @@ def run_streaming_command(
         elif stream_name == "stderr" and on_stderr is not None:
             on_stderr(line)
 
-    for thread in threads:
-        thread.join()
+    for thread_p in threads:
+        thread_p.join()
 
     while not output_queue.empty():
         stream_name, line = output_queue.get_nowait()
