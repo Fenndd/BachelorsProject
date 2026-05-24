@@ -7,6 +7,7 @@ No subprocesses are spawned.
 from __future__ import annotations
 
 from datetime import datetime
+from datetime import timedelta
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import MagicMock
@@ -127,6 +128,19 @@ def test_manager_creates_run_with_sequential_ids() -> None:
     assert len(worker_calls) == 2
 
 
+def test_manager_stores_worker_handle() -> None:
+    app = SimpleNamespace()
+    app.run_worker = lambda *args, **kwargs: "worker-handle"
+    app.call_from_thread = lambda fn: fn()
+    manager = ActiveRunsManager(app)
+
+    run_id = manager.start(Path("configs/experiments/a.json"), dry_run=False)
+    run = manager.get(run_id)
+
+    assert run is not None
+    assert run.worker_handle == "worker-handle"
+
+
 def test_manager_get_returns_run() -> None:
     app = _make_mock_app()
     manager = ActiveRunsManager(app)
@@ -180,6 +194,30 @@ def test_manager_active_count_counts_starting_and_running_only() -> None:
 
     run.status = "cancelled"
     assert manager.active_count() == 0
+
+
+def test_manager_finished_history_limit_keeps_running_runs() -> None:
+    app = _make_mock_app()
+    manager = ActiveRunsManager(app)
+    now = datetime.now().astimezone()
+
+    running_id = manager.start(Path("running.json"), dry_run=False)
+    running = manager.get(running_id)
+    assert running is not None
+    running.status = "running"
+
+    for index in range(25):
+        run_id = manager.start(Path(f"finished_{index}.json"), dry_run=False)
+        run = manager.get(run_id)
+        assert run is not None
+        run.status = "succeeded"
+        run.finished_at = now + timedelta(seconds=index)
+
+    summaries = manager.list()
+
+    assert any(summary.run_id == running_id for summary in summaries)
+    assert sum(1 for summary in summaries if summary.status == "succeeded") == 20
+    assert manager.active_count() == 1
 
 
 def test_manager_cancel_sets_event() -> None:

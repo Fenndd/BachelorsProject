@@ -106,10 +106,10 @@ class MainScreen(Screen[None]):
         run_id = runs[index].run_id
         self.app.push_screen(ActiveRunScreen(run_id))
 
-    def on_button_pressed(self, event: Button.Pressed) -> None:
+    async def on_button_pressed(self, event: Button.Pressed) -> None:
         button_id = event.button.id
         if button_id == "quit":
-            self.app.exit()
+            await self.run_action("app.quit")
             return
         if button_id == "help":
             self.app.push_screen(HelpScreen())

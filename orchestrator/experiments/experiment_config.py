@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import math
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -16,6 +17,7 @@ from orchestrator.core.benchmarking.solver_registry import (
     get_solver_descriptor,
 )
 from orchestrator.shared.io.json_io import read_json
+from orchestrator.paths import paths
 
 
 class ExperimentConfigError(ValueError):
@@ -33,6 +35,11 @@ class ReportingConfig:
     formats: list[str] = field(default_factory=lambda: ["html", "pdf"])
     renderer: str = "auto"
     fail_on_error: bool = False
+
+
+@dataclass(frozen=True)
+class SelectionPolicyConfig:
+    gt_found_max_drop_points: float | None = None
 
 
 @dataclass(frozen=True)
@@ -68,6 +75,7 @@ class ExperimentConfig:
     optimization_scope: OptimizationScopeConfig
     variants: list[ExperimentVariantConfig]
     reporting: ReportingConfig = field(default_factory=ReportingConfig)
+    selection: SelectionPolicyConfig = field(default_factory=SelectionPolicyConfig)
     solver_id: str = "lambdatwist_p3p"
 
 
@@ -124,7 +132,14 @@ def load_experiment_config(path: Path | str) -> ExperimentConfig:
         default_allowed_files,
     )
     reporting = _load_reporting(payload)
+    selection = _load_selection(payload)
     variants = _load_variants(payload)
+    baseline_run_dir = _required_non_empty_string(payload, "baseline_run_dir")
+    _validate_baseline_solver_match(
+        baseline_run_dir,
+        config_path,
+        solver_descriptor.solver_id,
+    )
 
     _validate_single_variant(variants)
 
@@ -133,9 +148,10 @@ def load_experiment_config(path: Path | str) -> ExperimentConfig:
         description=_optional_string(payload, "description"),
         solver_id=solver_descriptor.solver_id,
         target_file=target_file,
-        baseline_run_dir=_required_non_empty_string(payload, "baseline_run_dir"),
+        baseline_run_dir=baseline_run_dir,
         candidate_generation=_load_candidate_generation(payload),
         reporting=reporting,
+        selection=selection,
         optimization_scope=optimization_scope,
         variants=variants,
     )
@@ -321,6 +337,95 @@ def _load_reporting(payload: dict[str, Any]) -> ReportingConfig:
     )
 
 
+def _load_selection(payload: dict[str, Any]) -> SelectionPolicyConfig:
+    selection = payload.get("selection")
+    if selection is None:
+        return SelectionPolicyConfig()
+    if not isinstance(selection, dict):
+        raise ExperimentConfigError("Field 'selection' must be an object if present.")
+
+    value = selection.get("gt_found_max_drop_points")
+    if value is None:
+        return SelectionPolicyConfig(gt_found_max_drop_points=None)
+    if not isinstance(value, (int, float)) or isinstance(value, bool):
+        raise ExperimentConfigError(
+            "Field 'selection.gt_found_max_drop_points' must be null or a "
+            "finite non-negative number."
+        )
+    numeric = float(value)
+    if not math.isfinite(numeric) or numeric < 0.0:
+        raise ExperimentConfigError(
+            "Field 'selection.gt_found_max_drop_points' must be null or a "
+            "finite non-negative number."
+        )
+    return SelectionPolicyConfig(gt_found_max_drop_points=numeric)
+
+
+def _validate_baseline_solver_match(
+    baseline_run_dir: str,
+    config_path: Path,
+    solver_id: str,
+) -> None:
+    baseline_dir = _resolve_existing_baseline_dir(baseline_run_dir, config_path)
+    if baseline_dir is None:
+        return
+    baseline_solver_id = _baseline_solver_id_from_artifacts(baseline_dir)
+    if baseline_solver_id is None:
+        return
+    if baseline_solver_id != solver_id:
+        raise ExperimentConfigError(
+            "Field 'baseline_run_dir' points to a baseline produced by a "
+            "different solver_id: "
+            f"baseline={baseline_solver_id!r}, config={solver_id!r}."
+        )
+
+
+def _resolve_existing_baseline_dir(
+    baseline_run_dir: str,
+    config_path: Path,
+) -> Path | None:
+    raw_path = Path(baseline_run_dir)
+    candidates = [raw_path] if raw_path.is_absolute() else [
+        paths.repo_root / raw_path,
+        config_path.parent / raw_path,
+    ]
+    for candidate in candidates:
+        if candidate.is_dir():
+            return candidate
+    return None
+
+
+def _baseline_solver_id_from_artifacts(baseline_dir: Path) -> str | None:
+    metadata = _safe_read_json_object(baseline_dir / "metadata.json")
+    if metadata is not None:
+        solver_id = _string_value(metadata.get("solver_id"))
+        if solver_id is not None:
+            return solver_id
+        baseline = _string_value(metadata.get("baseline"))
+        if baseline is not None:
+            return baseline
+
+    metrics = _safe_read_json_object(baseline_dir / "metrics.json")
+    benchmark = metrics.get("benchmark") if isinstance(metrics, dict) else None
+    if isinstance(benchmark, dict):
+        return _string_value(benchmark.get("solver"))
+    return None
+
+
+def _safe_read_json_object(path: Path) -> dict[str, Any] | None:
+    if not path.is_file():
+        return None
+    try:
+        payload = read_json(path)
+    except (OSError, json.JSONDecodeError):
+        return None
+    return payload if isinstance(payload, dict) else None
+
+
+def _string_value(value: Any) -> str | None:
+    return value if isinstance(value, str) and value else None
+
+
 def _validate_single_variant(variants: list[ExperimentVariantConfig]) -> None:
     if len(variants) != 1:
         raise ExperimentConfigError(
@@ -435,6 +540,9 @@ def experiment_config_to_payload(config: ExperimentConfig) -> dict[str, Any]:
             "formats": list(reporting.formats),
             "renderer": reporting.renderer,
             "fail_on_error": reporting.fail_on_error,
+        },
+        "selection": {
+            "gt_found_max_drop_points": config.selection.gt_found_max_drop_points,
         },
         "variants": [
             {

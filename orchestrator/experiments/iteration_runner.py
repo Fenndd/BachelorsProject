@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import inspect
 import sys
 import time
 from pathlib import Path
@@ -24,6 +25,7 @@ from .closed_loop_state import (
 from .experiment_config import ExperimentConfig
 from .outcome_reason import build_outcome_reason, outcome_reason_to_dict
 from orchestrator.core.benchmarking.candidate_decision import (
+    CandidateDecisionThresholds,
     evaluate_candidate_against_reference,
     write_candidate_decision,
 )
@@ -489,6 +491,27 @@ def _decision_speedup(decision: dict[str, Any] | None) -> float | None:
     return float(speedup) if isinstance(speedup, (int, float)) and not isinstance(speedup, bool) else None
 
 
+def _evaluate_candidate_with_thresholds(
+    *,
+    reference_run_dir: Path,
+    reference_kind: str,
+    candidate_run_dir: Path,
+    thresholds: CandidateDecisionThresholds,
+) -> dict[str, Any]:
+    if "thresholds" in inspect.signature(evaluate_candidate_against_reference).parameters:
+        return evaluate_candidate_against_reference(
+            reference_run_dir=reference_run_dir,
+            reference_kind=reference_kind,
+            candidate_run_dir=candidate_run_dir,
+            thresholds=thresholds,
+        )
+    return evaluate_candidate_against_reference(
+        reference_run_dir=reference_run_dir,
+        reference_kind=reference_kind,
+        candidate_run_dir=candidate_run_dir,
+    )
+
+
 def _closed_loop_phase_timings(
     iteration_started: float,
     generation_result: dict[str, Any] | None = None,
@@ -641,6 +664,9 @@ def run_closed_loop_iterations(
     variant = config.variants[0]
     llm_metadata = llm_metadata_by_variant[variant.variant_id]
     baseline_run_dir = env._resolve_path(config.baseline_run_dir)
+    decision_thresholds = CandidateDecisionThresholds(
+        gt_found_max_drop_points=config.selection.gt_found_max_drop_points,
+    )
 
     closed_loop_paths = ClosedLoopPaths.from_roots(env.WORKSPACE_ROOT, env.RESULTS_ROOT, experiment_id)
     env.initialize_current_best_source(closed_loop_paths, config)
@@ -873,15 +899,17 @@ def run_closed_loop_iterations(
             print("- iteration: verification_failed")
             continue
 
-        decision_vs_current_best = evaluate_candidate_against_reference(
+        decision_vs_current_best = _evaluate_candidate_with_thresholds(
             reference_run_dir=state.current_best_run_dir,
             reference_kind=reference_kind,
             candidate_run_dir=candidate_run_dir,
+            thresholds=decision_thresholds,
         )
-        decision_vs_original_baseline = evaluate_candidate_against_reference(
+        decision_vs_original_baseline = _evaluate_candidate_with_thresholds(
             reference_run_dir=baseline_run_dir,
             reference_kind="baseline",
             candidate_run_dir=candidate_run_dir,
+            thresholds=decision_thresholds,
         )
         write_candidate_decision(candidate_run_dir, decision_vs_current_best, "decision_vs_current_best.json")
         write_candidate_decision(candidate_run_dir, decision_vs_original_baseline, "decision_vs_original_baseline.json")

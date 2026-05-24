@@ -7,7 +7,9 @@ structured StepResult returns, see :mod:`orchestrator.shared.process.step_runner
 
 from __future__ import annotations
 
+import os
 import queue
+import signal
 import subprocess
 import threading
 import time
@@ -43,6 +45,59 @@ def _reader(
         stream.close()
 
 
+def _terminate_process_tree(process: subprocess.Popen, grace_seconds: float = 2.0) -> None:
+    """Best-effort termination of a subprocess and its children."""
+
+    if process.poll() is not None:
+        return
+
+    if os.name == "nt":
+        try:
+            subprocess.run(
+                ["taskkill", "/PID", str(process.pid), "/T", "/F"],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                timeout=grace_seconds,
+                check=False,
+            )
+        except (OSError, subprocess.SubprocessError):
+            pass
+        try:
+            process.wait(timeout=grace_seconds)
+            return
+        except subprocess.TimeoutExpired:
+            pass
+    else:
+        try:
+            os.killpg(process.pid, signal.SIGTERM)
+            process.wait(timeout=grace_seconds)
+            return
+        except ProcessLookupError:
+            return
+        except subprocess.TimeoutExpired:
+            try:
+                os.killpg(process.pid, signal.SIGKILL)
+                process.wait(timeout=grace_seconds)
+                return
+            except (OSError, subprocess.SubprocessError):
+                pass
+        except OSError:
+            pass
+
+    try:
+        process.terminate()
+        process.wait(timeout=grace_seconds)
+    except subprocess.TimeoutExpired:
+        process.kill()
+        process.wait()
+    except OSError:
+        try:
+            process.kill()
+            process.wait()
+        except OSError:
+            pass
+
+
 def run_streaming_command(
     command: list[str],
     cwd: Path,
@@ -63,16 +118,18 @@ def run_streaming_command(
     cwd = cwd.resolve()
 
     try:
-        process = subprocess.Popen(
-            command,
-            cwd=str(cwd),
-            env=env,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True,
-            bufsize=1,
-            shell=False,
-        )
+        popen_kwargs = {
+            "cwd": str(cwd),
+            "env": env,
+            "stdout": subprocess.PIPE,
+            "stderr": subprocess.PIPE,
+            "text": True,
+            "bufsize": 1,
+            "shell": False,
+        }
+        if cancel_event is not None and os.name != "nt":
+            popen_kwargs["start_new_session"] = True
+        process = subprocess.Popen(command, **popen_kwargs)
     except FileNotFoundError as exc:
         raise ProcessLaunchError(
             f"Command executable not found: {command[0]}"
@@ -102,12 +159,7 @@ def run_streaming_command(
     _terminated = False
     while process.poll() is None or any(thread.is_alive() for thread in threads):
         if cancel_event is not None and cancel_event.is_set() and not _terminated and process.poll() is None:
-            process.terminate()
-            try:
-                process.wait(timeout=2.0)
-            except subprocess.TimeoutExpired:
-                process.kill()
-                process.wait()
+            _terminate_process_tree(process)
             _terminated = True
         try:
             stream_name, line = output_queue.get(timeout=0.05)

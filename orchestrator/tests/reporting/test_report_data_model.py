@@ -56,6 +56,7 @@ def test_json_output_contains_required_top_level_sections(tmp_path: Path) -> Non
         "report_metadata",
         "experiment",
         "final_result",
+        "selection_policy",
         "baseline_metrics",
         "iterations",
         "status_counts",

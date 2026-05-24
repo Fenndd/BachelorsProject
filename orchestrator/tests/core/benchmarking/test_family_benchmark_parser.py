@@ -139,20 +139,40 @@ class PoseLibNativeBenchmarkParserTests(unittest.TestCase):
         self.assertEqual(parsed["metrics"]["parsed_runtime_ns_per_problem_median"], 50.0)
         self.assertIs(parsed["metrics"]["correctness_passed"], True)
 
-    def test_thresholds_override_cpp_correctness_flag(self) -> None:
+    def test_low_gt_found_does_not_override_cpp_correctness_flag(self) -> None:
         parsed = parse_poselib_native_benchmark_output(
             'POSELIB_BENCHMARK_JSON={"solver_key":"p3p","benchmark_kind":"absolute_pose",'
             '"instances":100,"solutions_total":200,"solutions_per_problem":2.0,'
             '"valid_solutions":198,"valid_solutions_percent":99.0,'
             '"gt_found":98,"gt_found_percent":98.0,'
             '"runtime_ns_total_median":5000,"runtime_ns_per_problem_median":50.0,'
-            '"tolerance":1e-6,"correctness_passed":true}',
-            min_gt_found_percent=99.0,
-            min_valid_solutions_percent=99.0,
+            '"tolerance":1e-6,"correctness_passed":true}'
         )
 
         self.assertTrue(parsed["parse_success"])
-        self.assertIs(parsed["metrics"]["correctness_passed"], False)
+        self.assertIs(parsed["metrics"]["correctness_passed"], True)
+        self.assertIs(parsed["metrics"]["parsed_correctness_passed"], True)
+
+    def test_missing_cpp_correctness_flag_defaults_true_when_metrics_parse(self) -> None:
+        parsed = parse_poselib_native_benchmark_output(
+            'POSELIB_BENCHMARK_JSON={"solver_key":"p3p","benchmark_kind":"absolute_pose",'
+            '"instances":100,"solutions_total":200,"solutions_per_problem":2.0,'
+            '"valid_solutions":198,"valid_solutions_percent":99.0,'
+            '"gt_found":50,"gt_found_percent":50.0,'
+            '"runtime_ns_total_median":5000,"runtime_ns_per_problem_median":50.0,'
+            '"tolerance":1e-6}'
+        )
+
+        self.assertTrue(parsed["parse_success"])
+        self.assertIs(parsed["metrics"]["correctness_passed"], True)
+
+    def test_malformed_poselib_json_fails(self) -> None:
+        parsed = parse_poselib_native_benchmark_output(
+            'POSELIB_BENCHMARK_JSON={"solver_key":"p3p",'
+        )
+
+        self.assertFalse(parsed["parse_success"])
+        self.assertTrue(parsed["parse_errors"])
 
 
 if __name__ == "__main__":

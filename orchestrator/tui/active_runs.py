@@ -96,6 +96,7 @@ class ActiveRunsManager:
         self._counter = 0
         self._runs: dict[str, ActiveRun] = {}
         self._lock = threading.Lock()
+        self._max_finished_history = 20
 
     def start(self, config_path: Path, dry_run: bool = False) -> str:
         with self._lock:
@@ -124,12 +125,13 @@ class ActiveRunsManager:
             run.finished_at = datetime.now().astimezone()
             return run_id
 
-        run_worker(
+        worker_handle = run_worker(
             lambda: self._run_worker(run, config_path, dry_run),
             thread=True,
             exit_on_error=False,
             exclusive=False,
         )
+        run.worker_handle = worker_handle
         return run_id
 
     def get(self, run_id: str) -> ActiveRun | None:
@@ -137,6 +139,7 @@ class ActiveRunsManager:
 
     def list(self) -> list[ActiveRunSummary]:
         with self._lock:
+            self._prune_finished_locked()
             return [run.summary() for run in self._runs.values()]
 
     def attach(
@@ -175,6 +178,26 @@ class ActiveRunsManager:
         return sum(
             1 for run in self._runs.values() if run.status in ("starting", "running")
         )
+
+    def _prune_finished_locked(self) -> None:
+        finished = [
+            run
+            for run in self._runs.values()
+            if run.status not in ("starting", "running")
+        ]
+        if len(finished) <= self._max_finished_history:
+            return
+        keep = {
+            run.run_id
+            for run in sorted(
+                finished,
+                key=lambda r: r.finished_at or r.started_at,
+                reverse=True,
+            )[: self._max_finished_history]
+        }
+        for run in finished:
+            if run.run_id not in keep:
+                self._runs.pop(run.run_id, None)
 
     def _notify_subscribers(
         self,
@@ -248,5 +271,7 @@ class ActiveRunsManager:
             run.message = str(exc)
         finally:
             run.finished_at = datetime.now().astimezone()
+            with self._lock:
+                self._prune_finished_locked()
             self._notify_subscribers(run, None, None)
             write_tui_debug(f"worker finished for {run.run_id} status={run.status}")

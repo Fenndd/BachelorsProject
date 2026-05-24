@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import Any
 
 from orchestrator.core.benchmarking.candidate_decision import (
+    CandidateDecisionThresholds,
     evaluate_candidate_against_baseline,
     evaluate_candidate_against_reference,
     write_candidate_decision,
@@ -25,6 +26,7 @@ from orchestrator.tests.conftest import write_json, make_benchmark_payload
 def _evaluate(
     baseline_overrides: dict[str, Any] | None = None,
     candidate_overrides: dict[str, Any] | None = None,
+    thresholds: CandidateDecisionThresholds | None = None,
 ) -> dict[str, Any]:
     baseline_overrides = baseline_overrides or {}
     candidate_overrides = candidate_overrides or {}
@@ -39,7 +41,11 @@ def _evaluate(
         write_json(baseline_run / "metrics.json", make_benchmark_payload(**baseline_overrides))
         write_json(candidate_run / "verification.json", make_benchmark_payload(**candidate_overrides))
 
-        return evaluate_candidate_against_baseline(baseline_run, candidate_run)
+        return evaluate_candidate_against_baseline(
+            baseline_run,
+            candidate_run,
+            thresholds=thresholds,
+        )
 
 
 class CandidateDecisionTests(unittest.TestCase):
@@ -131,6 +137,59 @@ class CandidateDecisionTests(unittest.TestCase):
         self.assertEqual(decision["candidate_metrics"]["gt_found_percent"], 100.0)
         self.assertNotIn("runtime_ns_per_case_median", decision["candidate_metrics"])
         self.assertNotIn("mean_best_reprojection_error", decision["candidate_metrics"])
+
+    def test_gt_found_gate_disabled_does_not_reject_runtime_improvement(self) -> None:
+        decision = _evaluate(
+            baseline_overrides={"parsed_gt_found_percent": 100.0},
+            candidate_overrides={
+                "parsed_runtime_ns_per_problem_median": 800.0,
+                "parsed_gt_found_percent": 90.0,
+            },
+        )
+
+        self.assertEqual(decision["status"], "accepted_improvement")
+        self.assertFalse(decision["comparison"]["gt_found_gate_enabled"])
+        self.assertEqual(decision["comparison"]["gt_found_delta_points"], -10.0)
+
+    def test_gt_found_gate_zero_rejects_any_drop(self) -> None:
+        decision = _evaluate(
+            baseline_overrides={"parsed_gt_found_percent": 100.0},
+            candidate_overrides={
+                "parsed_runtime_ns_per_problem_median": 800.0,
+                "parsed_gt_found_percent": 99.9,
+            },
+            thresholds=CandidateDecisionThresholds(gt_found_max_drop_points=0.0),
+        )
+
+        self.assertEqual(decision["status"], "rejected")
+        self.assertIn("gt_found_drop_exceeds_max_drop_points", decision["rejection_reasons"])
+
+    def test_gt_found_gate_two_points_accepts_within_drop(self) -> None:
+        decision = _evaluate(
+            baseline_overrides={"parsed_gt_found_percent": 100.0},
+            candidate_overrides={
+                "parsed_runtime_ns_per_problem_median": 800.0,
+                "parsed_gt_found_percent": 98.0,
+            },
+            thresholds=CandidateDecisionThresholds(gt_found_max_drop_points=2.0),
+        )
+
+        self.assertEqual(decision["status"], "accepted_improvement")
+        self.assertEqual(decision["comparison"]["gt_found_drop_points"], 2.0)
+
+    def test_gt_found_gate_two_points_rejects_larger_drop(self) -> None:
+        decision = _evaluate(
+            baseline_overrides={"parsed_gt_found_percent": 100.0},
+            candidate_overrides={
+                "parsed_runtime_ns_per_problem_median": 800.0,
+                "parsed_gt_found_percent": 97.9,
+            },
+            thresholds=CandidateDecisionThresholds(gt_found_max_drop_points=2.0),
+        )
+
+        self.assertEqual(decision["status"], "rejected")
+        self.assertAlmostEqual(decision["comparison"]["gt_found_delta_points"], -2.1)
+        self.assertIn("gt_found_drop_exceeds_max_drop_points", decision["rejection_reasons"])
 
 
 if __name__ == "__main__":

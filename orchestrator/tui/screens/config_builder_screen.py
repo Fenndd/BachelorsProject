@@ -10,8 +10,8 @@ from typing import Any
 
 from textual.app import ComposeResult
 from textual.containers import Horizontal, VerticalScroll
-from textual.screen import Screen
-from textual.widgets import Button, Footer, Header, Input, RichLog, Select, Static, Switch, TextArea
+from textual.screen import ModalScreen, Screen
+from textual.widgets import Button, Footer, Header, Input, ListItem, ListView, RichLog, Select, Static, Switch, TextArea
 
 from orchestrator.control import get_project_paths
 from orchestrator.control import list_run_items
@@ -67,19 +67,81 @@ def _discover_llm_configs() -> list[tuple[str, str]]:
     return options
 
 
-def _discover_baseline_runs() -> list[tuple[str, str]]:
-    """Discover baseline runs from ``results/runs/``.
+def _json_object_or_empty(path: Path | None) -> dict[str, Any]:
+    if path is None or not path.is_file():
+        return {}
+    try:
+        payload = read_json(path)
+    except (OSError, json.JSONDecodeError, ValueError):
+        return {}
+    return payload if isinstance(payload, dict) else {}
 
-    Returns list of (display_label, repo_relative_dir).
+
+def _status_from_run(item: Any) -> str | None:
+    status_payload = _json_object_or_empty(getattr(item.artifacts, "status_json", None))
+    for key in ("overall_status", "status"):
+        value = status_payload.get(key)
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+    status = getattr(item, "status", None)
+    return status if isinstance(status, str) and status.strip() else None
+
+
+def _solver_from_run(item: Any) -> str | None:
+    metadata = _json_object_or_empty(getattr(item.artifacts, "metadata_json", None))
+    metrics = _json_object_or_empty(getattr(item.artifacts, "metrics_json", None))
+    benchmark = metrics.get("benchmark") if isinstance(metrics.get("benchmark"), dict) else {}
+    for value in (
+        benchmark.get("solver") if isinstance(benchmark, dict) else None,
+        metadata.get("solver_id"),
+        metadata.get("baseline"),
+    ):
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+    return None
+
+
+def _is_success_status(status: str | None) -> bool:
+    return status is not None and status.lower() in {"success", "succeeded", "completed"}
+
+
+def _looks_like_candidate_item(item: Any) -> bool:
+    if "/" in getattr(item, "name", "").replace("\\", "/"):
+        return True
+    path = getattr(item, "path", None)
+    if not isinstance(path, Path):
+        return False
+    if (path / "candidate.json").exists() or (path / "llm_request.json").exists():
+        return True
+    status_payload = _json_object_or_empty(getattr(item.artifacts, "status_json", None))
+    scenario = status_payload.get("scenario")
+    return isinstance(scenario, str) and scenario != "baseline"
+
+
+def _discover_baseline_runs(solver_id: str | None = None) -> list[tuple[str, str]]:
+    """Discover successful baseline runs from ``results/runs/``.
+
+    Returns list of (display_label, repo_relative_dir), preferring runs whose
+    metrics/metadata solver matches *solver_id* when it is known.
     """
     paths = get_project_paths()
     try:
         run_items = list_run_items(paths.repo_root)
     except Exception:
         run_items = []
-    options: list[tuple[str, str]] = []
+    matching: list[tuple[str, str]] = []
+    unknown_solver: list[tuple[str, str]] = []
+    fallback: list[tuple[str, str]] = []
     seen: set[str] = set()
     for item in run_items:
+        if _looks_like_candidate_item(item):
+            continue
+        status = _status_from_run(item)
+        if not _is_success_status(status):
+            continue
+        run_solver = _solver_from_run(item)
+        if solver_id and run_solver is not None and run_solver != solver_id:
+            continue
         try:
             rel = str(item.path.relative_to(paths.repo_root)).replace("\\", "/")
         except ValueError:
@@ -87,10 +149,21 @@ def _discover_baseline_runs() -> list[tuple[str, str]]:
         if rel in seen:
             continue
         seen.add(rel)
-        label = f"{rel} [{item.status or '?'}]"
-        options.append((label, rel))
+        solver_label = run_solver if run_solver is not None else "unknown solver"
+        label = f"{rel} [{status or '?'}] [{solver_label}]"
+        option = (label, rel)
+        if solver_id and run_solver == solver_id:
+            matching.append(option)
+        elif run_solver is None:
+            unknown_solver.append(option)
+        else:
+            fallback.append(option)
+    if solver_id:
+        options = matching or unknown_solver
+    else:
+        options = [*matching, *unknown_solver, *fallback]
     if not options:
-        options.append(("No runs found -- type path manually", ""))
+        options.append(("No matching baseline runs found -- type path manually", ""))
     return options
 
 
@@ -102,6 +175,117 @@ def _safe_name(name: str) -> str:
     safe = re.sub(r"_+", "_", safe)
     safe = safe.strip("_").lower() or "experiment_config"
     return safe
+
+
+class ConfirmPaidRunScreen(ModalScreen[bool]):
+    """Confirm launching a real experiment that may call paid LLM APIs."""
+
+    DEFAULT_CSS = """
+    ConfirmPaidRunScreen {
+        align: center middle;
+    }
+    #paid-run-dialog {
+        width: 62;
+        height: auto;
+        background: #1f2937;
+        border: solid #ef4444;
+        padding: 2 3;
+    }
+    #paid-run-dialog Static {
+        color: #f8fafc;
+        margin-bottom: 1;
+    }
+    #paid-run-dialog Button {
+        width: 100%;
+    }
+    """
+
+    def __init__(self, config_path: Path) -> None:
+        super().__init__()
+        self._config_path = config_path
+
+    def compose(self) -> ComposeResult:
+        with VerticalScroll(id="paid-run-dialog"):
+            yield Static(
+                "This will start a real LLM experiment and may use paid LLM API calls.\n"
+                f"Config: {self._config_path}"
+            )
+            with Horizontal():
+                yield Button("Confirm Run", id="confirm-paid-run", variant="error")
+                yield Button("Cancel", id="cancel-paid-run", variant="primary")
+
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        if event.button.id == "confirm-paid-run":
+            self.dismiss(True)
+        elif event.button.id == "cancel-paid-run":
+            self.dismiss(False)
+
+
+class ConfigFilePickerScreen(ModalScreen[Path | None]):
+    """Simple modal file picker for config builder templates/local files."""
+
+    DEFAULT_CSS = """
+    ConfigFilePickerScreen {
+        align: center middle;
+    }
+    #config-file-picker {
+        width: 72;
+        height: 22;
+        background: #1f2937;
+        border: solid #6b7280;
+        padding: 1 2;
+    }
+    #config-file-picker Static {
+        color: #f8fafc;
+        margin-bottom: 1;
+    }
+    #config-file-list {
+        height: 1fr;
+        margin-bottom: 1;
+    }
+    """
+
+    def __init__(self, title: str, paths: list[Path]) -> None:
+        super().__init__()
+        self._title = title
+        self._paths = paths
+
+    def compose(self) -> ComposeResult:
+        with VerticalScroll(id="config-file-picker"):
+            yield Static(self._title)
+            if self._paths:
+                yield ListView(
+                    *[ListItem(Static(str(path))) for path in self._paths],
+                    id="config-file-list",
+                )
+            else:
+                yield Static("No files found.")
+            with Horizontal():
+                yield Button("Load Selected", id="load-selected", variant="primary")
+                yield Button("Cancel", id="cancel-picker")
+
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        if event.button.id == "cancel-picker":
+            self.dismiss(None)
+            return
+        if event.button.id == "load-selected":
+            self._dismiss_selected()
+
+    def on_list_view_selected(self, event: ListView.Selected) -> None:
+        if event.list_view.id == "config-file-list":
+            self._dismiss_selected()
+
+    def _dismiss_selected(self) -> None:
+        if not self._paths:
+            self.dismiss(None)
+            return
+        try:
+            index = self.query_one("#config-file-list", ListView).index
+        except Exception:
+            index = 0
+        if index is None or index < 0 or index >= len(self._paths):
+            index = 0
+        self.dismiss(self._paths[index])
 
 
 class ConfigBuilderScreen(Screen[None]):
@@ -144,6 +328,7 @@ class ConfigBuilderScreen(Screen[None]):
         self._baseline_runs = _discover_baseline_runs()
         self._templates: list[Path] = self._discover_templates()
         self._local_configs: list[Path] = self._discover_local()
+        self._pending_run_config: Path | None = None
 
     def _discover_templates(self) -> list[Path]:
         paths = get_project_paths()
@@ -240,6 +425,14 @@ class ConfigBuilderScreen(Screen[None]):
                     yield Static("fail_on_error:")
                     yield Switch(id="reporting_fail_on_error", value=False)
 
+                yield Static("Selection", classes="field-label")
+                yield Static("GT found max drop points", classes="field-label")
+                yield Input(
+                    placeholder="empty = null, e.g. 0.5",
+                    id="gt_found_max_drop_points",
+                    classes="field-widget",
+                )
+
                 yield Static("Variant", classes="field-label")
                 yield Input(
                     placeholder="variant_id (auto-generated if empty)",
@@ -334,9 +527,12 @@ class ConfigBuilderScreen(Screen[None]):
         select = self.query_one("#algorithm", Select)
         selected = select.value
         if not selected or selected == Select.BLANK:
+            self._refresh_baseline_options(None)
             return
         if not isinstance(selected, str):
+            self._refresh_baseline_options(None)
             return
+        self._refresh_baseline_options(selected)
         for label, solver_id, target_file, allowed_files in self._solver_options:
             if solver_id == selected:
                 if target_file:
@@ -346,6 +542,24 @@ class ConfigBuilderScreen(Screen[None]):
                     textarea.clear()
                     textarea.insert("\n".join(allowed_files))
                 return
+
+    def _refresh_baseline_options(self, solver_id: str | None) -> None:
+        self._baseline_runs = _discover_baseline_runs(solver_id)
+        run_opts: list[tuple[str, str]] = self._baseline_runs[:]
+        if run_opts and run_opts[-1][1] != "":
+            run_opts.append(("-- custom path --", "__custom__"))
+        try:
+            select = self.query_one("#baseline_run_sel", Select)
+            old_value = select.value if isinstance(select.value, str) else ""
+            set_options = getattr(select, "set_options", None)
+            if callable(set_options):
+                set_options(run_opts)
+            elif hasattr(select, "options"):
+                select.options = run_opts  # type: ignore[attr-defined]
+            values = {value for _, value in run_opts}
+            select.value = old_value if old_value in values else (run_opts[0][1] if run_opts else "")
+        except Exception:
+            pass
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
         btn_id = event.button.id or ""
@@ -377,6 +591,22 @@ class ConfigBuilderScreen(Screen[None]):
             return sel.value
         return self.query_one("#baseline_run_dir", Input).value.strip()
 
+    def _parse_selection_gt_drop(self) -> float | None:
+        raw = self.query_one("#gt_found_max_drop_points", Input).value.strip()
+        if not raw:
+            return None
+        try:
+            value = float(raw)
+        except ValueError as exc:
+            raise ExperimentConfigError(
+                "Field 'selection.gt_found_max_drop_points' must be empty or a non-negative number."
+            ) from exc
+        if value < 0:
+            raise ExperimentConfigError(
+                "Field 'selection.gt_found_max_drop_points' must be greater than or equal to 0."
+            )
+        return value
+
     def _build_payload(self) -> dict[str, Any]:
         allowed_files_text = self.query_one("#allowed_files", TextArea).text
         allowed_files = [line.strip() for line in allowed_files_text.splitlines() if line.strip()]
@@ -386,7 +616,8 @@ class ConfigBuilderScreen(Screen[None]):
             formats.append("html")
         if self.query_one("#reporting_pdf", Switch).value:
             formats.append("pdf")
-        if not formats:
+        reporting_enabled = bool(formats)
+        if not reporting_enabled:
             formats = ["html"]
 
         renderer = self.query_one("#reporting_renderer", Select).value
@@ -394,7 +625,6 @@ class ConfigBuilderScreen(Screen[None]):
             renderer = "auto"
 
         fail_on_error = bool(self.query_one("#reporting_fail_on_error", Switch).value)
-        reporting_enabled = len(formats) > 0
 
         llm_overrides: dict[str, Any] | None = None
         override_provider = self.query_one("#llm_provider_override", Select).value
@@ -470,6 +700,9 @@ class ConfigBuilderScreen(Screen[None]):
                 "renderer": renderer,
                 "fail_on_error": fail_on_error,
             },
+            "selection": {
+                "gt_found_max_drop_points": self._parse_selection_gt_drop(),
+            },
             "variants": [
                 {
                     "variant_id": variant_id,
@@ -489,12 +722,12 @@ class ConfigBuilderScreen(Screen[None]):
 
     def _validate(self) -> str | None:
         self._clear_log()
-        payload = self._build_payload()
-        with tempfile.NamedTemporaryFile(
-            mode="w", suffix=".json", delete=False, encoding="utf-8"
-        ) as tmp:
-            json.dump(payload, tmp, indent=2, ensure_ascii=False)
-            tmp_path = Path(tmp.name)
+        try:
+            payload = self._build_payload()
+        except ExperimentConfigError as exc:
+            self._log(f"[error] Validation failed: {exc}")
+            return str(exc)
+        tmp_path = self._write_temp_payload(payload)
         try:
             load_experiment_config(tmp_path)
             self._log("[success] Config is valid.")
@@ -511,34 +744,70 @@ class ConfigBuilderScreen(Screen[None]):
             except OSError:
                 pass
 
+    def _write_temp_payload(self, payload: dict[str, Any]) -> Path:
+        with tempfile.NamedTemporaryFile(
+            mode="w", suffix=".json", delete=False, encoding="utf-8"
+        ) as tmp:
+            json.dump(payload, tmp, indent=2, ensure_ascii=False)
+            tmp.write("\n")
+            return Path(tmp.name)
+
     def _save_to_local(self) -> Path | None:
         self._clear_log()
-        payload = self._build_payload()
+        try:
+            payload = self._build_payload()
+        except ExperimentConfigError as exc:
+            self._log(f"[error] Validation failed: {exc}")
+            return None
         name = payload.get("experiment_name", "")
         safe = _safe_name(str(name))
         paths = get_project_paths()
         local_dir = paths.experiments_config / "local"
         local_dir.mkdir(parents=True, exist_ok=True)
         out_path = local_dir / f"{safe}.json"
+        tmp_path = self._write_temp_payload(payload)
         try:
             from orchestrator.shared.io.json_io import write_json
 
+            load_experiment_config(tmp_path)
             write_json(out_path, payload)
+            load_experiment_config(out_path)
         except OSError as exc:
             self._log(f"[error] Could not write config: {exc}")
             return None
-        self._log(f"[success] Saved to: {out_path}")
-
-        try:
-            load_experiment_config(out_path)
-            self._log("[success] Saved config passes validation.")
         except ExperimentConfigError as exc:
-            self._log(f"[warning] Saved but validation failed: {exc}")
+            try:
+                out_path.unlink(missing_ok=True)
+            except OSError:
+                pass
+            self._log(f"[error] Validation failed: {exc}")
+            return None
+        finally:
+            try:
+                tmp_path.unlink(missing_ok=True)
+            except OSError:
+                pass
+        self._log(f"[success] Saved to: {out_path}")
+        self._log("[success] Saved config passes validation.")
         return out_path
 
     def _save_and_run(self) -> None:
         saved = self._save_to_local()
         if saved is None:
+            return
+        self._pending_run_config = saved
+        try:
+            self.app.push_screen(ConfirmPaidRunScreen(saved), callback=self._on_paid_run_confirmed)
+        except Exception as exc:
+            self._log(f"[error] Could not show paid-run confirmation: {exc}")
+
+    def _on_paid_run_confirmed(self, confirmed: bool | None) -> None:
+        saved = self._pending_run_config
+        self._pending_run_config = None
+        if saved is None:
+            return
+        if not confirmed:
+            self._log("[info] Real run cancelled. Saved config was kept.")
             return
 
         active_runs = getattr(self.app, "active_runs_manager", None)
@@ -549,7 +818,7 @@ class ConfigBuilderScreen(Screen[None]):
                 run_id = start_fn(saved, dry_run=False)
                 active_screen = self._try_import_active_run_screen()
                 if active_screen is not None:
-                    self.app.push_screen(active_screen(run_id))
+                    self.app.push_screen(active_screen(str(run_id)))
                 return
 
         self._log("[info] Config saved. Open 'Run Experiment' to launch it.")
@@ -564,28 +833,32 @@ class ConfigBuilderScreen(Screen[None]):
             return None
 
     def _load_template(self) -> None:
-        templates = self._templates
+        templates = self._discover_templates()
+        self._templates = templates
         if not templates:
             self._log("[warning] No templates found under configs/experiments/templates/")
             return
-        if len(templates) == 1:
-            self._load_config_from_path(templates[0])
-            self._log(f"[info] Loaded template: {templates[0].name}")
-            return
-        self._log("[info] Multiple templates available. Picking first one. Use Load Local for more options.")
-        self._load_config_from_path(templates[0])
+        self.app.push_screen(
+            ConfigFilePickerScreen("Select a template config", templates),
+            callback=self._on_config_file_selected,
+        )
 
     def _load_local(self) -> None:
-        locals_ = self._local_configs
+        locals_ = self._discover_local()
+        self._local_configs = locals_
         if not locals_:
             self._log("[warning] No configs found under configs/experiments/local/")
             return
-        if len(locals_) == 1:
-            self._load_config_from_path(locals_[0])
-            self._log(f"[info] Loaded local config: {locals_[0].name}")
+        self.app.push_screen(
+            ConfigFilePickerScreen("Select a local config", locals_),
+            callback=self._on_config_file_selected,
+        )
+
+    def _on_config_file_selected(self, path: Path | None) -> None:
+        if path is None:
+            self._log("[info] File selection cancelled.")
             return
-        self._log("[info] Multiple local configs available. Picking most recent one.")
-        self._load_config_from_path(locals_[-1])
+        self._load_config_from_path(path)
 
     def _load_config_from_path(self, path: Path) -> None:
         try:
@@ -623,7 +896,10 @@ class ConfigBuilderScreen(Screen[None]):
         reporting = payload.get("reporting")
         if isinstance(reporting, dict):
             formats = reporting.get("formats")
-            if isinstance(formats, list):
+            if reporting.get("enabled") is False:
+                self.query_one("#reporting_html", Switch).value = False
+                self.query_one("#reporting_pdf", Switch).value = False
+            elif isinstance(formats, list):
                 self.query_one("#reporting_html", Switch).value = "html" in formats
                 self.query_one("#reporting_pdf", Switch).value = "pdf" in formats
             renderer = reporting.get("renderer")
@@ -631,6 +907,14 @@ class ConfigBuilderScreen(Screen[None]):
                 self.query_one("#reporting_renderer", Select).value = renderer
             if isinstance(reporting.get("fail_on_error"), bool):
                 self.query_one("#reporting_fail_on_error", Switch).value = reporting["fail_on_error"]
+
+        selection = payload.get("selection")
+        if isinstance(selection, dict):
+            gt_drop = selection.get("gt_found_max_drop_points")
+            if gt_drop is None:
+                self._set_input("gt_found_max_drop_points", "")
+            elif isinstance(gt_drop, (int, float)) and not isinstance(gt_drop, bool):
+                self._set_input("gt_found_max_drop_points", str(float(gt_drop)))
 
         variants = payload.get("variants")
         if isinstance(variants, list) and variants:

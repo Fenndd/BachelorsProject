@@ -74,6 +74,14 @@ class ReportFinalResult:
 
 
 @dataclass
+class ReportSelectionPolicy:
+    """Experiment-level candidate selection policy shown in reports."""
+
+    gt_found_gate_enabled: bool = False
+    gt_found_max_drop_points: float | None = None
+
+
+@dataclass
 class ReportBaselineMetrics:
     """Baseline benchmark and correctness metrics."""
 
@@ -156,6 +164,9 @@ class ReportIterationSummary:
     expected_effect: str | None = None
     risk_level: str | None = None
     runtime_ns_per_problem_median: float | None = None
+    gt_found_percent: float | None = None
+    gt_found_delta_points_vs_original_baseline: float | None = None
+    gt_found_delta_points_vs_current_best: float | None = None
     speedup_vs_current_best: float | None = None
     speedup_vs_baseline: float | None = None
     correctness_passed: bool | None = None
@@ -310,6 +321,9 @@ class ReportFinalSelection:
     runtime_reduction_percent: float | None = None
     baseline_runtime_ns_per_problem_median: float | None = None
     final_runtime_ns_per_problem_median: float | None = None
+    baseline_gt_found_percent: float | None = None
+    final_gt_found_percent: float | None = None
+    final_gt_found_delta_points: float | None = None
     final_correctness_passed: bool | None = None
 
 
@@ -325,6 +339,9 @@ class ReportFinalBestCandidate:
     speedup_vs_baseline: float | None = None
     runtime_reduction_percent: float | None = None
     correctness_passed: bool | None = None
+    baseline_gt_found_percent: float | None = None
+    gt_found_percent: float | None = None
+    gt_found_delta_points: float | None = None
     candidate_summary: str | None = None
     expected_effect: str | None = None
     risk_level: str | None = None
@@ -361,6 +378,7 @@ class ReportData:
     report_metadata: ReportMetadata = field(default_factory=ReportMetadata)
     experiment: ExperimentReportInfo
     final_result: ReportFinalResult = field(default_factory=ReportFinalResult)
+    selection_policy: ReportSelectionPolicy = field(default_factory=ReportSelectionPolicy)
     baseline_metrics: ReportBaselineMetrics = field(default_factory=ReportBaselineMetrics)
     iterations: list[ReportIterationSummary] = field(default_factory=list)
     status_counts: ReportStatusCounts | dict[str, int] = field(default_factory=ReportStatusCounts)
@@ -459,6 +477,7 @@ __all__ = [
     "ReportReasonCodeCount",
     "ReportReasonSummaryItem",
     "ReportReportingStatus",
+    "ReportSelectionPolicy",
     "ReportStatusCounts",
     "default_status_counts",
     "make_empty_report_data",

@@ -8,7 +8,7 @@ from types import SimpleNamespace
 pytestmark = pytest.mark.unit
 
 from orchestrator.tui import debug_log
-from orchestrator.tui.app import OptimizerTuiApp
+from orchestrator.tui.app import OptimizerTuiApp, QuitConfirmScreen
 from orchestrator.tui.active_runs import ActiveRunsManager, ActiveRun, ActiveRunStatus
 from orchestrator.tui.screens.baseline_screen import BaselineScreen
 from orchestrator.tui.screens.experiment_screen import ExperimentScreen
@@ -83,6 +83,45 @@ def test_optimizer_tui_quit_shows_modal_when_runs_active(monkeypatch) -> None:
     assert not exits
     assert len(pushed_screens) == 1
     assert getattr(pushed_screens[0], "_count", 0) == 2
+
+
+def test_optimizer_tui_quit_shows_modal_when_legacy_process_active(monkeypatch) -> None:
+    app = OptimizerTuiApp()
+    pushed_screens: list[object] = []
+    exits: list[bool] = []
+
+    app.register_process()
+    monkeypatch.setattr(OptimizerTuiApp, "exit", lambda self: exits.append(True))
+    monkeypatch.setattr(
+        OptimizerTuiApp,
+        "push_screen",
+        lambda self, screen, callback=None: pushed_screens.append(screen),
+    )
+    monkeypatch.setattr(app.active_runs_manager, "active_count", lambda: 0)
+
+    asyncio.run(app.action_quit())
+
+    assert not exits
+    assert len(pushed_screens) == 1
+    assert getattr(pushed_screens[0], "_legacy_count", 0) == 1
+
+
+def test_optimizer_tui_quit_confirm_cancels_and_exits_after_runs_stop(monkeypatch) -> None:
+    app = OptimizerTuiApp()
+    cancelled: list[bool] = []
+    exits: list[bool] = []
+    stopped: list[bool] = []
+
+    monkeypatch.setattr(app.active_runs_manager, "cancel_all", lambda: cancelled.append(True))
+    monkeypatch.setattr(app.active_runs_manager, "active_count", lambda: 0)
+    monkeypatch.setattr(OptimizerTuiApp, "exit", lambda self: exits.append(True))
+    monkeypatch.setattr(app, "set_interval", lambda *_args, **_kwargs: SimpleNamespace(stop=lambda: stopped.append(True)))
+
+    app._on_quit_confirm(True)
+
+    assert cancelled == [True]
+    assert exits == [True]
+    assert stopped == [True]
 
 
 # ---------------------------------------------------------------------------
@@ -260,6 +299,27 @@ def test_experiment_screen_initializes_without_queues_or_timers() -> None:
     assert not hasattr(screen, "_result_queue")
     assert not hasattr(screen, "_drain_timer")
     assert not hasattr(screen, "_watchdog_timer")
+
+
+def test_active_run_screen_escape_action_pops_without_cancelling(monkeypatch) -> None:
+    from orchestrator.tui.screens.active_run_screen import ActiveRunScreen
+
+    screen = ActiveRunScreen("run_001")
+    popped: list[bool] = []
+    cancelled: list[str] = []
+    monkeypatch.setattr(
+        ActiveRunScreen,
+        "app",
+        SimpleNamespace(
+            pop_screen=lambda: popped.append(True),
+            active_runs_manager=SimpleNamespace(cancel=lambda run_id: cancelled.append(run_id)),
+        ),
+    )
+
+    screen.action_request_back()
+
+    assert popped == [True]
+    assert cancelled == []
 
 
 def test_experiment_start_before_ready_is_ignored(monkeypatch) -> None:

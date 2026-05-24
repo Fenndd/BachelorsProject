@@ -723,8 +723,6 @@ void print_json_result(const BenchmarkCase &benchmark_case, const poselib::Bench
                                         ? static_cast<double>(result.found_gt_pose_) / instances * 100.0
                                         : 0.0;
     const double runtime_per_problem = instances > 0.0 ? static_cast<double>(result.runtime_ns_) / instances : 0.0;
-    const bool correctness_passed = valid_solutions_percent >= 99.0 && gt_found_percent >= 99.0;
-
     std::ostringstream json;
     json << std::boolalpha << std::setprecision(12);
     json << "POSELIB_BENCHMARK_JSON={";
@@ -739,8 +737,7 @@ void print_json_result(const BenchmarkCase &benchmark_case, const poselib::Bench
     json << "\"gt_found_percent\":" << gt_found_percent << ",";
     json << "\"runtime_ns_total_median\":" << result.runtime_ns_ << ",";
     json << "\"runtime_ns_per_problem_median\":" << runtime_per_problem << ",";
-    json << "\"tolerance\":" << tolerance << ",";
-    json << "\"correctness_passed\":" << correctness_passed;
+    json << "\"tolerance\":" << tolerance;
     json << "}";
     std::cout << json.str() << "\n";
 }

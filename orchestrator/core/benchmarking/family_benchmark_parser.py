@@ -74,12 +74,7 @@ def parse_absolute_pose_benchmark_output(text: str) -> dict[str, Any]:
     }
 
 
-def parse_poselib_native_benchmark_output(
-    text: str,
-    *,
-    min_gt_found_percent: float = 99.0,
-    min_valid_solutions_percent: float = 99.0,
-) -> dict[str, Any]:
+def parse_poselib_native_benchmark_output(text: str) -> dict[str, Any]:
     """Parse the prefixed JSON line emitted by the PoseLib native benchmark."""
     parse_errors: list[str] = []
     json_lines = []
@@ -130,6 +125,7 @@ def parse_poselib_native_benchmark_output(
         "runtime_ns_total_median": ("runtime_ns_total_median", "float"),
         "runtime_ns_per_problem_median": ("runtime_ns_per_problem_median", "float"),
         "parsed_runtime_ns_per_problem_median": ("runtime_ns_per_problem_median", "float"),
+        "correctness_passed": ("correctness_passed", "bool"),
         "tolerance": ("tolerance", "float"),
     }
     for output_key, (input_key, field_type) in field_map.items():
@@ -140,20 +136,16 @@ def parse_poselib_native_benchmark_output(
         except ValueError as exc:
             parse_errors.append(f"{output_key}: {exc}")
 
-    gt_found_percent = metrics.get("gt_found_percent")
-    valid_solutions_percent = metrics.get("valid_solutions_percent")
-    if isinstance(gt_found_percent, (int, float)) and isinstance(valid_solutions_percent, (int, float)):
-        metrics["correctness_passed"] = (
-            float(gt_found_percent) >= min_gt_found_percent
-            and float(valid_solutions_percent) >= min_valid_solutions_percent
-        )
-    elif "correctness_passed" in payload:
-        try:
-            metrics["correctness_passed"] = _convert_value(
-                str(payload["correctness_passed"]), "bool"
-            )
-        except ValueError as exc:
-            parse_errors.append(f"correctness_passed: {exc}")
+    if "correctness_passed" not in metrics:
+        required_without_correctness = [
+            field_name
+            for field_name in _REQUIRED_FIELDS
+            if field_name != "correctness_passed"
+        ]
+        if all(field_name in metrics for field_name in required_without_correctness):
+            metrics["correctness_passed"] = True
+    if "correctness_passed" in metrics:
+        metrics["parsed_correctness_passed"] = metrics["correctness_passed"]
 
     missing_fields = [
         field_name for field_name in _REQUIRED_FIELDS if field_name not in metrics

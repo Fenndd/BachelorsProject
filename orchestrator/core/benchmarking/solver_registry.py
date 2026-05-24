@@ -40,8 +40,6 @@ class SolverBenchmarkDescriptor:
     benchmark_kind: str | None = None
     default_target_file: str | None = None
     default_allowed_files: tuple[str, ...] = ()
-    min_gt_found_percent: float = 99.0
-    min_valid_solutions_percent: float = 99.0
 
 
 # ---------------------------------------------------------------------------
@@ -53,21 +51,12 @@ _DEFAULT_SOLVER_ID = "lambdatwist_p3p"
 _descriptors_cache: dict[str, SolverBenchmarkDescriptor] | None = None
 
 
-def _family_parser(
-    family: str,
-    *,
-    min_gt_found_percent: float = 99.0,
-    min_valid_solutions_percent: float = 99.0,
-) -> Callable[[str], dict[str, Any]]:
+def _family_parser(family: str) -> Callable[[str], dict[str, Any]]:
     """Return the stdout parser for a solver family."""
     if family == "absolute_pose":
         return parse_absolute_pose_benchmark_output
     if family == "poselib_native":
-        return lambda text: parse_poselib_native_benchmark_output(
-            text,
-            min_gt_found_percent=min_gt_found_percent,
-            min_valid_solutions_percent=min_valid_solutions_percent,
-        )
+        return parse_poselib_native_benchmark_output
     raise ValueError(f"Unsupported solver family: {family!r}")
 
 
@@ -96,20 +85,6 @@ def _require_dict(obj: dict[str, Any], key: str, source: Path) -> dict[str, Any]
             f"Manifest {source}: field {key!r} must be a JSON object"
         )
     return value
-
-
-def _optional_float(
-    obj: dict[str, Any],
-    key: str,
-    default: float,
-    source: Path,
-) -> float:
-    value = obj.get(key, default)
-    if not isinstance(value, (int, float)) or isinstance(value, bool):
-        raise ValueError(
-            f"Manifest {source}: field {key!r} must be a number"
-        )
-    return float(value)
 
 
 def _require_string_list(obj: dict[str, Any], key: str, source: Path) -> tuple[str, ...]:
@@ -182,27 +157,13 @@ def _load_manifests() -> dict[str, SolverBenchmarkDescriptor]:
                 raise ValueError(
                     f"Manifest {manifest_path}: targets.benchmark must match benchmark_target"
                 )
-            metrics = data.get("metrics")
-            metrics = metrics if isinstance(metrics, dict) else {}
-            min_gt_found_percent = _optional_float(
-                metrics, "min_gt_found_percent", 99.0, manifest_path
-            )
-            min_valid_solutions_percent = _optional_float(
-                metrics, "min_valid_solutions_percent", 99.0, manifest_path
-            )
-            parser = _family_parser(
-                family,
-                min_gt_found_percent=min_gt_found_percent,
-                min_valid_solutions_percent=min_valid_solutions_percent,
-            )
+            parser = _family_parser(family)
         else:
             benchmark_target = targets["benchmark"]
             benchmark_solver_key = data.get("benchmark_solver_key")
             benchmark_kind = data.get("benchmark_kind")
             default_target_file = data.get("default_target_file")
             default_allowed_files = tuple(data.get("default_allowed_files", ()))
-            min_gt_found_percent = 99.0
-            min_valid_solutions_percent = 0.0
             parser = _family_parser(family)
 
         if runner_mode == "generated_absolute_pose":
@@ -227,8 +188,6 @@ def _load_manifests() -> dict[str, SolverBenchmarkDescriptor]:
             benchmark_kind=benchmark_kind if isinstance(benchmark_kind, str) else None,
             default_target_file=default_target_file if isinstance(default_target_file, str) else None,
             default_allowed_files=default_allowed_files,
-            min_gt_found_percent=min_gt_found_percent,
-            min_valid_solutions_percent=min_valid_solutions_percent,
         )
 
     return descriptors

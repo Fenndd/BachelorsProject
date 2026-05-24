@@ -16,6 +16,7 @@ from orchestrator.experiments.experiment_config import (
     ExperimentVariantConfig,
     OptimizationScopeConfig,
     ReportingConfig,
+    SelectionPolicyConfig,
     dump_experiment_config,
     experiment_config_to_payload,
     load_experiment_config,
@@ -40,6 +41,7 @@ def _make_full_config() -> ExperimentConfig:
             renderer="auto",
             fail_on_error=False,
         ),
+        selection=SelectionPolicyConfig(gt_found_max_drop_points=2.5),
         variants=[
             ExperimentVariantConfig(
                 variant_id="main",
@@ -103,6 +105,7 @@ class TestDumpLoadRoundtrip:
         assert loaded.reporting.formats == ["html", "pdf"]
         assert loaded.reporting.renderer == "auto"
         assert loaded.reporting.fail_on_error is False
+        assert loaded.selection.gt_found_max_drop_points == 2.5
 
         assert len(loaded.variants) == 1
         v = loaded.variants[0]
@@ -127,6 +130,7 @@ class TestDumpLoadRoundtrip:
 
         assert loaded.experiment_name == "test_min"
         assert loaded.description is None
+        assert loaded.selection.gt_found_max_drop_points is None
         assert len(loaded.variants) == 1
         v = loaded.variants[0]
         assert v.llm_overrides is None
@@ -154,6 +158,7 @@ class TestDumpLoadRoundtrip:
         assert "candidate_generation" in payload
         assert "optimization_scope" in payload
         assert "reporting" in payload
+        assert "selection" in payload
         assert "variants" in payload
         assert len(payload["variants"]) == 1
 
@@ -168,6 +173,7 @@ class TestDumpLoadRoundtrip:
         assert payload["description"] is None
         assert payload["variants"][0]["description"] is None
         assert payload["variants"][0]["additional_context"] is None
+        assert payload["selection"]["gt_found_max_drop_points"] is None
 
     def test_descriptions_null_in_json(self, tmp_path: Path) -> None:
         config = _make_minimal_config()

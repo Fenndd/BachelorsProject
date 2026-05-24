@@ -169,7 +169,7 @@ class ActiveRunScreen(Screen[None]):
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
         if event.button.id == "back":
-            self.app.pop_screen()
+            self.action_request_back()
             return
         if event.button.id == "cancel-run":
             manager = getattr(self.app, "active_runs_manager", None)
@@ -180,3 +180,6 @@ class ActiveRunScreen(Screen[None]):
             except Exception:
                 pass
             write_tui_debug(f"ActiveRunScreen cancel requested for {self._run_id}")
+
+    def action_request_back(self) -> None:
+        self.app.pop_screen()
