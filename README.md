@@ -2,7 +2,7 @@
 
 ## Short Project Overview
 
-This repository supports a bachelor thesis on automated optimization of C++ 3D vision algorithms using LLM-generated candidates. The current minimal case study is the Lambda Twist P3P solver in the absolute-pose solver benchmark family.
+This repository supports a bachelor thesis on automated optimization of C++ 3D vision algorithms using LLM-generated candidates. The C++ benchmark layer supports two backends: a generated Lambda Twist P3P benchmark and a PoseLib-native benchmark backend covering 37 PoseLib minimal-solver cases.
 
 The project combines a clean C++ baseline and benchmark layer under `cpp/`, a Python orchestration layer under `orchestrator/`, persistent artifacts under `results/`, and isolated workspaces under `workspace/`.
 
@@ -12,22 +12,25 @@ Implemented:
 
 - Baseline automation through `orchestrator/cli/main.py`.
 - Absolute-pose benchmark family for Lambda Twist P3P, including adapter validation and parsed benchmark metrics.
+- PoseLib native benchmark backend with 37 solver manifests and machine-readable JSON output.
+- Solver registry with per-solver JSON manifests under `cpp/bench/*/solvers/`.
+- Baseline CLI supports multiple solvers via `--solver` flag.
 - LLM candidate generation through `orchestrator.core.llm.generate_candidate`.
 - A single line-range edit schema for LLM-generated candidates.
 - Candidate materialization and verification in isolated workspaces.
-- Pairwise candidate decision for closed-loop promotion and reporting.
+- Pairwise candidate decision for closed-loop promotion and reporting, with optional `gt_found_max_drop_points` correctness gate.
 - Closed-loop iterative optimization in the experiment runner with experiment-local `current_best_source`.
 - Compact benchmark-aware closed-loop history for later generations.
 - Final closed-loop artifacts and analysis-only selector/reporting.
 - Automatic final repeated benchmark validation after closed-loop completion and before report generation.
 - Single unified HTML/PDF report with runtime, correctness, final repeated validation, failure analysis, phase timing, LLM usage, reproducibility metadata, diff statistics, iteration appendix sections, and a read-only report inspector.
+- TUI Config Builder for interactive experiment config creation with validation.
+- Parallel non-blocking TUI experiment runs with `ActiveRunsManager`, cancellation, and quit guard.
 
 Not implemented yet:
 
 - Automatic candidate promotion into the main `cpp/` source tree.
 - Multi-variant closed-loop optimization strategy.
-- Additional solver families/adapters beyond the current minimal Lambda Twist P3P path.
-- JSON metrics output directly from C++ benchmarks.
 - Broader statistical dashboards or aggregate reports across multiple experiments.
 - Memory measurement; the current prototype focuses on runtime and PoseLib-style calibrated-pose correctness metrics.
 
@@ -65,7 +68,14 @@ $env:EIGEN3_INCLUDE_DIR="C:\path\to\eigen"
 py orchestrator/cli/main.py
 ```
 
-The flow configures CMake, builds/runs `absolute_pose_lambdatwist_adapter_validator` and `absolute_pose_lambdatwist_benchmark`, parses metrics, and checks `correctness_passed`. Benchmark and evaluation builds default to **Release**.
+The flow configures CMake, builds/runs the appropriate targets for the selected solver, parses metrics, and checks `correctness_passed`. Benchmark and evaluation builds default to **Release**.
+
+Run a specific solver:
+
+```powershell
+py -m orchestrator.cli.app baseline run --solver poselib_p3p
+py -m orchestrator.cli.app baseline run --solver poselib_relpose_5pt
+```
 
 ## Experimental Terminal Control Layer
 
@@ -124,6 +134,9 @@ See `docs/best_result_selection_policy.md` for the full decision policy and impr
 
 - `docs/architecture.md` — pipeline components and module boundaries
 - `docs/setup.md` — toolchain targets, env vars, build-type override
+- `docs/algorithms.md` — solver registry, manifests, PoseLib native benchmark
+- `docs/config_builder.md` — TUI Config Builder reference
+- `docs/parallel_runs.md` — TUI parallel experiment runs and ActiveRunsManager
 - `docs/closed_loop_optimization.md` — closed-loop control flow, artifacts, safety
 - `docs/candidate_edit_formats.md` — LLM edit schema
 - `docs/result_storage_format.md` — artifact paths and storage layout

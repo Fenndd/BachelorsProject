@@ -105,12 +105,47 @@ Lower values are better.
 
 ## 8. Correctness policy
 
-Correctness is defined by the benchmark artifact itself. The decision layer does
-not compare `gt_found_percent` or `valid_solutions_percent` against the
-reference; it only requires `parsed_correctness_passed == true` for both
-reference and candidate artifacts before runtime comparison.
+Correctness is defined by the benchmark artifact itself. The decision layer
+requires `parsed_correctness_passed == true` for both reference and
+candidate artifacts before runtime comparison.
 
-## 9. Candidate decision statuses
+A separate optional gate (`gt_found_max_drop_points`) limits how much the
+ground-truth found percentage can regress. See **§9: GT Found Regression
+Policy** below.
+
+## 9. GT Found Regression Policy
+
+The optional `gt_found_max_drop_points` gate limits acceptable regression in
+the ground-truth found percentage. It is configured in the experiment config:
+
+```json
+{
+  "selection": {
+    "gt_found_max_drop_points": null
+  }
+}
+```
+
+- **`null`** (default): the gate is disabled. The `gt_found_percent` delta
+  is observed and recorded in comparison metadata, but it never causes
+  rejection or blocks acceptance.
+- **Number** (e.g. `2.0`): maximum allowed drop in **percentage points**
+  compared to the reference.
+  - Formula: `candidate_gt_found_percent >= reference_gt_found_percent - max_drop_points`
+  - Example: reference achieves 100.0% and max_drop_points is 2.0. A
+    candidate at 97.5% has a drop of 2.5 pp, which exceeds the limit and
+    is rejected with reason `gt_found_drop_exceeds_max_drop_points`.
+  - 100.0% → 97.5% is a drop of **2.5 percentage points** (not 2.5%).
+
+This gate applies to:
+
+- Current-best iteration decisions (`decision_vs_current_best`)
+- Final selection comparison (`decision_vs_original_baseline`)
+
+GT-found deltas are always recorded in the `comparison` block of decision
+artifacts, even when the gate is disabled.
+
+## 11. Candidate decision statuses
 
 Pairwise candidate statuses:
 
@@ -130,7 +165,7 @@ Pairwise candidate statuses:
 Closed-loop final analysis does not introduce additional pairwise statuses in
 `candidate_decision.py`.
 
-## 10. Improvement calculations
+## 12. Improvement calculations
 
 Runtime improvement formulas:
 
@@ -154,12 +189,12 @@ Where:
 - `reference_runtime = reference parsed_runtime_ns_per_problem_median`
 - `candidate_runtime = candidate parsed_runtime_ns_per_problem_median`
 
-## 11. Closed-loop selection outcome
+## 13. Closed-loop selection outcome
 
 Closed-loop mode does not maintain a global candidate pool from which a single
 best is picked by runtime ranking. Instead, each iteration is evaluated
 independently against the current experiment-local best using the pairwise
-decision policy defined in §5–§10. An `accepted_improvement` decision promotes
+decision policy defined in §5–§11. An `accepted_improvement` decision promotes
 the candidate into the experiment-local `current_best_source` for the next
 iteration.
 
@@ -181,7 +216,7 @@ using `IterationStatus` values (see `orchestrator/experiments/closed_loop_state.
 - `no_op`
 - `generation_failed`
 
-## 13. Non-goals
+## 14. Non-goals
 
 Selection and reporting do **not** implement:
 
@@ -191,7 +226,7 @@ Selection and reporting do **not** implement:
 - candidate generation prompt format or materialization format
 - source-tree mutation from final selector/reporting artifacts
 
-## 14. Closed-loop comparison in the runner
+## 15. Closed-loop comparison in the runner
 
 The comparator can compare a new verified candidate against either:
 

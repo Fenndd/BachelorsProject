@@ -67,9 +67,22 @@ Launch the TUI:
 py -m orchestrator.cli.app tui
 ```
 
-Available screens include Doctor, Environment, Run Baseline, Run Experiment, Browse Results, Workspace, and Help. Use `Esc` to go back from secondary screens and `Ctrl+Q` to quit.
+Available screens include Doctor, Environment, Run Baseline, Run Experiment,
+Browse Results, Workspace, Config Builder, Active Run (live output), and Help.
+Use `Esc` to go back from secondary screens and `Ctrl+Q` to quit.
 
-While a baseline or experiment run is active, the TUI keeps the current screen open and blocks Back, `Esc`, and `Ctrl+Q` until the run finishes. Cancellation is not implemented yet.
+While a baseline run is active, the TUI keeps the BaselineScreen open and
+blocks Back, `Esc`, and `Ctrl+Q` until the run finishes. `Ctrl+U` (Force
+Unlock) is available for recovery if a baseline process gets stuck.
+
+Experiment runs are **non-blocking**: the `ActiveRunsManager` runs them in
+background threads. You can leave the `ActiveRunScreen` and the experiment
+continues. The **Active Runs** panel on the MainScreen lists all active and
+recently finished runs. Click a run to reopen its live output.
+
+Quitting the TUI (`Ctrl+Q`) while experiment runs are active shows a
+confirmation dialog. Cancelling runs on quit sends cancel signals and waits
+up to 8 seconds for subprocesses to stop before exiting.
 
 ## Safety Guarantees
 
@@ -79,6 +92,7 @@ While a baseline or experiment run is active, the TUI keeps the current screen o
 - Workspace cleanup only deletes entries inside `workspace/`; it does not delete `results/`.
 - API keys and other secrets are masked in displays.
 - The main `cpp/` source tree is not modified automatically by the control layer.
+- Active experiment runs continue in the background even when the user leaves the live output screen.
 
 ## TUI debug log
 
