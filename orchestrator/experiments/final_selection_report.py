@@ -31,7 +31,10 @@ from orchestrator.core.benchmarking.benchmark_runner import (
     find_executable,
     run_command,
 )
-from orchestrator.core.benchmarking.candidate_decision import evaluate_candidate_against_baseline
+from orchestrator.core.benchmarking.candidate_decision import (
+    CandidateDecisionThresholds,
+    evaluate_candidate_against_baseline,
+)
 from orchestrator.core.benchmarking.solver_registry import (
     SolverBenchmarkDescriptor,
     default_solver_descriptor,
@@ -61,6 +64,7 @@ def run_final_selection_report(
     final_best_is_baseline: bool,
     descriptor: SolverBenchmarkDescriptor | None = None,
     build_type: str = "Release",
+    gt_found_max_drop_points: float | None = None,
 ) -> Path:
     """Run a single final benchmark on the optimized source and compare against baseline.
 
@@ -331,7 +335,12 @@ def run_final_selection_report(
         status = "failed"
     else:
         try:
-            decision = evaluate_candidate_against_baseline(baseline_run_dir, final_benchmark_run_dir)
+            thresholds = CandidateDecisionThresholds(
+                gt_found_max_drop_points=gt_found_max_drop_points,
+            )
+            decision = evaluate_candidate_against_baseline(
+                baseline_run_dir, final_benchmark_run_dir, thresholds=thresholds,
+            )
         except Exception as exc:
             failed_step = "decision_vs_original_baseline"
             error_message = str(exc)

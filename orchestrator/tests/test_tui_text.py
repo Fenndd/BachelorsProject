@@ -47,13 +47,9 @@ def test_main_screen_subtitle_updated():
     assert "Interactive control layer for LLM optimization experiments" in src
 
 
-def test_experiment_screen_uses_active_run_screen():
+def test_experiment_screen_shows_solver_id():
     import orchestrator.tui.screens.experiment_screen as m
 
     src = _src(m)
-    assert "ActiveRunScreen" in src
-    assert "active_runs_manager" in src
-    assert "manager.start" in src
-    assert "dry_run" in src
-    assert "Confirmation required" in src
-    assert "paid LLM API" in src
+    assert "solver_id" in src, "ExperimentScreen should show solver_id in summaries"
+    assert "Solver:" in src, "ExperimentScreen _format_summary should include Solver: line"

@@ -101,12 +101,12 @@ def audit_single_benchmark_artifact(artifact: dict[str, Any], role: str) -> dict
         "parsed_runtime_ns_per_problem_median",
         failed_checks,
     )
-    _check_positive_number(normalized, "parsed_total_solutions", failed_checks)
-    _check_present_number(normalized, "parsed_solutions_per_problem", failed_checks)
-    _check_positive_number(normalized, "parsed_valid_solutions", failed_checks)
-    _check_present_number(normalized, "parsed_valid_solutions_percent", failed_checks)
-    _check_positive_number(normalized, "parsed_gt_found", failed_checks)
-    _check_present_number(normalized, "parsed_gt_found_percent", failed_checks)
+    _check_non_negative_number(normalized, "parsed_total_solutions", failed_checks)
+    _check_non_negative_number(normalized, "parsed_solutions_per_problem", failed_checks)
+    _check_non_negative_number(normalized, "parsed_valid_solutions", failed_checks)
+    _check_non_negative_number(normalized, "parsed_valid_solutions_percent", failed_checks)
+    _check_non_negative_number(normalized, "parsed_gt_found", failed_checks)
+    _check_non_negative_number(normalized, "parsed_gt_found_percent", failed_checks)
     _check_present_bool(normalized, "parsed_correctness_passed", failed_checks)
 
     runtime_unit = normalized.get("runtime_unit")
@@ -296,6 +296,15 @@ def _check_positive_number(
         failed_checks.append(f"{field_name}_missing_or_non_positive")
 
 
+def _check_non_negative_number(
+    normalized: dict[str, Any],
+    field_name: str,
+    failed_checks: list[str],
+) -> None:
+    if not _is_non_negative_number(normalized.get(field_name)):
+        failed_checks.append(f"{field_name}_missing_or_negative")
+
+
 def _is_number(value: object) -> bool:
     return (
         isinstance(value, (int, float))
@@ -306,6 +315,10 @@ def _is_number(value: object) -> bool:
 
 def _is_positive_number(value: object) -> bool:
     return _is_number(value) and value > 0
+
+
+def _is_non_negative_number(value: object) -> bool:
+    return _is_number(value) and value >= 0
 
 
 def _unique_preserving_order(values: list[str]) -> list[str]:

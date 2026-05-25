@@ -25,6 +25,7 @@ class ExperimentConfigSummary:
     name: str
     description: str | None
     target_file: str | None
+    solver_id: str | None
     variants_count: int | None
     total_iterations: int | None
     baseline_run_dir: str | None
@@ -117,12 +118,15 @@ def _summary_from_payload(
         total_iterations = None
 
     reporting = payload.get("reporting")
+    solver_id_raw = payload.get("solver_id")
+    solver_id = solver_id_raw if isinstance(solver_id_raw, str) and solver_id_raw else None
     providers, models = _provider_models_from_payload(payload, path)
     return ExperimentConfigSummary(
         path=path,
         name=payload.get("experiment_name") if isinstance(payload.get("experiment_name"), str) else path.stem,
         description=payload.get("description") if isinstance(payload.get("description"), str) else None,
         target_file=payload.get("target_file") if isinstance(payload.get("target_file"), str) else None,
+        solver_id=solver_id,
         variants_count=variants_count,
         total_iterations=total_iterations,
         baseline_run_dir=payload.get("baseline_run_dir") if isinstance(payload.get("baseline_run_dir"), str) else None,
@@ -145,6 +149,7 @@ def read_experiment_config_summary(path: Path) -> ExperimentConfigSummary:
             name=config.experiment_name,
             description=config.description,
             target_file=config.target_file,
+            solver_id=config.solver_id,
             variants_count=len(config.variants),
             total_iterations=sum(variant.iterations for variant in config.variants),
             baseline_run_dir=config.baseline_run_dir,
@@ -163,6 +168,7 @@ def read_experiment_config_summary(path: Path) -> ExperimentConfigSummary:
                 name=config_path.stem,
                 description=None,
                 target_file=None,
+                solver_id=None,
                 variants_count=None,
                 total_iterations=None,
                 baseline_run_dir=None,

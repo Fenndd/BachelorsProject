@@ -99,6 +99,7 @@ def _run_closed_loop_experiment(
         target_file=config.target_file,
         final_best_is_baseline=state.current_best_is_baseline,
         descriptor=get_solver_descriptor(config.solver_id),
+        gt_found_max_drop_points=config.selection.gt_found_max_drop_points,
     )
     final_selection_status = artifacts._update_closed_loop_summary_with_final_selection(
         closed_loop_paths,

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import math
 import re
 import tempfile
 from pathlib import Path
@@ -601,9 +602,33 @@ class ConfigBuilderScreen(Screen[None]):
             raise ExperimentConfigError(
                 "Field 'selection.gt_found_max_drop_points' must be empty or a non-negative number."
             ) from exc
-        if value < 0:
+        if not math.isfinite(value) or value < 0:
             raise ExperimentConfigError(
-                "Field 'selection.gt_found_max_drop_points' must be greater than or equal to 0."
+                "Field 'selection.gt_found_max_drop_points' must be empty or a finite non-negative number."
+            )
+        return value
+
+    @staticmethod
+    def _parse_optional_positive_int(raw: str, field_name: str) -> int | None:
+        """Parse *raw* as a positive integer or None if empty.
+
+        Raises ExperimentConfigError for non-integer, zero, or negative values.
+        """
+        if not raw:
+            return None
+        try:
+            value = int(raw)
+        except (ValueError, TypeError) as exc:
+            raise ExperimentConfigError(
+                f"Field '{field_name}' must be empty or a positive integer."
+            ) from exc
+        if float(raw) != value:
+            raise ExperimentConfigError(
+                f"Field '{field_name}' must be a positive integer (not a float)."
+            )
+        if value <= 0:
+            raise ExperimentConfigError(
+                f"Field '{field_name}' must greater than 0."
             )
         return value
 
@@ -643,11 +668,10 @@ class ConfigBuilderScreen(Screen[None]):
             override_dict["model"] = override_model
             has_overrides = True
         if override_max_tokens_str:
-            try:
-                override_dict["max_tokens"] = int(override_max_tokens_str)
-                has_overrides = True
-            except (ValueError, TypeError):
-                pass
+            override_dict["max_tokens"] = self._parse_optional_positive_int(
+                override_max_tokens_str, "llm_overrides.max_tokens"
+            )
+            has_overrides = True
 
         thinking_dict: dict[str, Any] = {}
         if bool(override_thinking_enabled):

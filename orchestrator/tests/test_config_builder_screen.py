@@ -139,7 +139,7 @@ def test_selection_numeric_writes_float(monkeypatch, tmp_path: Path) -> None:
     assert payload["selection"]["gt_found_max_drop_points"] == 2.5
 
 
-@pytest.mark.parametrize("value", ["-1", "not-a-number"])
+@pytest.mark.parametrize("value", ["-1", "not-a-number", "nan", "inf", "-inf"])
 def test_invalid_selection_value_is_rejected(monkeypatch, tmp_path: Path, value: str) -> None:
     screen, _log = _make_screen(monkeypatch, tmp_path, {"gt_found_max_drop_points": value})
 
@@ -183,3 +183,32 @@ def test_baseline_filtering_excludes_failed_candidate_and_mismatched(monkeypatch
     assert not any("candidate_lambdatwist" in label for label in labels)
     assert not any("poselib_baseline" in label for label in labels)
     assert not any("group/it_01" in label for label in labels)
+
+
+def test_max_tokens_empty_omits_override(monkeypatch, tmp_path: Path) -> None:
+    screen, _log = _make_screen(
+        monkeypatch, tmp_path, {"llm_max_tokens_override": ""}
+    )
+    payload = screen._build_payload()
+    overrides = payload["variants"][0]["llm_overrides"]
+    assert overrides is None or "max_tokens" not in overrides
+
+
+def test_max_tokens_valid_integer_written(monkeypatch, tmp_path: Path) -> None:
+    screen, _log = _make_screen(
+        monkeypatch, tmp_path, {"llm_max_tokens_override": "4096"}
+    )
+    payload = screen._build_payload()
+    assert payload["variants"][0]["llm_overrides"]["max_tokens"] == 4096
+
+
+@pytest.mark.parametrize("bad_value", ["0", "-1", "1.5", "abc"])
+def test_invalid_max_tokens_rejected_save_prevented(
+    monkeypatch, tmp_path: Path, bad_value: str,
+) -> None:
+    screen, _log = _make_screen(
+        monkeypatch, tmp_path, {"llm_max_tokens_override": bad_value}
+    )
+    with pytest.raises(ExperimentConfigError):
+        screen._build_payload()
+    assert screen._save_to_local() is None

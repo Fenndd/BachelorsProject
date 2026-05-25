@@ -38,6 +38,7 @@ def _format_summary(summary: ExperimentConfigSummary | None) -> str:
             f"Config: {summary.path.name}",
             f"Experiment: {summary.name}",
             f"Description: {summary.description or 'unknown'}",
+            f"Solver: {summary.solver_id or 'unknown'}",
             f"Target: {summary.target_file or 'unknown'}",
             f"Baseline: {summary.baseline_run_dir or 'unknown'}",
             f"Iterations: {summary.total_iterations if summary.total_iterations is not None else 'unknown'}",
@@ -59,7 +60,8 @@ def _compact_summary_label(summary: ExperimentConfigSummary) -> str:
     )
     providers = "/".join(summary.providers) if summary.providers else "unknown"
     models = "/".join(summary.models) if summary.models else "unknown"
-    return f"{summary.path.name} [{summary.status}] {iterations} iter {providers}/{models}"
+    solver = summary.solver_id or "?"
+    return f"{summary.path.name} [{summary.status}] {iterations} iter {providers}/{models} [{solver}]"
 
 
 class ExperimentScreen(Screen[None]):
