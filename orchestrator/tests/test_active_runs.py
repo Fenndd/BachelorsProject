@@ -270,6 +270,41 @@ def test_manager_active_count_includes_baseline_runs() -> None:
     assert manager.active_count() == 1
 
 
+def test_manager_clear_finished_removes_only_terminal_runs() -> None:
+    app = _make_mock_app()
+    manager = ActiveRunsManager(app)
+
+    running_id = manager.start(Path("running.json"), dry_run=False)
+    succeeded_id = manager.start(Path("succeeded.json"), dry_run=False)
+    failed_id = manager.start(Path("failed.json"), dry_run=False)
+    cancelled_id = manager.start_baseline()
+
+    running = manager.get(running_id)
+    succeeded = manager.get(succeeded_id)
+    failed = manager.get(failed_id)
+    cancelled = manager.get(cancelled_id)
+    assert running is not None
+    assert succeeded is not None
+    assert failed is not None
+    assert cancelled is not None
+    running.status = "running"
+    succeeded.status = "succeeded"
+    failed.status = "failed"
+    cancelled.status = "cancelled"
+
+    global_calls: list[bool] = []
+    manager.attach_global(lambda: global_calls.append(True))
+
+    removed = manager.clear_finished()
+
+    assert removed == 3
+    assert manager.get(running_id) is running
+    assert manager.get(succeeded_id) is None
+    assert manager.get(failed_id) is None
+    assert manager.get(cancelled_id) is None
+    assert global_calls == [True]
+
+
 def test_manager_finished_history_limit_keeps_running_runs() -> None:
     app = _make_mock_app()
     manager = ActiveRunsManager(app)

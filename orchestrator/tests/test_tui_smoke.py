@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import importlib
 import inspect
+from pathlib import Path
 
 import pytest
 
@@ -168,7 +169,7 @@ def test_dashboard_view_has_project_info() -> None:
     import orchestrator.tui.views.dashboard_view as m
 
     src = _src(m)
-    assert "3D Vision Algorithms Optimizer" in src
+    assert "Dashboard" in src
     assert "Interactive control layer for LLM optimization experiments" in src
     assert "Active runs are visible" in src
     assert "Go to Baseline" in src
@@ -184,6 +185,50 @@ def test_results_view_displays_baseline_label_for_runs() -> None:
     assert m._display_kind("experiment") == "experiment"
 
 
+def test_results_view_summary_displays_baseline_label_for_runs() -> None:
+    from orchestrator.control import ResultArtifactMap, ResultItem
+    import orchestrator.tui.views.results_view as m
+
+    artifacts = ResultArtifactMap(
+        directory=Path("results/runs/run_001"),
+        summary_txt=None,
+        metadata_json=None,
+        status_json=None,
+        metrics_json=None,
+        experiment_status_json=None,
+        experiment_config_snapshot_json=None,
+        experiment_config_effective_json=None,
+        closed_loop_summary_json=None,
+        closed_loop_iterations_jsonl=None,
+        final_optimized_source_dir=None,
+        final_optimized_source_diff=None,
+        report_dir=None,
+        report_pdf=None,
+        report_html=None,
+        final_selection_dir=None,
+        final_selection_report=None,
+    )
+    item = ResultItem(
+        kind="run",
+        name="run_001",
+        path=Path("results/runs/run_001"),
+        modified_time=0.0,
+        status="success",
+        started_at=None,
+        finished_at=None,
+        summary_text=None,
+        final_speedup_vs_baseline=None,
+        final_runtime_reduction_percent=None,
+        final_best_iteration=None,
+        accepted_improvements=None,
+        artifacts=artifacts,
+        read_errors=[],
+    )
+
+    assert "Kind: baseline" in m._format_item(item)
+    assert "Kind: run" not in m._format_item(item)
+
+
 def test_main_screen_uses_content_switcher() -> None:
     import orchestrator.tui.screens.main_screen as m
 
@@ -193,12 +238,25 @@ def test_main_screen_uses_content_switcher() -> None:
     assert "child.display" not in src
 
 
+def test_views_package_exports_all_embedded_views() -> None:
+    import orchestrator.tui.views as views
+
+    assert views.__all__ == [
+        "DashboardView",
+        "BaselineView",
+        "ExperimentsView",
+        "ResultsView",
+        "SystemView",
+        "HelpView",
+    ]
+
+
 def test_baseline_view_does_not_render_fake_live_log() -> None:
     import orchestrator.tui.views.baseline_view as m
 
     src = _src(m)
     assert "baseline-log" not in src
-    assert "Live output opens in a run screen" in src
+    assert "Open it from the sidebar" in src
 
 
 def test_quit_confirm_mentions_active_runs_not_only_experiments() -> None:

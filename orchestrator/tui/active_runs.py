@@ -291,6 +291,22 @@ class ActiveRunsManager:
         for run in runs_snapshot:
             run.cancel_requested.set()
 
+    def clear_finished(self) -> int:
+        """Remove completed runs from recent history without touching active runs."""
+        finished_statuses = {"succeeded", "failed", "cancelled"}
+        with self._lock:
+            run_ids = [
+                run_id
+                for run_id, run in self._runs.items()
+                if run.status in finished_statuses
+            ]
+            for run_id in run_ids:
+                self._runs.pop(run_id, None)
+        if run_ids:
+            write_tui_debug(f"ActiveRunsManager.clear_finished removed {len(run_ids)} run(s)")
+            self._notify_global_subscribers(direct=True)
+        return len(run_ids)
+
     def active_count(self) -> int:
         with self._lock:
             return sum(

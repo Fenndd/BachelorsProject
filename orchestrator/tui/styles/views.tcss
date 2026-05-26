@@ -21,6 +21,29 @@
     margin-top: 1;
 }
 
+.field-label {
+    margin-top: 1;
+    color: #1f2937;
+    text-style: bold;
+}
+
+#content Button {
+    background: #e5e7eb;
+    color: #111827;
+    border: tall #9ca3af;
+    text-style: bold;
+}
+
+#content Button:hover {
+    background: #d1d5db;
+    color: #111827;
+}
+
+#content Button:disabled {
+    background: #f3f4f6;
+    color: #6b7280;
+}
+
 /* ---- Results view: filter row ---- */
 
 #results-view {

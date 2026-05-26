@@ -99,17 +99,44 @@ class ExperimentsView(Widget):
                 classes="panel",
             )
             with Horizontal(classes="actions"):
+                yield Button("Refresh", id="refresh-configs")
                 yield Button("Dry Run", id="dry-run")
                 yield Button("Real Run", id="real-run")
 
     def on_mount(self) -> None:
+        self.refresh_summaries(status_message=None)
         self._set_status_message(
             "Idle. Select a config and press Dry Run or Real Run."
         )
         write_tui_debug("ExperimentsView mounted")
-        if self.summaries:
-            self.query_one("#experiment-list", ListView).index = 0
         self.set_timer(0.2, self._mark_ready)
+
+    def refresh_summaries(self, status_message: str | None = "Config list refreshed.") -> None:
+        current = self._selected_summary()
+        current_path = current.path if current is not None else None
+        self.summaries = list_experiment_config_summaries()
+        try:
+            list_view = self.query_one("#experiment-list", ListView)
+            list_view.clear()
+            for summary in self.summaries:
+                list_view.append(ListItem(Static(_compact_summary_label(summary))))
+            if self.summaries:
+                selected_index = 0
+                if current_path is not None:
+                    for index, summary in enumerate(self.summaries):
+                        if summary.path == current_path:
+                            selected_index = index
+                            break
+                list_view.index = selected_index
+            else:
+                list_view.index = None
+            self.query_one("#experiment-summary", Static).update(
+                _format_summary(self._selected_summary())
+            )
+            if status_message is not None:
+                self._set_status_message(status_message)
+        except Exception:
+            pass
 
     def _selected_summary(self) -> ExperimentConfigSummary | None:
         if not self.summaries:
@@ -128,7 +155,9 @@ class ExperimentsView(Widget):
         )
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
-        if event.button.id == "dry-run":
+        if event.button.id == "refresh-configs":
+            self.refresh_summaries()
+        elif event.button.id == "dry-run":
             self._start_experiment(dry_run=True)
         elif event.button.id == "real-run":
             self._request_real_run()

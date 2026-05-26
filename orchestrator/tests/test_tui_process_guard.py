@@ -163,22 +163,24 @@ def test_baseline_view_has_no_legacy_state() -> None:
 
 def test_baseline_view_start_calls_manager_start_baseline(monkeypatch) -> None:
     from orchestrator.tui.views.baseline_view import BaselineView
-    from orchestrator.tui.screens.active_run_screen import ActiveRunScreen
 
     view = BaselineView()
-    started_runs: list[str] = []
+    start_calls: list[str | None] = []
     pushed_screens: list[object] = []
     start_button_queries: list[str] = []
+    statuses: list[str] = []
 
     def fake_query(widget_id, *args, **kwargs):
         if "start-baseline" in str(widget_id):
             start_button_queries.append(str(widget_id))
+        if "baseline-solver" in str(widget_id):
+            return SimpleNamespace(value="poselib_p3p")
         if "baseline-status" in str(widget_id):
-            return SimpleNamespace(update=lambda t: None)
+            return SimpleNamespace(update=statuses.append)
         return SimpleNamespace(update=lambda t: None)
 
     mock_manager = SimpleNamespace(
-        start_baseline=lambda: started_runs.append("run_001") or "run_001",
+        start_baseline=lambda solver_id=None: start_calls.append(solver_id) or "run_001",
     )
     monkeypatch.setattr(
         BaselineView,
@@ -192,9 +194,9 @@ def test_baseline_view_start_calls_manager_start_baseline(monkeypatch) -> None:
 
     view._start_baseline()
 
-    assert started_runs == ["run_001"]
-    assert len(pushed_screens) == 1
-    assert isinstance(pushed_screens[0], ActiveRunScreen)
+    assert start_calls == ["poselib_p3p"]
+    assert pushed_screens == []
+    assert "Open it from the sidebar" in statuses[0]
     assert start_button_queries == []
 
 
@@ -206,11 +208,13 @@ def test_baseline_view_does_not_call_register_process(monkeypatch) -> None:
     unregister_calls: list[int] = []
 
     def fake_query(widget_id, *args, **kwargs):
+        if "baseline-solver" in str(widget_id):
+            return SimpleNamespace(value="poselib_p3p")
         if "baseline-status" in str(widget_id):
             return SimpleNamespace(update=lambda t: None)
         return SimpleNamespace(update=lambda t: None)
 
-    mock_manager = SimpleNamespace(start_baseline=lambda: "run_001")
+    mock_manager = SimpleNamespace(start_baseline=lambda solver_id=None: "run_001")
     monkeypatch.setattr(
         BaselineView,
         "app",
@@ -327,6 +331,105 @@ def test_experiments_view_on_list_view_highlighted_updates_summary(monkeypatch) 
     view.on_list_view_highlighted(SimpleNamespace())
 
     assert len(updates) == 1
+
+
+def test_experiments_view_refresh_rebuilds_summaries(monkeypatch) -> None:
+    from pathlib import Path
+    import orchestrator.tui.views.experiments_view as experiments_view
+    from orchestrator.control import ExperimentConfigSummary
+    from orchestrator.tui.views.experiments_view import ExperimentsView
+
+    def summary(path: str, name: str) -> ExperimentConfigSummary:
+        return ExperimentConfigSummary(
+            path=Path(path),
+            name=name,
+            description=None,
+            target_file=None,
+            solver_id="solver",
+            variants_count=1,
+            total_iterations=1,
+            baseline_run_dir=None,
+            reporting_enabled=True,
+            providers=[],
+            models=[],
+            status="ok",
+            message=None,
+        )
+
+    old_a = summary("/configs/a.json", "old a")
+    old_b = summary("/configs/b.json", "old b")
+    new_a = summary("/configs/a.json", "new a")
+    new_b = summary("/configs/b.json", "new b")
+    new_c = summary("/configs/c.json", "new c")
+
+    view = ExperimentsView()
+    view.summaries = [old_a, old_b]
+    list_view = SimpleNamespace(
+        index=1,
+        items=[],
+        clear=lambda: list_view.items.clear(),
+        append=lambda item: list_view.items.append(item),
+    )
+    summary_updates: list[str] = []
+    status_updates: list[str] = []
+
+    def query_one(selector, *args, **kwargs):
+        if selector == "#experiment-list":
+            return list_view
+        if selector == "#experiment-summary":
+            return SimpleNamespace(update=summary_updates.append)
+        if selector == "#experiment-status-text":
+            return SimpleNamespace(update=status_updates.append)
+        raise AssertionError(selector)
+
+    monkeypatch.setattr(view, "query_one", query_one)
+    monkeypatch.setattr(
+        experiments_view,
+        "list_experiment_config_summaries",
+        lambda: [new_a, new_b, new_c],
+    )
+
+    view.refresh_summaries()
+
+    assert view.summaries == [new_a, new_b, new_c]
+    assert len(list_view.items) == 3
+    assert list_view.index == 1
+    assert "new b" in summary_updates[-1]
+    assert status_updates == ["Config list refreshed."]
+
+
+# ---------------------------------------------------------------------------
+# MainScreen -- active runs sidebar mapping
+# ---------------------------------------------------------------------------
+
+
+def test_main_screen_active_run_selection_uses_stored_run_ids(monkeypatch) -> None:
+    from orchestrator.tui.screens.active_run_screen import ActiveRunScreen
+    from orchestrator.tui.screens.main_screen import MainScreen
+
+    screen = MainScreen()
+    screen._active_run_ids = ["run_002"]
+    pushed_screens: list[object] = []
+
+    def fail_list():
+        raise AssertionError("manager.list() should not be called for selection")
+
+    monkeypatch.setattr(
+        MainScreen,
+        "app",
+        SimpleNamespace(
+            active_runs_manager=SimpleNamespace(list=fail_list),
+            push_screen=lambda screen_obj: pushed_screens.append(screen_obj),
+        ),
+    )
+
+    screen._handle_active_run_selection(
+        SimpleNamespace(list_view=SimpleNamespace(index=0))
+    )
+
+    assert len(pushed_screens) == 1
+    assert isinstance(pushed_screens[0], ActiveRunScreen)
+    assert pushed_screens[0]._run_id == "run_002"
 
 
 # ---------------------------------------------------------------------------

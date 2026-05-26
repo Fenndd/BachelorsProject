@@ -24,7 +24,7 @@ def _format_item(item: ResultItem | None) -> str:
         return "No saved results found."
     return "\n".join(
         [
-            f"Kind: {item.kind}",
+            f"Kind: {_display_kind(item.kind)}",
             f"Name: {item.name}",
             f"Path: {item.path}",
             f"Status: {item.status or 'unknown'}",

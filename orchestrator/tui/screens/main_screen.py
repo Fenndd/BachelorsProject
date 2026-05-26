@@ -8,7 +8,7 @@ from textual.app import ComposeResult
 from textual.binding import Binding
 from textual.containers import Horizontal, Vertical
 from textual.screen import Screen
-from textual.widgets import ContentSwitcher, Footer, Header, ListItem, ListView, Static
+from textual.widgets import Button, ContentSwitcher, Footer, Header, ListItem, ListView, Static
 
 from orchestrator.tui.active_runs import ActiveRunSummary
 from orchestrator.tui.screens.active_run_screen import ActiveRunScreen
@@ -95,16 +95,20 @@ class MainScreen(Screen[None]):
         Binding("escape", "clear_filter_or_blur", "Clear Filter"),
     ]
 
+    def __init__(self) -> None:
+        super().__init__()
+        self._active_run_ids: list[str] = []
+        self._active_runs_timer = None
+
     def compose(self) -> ComposeResult:
         yield Header()
         with Horizontal(id="layout"):
             with Vertical(id="sidebar"):
-                yield Static("3D Vision Algorithms\nOptimizer", classes="sidebar-title")
                 yield ListView(
                     *[ListItem(Static(label)) for label, _ in _NAV_ITEMS],
                     id="nav",
                 )
-                yield Static("", classes="sidebar-separator")
+                yield Button("Clear finished", id="clear-finished-runs")
                 yield Static("Active runs (0)", id="active-runs-title")
                 yield ListView(id="active-runs")
             with ContentSwitcher(id="content", initial="view-dashboard"):
@@ -127,6 +131,7 @@ class MainScreen(Screen[None]):
         manager = getattr(self.app, "active_runs_manager", None)
         if manager is not None:
             manager.detach_global(self._refresh_active_runs)
+        self._stop_active_runs_timer()
 
     # ------------------------------------------------------------------
     # Navigation
@@ -137,6 +142,17 @@ class MainScreen(Screen[None]):
             self._handle_nav_selection(event)
         elif event.list_view.id == "active-runs":
             self._handle_active_run_selection(event)
+
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        if event.button.id != "clear-finished-runs":
+            return
+        manager = getattr(self.app, "active_runs_manager", None)
+        if manager is None:
+            return
+        clear_finished = getattr(manager, "clear_finished", None)
+        if callable(clear_finished):
+            clear_finished()
+        self._refresh_active_runs()
 
     def _handle_nav_selection(self, event: ListView.Selected) -> None:
         index = event.list_view.index
@@ -152,17 +168,23 @@ class MainScreen(Screen[None]):
         manager = getattr(self.app, "active_runs_manager", None)
         if manager is None:
             return
-        runs = manager.list()
         index = event.list_view.index
-        if index is None or index < 0 or index >= len(runs):
+        if index is None or index < 0 or index >= len(self._active_run_ids):
             return
-        run_id = runs[index].run_id
+        run_id = self._active_run_ids[index]
         self.app.push_screen(ActiveRunScreen(run_id))
 
     def _switch_to_view(self, view_id: str) -> None:
         content = self.query_one("#content", ContentSwitcher)
         content.current = view_id
         self._sync_nav_selection(view_id)
+        try:
+            child = self.query_one(f"#{view_id}")
+        except Exception:
+            return
+        refresh = getattr(child, "refresh_summaries", None)
+        if callable(refresh):
+            refresh()
 
     def _sync_nav_selection(self, view_id: str) -> None:
         index = _VIEW_NAV_INDEX.get(view_id)
@@ -210,15 +232,39 @@ class MainScreen(Screen[None]):
         runs = manager.list()
         list_view = self.query_one("#active-runs", ListView)
         list_view.clear()
+        self._active_run_ids = []
         if not runs:
             list_view.append(ListItem(Static("[italic #6b7280]No active or recent runs.[/italic #6b7280]")))
         else:
             for r in runs:
+                self._active_run_ids.append(r.run_id)
                 list_view.append(ListItem(Static(_format_run_label(r))))
-        self._update_active_run_count(manager.active_count())
+        active_count = manager.active_count()
+        self._update_active_run_count(active_count)
+        self._sync_active_runs_timer(active_count)
 
     def _update_active_run_count(self, count: int) -> None:
         try:
             self.query_one("#active-runs-title", Static).update(f"Active runs ({count})")
         except Exception:
             pass
+
+    def _sync_active_runs_timer(self, active_count: int) -> None:
+        if active_count > 0:
+            if self._active_runs_timer is None:
+                self._active_runs_timer = self.set_interval(1.0, self._refresh_active_runs)
+            return
+        self._stop_active_runs_timer()
+
+    def _stop_active_runs_timer(self) -> None:
+        timer = self._active_runs_timer
+        self._active_runs_timer = None
+        if timer is None:
+            return
+        stop = getattr(timer, "stop", None)
+        if callable(stop):
+            stop()
+            return
+        pause = getattr(timer, "pause", None)
+        if callable(pause):
+            pause()

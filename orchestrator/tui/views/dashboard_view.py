@@ -39,7 +39,7 @@ class DashboardView(Widget):
 
     def compose(self) -> ComposeResult:
         with VerticalScroll():
-            yield Static("3D Vision Algorithms Optimizer", classes="title")
+            yield Static("Dashboard", classes="title")
             yield Static(
                 "Interactive control layer for LLM optimization experiments",
                 classes="subtitle",

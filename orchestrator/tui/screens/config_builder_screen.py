@@ -14,6 +14,7 @@ from textual.screen import ModalScreen, Screen
 from textual.widgets import Button, Footer, Header, Input, ListItem, ListView, RichLog, Select, Static, Switch, TextArea
 
 from orchestrator.control import get_project_paths
+from orchestrator.control import list_solver_manifest_options
 from orchestrator.control import list_run_items
 from orchestrator.experiments.experiment_config import (
     ExperimentConfigError,
@@ -29,30 +30,15 @@ def _read_solver_manifest_options() -> list[tuple[str, str, str | None, list[str
     Returns list of tuples: (display_label, solver_id, default_target_file, default_allowed_files)
     """
     paths = get_project_paths()
-    manifest_dir = paths.cpp / "bench"
-    pattern = "*/solvers/*.json"
-    options: list[tuple[str, str, str | None, list[str] | None]] = []
-    for manifest_path in sorted(manifest_dir.glob(pattern)):
-        try:
-            data = read_json(manifest_path)
-        except (OSError, json.JSONDecodeError, ValueError):
-            continue
-        if not isinstance(data, dict):
-            continue
-        solver_id = data.get("solver_id")
-        if not isinstance(solver_id, str) or not solver_id:
-            continue
-        display_name = data.get("display_name")
-        if not isinstance(display_name, str):
-            display_name = solver_id
-        default_target = data.get("default_target_file")
-        if not isinstance(default_target, str):
-            default_target = None
-        default_allowed = data.get("default_allowed_files")
-        if not (isinstance(default_allowed, list) and all(isinstance(f, str) for f in default_allowed)):
-            default_allowed = [default_target] if default_target else None
-        options.append((f"{display_name} ({solver_id})", solver_id, default_target, default_allowed))
-    return options
+    return [
+        (
+            option.display_label,
+            option.solver_id,
+            option.default_target_file,
+            list(option.default_allowed_files) if option.default_allowed_files else None,
+        )
+        for option in list_solver_manifest_options(paths.repo_root)
+    ]
 
 
 def _discover_llm_configs() -> list[tuple[str, str]]:

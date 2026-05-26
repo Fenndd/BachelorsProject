@@ -38,6 +38,7 @@ from .results_browser import (
     list_run_items,
     resolve_result_selector,
 )
+from .solver_manifests import SolverManifestOption, list_solver_manifest_options
 from .status import ProjectStatus, read_project_status
 from .workspace_manager import (
     CleanupResult,
@@ -63,6 +64,7 @@ __all__ = [
     "ProjectStatus",
     "ResultArtifactMap",
     "ResultItem",
+    "SolverManifestOption",
     "WorkspaceStatus",
     "build_baseline_command",
     "build_baseline_environment",
@@ -82,6 +84,7 @@ __all__ = [
     "list_experiment_config_summaries",
     "list_result_items",
     "list_run_items",
+    "list_solver_manifest_options",
     "open_path",
     "read_project_status",
     "read_experiment_config_summary",
