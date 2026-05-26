@@ -24,6 +24,7 @@ from orchestrator.core.benchmarking.benchmark_artifacts import (
     empty_benchmark_artifact,
 )
 from orchestrator.core.benchmarking.benchmark_runner import (
+    build_benchmark_run_command,
     build_cmake_build_command,
     configure_cmake_command,
     find_executable,
@@ -33,6 +34,7 @@ from orchestrator.core.benchmarking.benchmark_runner import (
 from orchestrator.core.benchmarking.solver_registry import (
     SolverBenchmarkDescriptor,
     default_solver_descriptor,
+    get_solver_descriptor,
 )
 
 
@@ -56,6 +58,26 @@ PARSE_FAMILY_BENCHMARK_STEP = f"parse_{DESCRIPTOR.benchmark_target}"
 BENCHMARK_CORRECTNESS_CHECK_STEP = "benchmark_correctness_check"
 
 
+def _activate_descriptor(descriptor: SolverBenchmarkDescriptor) -> None:
+    global DESCRIPTOR, EXPECTED_STEPS, PARSE_FAMILY_BENCHMARK_STEP
+    DESCRIPTOR = descriptor
+    steps = ["configure_cmake"]
+    if DESCRIPTOR.adapter_validator_target is not None:
+        steps.append(f"build_{DESCRIPTOR.adapter_validator_target}")
+    steps.append(f"build_{DESCRIPTOR.benchmark_target}")
+    if DESCRIPTOR.adapter_validator_target is not None:
+        steps.append(f"run_{DESCRIPTOR.adapter_validator_target}")
+    steps.extend(
+        [
+            f"run_{DESCRIPTOR.benchmark_target}",
+            f"parse_{DESCRIPTOR.benchmark_target}",
+            BENCHMARK_CORRECTNESS_CHECK_STEP,
+        ]
+    )
+    EXPECTED_STEPS = steps
+    PARSE_FAMILY_BENCHMARK_STEP = f"parse_{DESCRIPTOR.benchmark_target}"
+
+
 def _parse_args(argv: list[str]) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description=(
@@ -67,6 +89,11 @@ def _parse_args(argv: list[str]) -> argparse.Namespace:
         "--candidate-run",
         required=True,
         help="Path to a candidate run directory containing materialization.json.",
+    )
+    parser.add_argument(
+        "--solver",
+        default=None,
+        help="Optional solver_id from the solver registry. Defaults to lambdatwist_p3p.",
     )
     parser.add_argument(
         "--cmake-exe",
@@ -242,7 +269,7 @@ def _build_summary(verification: dict[str, Any], logs_dir: Path) -> str:
             "",
             f"Logs directory: {logs_dir}",
             "Adapter validator status: "
-            f"{_status_for_step(steps, f'run_{DESCRIPTOR.adapter_validator_target}')}",
+            f"{'not_applicable' if DESCRIPTOR.adapter_validator_target is None else _status_for_step(steps, f'run_{DESCRIPTOR.adapter_validator_target}')}",
             "Family benchmark status: "
             f"{_status_for_step(steps, f'run_{DESCRIPTOR.benchmark_target}')}",
             f"Benchmark parse status: {_format_value(benchmark['parse_success'])}",
@@ -305,10 +332,10 @@ def _finalize(
     completed_steps = _complete_steps(step_statuses)
     run_adapter_step = f"run_{DESCRIPTOR.adapter_validator_target}"
     adapter_validation = {
-        "success": _step_success(completed_steps, run_adapter_step),
+        "success": None if DESCRIPTOR.adapter_validator_target is None else _step_success(completed_steps, run_adapter_step),
         "raw_output_available": (
             logs_dir / f"{run_adapter_step}.log"
-        ).exists(),
+        ).exists() if DESCRIPTOR.adapter_validator_target is not None else False,
     }
     overall_status = "failed" if failed_step else "success"
     verification = _build_verification(
@@ -411,6 +438,7 @@ def _critical_candidate_paths(source_dir: Path, build_dir: Path) -> list[Path]:
             DESCRIPTOR.adapter_validator_target,
             DESCRIPTOR.benchmark_target,
         )
+        if target is not None
     ]
     if not source_dir.is_dir():
         return paths
@@ -430,6 +458,15 @@ def _critical_candidate_paths(source_dir: Path, build_dir: Path) -> list[Path]:
 
 def main(argv: list[str] | None = None) -> int:
     args = _parse_args(sys.argv[1:] if argv is None else argv)
+    try:
+        _activate_descriptor(
+            get_solver_descriptor(args.solver)
+            if args.solver is not None
+            else default_solver_descriptor()
+        )
+    except KeyError as exc:
+        print(f"ERROR: {exc}", file=sys.stderr)
+        return 2
 
     candidate_run_dir = _resolve_repo_path(args.candidate_run)
     candidate_run_id = candidate_run_dir.name
@@ -557,7 +594,6 @@ def main(argv: list[str] | None = None) -> int:
     benchmark = empty_benchmark_artifact(DESCRIPTOR, False, build_type=args.cmake_build_type)
     diagnostics = _path_length_diagnostics(source_dir, build_dir)
 
-    assert DESCRIPTOR.adapter_validator_target is not None
     assert DESCRIPTOR.benchmark_target is not None
 
     command_steps: list[tuple[str, str, Sequence[str], Path, Path]] = [
@@ -569,13 +605,6 @@ def main(argv: list[str] | None = None) -> int:
             logs_dir / "configure_cmake.log",
         ),
         (
-            f"build_{DESCRIPTOR.adapter_validator_target}",
-            f"Build {DESCRIPTOR.adapter_validator_target} target",
-            build_cmake_build_command(args.cmake_exe, build_dir, DESCRIPTOR.adapter_validator_target, args.cmake_build_type),
-            workspace_path,
-            logs_dir / f"build_{DESCRIPTOR.adapter_validator_target}.log",
-        ),
-        (
             f"build_{DESCRIPTOR.benchmark_target}",
             f"Build {DESCRIPTOR.benchmark_target} target",
             build_cmake_build_command(args.cmake_exe, build_dir, DESCRIPTOR.benchmark_target, args.cmake_build_type),
@@ -583,6 +612,17 @@ def main(argv: list[str] | None = None) -> int:
             logs_dir / f"build_{DESCRIPTOR.benchmark_target}.log",
         ),
     ]
+    if DESCRIPTOR.adapter_validator_target is not None:
+        command_steps.insert(
+            1,
+            (
+                f"build_{DESCRIPTOR.adapter_validator_target}",
+                f"Build {DESCRIPTOR.adapter_validator_target} target",
+                build_cmake_build_command(args.cmake_exe, build_dir, DESCRIPTOR.adapter_validator_target, args.cmake_build_type),
+                workspace_path,
+                logs_dir / f"build_{DESCRIPTOR.adapter_validator_target}.log",
+            ),
+        )
 
     for step_name, title, command, cwd, log_path in command_steps:
         step_status, step_error, _stdout = run_command(
@@ -594,24 +634,30 @@ def main(argv: list[str] | None = None) -> int:
             error_message = step_error
             break
 
-    run_targets = [
-        (
-            f"run_{DESCRIPTOR.adapter_validator_target}",
-            f"Run {DESCRIPTOR.adapter_validator_target} executable",
-            DESCRIPTOR.adapter_validator_target,
-            logs_dir / f"run_{DESCRIPTOR.adapter_validator_target}.log",
-        ),
+    run_targets = []
+    if DESCRIPTOR.adapter_validator_target is not None:
+        run_targets.append(
+            (
+                f"run_{DESCRIPTOR.adapter_validator_target}",
+                f"Run {DESCRIPTOR.adapter_validator_target} executable",
+                DESCRIPTOR.adapter_validator_target,
+                logs_dir / f"run_{DESCRIPTOR.adapter_validator_target}.log",
+                False,
+            )
+        )
+    run_targets.append(
         (
             f"run_{DESCRIPTOR.benchmark_target}",
             f"Run {DESCRIPTOR.benchmark_target} executable",
             DESCRIPTOR.benchmark_target,
             logs_dir / f"run_{DESCRIPTOR.benchmark_target}.log",
+            True,
         ),
-    ]
+    )
 
     benchmark_stdout = ""
     if failed_step is None:
-        for step_name, title, executable_name, log_path in run_targets:
+        for step_name, title, executable_name, log_path, is_benchmark in run_targets:
             try:
                 executable = find_executable(build_dir, executable_name)
             except OSError as exc:
@@ -631,10 +677,11 @@ def main(argv: list[str] | None = None) -> int:
                 print(f"ERROR: {error_message}", file=sys.stderr)
                 break
 
+            command = build_benchmark_run_command(executable, DESCRIPTOR) if is_benchmark else [str(executable)]
             step_status, step_error, stdout = run_command(
                 step_name,
                 title,
-                [str(executable)],
+                command,
                 workspace_path,
                 log_path,
             )

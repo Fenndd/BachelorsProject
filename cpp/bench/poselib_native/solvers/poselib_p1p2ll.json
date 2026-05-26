@@ -1,0 +1,21 @@
+{
+  "family": "poselib_native",
+  "solver_id": "poselib_p1p2ll",
+  "display_name": "PoseLib P1P2LL",
+  "vendor": "poselib",
+  "benchmark_backend": "poselib_native",
+  "benchmark_target": "poselib_solver_benchmark",
+  "benchmark_solver_key": "p1p2ll",
+  "benchmark_kind": "absolute_pose",
+  "default_target_file": "cpp/external/poselib/PoseLib/solvers/p1p2ll.cc",
+  "default_allowed_files": [
+    "cpp/external/poselib/PoseLib/solvers/p1p2ll.cc"
+  ],
+  "targets": {
+    "benchmark": "poselib_solver_benchmark"
+  },
+  "metrics": {
+    "runtime_metric_key": "parsed_runtime_ns_per_problem_median",
+    "runtime_unit": "ns"
+  }
+}

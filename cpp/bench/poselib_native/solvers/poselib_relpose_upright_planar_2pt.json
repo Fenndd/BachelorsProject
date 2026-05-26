@@ -1,0 +1,21 @@
+{
+  "family": "poselib_native",
+  "solver_id": "poselib_relpose_upright_planar_2pt",
+  "display_name": "PoseLib Upright Planar Relative Pose 2pt",
+  "vendor": "poselib",
+  "benchmark_backend": "poselib_native",
+  "benchmark_target": "poselib_solver_benchmark",
+  "benchmark_solver_key": "relpose_upright_planar_2pt",
+  "benchmark_kind": "relative_pose",
+  "default_target_file": "cpp/external/poselib/PoseLib/solvers/relpose_upright_planar_2pt.cc",
+  "default_allowed_files": [
+    "cpp/external/poselib/PoseLib/solvers/relpose_upright_planar_2pt.cc"
+  ],
+  "targets": {
+    "benchmark": "poselib_solver_benchmark"
+  },
+  "metrics": {
+    "runtime_metric_key": "parsed_runtime_ns_per_problem_median",
+    "runtime_unit": "ns"
+  }
+}

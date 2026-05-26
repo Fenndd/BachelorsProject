@@ -202,3 +202,37 @@ def test_append_index_record_preserves_unicode(tmp_path: Path) -> None:
     record = json.loads(lines[0])
     assert record["name"] == "na\u00efve"
     assert record["emoji"] == "caf\u00e9"
+
+
+def test_create_explicit_run_directory_creates_dir_and_logs(tmp_path: Path) -> None:
+    results = tmp_path / "results"
+    storage = RunStorage(results_root=results)
+    explicit = results / "runs" / "my_experiment" / "it_01"
+
+    run_dir = storage.create_explicit_run_directory(explicit)
+
+    assert run_dir == explicit
+    assert run_dir.exists()
+    assert (run_dir / "logs").exists()
+
+
+def test_create_explicit_run_directory_does_not_append_index(tmp_path: Path) -> None:
+    results = tmp_path / "results"
+    storage = RunStorage(results_root=results)
+    explicit = results / "runs" / "my_experiment" / "it_01"
+
+    storage.create_explicit_run_directory(explicit)
+
+    index_path = results / "index.jsonl"
+    assert not index_path.exists()
+
+
+def test_create_explicit_run_directory_raises_on_duplicate(tmp_path: Path) -> None:
+    results = tmp_path / "results"
+    storage = RunStorage(results_root=results)
+    explicit = results / "runs" / "my_experiment" / "it_01"
+
+    storage.create_explicit_run_directory(explicit)
+
+    with pytest.raises(FileExistsError):
+        storage.create_explicit_run_directory(explicit)

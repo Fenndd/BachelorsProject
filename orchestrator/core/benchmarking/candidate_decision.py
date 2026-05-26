@@ -38,6 +38,7 @@ class CandidateDecisionThresholds:
     """Conservative correctness-tolerance thresholds for pairwise decision."""
 
     min_runtime_reduction_percent: float = 0.5
+    gt_found_max_drop_points: float | None = None
 
 
 def evaluate_candidate_against_baseline(
@@ -91,6 +92,7 @@ def evaluate_candidate_against_reference(
 
     reference = _normalized_from_audit(audit, "reference")
     candidate = _normalized_from_audit(audit, "candidate")
+    _validate_thresholds(effective_thresholds)
 
     rejection_reasons: list[str] = []
     if audit.get("comparable") is not True:
@@ -106,11 +108,31 @@ def evaluate_candidate_against_reference(
     candidate_runtime = candidate.get("parsed_runtime_ns_per_problem_median")
     reference_runtime_num = _to_finite_number(reference_runtime)
     candidate_runtime_num = _to_finite_number(candidate_runtime)
+    reference_gt_found_num = _to_finite_number(reference.get("parsed_gt_found_percent"))
+    candidate_gt_found_num = _to_finite_number(candidate.get("parsed_gt_found_percent"))
+    gt_found_delta_points = (
+        candidate_gt_found_num - reference_gt_found_num
+        if reference_gt_found_num is not None and candidate_gt_found_num is not None
+        else None
+    )
+    gt_found_drop_points = (
+        max(0.0, reference_gt_found_num - candidate_gt_found_num)
+        if reference_gt_found_num is not None and candidate_gt_found_num is not None
+        else None
+    )
+    gt_found_gate_enabled = effective_thresholds.gt_found_max_drop_points is not None
 
     if not _is_positive_finite_number(reference_runtime):
         rejection_reasons.append("reference_runtime_invalid")
     if not _is_positive_finite_number(candidate_runtime):
         rejection_reasons.append("candidate_runtime_invalid")
+    gt_found_max_drop_points = effective_thresholds.gt_found_max_drop_points
+    if (
+        gt_found_max_drop_points is not None
+        and gt_found_drop_points is not None
+        and gt_found_drop_points > gt_found_max_drop_points
+    ):
+        rejection_reasons.append("gt_found_drop_exceeds_max_drop_points")
 
     rejection_reasons = _unique_preserving_order(rejection_reasons)
     non_acceptance_reasons: list[str] = []
@@ -118,6 +140,12 @@ def evaluate_candidate_against_reference(
         "speedup": None,
         "runtime_reduction_percent": None,
         "candidate_runtime_lower": False,
+        "reference_gt_found_percent": reference_gt_found_num,
+        "candidate_gt_found_percent": candidate_gt_found_num,
+        "gt_found_delta_points": gt_found_delta_points,
+        "gt_found_drop_points": gt_found_drop_points,
+        "gt_found_gate_enabled": gt_found_gate_enabled,
+        "gt_found_max_drop_points": effective_thresholds.gt_found_max_drop_points,
     }
 
     if rejection_reasons:
@@ -136,6 +164,12 @@ def evaluate_candidate_against_reference(
                 "speedup": speedup,
                 "runtime_reduction_percent": runtime_reduction_percent,
                 "candidate_runtime_lower": candidate_runtime_lower,
+                "reference_gt_found_percent": reference_gt_found_num,
+                "candidate_gt_found_percent": candidate_gt_found_num,
+                "gt_found_delta_points": gt_found_delta_points,
+                "gt_found_drop_points": gt_found_drop_points,
+                "gt_found_gate_enabled": gt_found_gate_enabled,
+                "gt_found_max_drop_points": effective_thresholds.gt_found_max_drop_points,
             }
             if (
                 candidate_runtime_lower
@@ -249,6 +283,19 @@ def _metrics_summary(normalized_artifact: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _validate_thresholds(thresholds: CandidateDecisionThresholds) -> None:
+    gt_found_max_drop_points = thresholds.gt_found_max_drop_points
+    if gt_found_max_drop_points is None:
+        return
+    if (
+        not isinstance(gt_found_max_drop_points, (int, float))
+        or isinstance(gt_found_max_drop_points, bool)
+        or not math.isfinite(float(gt_found_max_drop_points))
+        or float(gt_found_max_drop_points) < 0.0
+    ):
+        raise ValueError("gt_found_max_drop_points must be None or a finite non-negative number")
+
+
 def _to_finite_number(value: object) -> float | None:
     if not isinstance(value, (int, float)) or isinstance(value, bool):
         return None
@@ -300,6 +347,12 @@ def _parse_args(argv: list[str]) -> argparse.Namespace:
         default="candidate_decision.json",
         help="Decision artifact filename to write inside the candidate run directory.",
     )
+    parser.add_argument(
+        "--gt-found-max-drop-points",
+        type=_non_negative_finite_float,
+        default=None,
+        help="Optional maximum allowed gt_found drop in percentage points.",
+    )
     args = parser.parse_args(argv)
     if args.baseline_run and args.reference_run:
         parser.error("use either --baseline-run or --reference-run, not both")
@@ -310,6 +363,18 @@ def _parse_args(argv: list[str]) -> argparse.Namespace:
     if not args.baseline_run and not args.reference_run:
         parser.error("one of --baseline-run or --reference-run is required")
     return args
+
+
+def _non_negative_finite_float(value: str) -> float:
+    try:
+        numeric = float(value)
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError(
+            "must be a finite non-negative number"
+        ) from exc
+    if not math.isfinite(numeric) or numeric < 0.0:
+        raise argparse.ArgumentTypeError("must be a finite non-negative number")
+    return numeric
 
 
 def _resolve_path(path_text: str) -> Path:
@@ -323,16 +388,24 @@ def main(argv: list[str] | None = None) -> int:
     try:
         args = _parse_args(sys.argv[1:] if argv is None else argv)
         candidate_run = _resolve_path(args.candidate_run)
+        thresholds = CandidateDecisionThresholds(
+            gt_found_max_drop_points=args.gt_found_max_drop_points,
+        )
 
         if args.baseline_run:
             baseline_run = _resolve_path(args.baseline_run)
-            decision = evaluate_candidate_against_baseline(baseline_run, candidate_run)
+            decision = evaluate_candidate_against_baseline(
+                baseline_run,
+                candidate_run,
+                thresholds=thresholds,
+            )
         else:
             reference_run = _resolve_path(args.reference_run)
             decision = evaluate_candidate_against_reference(
                 reference_run,
                 candidate_run,
                 reference_kind=args.reference_kind,
+                thresholds=thresholds,
             )
         decision_json = json.dumps(decision, indent=2, ensure_ascii=False)
         print(decision_json)

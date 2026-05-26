@@ -17,12 +17,18 @@ _SCREEN_MODULES = [
     "orchestrator.tui.screens.main_screen",
     "orchestrator.tui.screens.baseline_screen",
     "orchestrator.tui.screens.experiment_screen",
+    "orchestrator.tui.screens.active_run_screen",
     "orchestrator.tui.screens.results_screen",
     "orchestrator.tui.screens.workspace_screen",
     "orchestrator.tui.screens.help_screen",
     "orchestrator.tui.screens.environment_screen",
     "orchestrator.tui.screens.doctor_screen",
     "orchestrator.tui.screens.placeholder_screen",
+    "orchestrator.tui.screens.config_builder_screen",
+]
+
+_OTHER_MODULES = [
+    "orchestrator.tui.active_runs",
 ]
 
 
@@ -38,6 +44,13 @@ def _src(module) -> str:
 @pytest.mark.parametrize("module_name", _SCREEN_MODULES)
 def test_import_all_screen_modules(module_name: str) -> None:
     """Every screen module under orchestrator.tui.screens imports without error."""
+    mod = importlib.import_module(module_name)
+    assert mod is not None
+
+
+@pytest.mark.parametrize("module_name", _OTHER_MODULES)
+def test_import_other_tui_modules(module_name: str) -> None:
+    """Other TUI modules import without error."""
     mod = importlib.import_module(module_name)
     assert mod is not None
 

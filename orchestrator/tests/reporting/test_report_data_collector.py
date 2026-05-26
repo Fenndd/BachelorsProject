@@ -138,6 +138,67 @@ def test_collect_report_data_uses_final_selection_metrics_when_available(tmp_pat
     assert report_data.artifacts.final_selection_report is not None
 
 
+def test_report_data_includes_gt_found_deltas_and_selection_policy(tmp_path: Path) -> None:
+    experiment_dir = _experiment_dir(tmp_path)
+    write_json(experiment_dir / "closed_loop_summary.json", _summary())
+    write_json(
+        experiment_dir / "experiment_config_snapshot.json",
+        {"selection": {"gt_found_max_drop_points": 2.0}},
+    )
+    write_jsonl(
+        experiment_dir / "closed_loop_iterations.jsonl",
+        [
+            {
+                "iteration": 1,
+                "status": "accepted_improvement",
+                "candidate_run_dir": "results/runs/candidate_001",
+                "decision_vs_current_best": {
+                    "comparison": {
+                        "candidate_gt_found_percent": 98.5,
+                        "gt_found_delta_points": -1.5,
+                    }
+                },
+                "decision_vs_original_baseline": {
+                    "comparison": {
+                        "candidate_gt_found_percent": 98.5,
+                        "gt_found_delta_points": -1.5,
+                    }
+                },
+            }
+        ],
+    )
+    write_json(
+        experiment_dir / "final_selection_report.json",
+        {
+            "report_type": "single_run_final_selection_report",
+            "final_best_is_baseline": False,
+            "status": "completed",
+            "final_benchmark": {"parsed_correctness_passed": True},
+            "comparison": {
+                "speedup": 1.25,
+                "runtime_reduction_percent": 20.0,
+                "baseline_runtime_ns_per_problem_median": 100.0,
+                "final_runtime_ns_per_problem_median": 80.0,
+                "baseline_gt_found_percent": 100.0,
+                "final_gt_found_percent": 98.5,
+                "final_gt_found_delta_points": -1.5,
+            },
+        },
+    )
+
+    report_data = collect_report_data(experiment_dir)
+
+    assert report_data.selection_policy.gt_found_gate_enabled is True
+    assert report_data.selection_policy.gt_found_max_drop_points == 2.0
+    assert report_data.final_selection.baseline_gt_found_percent == 100.0
+    assert report_data.final_selection.final_gt_found_percent == 98.5
+    assert report_data.final_selection.final_gt_found_delta_points == -1.5
+    assert report_data.final_best_candidate.gt_found_delta_points == -1.5
+    assert report_data.iterations[0].gt_found_percent == 98.5
+    assert report_data.iterations[0].gt_found_delta_points_vs_original_baseline == -1.5
+    assert report_data.iterations[0].gt_found_delta_points_vs_current_best == -1.5
+
+
 def test_collect_report_data_maps_iteration_records(tmp_path: Path) -> None:
     experiment_dir = _experiment_dir(tmp_path)
     write_json(experiment_dir / "closed_loop_summary.json", _summary())

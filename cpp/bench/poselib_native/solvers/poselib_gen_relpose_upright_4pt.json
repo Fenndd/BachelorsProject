@@ -1,0 +1,21 @@
+{
+  "family": "poselib_native",
+  "solver_id": "poselib_gen_relpose_upright_4pt",
+  "display_name": "PoseLib Generalized Upright Relative Pose 4pt",
+  "vendor": "poselib",
+  "benchmark_backend": "poselib_native",
+  "benchmark_target": "poselib_solver_benchmark",
+  "benchmark_solver_key": "gen_relpose_upright_4pt",
+  "benchmark_kind": "relative_pose",
+  "default_target_file": "cpp/external/poselib/PoseLib/solvers/gen_relpose_upright_4pt.cc",
+  "default_allowed_files": [
+    "cpp/external/poselib/PoseLib/solvers/gen_relpose_upright_4pt.cc"
+  ],
+  "targets": {
+    "benchmark": "poselib_solver_benchmark"
+  },
+  "metrics": {
+    "runtime_metric_key": "parsed_runtime_ns_per_problem_median",
+    "runtime_unit": "ns"
+  }
+}

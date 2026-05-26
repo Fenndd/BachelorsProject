@@ -1,8 +1,10 @@
 """Materialize a generated candidate patch into an isolated workspace copy.
 
 This command never modifies the main project source tree. It copies a
-base source root into workspace/candidates/<candidate_run_id>/ and applies
-the candidate edits only inside that workspace copy.
+base source root into the workspace directory specified by
+``--candidate-workspace-dir`` and applies candidate edits only inside that
+copy. In the closed-loop flow the workspace lives under
+``workspace/experiments/<experiment_id>/candidate_workspaces/<iteration>/``.
 """
 
 from __future__ import annotations
@@ -33,7 +35,6 @@ from orchestrator.paths import paths
 LOGGER = get_logger(__name__)
 
 
-DEFAULT_WORKSPACE_ROOT = "workspace/candidates"
 EXTERNAL_SCOPE_ENFORCEMENT = "external_allowed_files"
 
 
@@ -53,11 +54,6 @@ def _parse_args(argv: list[str]) -> argparse.Namespace:
         "--candidate-run",
         required=True,
         help="Path to a candidate run directory containing candidate.json.",
-    )
-    parser.add_argument(
-        "--workspace-root",
-        default=DEFAULT_WORKSPACE_ROOT,
-        help="Root directory for materialized candidate workspaces.",
     )
     parser.add_argument(
         "--base-source-root",
@@ -87,6 +83,14 @@ def _parse_args(argv: list[str]) -> argparse.Namespace:
             "Externally allowed file path (may be repeated). "
             "If provided, candidate target_files and diff paths "
             "must be a subset of these allowed files."
+        ),
+    )
+    parser.add_argument(
+        "--candidate-workspace-dir",
+        required=True,
+        help=(
+            "Workspace directory for this candidate. This exact path is used as "
+            "the isolated copy where edits are applied."
         ),
     )
     return parser.parse_args(argv)
@@ -797,6 +801,8 @@ def _build_materialization(
     failed_step: str | None,
     error_message: str | None,
     candidate_run_id: str,
+    candidate_run_dir: Path,
+    candidate_run_display_id: str | None,
     workspace_path: Path,
     base_source_root: str,
     patch_path: Path,
@@ -814,11 +820,13 @@ def _build_materialization(
     **extra_metadata: Any,
 ) -> dict[str, Any]:
     diff_stats = _materialization_diff_stats(patch_path, extra_metadata)
-    materialization = {
+    materialization: dict[str, Any] = {
         "overall_status": overall_status,
         "failed_step": failed_step,
         "error_message": error_message,
         "candidate_run_id": candidate_run_id,
+        "candidate_run_dir": _display_path(candidate_run_dir),
+        "candidate_run_display_id": candidate_run_display_id or candidate_run_id,
         "workspace_path": _display_path(workspace_path),
         "source_root": base_source_root,
         "base_source_root": base_source_root,
@@ -1000,6 +1008,8 @@ def _fail(
         failed_step,
         error_message,
         candidate_run_id,
+        candidate_run_dir,
+        None,
         workspace_path,
         base_source_root_text,
         patch_path,
@@ -1062,6 +1072,8 @@ def _skip_noop_candidate(
         None,
         None,
         candidate_run_id,
+        candidate_run_dir,
+        None,
         workspace_path,
         base_source_root_text,
         patch_path,
@@ -1103,8 +1115,8 @@ def main(argv: list[str] | None = None) -> int:
     started_at = datetime.now().astimezone()
     candidate_run_dir = _resolve_path(args.candidate_run)
     candidate_run_id = candidate_run_dir.name
-    workspace_root = _resolve_path(args.workspace_root)
-    workspace_path = workspace_root / candidate_run_id
+    workspace_path = _resolve_path(args.candidate_workspace_dir)
+    workspace_root = workspace_path.parent
     try:
         base_source_root_path, base_source_root_display = (
             _resolve_base_source_root(args)
@@ -1481,6 +1493,8 @@ def main(argv: list[str] | None = None) -> int:
             None,
             None,
             candidate_run_id,
+            candidate_run_dir,
+            None,
             workspace_path,
             base_source_root_display,
             patch_path,

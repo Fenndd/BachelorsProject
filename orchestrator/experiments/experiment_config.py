@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import math
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -11,7 +12,12 @@ from orchestrator.core.patching.scope_validation import (
     normalize_repo_path,
     validate_allowed_files_list,
 )
+from orchestrator.core.benchmarking.solver_registry import (
+    default_solver_descriptor,
+    get_solver_descriptor,
+)
 from orchestrator.shared.io.json_io import read_json
+from orchestrator.paths import paths
 
 
 class ExperimentConfigError(ValueError):
@@ -29,6 +35,11 @@ class ReportingConfig:
     formats: list[str] = field(default_factory=lambda: ["html", "pdf"])
     renderer: str = "auto"
     fail_on_error: bool = False
+
+
+@dataclass(frozen=True)
+class SelectionPolicyConfig:
+    gt_found_max_drop_points: float | None = None
 
 
 @dataclass(frozen=True)
@@ -64,6 +75,8 @@ class ExperimentConfig:
     optimization_scope: OptimizationScopeConfig
     variants: list[ExperimentVariantConfig]
     reporting: ReportingConfig = field(default_factory=ReportingConfig)
+    selection: SelectionPolicyConfig = field(default_factory=SelectionPolicyConfig)
+    solver_id: str = "lambdatwist_p3p"
 
 
 def load_experiment_config(path: Path | str) -> ExperimentConfig:
@@ -89,21 +102,71 @@ def load_experiment_config(path: Path | str) -> ExperimentConfig:
     if not isinstance(payload, dict):
         raise ExperimentConfigError("Experiment config must contain a JSON object.")
 
-    target_file_raw = _required_non_empty_string(payload, "target_file")
-    target_file = normalize_repo_path(target_file_raw)
-    optimization_scope = _load_optimization_scope(payload, target_file)
+    return _build_experiment_config(payload, config_path)
+
+
+def validate_experiment_config_dict(payload: dict[str, Any]) -> ExperimentConfig:
+    """Validate a payload dict and return ExperimentConfig without a file on disk."""
+    if not isinstance(payload, dict):
+        raise ExperimentConfigError("Experiment config must contain a JSON object.")
+    return _build_experiment_config(payload, paths.repo_root / "_virtual.json")
+
+
+def _build_experiment_config(
+    payload: dict[str, Any],
+    config_path: Path,
+) -> ExperimentConfig:
+    """Parse and validate a payload dict into an ExperimentConfig."""
+    solver_id = _optional_string(payload, "solver_id")
+    try:
+        solver_descriptor = (
+            get_solver_descriptor(solver_id)
+            if solver_id is not None
+            else default_solver_descriptor()
+        )
+    except KeyError as exc:
+        raise ExperimentConfigError(str(exc)) from exc
+    target_file_raw = payload.get("target_file")
+    if target_file_raw is None:
+        if not solver_descriptor.default_target_file:
+            raise ExperimentConfigError(
+                "Field 'target_file' is required when the selected solver descriptor "
+                "does not define default_target_file."
+            )
+        target_file = normalize_repo_path(solver_descriptor.default_target_file)
+    else:
+        if not isinstance(target_file_raw, str) or not target_file_raw.strip():
+            raise ExperimentConfigError(
+                "Field 'target_file' must be a non-empty string."
+            )
+        target_file = normalize_repo_path(target_file_raw)
+    default_allowed_files = list(solver_descriptor.default_allowed_files) or [target_file]
+    optimization_scope = _load_optimization_scope(
+        payload,
+        target_file,
+        default_allowed_files,
+    )
     reporting = _load_reporting(payload)
+    selection = _load_selection(payload)
     variants = _load_variants(payload)
+    baseline_run_dir = _required_non_empty_string(payload, "baseline_run_dir")
+    _validate_baseline_solver_match(
+        baseline_run_dir,
+        config_path,
+        solver_descriptor.solver_id,
+    )
 
     _validate_single_variant(variants)
 
     return ExperimentConfig(
         experiment_name=_required_non_empty_string(payload, "experiment_name"),
         description=_optional_string(payload, "description"),
+        solver_id=solver_descriptor.solver_id,
         target_file=target_file,
-        baseline_run_dir=_required_non_empty_string(payload, "baseline_run_dir"),
+        baseline_run_dir=baseline_run_dir,
         candidate_generation=_load_candidate_generation(payload),
         reporting=reporting,
+        selection=selection,
         optimization_scope=optimization_scope,
         variants=variants,
     )
@@ -289,6 +352,95 @@ def _load_reporting(payload: dict[str, Any]) -> ReportingConfig:
     )
 
 
+def _load_selection(payload: dict[str, Any]) -> SelectionPolicyConfig:
+    selection = payload.get("selection")
+    if selection is None:
+        return SelectionPolicyConfig()
+    if not isinstance(selection, dict):
+        raise ExperimentConfigError("Field 'selection' must be an object if present.")
+
+    value = selection.get("gt_found_max_drop_points")
+    if value is None:
+        return SelectionPolicyConfig(gt_found_max_drop_points=None)
+    if not isinstance(value, (int, float)) or isinstance(value, bool):
+        raise ExperimentConfigError(
+            "Field 'selection.gt_found_max_drop_points' must be null or a "
+            "finite non-negative number."
+        )
+    numeric = float(value)
+    if not math.isfinite(numeric) or numeric < 0.0:
+        raise ExperimentConfigError(
+            "Field 'selection.gt_found_max_drop_points' must be null or a "
+            "finite non-negative number."
+        )
+    return SelectionPolicyConfig(gt_found_max_drop_points=numeric)
+
+
+def _validate_baseline_solver_match(
+    baseline_run_dir: str,
+    config_path: Path,
+    solver_id: str,
+) -> None:
+    baseline_dir = _resolve_existing_baseline_dir(baseline_run_dir, config_path)
+    if baseline_dir is None:
+        return
+    baseline_solver_id = _baseline_solver_id_from_artifacts(baseline_dir)
+    if baseline_solver_id is None:
+        return
+    if baseline_solver_id != solver_id:
+        raise ExperimentConfigError(
+            "Field 'baseline_run_dir' points to a baseline produced by a "
+            "different solver_id: "
+            f"baseline={baseline_solver_id!r}, config={solver_id!r}."
+        )
+
+
+def _resolve_existing_baseline_dir(
+    baseline_run_dir: str,
+    config_path: Path,
+) -> Path | None:
+    raw_path = Path(baseline_run_dir)
+    candidates = [raw_path] if raw_path.is_absolute() else [
+        paths.repo_root / raw_path,
+        config_path.parent / raw_path,
+    ]
+    for candidate in candidates:
+        if candidate.is_dir():
+            return candidate
+    return None
+
+
+def _baseline_solver_id_from_artifacts(baseline_dir: Path) -> str | None:
+    metadata = _safe_read_json_object(baseline_dir / "metadata.json")
+    if metadata is not None:
+        solver_id = _string_value(metadata.get("solver_id"))
+        if solver_id is not None:
+            return solver_id
+        baseline = _string_value(metadata.get("baseline"))
+        if baseline is not None:
+            return baseline
+
+    metrics = _safe_read_json_object(baseline_dir / "metrics.json")
+    benchmark = metrics.get("benchmark") if isinstance(metrics, dict) else None
+    if isinstance(benchmark, dict):
+        return _string_value(benchmark.get("solver"))
+    return None
+
+
+def _safe_read_json_object(path: Path) -> dict[str, Any] | None:
+    if not path.is_file():
+        return None
+    try:
+        payload = read_json(path)
+    except (OSError, json.JSONDecodeError):
+        return None
+    return payload if isinstance(payload, dict) else None
+
+
+def _string_value(value: Any) -> str | None:
+    return value if isinstance(value, str) and value else None
+
+
 def _validate_single_variant(variants: list[ExperimentVariantConfig]) -> None:
     if len(variants) != 1:
         raise ExperimentConfigError(
@@ -336,6 +488,7 @@ def _load_variants(payload: dict[str, Any]) -> list[ExperimentVariantConfig]:
 def _load_optimization_scope(
     payload: dict[str, Any],
     target_file: str,
+    default_allowed_files: list[str],
 ) -> OptimizationScopeConfig:
     """Load and validate the optional optimization_scope block.
 
@@ -344,7 +497,13 @@ def _load_optimization_scope(
     """
     scope_raw = payload.get("optimization_scope")
     if scope_raw is None:
-        return OptimizationScopeConfig(allowed_files=[target_file])
+        allowed_files = validate_allowed_files_list(
+            default_allowed_files,
+            label="solver default_allowed_files",
+        )
+        if target_file not in allowed_files:
+            allowed_files = [target_file, *allowed_files]
+        return OptimizationScopeConfig(allowed_files=allowed_files)
 
     if not isinstance(scope_raw, dict):
         raise ExperimentConfigError("Field 'optimization_scope' must be an object if present.")
@@ -372,3 +531,55 @@ def _load_optimization_scope(
         )
 
     return OptimizationScopeConfig(allowed_files=allowed_files)
+
+
+def experiment_config_to_payload(config: ExperimentConfig) -> dict[str, Any]:
+    """Convert an :class:`ExperimentConfig` to a JSON-serializable dict."""
+    reporting = config.reporting
+    variant = config.variants[0]
+
+    payload: dict[str, Any] = {
+        "experiment_name": config.experiment_name,
+        "description": config.description,
+        "solver_id": config.solver_id,
+        "target_file": config.target_file,
+        "baseline_run_dir": config.baseline_run_dir,
+        "candidate_generation": {
+            "max_source_chars": config.candidate_generation.max_source_chars,
+        },
+        "optimization_scope": {
+            "allowed_files": list(config.optimization_scope.allowed_files),
+        },
+        "reporting": {
+            "enabled": reporting.enabled,
+            "formats": list(reporting.formats),
+            "renderer": reporting.renderer,
+            "fail_on_error": reporting.fail_on_error,
+        },
+        "selection": {
+            "gt_found_max_drop_points": config.selection.gt_found_max_drop_points,
+        },
+        "variants": [
+            {
+                "variant_id": variant.variant_id,
+                "description": variant.description,
+                "llm_config": variant.llm_config,
+                "llm_overrides": variant.llm_overrides,
+                "iterations": variant.iterations,
+                "additional_context": variant.additional_context,
+            }
+        ],
+    }
+    return payload
+
+
+def dump_experiment_config(config: ExperimentConfig, path: Path | str) -> Path:
+    """Serialize *config* to JSON, creating parent directories.
+
+    The output can be read back with :func:`load_experiment_config`.
+    Returns the written :class:`~pathlib.Path`.
+    """
+    from orchestrator.shared.io.json_io import write_json
+
+    payload = experiment_config_to_payload(config)
+    return write_json(path, payload)

@@ -1,0 +1,21 @@
+{
+  "family": "poselib_native",
+  "solver_id": "poselib_monodepth_varying_focal_relpose_3pt",
+  "display_name": "PoseLib Monodepth Varying Focal Relative Pose 3pt",
+  "vendor": "poselib",
+  "benchmark_backend": "poselib_native",
+  "benchmark_target": "poselib_solver_benchmark",
+  "benchmark_solver_key": "monodepth_varying_focal_relpose_3pt",
+  "benchmark_kind": "relative_pose",
+  "default_target_file": "cpp/external/poselib/PoseLib/solvers/relpose_monodepth_3pt_varying_focal.cc",
+  "default_allowed_files": [
+    "cpp/external/poselib/PoseLib/solvers/relpose_monodepth_3pt_varying_focal.cc"
+  ],
+  "targets": {
+    "benchmark": "poselib_solver_benchmark"
+  },
+  "metrics": {
+    "runtime_metric_key": "parsed_runtime_ns_per_problem_median",
+    "runtime_unit": "ns"
+  }
+}

@@ -68,6 +68,16 @@ class ClosedLoopPaths:
             / "closed_loop_iterations.jsonl",
         )
 
+    @property
+    def candidate_runs_root(self) -> Path:
+        """Grouped candidate run directories under results/runs/<experiment_id>/."""
+        return self.results_root / "runs" / self.experiment_id
+
+    @property
+    def candidate_workspaces_root(self) -> Path:
+        """Grouped candidate workspaces under workspace/candidates/<experiment_id>/."""
+        return self.workspace_root / "candidates" / self.experiment_id
+
 
 @dataclass
 class CurrentBestState:

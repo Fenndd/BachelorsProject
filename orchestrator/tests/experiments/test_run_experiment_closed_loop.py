@@ -472,9 +472,9 @@ class RunExperimentClosedLoopTests(unittest.TestCase):
         ])
         experiment_dir = next((root / "results" / "experiments").iterdir())
 
-        first_log = experiment_dir / "logs" / "iteration_001_closed_loop_history_context.txt"
-        second_log = experiment_dir / "logs" / "iteration_002_closed_loop_history_context.txt"
-        third_log = experiment_dir / "logs" / "iteration_003_closed_loop_history_context.txt"
+        first_log = experiment_dir / "logs" / "it_01_closed_loop_history_context.txt"
+        second_log = experiment_dir / "logs" / "it_02_closed_loop_history_context.txt"
+        third_log = experiment_dir / "logs" / "it_03_closed_loop_history_context.txt"
 
         self.assertEqual(first_log.read_text(encoding="utf-8").strip(), "No meaningful closed-loop history yet.")
         second_history = second_log.read_text(encoding="utf-8")

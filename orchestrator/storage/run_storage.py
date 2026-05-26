@@ -40,6 +40,21 @@ class RunStorage:
 
         return run_dir
 
+    def create_explicit_run_directory(self, run_dir: Path) -> Path:
+        """Create a run directory at an explicit path without index registration.
+
+        Unlike ``create_run_directory``, this does **not** generate a timestamped
+        run id and does **not** append to the global index. It is designed for
+        closed-loop experiment managed paths where the caller owns the naming.
+        """
+        run_dir = Path(run_dir)
+        logs_dir = run_dir / "logs"
+
+        run_dir.mkdir(parents=True, exist_ok=False)
+        logs_dir.mkdir()
+
+        return run_dir
+
     def save_metadata(self, run_dir: Path | str, metadata: dict[str, Any]) -> Path:
         """Write metadata.json and return its path."""
         return self._write_json(run_dir, "metadata.json", metadata)

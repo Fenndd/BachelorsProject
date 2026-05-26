@@ -45,8 +45,8 @@ def _noop_materialize(run_dir: Path, allowed_files: list[str] | None = None) -> 
     argv = [
         "--candidate-run",
         str(run_dir),
-        "--workspace-root",
-        str(run_dir.parent / "workspaces"),
+        "--candidate-workspace-dir",
+        str(run_dir.parent / "workspaces" / run_dir.name),
         "--base-source-root",
         str(source_dir),
     ]

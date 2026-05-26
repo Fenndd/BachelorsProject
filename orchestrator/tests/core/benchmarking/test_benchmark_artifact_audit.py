@@ -190,6 +190,72 @@ class BenchmarkArtifactAuditTests(unittest.TestCase):
         self.assertTrue(audit["comparable"])
         self.assertIsNone(audit["checks"]["same_build_type"])
         self.assertIn("build_type_not_recorded", audit["warnings"])
+    def test_gt_found_zero_passes_audit(self) -> None:
+        """parsed_gt_found == 0 should not fail audit."""
+        artifact = _loaded_artifact(parsed_gt_found=0, parsed_gt_found_percent=0.0)
+        audit = audit_single_benchmark_artifact(artifact, "baseline")
+        self.assertTrue(audit["passed"])
+        self.assertEqual(audit["failed_checks"], [])
+
+    def test_valid_solutions_zero_passes_audit(self) -> None:
+        """parsed_valid_solutions == 0 should not fail audit."""
+        artifact = _loaded_artifact(
+            parsed_valid_solutions=0,
+            parsed_valid_solutions_percent=0.0,
+        )
+        audit = audit_single_benchmark_artifact(artifact, "baseline")
+        self.assertTrue(audit["passed"])
+        self.assertEqual(audit["failed_checks"], [])
+
+    def test_gt_found_missing_fails_audit(self) -> None:
+        """Missing parsed_gt_found field should still fail audit."""
+        benchmark = _loaded_artifact()["benchmark"]
+        assert isinstance(benchmark, dict)
+        del benchmark["parsed_gt_found"]
+        del benchmark["parsed_gt_found_percent"]
+        artifact = _loaded_artifact()
+        artifact["benchmark"] = benchmark  # type: ignore[index]
+        audit = audit_single_benchmark_artifact(artifact, "baseline")
+        self.assertFalse(audit["passed"])
+        self.assertIn("parsed_gt_found_missing_or_negative", audit["failed_checks"])
+
+    def test_gt_found_negative_fails_audit(self) -> None:
+        """Negative parsed_gt_found should fail audit."""
+        artifact = _loaded_artifact(parsed_gt_found=-1, parsed_gt_found_percent=-1.0)
+        audit = audit_single_benchmark_artifact(artifact, "baseline")
+        self.assertFalse(audit["passed"])
+        self.assertIn("parsed_gt_found_missing_or_negative", audit["failed_checks"])
+
+    def test_gt_found_nan_fails_audit(self) -> None:
+        """NaN parsed_gt_found should fail audit."""
+        artifact = _loaded_artifact(parsed_gt_found=float("nan"))
+        audit = audit_single_benchmark_artifact(artifact, "baseline")
+        self.assertFalse(audit["passed"])
+        self.assertIn("parsed_gt_found_missing_or_negative", audit["failed_checks"])
+
+    def test_gt_found_inf_fails_audit(self) -> None:
+        """Inf parsed_gt_found should fail audit."""
+        artifact = _loaded_artifact(parsed_gt_found=float("inf"))
+        audit = audit_single_benchmark_artifact(artifact, "baseline")
+        self.assertFalse(audit["passed"])
+        self.assertIn("parsed_gt_found_missing_or_negative", audit["failed_checks"])
+
+    def test_parsed_num_problems_zero_still_fails(self) -> None:
+        """parsed_num_problems == 0 should still fail audit (must be positive)."""
+        artifact = _loaded_artifact(parsed_num_problems=0)
+        audit = audit_single_benchmark_artifact(artifact, "baseline")
+        self.assertFalse(audit["passed"])
+        self.assertIn("parsed_num_problems_missing_or_non_positive", audit["failed_checks"])
+
+    def test_runtime_zero_still_fails(self) -> None:
+        """parsed_runtime_ns_per_problem_median == 0 should still fail audit."""
+        artifact = _loaded_artifact(parsed_runtime_ns_per_problem_median=0.0)
+        audit = audit_single_benchmark_artifact(artifact, "baseline")
+        self.assertFalse(audit["passed"])
+        self.assertIn(
+            "parsed_runtime_ns_per_problem_median_missing_or_non_positive",
+            audit["failed_checks"],
+        )
 
 
 if __name__ == "__main__":

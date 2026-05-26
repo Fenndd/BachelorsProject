@@ -177,3 +177,67 @@ def test_experiment_artifacts_final_selection_absent_when_missing(tmp_path: Path
 
     assert item.artifacts.final_selection_dir is None
     assert item.artifacts.final_selection_report is None
+
+
+def test_nested_candidate_run_is_listed(tmp_path: Path) -> None:
+    root = repo_root(tmp_path)
+    nested = root / "results" / "runs" / "7" / "it_01"
+    nested.mkdir(parents=True)
+    (nested / "status.json").write_text(
+        '{"overall_status": "success"}\n',
+        encoding="utf-8",
+    )
+    (nested / "candidate.json").write_text(
+        '{"target_files": [], "edits": []}\n',
+        encoding="utf-8",
+    )
+
+    run_items = list_result_items(root)
+
+    assert len(run_items) == 1
+    assert run_items[0].name == "7/it_01"
+    assert run_items[0].kind == "run"
+
+
+def test_candidate_group_dir_not_treated_as_run(tmp_path: Path) -> None:
+    root = repo_root(tmp_path)
+    group_dir = root / "results" / "runs" / "7"
+    nested = group_dir / "it_01"
+    nested.mkdir(parents=True)
+    (nested / "status.json").write_text(
+        '{"overall_status": "success"}\n',
+        encoding="utf-8",
+    )
+
+    run_items = list_result_items(root)
+
+    assert len(run_items) == 1
+    assert run_items[0].name == "7/it_01"
+
+
+def test_nested_candidate_resolve_selector_by_path(tmp_path: Path) -> None:
+    root = repo_root(tmp_path)
+    nested = root / "results" / "runs" / "7" / "it_01"
+    nested.mkdir(parents=True)
+    (nested / "status.json").write_text(
+        '{"overall_status": "success"}\n',
+        encoding="utf-8",
+    )
+
+    item = resolve_result_selector(str(nested), root)
+    assert item is not None
+    assert item.kind == "run"
+
+
+def test_nested_candidate_resolve_selector_by_name(tmp_path: Path) -> None:
+    root = repo_root(tmp_path)
+    nested = root / "results" / "runs" / "7" / "it_01"
+    nested.mkdir(parents=True)
+    (nested / "status.json").write_text(
+        '{"overall_status": "success"}\n',
+        encoding="utf-8",
+    )
+
+    item = resolve_result_selector("7/it_01", root)
+    assert item is not None
+    assert item.kind == "run"
