@@ -15,10 +15,10 @@
 /* ---- Actions button row ---- */
 
 .actions {
-    layout: grid;
-    grid-size: 2;
-    grid-gutter: 1;
+    height: auto;
+    min-height: 3;
     margin-top: 1;
+    margin-bottom: 1;
 }
 
 .field-label {
@@ -32,6 +32,7 @@
     color: #111827;
     border: tall #9ca3af;
     text-style: bold;
+    min-height: 3;
 }
 
 #content Button:hover {
@@ -88,8 +89,13 @@ DataTable > .datatable--cursor {
 
 /* ---- Results view: summary and status ---- */
 
-#result-summary-text {
+#result-summary-panel {
+    height: 1fr;
     min-height: 10;
+    padding: 1 2;
+}
+
+#result-summary-text {
     height: auto;
 }
 
@@ -100,12 +106,68 @@ DataTable > .datatable--cursor {
 
 /* ---- Experiment view ---- */
 
+#experiments-view {
+    height: 1fr;
+}
+
+#experiments-scroll {
+    height: 1fr;
+    min-height: 8;
+}
+
 #experiment-list {
     min-height: 5;
 }
 
 #experiment-summary {
     height: auto;
+}
+
+/* ---- System view ---- */
+
+#system-view {
+    height: 1fr;
+}
+
+#system-scroll {
+    height: 1fr;
+    min-height: 8;
+}
+
+#system-actions Button {
+    width: 1fr;
+}
+
+.bottom-spacer {
+    height: 2;
+}
+
+/* ---- Config builder view ---- */
+
+#config-builder-view {
+    height: 1fr;
+    padding: 0 1;
+}
+
+#builder-form {
+    height: auto;
+    padding: 0 1;
+}
+
+#build-errors {
+    height: 6;
+    min-height: 4;
+}
+
+#builder-buttons,
+#builder-buttons-extra {
+    height: auto;
+    min-height: 3;
+    margin-top: 1;
+}
+
+.builder-button {
+    width: 1fr;
 }
 
 /* ---- Active run live log screen ---- */

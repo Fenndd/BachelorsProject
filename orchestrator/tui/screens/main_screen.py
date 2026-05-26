@@ -12,8 +12,8 @@ from textual.widgets import Button, ContentSwitcher, Footer, Header, ListItem, L
 
 from orchestrator.tui.active_runs import ActiveRunSummary
 from orchestrator.tui.screens.active_run_screen import ActiveRunScreen
-from orchestrator.tui.screens.config_builder_screen import ConfigBuilderScreen
 from orchestrator.tui.views.baseline_view import BaselineView
+from orchestrator.tui.views.config_builder_view import ConfigBuilderView
 from orchestrator.tui.views.dashboard_view import DashboardView
 from orchestrator.tui.views.experiments_view import ExperimentsView
 from orchestrator.tui.views.help_view import HelpView
@@ -25,7 +25,7 @@ _NAV_ITEMS: list[tuple[str, str]] = [
     ("Baseline", "view-baseline"),
     ("Experiments", "view-experiments"),
     ("Results", "view-results"),
-    ("Config Builder", "__config-builder"),
+    ("Config Builder", "view-config-builder"),
     ("System", "view-system"),
     ("Help", "view-help"),
 ]
@@ -98,6 +98,9 @@ class MainScreen(Screen[None]):
     def __init__(self) -> None:
         super().__init__()
         self._active_run_ids: list[str] = []
+        self._active_run_labels: dict[str, Static] = {}
+        self._active_run_item_to_id: dict[int, str] = {}
+        self._active_runs_showing_placeholder = False
         self._active_runs_timer = None
 
     def compose(self) -> ComposeResult:
@@ -116,6 +119,7 @@ class MainScreen(Screen[None]):
                 yield BaselineView()
                 yield ExperimentsView()
                 yield ResultsView()
+                yield ConfigBuilderView()
                 yield SystemView()
                 yield HelpView()
         yield Footer()
@@ -159,19 +163,18 @@ class MainScreen(Screen[None]):
         if index is None or index < 0 or index >= len(_NAV_ITEMS):
             return
         _label, target = _NAV_ITEMS[index]
-        if target == "__config-builder":
-            self.app.push_screen(ConfigBuilderScreen())
-        else:
-            self._switch_to_view(target)
+        self._switch_to_view(target)
 
     def _handle_active_run_selection(self, event: ListView.Selected) -> None:
-        manager = getattr(self.app, "active_runs_manager", None)
-        if manager is None:
-            return
-        index = event.list_view.index
-        if index is None or index < 0 or index >= len(self._active_run_ids):
-            return
-        run_id = self._active_run_ids[index]
+        run_id: str | None = None
+        item = getattr(event, "item", None)
+        if item is not None:
+            run_id = self._active_run_item_to_id.get(id(item))
+        if run_id is None:
+            index = event.list_view.index
+            if index is None or index < 0 or index >= len(self._active_run_ids):
+                return
+            run_id = self._active_run_ids[index]
         self.app.push_screen(ActiveRunScreen(run_id))
 
     def _switch_to_view(self, view_id: str) -> None:
@@ -231,14 +234,45 @@ class MainScreen(Screen[None]):
             return
         runs = manager.list()
         list_view = self.query_one("#active-runs", ListView)
-        list_view.clear()
-        self._active_run_ids = []
-        if not runs:
-            list_view.append(ListItem(Static("[italic #6b7280]No active or recent runs.[/italic #6b7280]")))
+        run_ids = [r.run_id for r in runs]
+        can_update_in_place = run_ids == self._active_run_ids and (
+            bool(run_ids) or self._active_runs_showing_placeholder
+        )
+        if can_update_in_place:
+            for run in runs:
+                label = self._active_run_labels.get(run.run_id)
+                if label is not None:
+                    label.update(_format_run_label(run))
         else:
-            for r in runs:
-                self._active_run_ids.append(r.run_id)
-                list_view.append(ListItem(Static(_format_run_label(r))))
+            previous_index = list_view.index
+            previous_run_id = (
+                self._active_run_ids[previous_index]
+                if previous_index is not None
+                and 0 <= previous_index < len(self._active_run_ids)
+                else None
+            )
+            list_view.clear()
+            self._active_run_ids = run_ids
+            self._active_run_labels = {}
+            self._active_run_item_to_id = {}
+            if not runs:
+                list_view.append(ListItem(Static("[italic #6b7280]No active or recent runs.[/italic #6b7280]")))
+                self._active_runs_showing_placeholder = True
+                list_view.index = None
+            else:
+                self._active_runs_showing_placeholder = False
+                for run in runs:
+                    label = Static(_format_run_label(run))
+                    item = ListItem(label)
+                    self._active_run_labels[run.run_id] = label
+                    self._active_run_item_to_id[id(item)] = run.run_id
+                    list_view.append(item)
+                if previous_run_id in run_ids:
+                    list_view.index = run_ids.index(previous_run_id)
+                elif previous_index is not None:
+                    list_view.index = min(previous_index, len(run_ids) - 1)
+                else:
+                    list_view.index = 0
         active_count = manager.active_count()
         self._update_active_run_count(active_count)
         self._sync_active_runs_timer(active_count)

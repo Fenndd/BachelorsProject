@@ -27,6 +27,7 @@ _VIEW_MODULES = [
     "orchestrator.tui.views.baseline_view",
     "orchestrator.tui.views.experiments_view",
     "orchestrator.tui.views.results_view",
+    "orchestrator.tui.views.config_builder_view",
     "orchestrator.tui.views.system_view",
     "orchestrator.tui.views.help_view",
 ]
@@ -182,6 +183,8 @@ def test_results_view_displays_baseline_label_for_runs() -> None:
     import orchestrator.tui.views.results_view as m
 
     assert m._display_kind("run") == "baseline"
+    assert m._display_kind("baseline") == "baseline"
+    assert m._display_kind("candidate") == "candidate"
     assert m._display_kind("experiment") == "experiment"
 
 
@@ -209,7 +212,7 @@ def test_results_view_summary_displays_baseline_label_for_runs() -> None:
         final_selection_report=None,
     )
     item = ResultItem(
-        kind="run",
+        kind="baseline",
         name="run_001",
         path=Path("results/runs/run_001"),
         modified_time=0.0,
@@ -229,6 +232,61 @@ def test_results_view_summary_displays_baseline_label_for_runs() -> None:
     assert "Kind: run" not in m._format_item(item)
 
 
+def test_results_view_refresh_summaries_reloads_items(monkeypatch) -> None:
+    from orchestrator.control import ResultArtifactMap, ResultItem
+    import orchestrator.tui.views.results_view as m
+    from orchestrator.tui.views.results_view import ResultsView
+
+    item = ResultItem(
+        kind="baseline",
+        name="run_001",
+        path=Path("results/runs/run_001"),
+        modified_time=0.0,
+        status="success",
+        started_at=None,
+        finished_at=None,
+        summary_text=None,
+        final_speedup_vs_baseline=None,
+        final_runtime_reduction_percent=None,
+        final_best_iteration=None,
+        accepted_improvements=None,
+        artifacts=ResultArtifactMap(Path("results/runs/run_001"), None, None, None, None, None, None, None, None, None, None, None, None, None, None, None, None),
+        read_errors=[],
+    )
+    view = ResultsView()
+    rebuilt: list[object] = []
+    statuses: list[str] = []
+    monkeypatch.setattr(view, "_selected_item", lambda: None)
+    monkeypatch.setattr(view, "_rebuild_table", lambda selected_key=None: rebuilt.append(selected_key))
+    monkeypatch.setattr(view, "_set_status", statuses.append)
+    monkeypatch.setattr(m, "list_result_items", lambda: [item])
+
+    view.refresh_summaries("updated")
+
+    assert view._all_items == [item]
+    assert rebuilt == [None]
+    assert statuses == ["updated"]
+
+
+def test_results_view_formats_details_by_kind(tmp_path: Path) -> None:
+    from orchestrator.control import ResultArtifactMap, ResultItem
+    import orchestrator.tui.views.results_view as m
+
+    def artifacts(path: Path) -> ResultArtifactMap:
+        return ResultArtifactMap(path, None, None, None, None, None, None, None, None, None, None, None, None, None, None, None, None)
+
+    baseline = ResultItem("baseline", "base", tmp_path / "base", 0, "success", None, None, None, None, None, None, None, artifacts(tmp_path / "base"), [])
+    candidate_dir = tmp_path / "cand"
+    candidate_dir.mkdir()
+    (candidate_dir / "candidate.json").write_text('{"summary": "faster"}\n', encoding="utf-8")
+    candidate = ResultItem("candidate", "cand", candidate_dir, 0, "success", None, None, None, None, None, None, None, artifacts(candidate_dir), [])
+    experiment = ResultItem("experiment", "exp", tmp_path / "exp", 0, "completed", None, None, None, 1.2, 16.7, 2, 1, artifacts(tmp_path / "exp"), [])
+
+    assert "Final selection speedup" not in m._format_item(baseline)
+    assert "Candidate artifact path" in m._format_item(candidate)
+    assert "Final selection speedup" in m._format_item(experiment)
+
+
 def test_main_screen_uses_content_switcher() -> None:
     import orchestrator.tui.screens.main_screen as m
 
@@ -238,17 +296,27 @@ def test_main_screen_uses_content_switcher() -> None:
     assert "child.display" not in src
 
 
+def test_main_screen_config_builder_is_embedded() -> None:
+    import orchestrator.tui.screens.main_screen as m
+
+    src = _src(m)
+    assert "ConfigBuilderView" in src
+    assert "__config-builder" not in src
+    assert "push_screen(ConfigBuilderScreen" not in src
+
+
 def test_views_package_exports_all_embedded_views() -> None:
     import orchestrator.tui.views as views
 
-    assert views.__all__ == [
+    assert set(views.__all__) == {
         "DashboardView",
         "BaselineView",
         "ExperimentsView",
         "ResultsView",
+        "ConfigBuilderView",
         "SystemView",
         "HelpView",
-    ]
+    }
 
 
 def test_baseline_view_does_not_render_fake_live_log() -> None:

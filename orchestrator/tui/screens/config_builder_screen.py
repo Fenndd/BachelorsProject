@@ -11,7 +11,8 @@ from typing import Any
 from textual.app import ComposeResult
 from textual.containers import Horizontal, VerticalScroll
 from textual.screen import ModalScreen, Screen
-from textual.widgets import Button, Footer, Header, Input, ListItem, ListView, RichLog, Select, Static, Switch, TextArea
+from textual.widget import Widget
+from textual.widgets import Button, ContentSwitcher, Footer, Header, Input, ListItem, ListView, RichLog, Select, Static, Switch, TextArea
 
 from orchestrator.control import get_project_paths
 from orchestrator.control import list_solver_manifest_options
@@ -231,16 +232,19 @@ class ConfigFilePickerScreen(ModalScreen[Path | None]):
         self.dismiss(self._paths[index])
 
 
-class ConfigBuilderScreen(Screen[None]):
+class ConfigBuilderView(Widget):
     BINDINGS = [("escape", "request_back", "Back")]
 
     DEFAULT_CSS = """
+    #config-builder-view {
+        padding: 0 1;
+    }
     #builder-form {
         padding: 0 1;
     }
     .field-label {
         margin-top: 1;
-        color: #f8fafc;
+        color: #1f2937;
         text-style: bold;
     }
     .field-widget {
@@ -249,8 +253,8 @@ class ConfigBuilderScreen(Screen[None]):
     #build-errors {
         height: 6;
         margin-top: 1;
-        background: #2f3136;
-        color: #f8fafc;
+        background: #ffffff;
+        color: #1f2937;
     }
     #builder-buttons {
         layout: grid;
@@ -265,7 +269,7 @@ class ConfigBuilderScreen(Screen[None]):
     """
 
     def __init__(self) -> None:
-        super().__init__()
+        super().__init__(id="view-config-builder")
         self._solver_options = _read_solver_manifest_options()
         self._llm_configs = _discover_llm_configs()
         self._baseline_runs = _discover_baseline_runs()
@@ -290,8 +294,7 @@ class ConfigBuilderScreen(Screen[None]):
         return sorted(local_dir.glob("*.json"))
 
     def compose(self) -> ComposeResult:
-        yield Header()
-        with VerticalScroll(id="main"):
+        with VerticalScroll(id="config-builder-view"):
             yield Static("Build Experiment Config", classes="title")
             yield Static("Fill in the form below and save to configs/experiments/local/", classes="subtitle")
 
@@ -454,8 +457,6 @@ class ConfigBuilderScreen(Screen[None]):
                 yield Button("Load Local", id="btn-load-local", classes="builder-button")
                 yield Button("Back", id="btn-back", classes="builder-button")
 
-        yield Footer()
-
     def on_mount(self) -> None:
         self._log("Config builder ready.")
         if not self._solver_options:
@@ -527,7 +528,15 @@ class ConfigBuilderScreen(Screen[None]):
     def on_button_pressed(self, event: Button.Pressed) -> None:
         btn_id = event.button.id or ""
         if btn_id == "btn-back":
-            self.app.pop_screen()
+            show_view = getattr(self.screen, "action_show_view", None)
+            if callable(show_view):
+                show_view("view-dashboard")
+                return
+            try:
+                content = self.screen.query_one("#content", ContentSwitcher)
+                content.current = "view-dashboard"
+            except Exception:
+                pass
         elif btn_id == "btn-validate":
             self._validate()
         elif btn_id == "btn-save":
@@ -540,7 +549,15 @@ class ConfigBuilderScreen(Screen[None]):
             self._load_local()
 
     def action_request_back(self) -> None:
-        self.app.pop_screen()
+        show_view = getattr(self.screen, "action_show_view", None)
+        if callable(show_view):
+            show_view("view-dashboard")
+            return
+        try:
+            content = self.screen.query_one("#content", ContentSwitcher)
+            content.current = "view-dashboard"
+        except Exception:
+            pass
 
     def _log(self, message: str) -> None:
         self.query_one("#build-errors", RichLog).write(message)
@@ -768,21 +785,13 @@ class ConfigBuilderScreen(Screen[None]):
             if callable(start_fn):
                 self._log("[info] Starting experiment via ActiveRunsManager...")
                 run_id = start_fn(saved, dry_run=False)
-                active_screen = self._try_import_active_run_screen()
-                if active_screen is not None:
-                    self.app.push_screen(active_screen(str(run_id)))
+                self._log(
+                    f"[success] Real run started as {run_id}. "
+                    "Open it from the sidebar to view live output."
+                )
                 return
 
         self._log("[info] Config saved. Open 'Run Experiment' to launch it.")
-
-    @staticmethod
-    def _try_import_active_run_screen():
-        try:
-            from orchestrator.tui.screens.active_run_screen import ActiveRunScreen
-
-            return ActiveRunScreen
-        except ImportError:
-            return None
 
     def _load_template(self) -> None:
         templates = self._discover_templates()
@@ -911,3 +920,17 @@ class ConfigBuilderScreen(Screen[None]):
             self.query_one(f"#{widget_id}", Input).value = value
         except Exception:
             pass
+
+
+class ConfigBuilderScreen(Screen[None]):
+    """Compatibility wrapper for the embedded config builder view."""
+
+    BINDINGS = [("escape", "request_back", "Back")]
+
+    def compose(self) -> ComposeResult:
+        yield Header()
+        yield ConfigBuilderView()
+        yield Footer()
+
+    def action_request_back(self) -> None:
+        self.app.pop_screen()

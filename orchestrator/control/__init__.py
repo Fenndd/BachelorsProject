@@ -32,6 +32,7 @@ from .project_paths import ProjectPaths, find_repo_root, get_project_paths, reso
 from .results_browser import (
     ResultArtifactMap,
     ResultItem,
+    ResultKind,
     get_latest_result,
     list_experiment_items,
     list_result_items,
@@ -64,6 +65,7 @@ __all__ = [
     "ProjectStatus",
     "ResultArtifactMap",
     "ResultItem",
+    "ResultKind",
     "SolverManifestOption",
     "WorkspaceStatus",
     "build_baseline_command",

@@ -2,10 +2,13 @@
 
 from __future__ import annotations
 
+import json
 from datetime import datetime
+from pathlib import Path
+from typing import Any
 
 from textual.app import ComposeResult
-from textual.containers import Horizontal, Vertical
+from textual.containers import Horizontal, Vertical, VerticalScroll
 from textual.widget import Widget
 from textual.widgets import Button, DataTable, Input, Select, Static
 
@@ -19,27 +22,142 @@ def _format_number(value: float | None) -> str:
     return f"{value:.4f}"
 
 
-def _format_item(item: ResultItem | None) -> str:
-    if item is None:
-        return "No saved results found."
-    return "\n".join(
+def _read_json_object(path: Path | None, errors: list[str]) -> dict[str, Any] | None:
+    if path is None or not path.is_file():
+        return None
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8-sig"))
+    except (OSError, json.JSONDecodeError) as exc:
+        errors.append(f"{path.name}: {exc}")
+        return None
+    return payload if isinstance(payload, dict) else None
+
+
+def _summary_excerpt(text: str | None, limit: int = 1200) -> str:
+    if not text:
+        return "-"
+    stripped = text.strip()
+    if len(stripped) <= limit:
+        return stripped
+    return stripped[:limit].rstrip() + "..."
+
+
+def _artifact_lines(item: ResultItem, labels: list[tuple[str, Path | None]]) -> list[str]:
+    return [f"{label}: {path or '-'}" for label, path in labels]
+
+
+def _format_baseline_item(item: ResultItem) -> str:
+    lines = [
+        "Kind: baseline",
+        f"Name: {item.name}",
+        f"Path: {item.path}",
+        f"Status: {item.status or 'unknown'}",
+        f"Started: {item.started_at or '-'}",
+        f"Finished: {item.finished_at or '-'}",
+    ]
+    lines.extend(
+        _artifact_lines(
+            item,
+            [
+                ("Summary path", item.artifacts.summary_txt),
+                ("Metadata path", item.artifacts.metadata_json),
+                ("Status path", item.artifacts.status_json),
+                ("Metrics path", item.artifacts.metrics_json),
+            ],
+        )
+    )
+    lines.extend(
         [
-            f"Kind: {_display_kind(item.kind)}",
-            f"Name: {item.name}",
-            f"Path: {item.path}",
-            f"Status: {item.status or 'unknown'}",
-            f"Started: {item.started_at or '-'}",
-            f"Finished: {item.finished_at or '-'}",
-            f"Final selection speedup: {_format_number(item.final_speedup_vs_baseline)}",
-            f"Final selection runtime reduction %: {_format_number(item.final_runtime_reduction_percent)}",
-            f"Best iteration: {item.final_best_iteration if item.final_best_iteration is not None else '-'}",
-            f"Accepted improvements: {item.accepted_improvements if item.accepted_improvements is not None else '-'}",
-            f"Summary: {item.artifacts.summary_txt or '-'}",
-            f"Final source: {item.artifacts.final_optimized_source_dir or '-'}",
-            f"Final diff: {item.artifacts.final_optimized_source_diff or '-'}",
+            "Summary text:",
+            _summary_excerpt(item.summary_text),
             f"Read errors: {'; '.join(item.read_errors) if item.read_errors else '-'}",
         ]
     )
+    return "\n".join(lines)
+
+
+def _format_candidate_item(item: ResultItem) -> str:
+    errors: list[str] = []
+    candidate_path = item.path / "candidate.json"
+    candidate = _read_json_object(candidate_path, errors)
+    status = _read_json_object(item.artifacts.status_json, errors)
+    metrics = _read_json_object(item.artifacts.metrics_json, errors)
+    useful: list[str] = []
+    for label, payload, keys in (
+        ("Candidate", candidate, ("summary", "expected_effect", "risk_level", "target_file")),
+        ("Status", status, ("scenario", "overall_status", "message")),
+        ("Metrics", metrics, ("solver", "runtime_ns_per_problem_median", "gt_found_percent")),
+    ):
+        if not isinstance(payload, dict):
+            continue
+        for key in keys:
+            value = payload.get(key)
+            if isinstance(value, (str, int, float)) and not isinstance(value, bool):
+                useful.append(f"{label} {key}: {value}")
+    lines = [
+        "Kind: candidate",
+        f"Name: {item.name}",
+        f"Path: {item.path}",
+        f"Status: {item.status or 'unknown'}",
+        f"Started: {item.started_at or '-'}",
+        f"Finished: {item.finished_at or '-'}",
+        f"Candidate artifact path: {candidate_path if candidate_path.is_file() else '-'}",
+    ]
+    lines.extend(
+        _artifact_lines(
+            item,
+            [
+                ("Summary path", item.artifacts.summary_txt),
+                ("Status path", item.artifacts.status_json),
+                ("Metadata path", item.artifacts.metadata_json),
+                ("Metrics path", item.artifacts.metrics_json),
+            ],
+        )
+    )
+    if useful:
+        lines.extend(["Candidate fields:", *useful])
+    lines.extend(
+        [
+            "Summary text:",
+            _summary_excerpt(item.summary_text),
+            f"Read errors: {'; '.join([*item.read_errors, *errors]) if item.read_errors or errors else '-'}",
+        ]
+    )
+    return "\n".join(lines)
+
+
+def _format_experiment_item(item: ResultItem) -> str:
+    lines = [
+        "Kind: experiment",
+        f"Name: {item.name}",
+        f"Path: {item.path}",
+        f"Status: {item.status or 'unknown'}",
+        f"Started: {item.started_at or '-'}",
+        f"Finished: {item.finished_at or '-'}",
+        f"Final selection speedup: {_format_number(item.final_speedup_vs_baseline)}",
+        f"Final selection runtime reduction %: {_format_number(item.final_runtime_reduction_percent)}",
+        f"Best iteration: {item.final_best_iteration if item.final_best_iteration is not None else '-'}",
+        f"Accepted improvements: {item.accepted_improvements if item.accepted_improvements is not None else '-'}",
+        f"Summary: {item.artifacts.summary_txt or '-'}",
+        f"Final source: {item.artifacts.final_optimized_source_dir or '-'}",
+        f"Final diff: {item.artifacts.final_optimized_source_diff or '-'}",
+        f"Report HTML: {item.artifacts.report_html or '-'}",
+        f"Report PDF: {item.artifacts.report_pdf or '-'}",
+        "Summary text:",
+        _summary_excerpt(item.summary_text),
+        f"Read errors: {'; '.join(item.read_errors) if item.read_errors else '-'}",
+    ]
+    return "\n".join(lines)
+
+
+def _format_item(item: ResultItem | None) -> str:
+    if item is None:
+        return "No saved results found."
+    if item.kind == "candidate":
+        return _format_candidate_item(item)
+    if item.kind == "experiment":
+        return _format_experiment_item(item)
+    return _format_baseline_item(item)
 
 
 def _compute_duration(started: str | None, finished: str | None) -> str:
@@ -78,6 +196,7 @@ class ResultsView(Widget):
         super().__init__(id="view-results")
         self._all_items: list[ResultItem] = []
         self._filtered_items: list[ResultItem] = []
+        self._selected_key: tuple[Path, str] | None = None
 
     def compose(self) -> ComposeResult:
         with Vertical(id="results-view"):
@@ -89,14 +208,15 @@ class ResultsView(Widget):
             with Horizontal(id="filter-row"):
                 yield Input(placeholder="Filter by name...", id="name-filter")
                 yield Select(
-                    [("all", "all"), ("baseline", "run"), ("experiment", "experiment")],
+                    [("all", "all"), ("baseline", "baseline"), ("candidate", "candidate"), ("experiment", "experiment")],
                     prompt="Kind",
                     value="all",
                     id="kind-filter",
                     allow_blank=False,
                 )
             yield DataTable(id="results-table", cursor_type="row")
-            yield Static("No item selected.", id="result-summary-text", classes="panel")
+            with VerticalScroll(id="result-summary-panel", classes="panel"):
+                yield Static("No item selected.", id="result-summary-text")
             yield Static("Status: idle", id="results-status", classes="panel")
             with Horizontal(classes="actions"):
                 yield Button("Refresh", id="refresh")
@@ -114,6 +234,14 @@ class ResultsView(Widget):
         table.add_column("when")
         table.add_column("duration")
         self._rebuild_table()
+
+    def refresh_summaries(self, status_message: str | None = None) -> None:
+        selected = self._selected_item()
+        selected_key = (selected.path, selected.name) if selected is not None else self._selected_key
+        self._all_items = list_result_items()
+        self._rebuild_table(selected_key=selected_key)
+        if status_message is not None:
+            self._set_status(status_message)
 
     # ------------------------------------------------------------------
     # Public helpers for shell bindings (called by MainScreen)
@@ -138,7 +266,7 @@ class ResultsView(Widget):
     # Internal helpers
     # ------------------------------------------------------------------
 
-    def _rebuild_table(self) -> None:
+    def _rebuild_table(self, selected_key: tuple[Path, str] | None = None) -> None:
         table = self.query_one("#results-table", DataTable)
         name_text = self.query_one("#name-filter", Input).value.strip()
         kind_val = self.query_one("#kind-filter", Select).value
@@ -167,7 +295,13 @@ class ResultsView(Widget):
             )
 
         if filtered:
-            table.move_cursor(row=0)
+            selected_index = 0
+            if selected_key is not None:
+                for index, item in enumerate(filtered):
+                    if (item.path, item.name) == selected_key:
+                        selected_index = index
+                        break
+            table.move_cursor(row=selected_index)
         self._update_summary()
 
     def _selected_item(self) -> ResultItem | None:
@@ -178,15 +312,16 @@ class ResultsView(Widget):
         return self._filtered_items[cursor_row]
 
     def _update_summary(self) -> None:
-        self.query_one("#result-summary-text", Static).update(_format_item(self._selected_item()))
+        selected = self._selected_item()
+        if selected is not None:
+            self._selected_key = (selected.path, selected.name)
+        self.query_one("#result-summary-text", Static).update(_format_item(selected))
 
     def _set_status(self, message: str) -> None:
         self.query_one("#results-status", Static).update(f"Status: {message}")
 
     def _refresh(self) -> None:
-        self._all_items = list_result_items()
-        self._rebuild_table()
-        self._set_status("refreshed")
+        self.refresh_summaries("refreshed")
 
     def _open_artifact(self, artifact: str) -> None:
         item = self._selected_item()

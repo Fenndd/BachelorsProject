@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from textual.app import ComposeResult
-from textual.containers import Horizontal, VerticalScroll
+from textual.containers import Horizontal, Vertical, VerticalScroll
 from textual.widget import Widget
 from textual.widgets import Button, ListItem, ListView, Static
 
@@ -13,7 +13,6 @@ from orchestrator.control import (
 )
 from orchestrator.tui.debug_log import write_tui_debug
 from orchestrator.tui.screens._confirm_paid_run import ConfirmPaidRunScreen
-from orchestrator.tui.screens.active_run_screen import ActiveRunScreen
 
 
 def _format_bool(value: bool | None) -> str:
@@ -73,31 +72,32 @@ class ExperimentsView(Widget):
         self._can_start = False
 
     def compose(self) -> ComposeResult:
-        with VerticalScroll():
-            yield Static("Run Experiment", classes="title")
-            yield Static(
-                "Select a config, run a safe dry-run, or launch the existing experiment runner.",
-                classes="subtitle",
-            )
-            yield ListView(
-                *[
-                    ListItem(Static(_compact_summary_label(summary)))
-                    for summary in self.summaries
-                ],
-                id="experiment-list",
-                classes="panel",
-            )
-            summary = Static(
-                _format_summary(self._selected_summary()),
-                id="experiment-summary",
-                classes="panel",
-            )
-            yield summary
-            yield Static(
-                "Idle. Select a config and press Dry Run or Real Run.",
-                id="experiment-status-text",
-                classes="panel",
-            )
+        with Vertical(id="experiments-view"):
+            with VerticalScroll(id="experiments-scroll"):
+                yield Static("Run Experiment", classes="title")
+                yield Static(
+                    "Select a config, run a safe dry-run, or launch the existing experiment runner.",
+                    classes="subtitle",
+                )
+                yield ListView(
+                    *[
+                        ListItem(Static(_compact_summary_label(summary)))
+                        for summary in self.summaries
+                    ],
+                    id="experiment-list",
+                    classes="panel",
+                )
+                summary = Static(
+                    _format_summary(self._selected_summary()),
+                    id="experiment-summary",
+                    classes="panel",
+                )
+                yield summary
+                yield Static(
+                    "Idle. Select a config and press Dry Run or Real Run.",
+                    id="experiment-status-text",
+                    classes="panel",
+                )
             with Horizontal(classes="actions"):
                 yield Button("Refresh", id="refresh-configs")
                 yield Button("Dry Run", id="dry-run")
@@ -218,9 +218,9 @@ class ExperimentsView(Widget):
         run_id = manager.start_experiment(summary.path, dry_run=dry_run)
         write_tui_debug(f"experiment {mode_text} started as {run_id}")
         self._set_status_message(
-            f"{mode_text.title()} started as {run_id}. Opening live output..."
+            f"{mode_text.title()} started as {run_id}. "
+            "Open it from the sidebar to view live output."
         )
-        self.app.push_screen(ActiveRunScreen(run_id))
 
     def focus_search(self) -> None:
         pass

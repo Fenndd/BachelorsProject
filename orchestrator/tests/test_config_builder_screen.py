@@ -10,7 +10,7 @@ pytestmark = pytest.mark.unit
 
 import orchestrator.tui.screens.config_builder_screen as config_builder
 from orchestrator.experiments.experiment_config import ExperimentConfigError
-from orchestrator.tui.screens.config_builder_screen import ConfigBuilderScreen
+from orchestrator.tui.screens.config_builder_screen import ConfigBuilderView
 
 
 class _FakeLog:
@@ -35,7 +35,7 @@ class _FakeTextArea:
         self.text += value
 
 
-def _make_screen(monkeypatch, tmp_path: Path, overrides: dict[str, object] | None = None) -> tuple[ConfigBuilderScreen, _FakeLog]:
+def _make_screen(monkeypatch, tmp_path: Path, overrides: dict[str, object] | None = None) -> tuple[ConfigBuilderView, _FakeLog]:
     paths = SimpleNamespace(
         repo_root=tmp_path,
         configs=tmp_path / "configs",
@@ -43,7 +43,7 @@ def _make_screen(monkeypatch, tmp_path: Path, overrides: dict[str, object] | Non
         cpp=tmp_path / "cpp",
     )
     monkeypatch.setattr(config_builder, "get_project_paths", lambda: paths)
-    screen = ConfigBuilderScreen()
+    screen = ConfigBuilderView()
     log = _FakeLog()
     values: dict[str, object] = {
         "experiment_name": SimpleNamespace(value="test_exp"),
@@ -92,7 +92,7 @@ def test_invalid_payload_does_not_save_or_start(monkeypatch, tmp_path: Path) -> 
     starts: list[bool] = []
     pushes: list[object] = []
     monkeypatch.setattr(
-        ConfigBuilderScreen,
+        ConfigBuilderView,
         "app",
         SimpleNamespace(
             active_runs_manager=SimpleNamespace(start=lambda *_args, **_kwargs: starts.append(True)),

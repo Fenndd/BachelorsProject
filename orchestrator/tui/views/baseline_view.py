@@ -87,11 +87,22 @@ class BaselineView(Widget):
         )
 
     def _refresh_solvers(self) -> None:
+        current_value: str | None = None
+        try:
+            selected = self.query_one("#baseline-solver", Select).value
+            current_value = selected if isinstance(selected, str) else None
+        except Exception:
+            current_value = None
         self._solver_options, self._initial_solver = _solver_select_options()
         try:
             solver_select = self.query_one("#baseline-solver", Select)
             solver_select.set_options(self._solver_options)
-            solver_select.value = self._initial_solver
+            values = {value for _label, value in self._solver_options}
+            solver_select.value = (
+                current_value
+                if current_value in values
+                else (self._initial_solver if self._initial_solver in values else _DEFAULT_SOLVER_VALUE)
+            )
         except Exception:
             pass
         self._set_status("Solver list refreshed.")

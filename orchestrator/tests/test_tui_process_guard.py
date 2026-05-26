@@ -267,7 +267,6 @@ def test_experiments_view_start_before_ready_is_blocked(monkeypatch) -> None:
 def test_experiments_view_dry_run_calls_manager_start_experiment(monkeypatch) -> None:
     from pathlib import Path
     from orchestrator.tui.views.experiments_view import ExperimentsView
-    from orchestrator.tui.screens.active_run_screen import ActiveRunScreen
 
     view = ExperimentsView()
     expected_path = Path("/fake/config.json")
@@ -291,8 +290,7 @@ def test_experiments_view_dry_run_calls_manager_start_experiment(monkeypatch) ->
     view._start_experiment(dry_run=True)
 
     assert start_calls == [(expected_path, True)]
-    assert len(pushed_screens) == 1
-    assert isinstance(pushed_screens[0], ActiveRunScreen)
+    assert pushed_screens == []
 
 
 def test_experiments_view_real_run_shows_confirm_modal(monkeypatch) -> None:
@@ -398,6 +396,36 @@ def test_experiments_view_refresh_rebuilds_summaries(monkeypatch) -> None:
     assert status_updates == ["Config list refreshed."]
 
 
+def test_baseline_view_refresh_preserves_selected_solver(monkeypatch) -> None:
+    import orchestrator.tui.views.baseline_view as baseline_view
+    from orchestrator.tui.views.baseline_view import BaselineView
+
+    view = BaselineView()
+    select = SimpleNamespace(value="solver_b", options=[])
+    select.set_options = lambda options: setattr(select, "options", options)
+    statuses: list[str] = []
+
+    monkeypatch.setattr(
+        baseline_view,
+        "_solver_select_options",
+        lambda: ([('Solver A', 'solver_a'), ('Solver B', 'solver_b')], 'solver_a'),
+    )
+
+    def query_one(selector, *args, **kwargs):
+        if selector == "#baseline-solver":
+            return select
+        if selector == "#baseline-status":
+            return SimpleNamespace(update=statuses.append)
+        raise AssertionError(selector)
+
+    monkeypatch.setattr(view, "query_one", query_one)
+
+    view._refresh_solvers()
+
+    assert select.value == "solver_b"
+    assert statuses == ["Solver list refreshed."]
+
+
 # ---------------------------------------------------------------------------
 # MainScreen -- active runs sidebar mapping
 # ---------------------------------------------------------------------------
@@ -430,6 +458,62 @@ def test_main_screen_active_run_selection_uses_stored_run_ids(monkeypatch) -> No
     assert len(pushed_screens) == 1
     assert isinstance(pushed_screens[0], ActiveRunScreen)
     assert pushed_screens[0]._run_id == "run_002"
+
+
+def test_main_screen_active_run_selection_prefers_item_mapping(monkeypatch) -> None:
+    from orchestrator.tui.screens.active_run_screen import ActiveRunScreen
+    from orchestrator.tui.screens.main_screen import MainScreen
+
+    screen = MainScreen()
+    selected_item = object()
+    screen._active_run_ids = ["wrong_run"]
+    screen._active_run_item_to_id = {id(selected_item): "mapped_run"}
+    pushed_screens: list[object] = []
+
+    monkeypatch.setattr(
+        MainScreen,
+        "app",
+        SimpleNamespace(push_screen=lambda screen_obj: pushed_screens.append(screen_obj)),
+    )
+
+    screen._handle_active_run_selection(
+        SimpleNamespace(item=selected_item, list_view=SimpleNamespace(index=0))
+    )
+
+    assert len(pushed_screens) == 1
+    assert isinstance(pushed_screens[0], ActiveRunScreen)
+    assert pushed_screens[0]._run_id == "mapped_run"
+
+
+def test_main_screen_active_run_refresh_updates_labels_without_rebuild(monkeypatch) -> None:
+    from datetime import datetime
+    from pathlib import Path
+    from orchestrator.tui.screens.main_screen import MainScreen
+
+    screen = MainScreen()
+    screen._active_run_ids = ["run_001"]
+    updates: list[str] = []
+    screen._active_run_labels = {"run_001": SimpleNamespace(update=updates.append)}
+    list_view = SimpleNamespace(index=0, clear=lambda: (_ for _ in ()).throw(AssertionError("rebuild")))
+    run = SimpleNamespace(
+        run_id="run_001",
+        kind="experiment",
+        config_path=Path("configs/experiments/a.json"),
+        dry_run=True,
+        status="running",
+        started_at=datetime.now().astimezone(),
+        finished_at=None,
+    )
+    manager = SimpleNamespace(list=lambda: [run], active_count=lambda: 1)
+
+    monkeypatch.setattr(MainScreen, "app", SimpleNamespace(active_runs_manager=manager))
+    monkeypatch.setattr(screen, "query_one", lambda selector, *args, **kwargs: list_view)
+    monkeypatch.setattr(screen, "_update_active_run_count", lambda count: None)
+    monkeypatch.setattr(screen, "_sync_active_runs_timer", lambda count: None)
+
+    screen._refresh_active_runs()
+
+    assert updates
 
 
 # ---------------------------------------------------------------------------

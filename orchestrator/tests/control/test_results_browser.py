@@ -68,7 +68,7 @@ def test_synthetic_run_is_listed(tmp_path: Path) -> None:
     items = list_result_items(root)
 
     assert len(items) == 1
-    assert items[0].kind == "run"
+    assert items[0].kind == "baseline"
     assert items[0].status == "success"
     assert items[0].summary_text == "Run summary\n"
 
@@ -113,7 +113,7 @@ def test_invalid_json_is_captured_in_read_errors(tmp_path: Path) -> None:
 
     item = list_result_items(root)[0]
 
-    assert item.kind == "run"
+    assert item.kind == "baseline"
     assert item.read_errors
 
 
@@ -147,7 +147,7 @@ def test_selector_by_unique_directory_name_works(tmp_path: Path) -> None:
     item = resolve_result_selector("run_001", root)
 
     assert item is not None
-    assert item.kind == "run"
+    assert item.kind == "baseline"
 
 
 def test_open_path_raises_clear_error_for_missing_path(tmp_path: Path) -> None:
@@ -196,7 +196,17 @@ def test_nested_candidate_run_is_listed(tmp_path: Path) -> None:
 
     assert len(run_items) == 1
     assert run_items[0].name == "7/it_01"
-    assert run_items[0].kind == "run"
+    assert run_items[0].kind == "candidate"
+
+
+def test_run_dir_with_candidate_json_is_candidate(tmp_path: Path) -> None:
+    root = repo_root(tmp_path)
+    run_dir = _write_run(root, "candidate_001")
+    (run_dir / "candidate.json").write_text('{"summary": "change"}\n', encoding="utf-8")
+
+    item = list_result_items(root)[0]
+
+    assert item.kind == "candidate"
 
 
 def test_candidate_group_dir_not_treated_as_run(tmp_path: Path) -> None:
@@ -226,7 +236,7 @@ def test_nested_candidate_resolve_selector_by_path(tmp_path: Path) -> None:
 
     item = resolve_result_selector(str(nested), root)
     assert item is not None
-    assert item.kind == "run"
+    assert item.kind == "candidate"
 
 
 def test_nested_candidate_resolve_selector_by_name(tmp_path: Path) -> None:
@@ -240,4 +250,4 @@ def test_nested_candidate_resolve_selector_by_name(tmp_path: Path) -> None:
 
     item = resolve_result_selector("7/it_01", root)
     assert item is not None
-    assert item.kind == "run"
+    assert item.kind == "candidate"

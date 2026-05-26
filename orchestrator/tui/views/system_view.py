@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from textual.app import ComposeResult
-from textual.containers import Horizontal, VerticalScroll
+from textual.containers import Horizontal, Vertical, VerticalScroll
 from textual.widget import Widget
 from textual.widgets import Button, Static
 
@@ -141,40 +141,42 @@ class SystemView(Widget):
         self._pending_cleanup: str | None = None
 
     def compose(self) -> ComposeResult:
-        with VerticalScroll():
-            yield Static("System", classes="title")
-            yield Static(
-                "Environment, project, and workspace diagnostics in one view.",
-                classes="subtitle",
-            )
+        with Vertical(id="system-view"):
+            with VerticalScroll(id="system-scroll"):
+                yield Static("System", classes="title")
+                yield Static(
+                    "Environment, project, and workspace diagnostics in one view.",
+                    classes="subtitle",
+                )
 
-            # --- Environment section ---
-            yield Static("Environment", classes="title")
-            yield Static(
-                _format_environment(),
-                id="system-environment",
-                classes="panel",
-            )
-            yield Button("Refresh Environment", id="refresh-environment")
+                # --- Environment section ---
+                yield Static("Environment", classes="title")
+                yield Static(
+                    _format_environment(),
+                    id="system-environment",
+                    classes="panel",
+                )
+                yield Button("Refresh Environment", id="refresh-environment")
 
-            # --- Doctor section ---
-            yield Static("Doctor", classes="title")
-            yield Static(
-                _format_doctor(),
-                id="system-doctor",
-                classes="panel",
-            )
-            yield Button("Refresh Doctor", id="refresh-doctor")
+                # --- Doctor section ---
+                yield Static("Doctor", classes="title")
+                yield Static(
+                    _format_doctor(),
+                    id="system-doctor",
+                    classes="panel",
+                )
+                yield Button("Refresh Doctor", id="refresh-doctor")
 
-            # --- Workspace section ---
-            yield Static("Workspace", classes="title")
-            yield Static(
-                _format_workspace(get_workspace_status()),
-                id="system-workspace",
-                classes="panel",
-            )
-            yield Static("Status: idle", id="workspace-message", classes="panel")
-            with Horizontal():
+                # --- Workspace section ---
+                yield Static("Workspace", classes="title")
+                yield Static(
+                    _format_workspace(get_workspace_status()),
+                    id="system-workspace",
+                    classes="panel",
+                )
+                yield Static("Status: idle", id="workspace-message", classes="panel")
+                yield Static("", classes="bottom-spacer")
+            with Horizontal(classes="actions", id="system-actions"):
                 yield Button("Refresh Workspace", id="refresh-workspace")
                 yield Button("Clean Candidates", id="clean-candidates")
                 yield Button("Clean Experiments", id="clean-experiments")
