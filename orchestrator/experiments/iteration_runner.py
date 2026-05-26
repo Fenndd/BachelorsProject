@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import inspect
 import sys
 import time
 from pathlib import Path
@@ -24,6 +25,7 @@ from .closed_loop_state import (
 from .experiment_config import ExperimentConfig
 from .outcome_reason import build_outcome_reason, outcome_reason_to_dict
 from orchestrator.core.benchmarking.candidate_decision import (
+    CandidateDecisionThresholds,
     evaluate_candidate_against_reference,
     write_candidate_decision,
 )
@@ -33,11 +35,17 @@ from orchestrator.shared.process.step_runner import StepRunner, format_command
 _STEP_RUNNER = StepRunner()
 
 
+def format_iteration_dir(iteration: int) -> str:
+    """Return a short iteration directory name like 'it_01', 'it_99', 'it_100'."""
+    return f"it_{iteration:02d}"
+
+
 def _build_generation_command(
     config: ExperimentConfig,
     llm_config_path: str,
     context_text: str | None,
     source_root: str | None = None,
+    candidate_run_dir: str | None = None,
 ) -> list[str]:
     command = [
         sys.executable,
@@ -52,6 +60,8 @@ def _build_generation_command(
     ]
     if source_root is not None:
         command.extend(["--source-root", source_root])
+    if candidate_run_dir is not None:
+        command.extend(["--candidate-run-dir", candidate_run_dir])
     if context_text is not None:
         command.extend(["--context", context_text])
     for allowed_file in config.optimization_scope.allowed_files:
@@ -63,6 +73,7 @@ def _build_materialization_command(
     candidate_run_dir: str,
     config: ExperimentConfig,
     base_source_root: str | None = None,
+    candidate_workspace_dir: str | None = None,
 ) -> list[str]:
     command = [
         sys.executable,
@@ -74,18 +85,22 @@ def _build_materialization_command(
     ]
     if base_source_root is not None:
         command.extend(["--base-source-root", base_source_root])
+    if candidate_workspace_dir is not None:
+        command.extend(["--candidate-workspace-dir", candidate_workspace_dir])
     for allowed_file in config.optimization_scope.allowed_files:
         command.extend(["--allowed-file", allowed_file])
     return command
 
 
-def _build_verification_command(candidate_run_dir: str) -> list[str]:
+def _build_verification_command(candidate_run_dir: str, config: ExperimentConfig) -> list[str]:
     return [
         sys.executable,
         "-m",
         "orchestrator.core.execution.verify_candidate",
         "--candidate-run",
         candidate_run_dir,
+        "--solver",
+        config.solver_id,
     ]
 
 
@@ -131,7 +146,7 @@ def _run_stage(
     stage_name: str,
     command: Sequence[str],
 ) -> dict[str, Any]:
-    log_path = experiment_dir / "logs" / f"iteration_{global_iteration:03d}_{stage_name}.log"
+    log_path = experiment_dir / "logs" / f"{format_iteration_dir(global_iteration)}_{stage_name}.log"
     result = _STEP_RUNNER.run_step(
         stage_name,
         list(command),
@@ -218,7 +233,7 @@ def _closed_loop_history_context_log_path(
     experiment_dir: Path,
     iteration: int,
 ) -> Path:
-    return experiment_dir / "logs" / f"iteration_{iteration:03d}_closed_loop_history_context.txt"
+    return experiment_dir / "logs" / f"{format_iteration_dir(iteration)}_closed_loop_history_context.txt"
 
 
 def _write_closed_loop_history_context_file(
@@ -476,6 +491,27 @@ def _decision_speedup(decision: dict[str, Any] | None) -> float | None:
     return float(speedup) if isinstance(speedup, (int, float)) and not isinstance(speedup, bool) else None
 
 
+def _evaluate_candidate_with_thresholds(
+    *,
+    reference_run_dir: Path,
+    reference_kind: str,
+    candidate_run_dir: Path,
+    thresholds: CandidateDecisionThresholds,
+) -> dict[str, Any]:
+    if "thresholds" in inspect.signature(evaluate_candidate_against_reference).parameters:
+        return evaluate_candidate_against_reference(
+            reference_run_dir=reference_run_dir,
+            reference_kind=reference_kind,
+            candidate_run_dir=candidate_run_dir,
+            thresholds=thresholds,
+        )
+    return evaluate_candidate_against_reference(
+        reference_run_dir=reference_run_dir,
+        reference_kind=reference_kind,
+        candidate_run_dir=candidate_run_dir,
+    )
+
+
 def _closed_loop_phase_timings(
     iteration_started: float,
     generation_result: dict[str, Any] | None = None,
@@ -628,6 +664,9 @@ def run_closed_loop_iterations(
     variant = config.variants[0]
     llm_metadata = llm_metadata_by_variant[variant.variant_id]
     baseline_run_dir = env._resolve_path(config.baseline_run_dir)
+    decision_thresholds = CandidateDecisionThresholds(
+        gt_found_max_drop_points=config.selection.gt_found_max_drop_points,
+    )
 
     closed_loop_paths = ClosedLoopPaths.from_roots(env.WORKSPACE_ROOT, env.RESULTS_ROOT, experiment_id)
     env.initialize_current_best_source(closed_loop_paths, config)
@@ -647,6 +686,10 @@ def run_closed_loop_iterations(
         base_source_kind = "baseline" if state.current_best_is_baseline else "current_best"
         candidate: dict[str, Any] | None = None
         candidate_run_dir: Path | None = None
+
+        iteration_dir_name = format_iteration_dir(iteration)
+        candidate_run_dir_path = closed_loop_paths.candidate_runs_root / iteration_dir_name
+        candidate_workspace_dir_path = closed_loop_paths.candidate_workspaces_root / iteration_dir_name
 
         closed_loop_history_context = build_closed_loop_history_context(
             [to_plain_dict(record) for record in records]
@@ -672,6 +715,7 @@ def run_closed_loop_iterations(
                 llm_metadata["resolved_config"],
                 generation_context,
                 source_root=str(closed_loop_paths.current_best_source_dir),
+                candidate_run_dir=str(candidate_run_dir_path),
             ),
         )
         generation_record, candidate_run_dir_text = _generation_stage_record(generation_result)
@@ -773,6 +817,7 @@ def run_closed_loop_iterations(
                 str(candidate_run_dir),
                 config,
                 base_source_root=str(closed_loop_paths.current_best_source_dir),
+                candidate_workspace_dir=str(candidate_workspace_dir_path),
             ),
         )
         materialization_record = _materialization_stage_record(materialization_result, str(candidate_run_dir))
@@ -816,7 +861,7 @@ def run_closed_loop_iterations(
             variant.variant_id,
             iteration,
             "verify_candidate",
-            _build_verification_command(str(candidate_run_dir)),
+            _build_verification_command(str(candidate_run_dir), config),
         )
         verification_record = _verification_stage_record(verification_result, str(candidate_run_dir))
         if verification_record["status"] != "success":
@@ -854,15 +899,17 @@ def run_closed_loop_iterations(
             print("- iteration: verification_failed")
             continue
 
-        decision_vs_current_best = evaluate_candidate_against_reference(
+        decision_vs_current_best = _evaluate_candidate_with_thresholds(
             reference_run_dir=state.current_best_run_dir,
             reference_kind=reference_kind,
             candidate_run_dir=candidate_run_dir,
+            thresholds=decision_thresholds,
         )
-        decision_vs_original_baseline = evaluate_candidate_against_reference(
+        decision_vs_original_baseline = _evaluate_candidate_with_thresholds(
             reference_run_dir=baseline_run_dir,
             reference_kind="baseline",
             candidate_run_dir=candidate_run_dir,
+            thresholds=decision_thresholds,
         )
         write_candidate_decision(candidate_run_dir, decision_vs_current_best, "decision_vs_current_best.json")
         write_candidate_decision(candidate_run_dir, decision_vs_original_baseline, "decision_vs_original_baseline.json")

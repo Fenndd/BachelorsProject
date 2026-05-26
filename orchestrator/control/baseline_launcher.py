@@ -28,8 +28,11 @@ class BaselineRunResult:
     environment_statuses: list[EnvVarStatus]
 
 
-def build_baseline_command() -> list[str]:
-    return [sys.executable, "-u", "-m", "orchestrator.cli.main"]
+def build_baseline_command(solver_id: str | None = None) -> list[str]:
+    command = [sys.executable, "-u", "-m", "orchestrator.cli.main"]
+    if solver_id:
+        command.extend(["--solver", solver_id])
+    return command
 
 
 def build_baseline_environment(repo_root: Path | None = None) -> dict[str, str]:
@@ -84,9 +87,10 @@ def run_baseline(
     repo_root: Path | None = None,
     on_stdout: Callable[[str], None] | None = None,
     on_stderr: Callable[[str], None] | None = None,
+    solver_id: str | None = None,
 ) -> BaselineRunResult:
     paths = get_project_paths(repo_root)
-    command = build_baseline_command()
+    command = build_baseline_command(solver_id)
     statuses = load_environment(paths.repo_root)
     eigen_status = _status_by_name(statuses).get("EIGEN3_INCLUDE_DIR")
 

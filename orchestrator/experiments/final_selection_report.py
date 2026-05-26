@@ -25,12 +25,16 @@ from orchestrator.core.benchmarking.benchmark_artifacts import (
     empty_benchmark_artifact,
 )
 from orchestrator.core.benchmarking.benchmark_runner import (
+    build_benchmark_run_command,
     build_cmake_build_command,
     configure_cmake_command,
     find_executable,
     run_command,
 )
-from orchestrator.core.benchmarking.candidate_decision import evaluate_candidate_against_baseline
+from orchestrator.core.benchmarking.candidate_decision import (
+    CandidateDecisionThresholds,
+    evaluate_candidate_against_baseline,
+)
 from orchestrator.core.benchmarking.solver_registry import (
     SolverBenchmarkDescriptor,
     default_solver_descriptor,
@@ -58,20 +62,24 @@ def run_final_selection_report(
     final_best_run_dir: Path | None,
     target_file: str,
     final_best_is_baseline: bool,
+    descriptor: SolverBenchmarkDescriptor | None = None,
     build_type: str = "Release",
+    gt_found_max_drop_points: float | None = None,
 ) -> Path:
     """Run a single final benchmark on the optimized source and compare against baseline.
 
     Returns the path to the written final_selection_report.json.
     """
     output_dir = experiment_dir / FINAL_SELECTION_DIR_NAME
+    benchmark_descriptor = descriptor or _DESCRIPTOR
     final_benchmark_run_dir = output_dir / FINAL_BENCHMARK_RUN_DIR_NAME
     logs_dir = output_dir / "logs"
     report_path = experiment_dir / FINAL_SELECTION_REPORT_FILENAME
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    baseline_benchmark = _load_baseline_benchmark(baseline_run_dir)
+    baseline_benchmark = _load_baseline_benchmark(baseline_run_dir, benchmark_descriptor)
     baseline_runtime = _runtime_ns(baseline_benchmark)
+    baseline_gt_found = _gt_found_percent(baseline_benchmark)
 
     if final_best_is_baseline:
         logs_dir.mkdir(parents=True, exist_ok=True)
@@ -87,6 +95,9 @@ def run_final_selection_report(
             "baseline_runtime_ns_per_problem_median": baseline_runtime,
             "final_runtime_ns_per_problem_median": baseline_runtime,
             "candidate_runtime_lower": False,
+            "baseline_gt_found_percent": baseline_gt_found,
+            "final_gt_found_percent": baseline_gt_found,
+            "final_gt_found_delta_points": 0.0 if baseline_gt_found is not None else None,
         }
         report = _build_report(
             experiment_id=experiment_id,
@@ -131,9 +142,9 @@ def run_final_selection_report(
             final_best_run_dir=final_best_run_dir,
             final_best_is_baseline=False,
             baseline_benchmark=baseline_benchmark,
-            final_benchmark=empty_benchmark_artifact(_DESCRIPTOR, build_type=effective_build_type),
+            final_benchmark=empty_benchmark_artifact(benchmark_descriptor, build_type=effective_build_type),
             decision_vs_original_baseline=None,
-            comparison=_null_comparison(baseline_runtime),
+            comparison=_null_comparison(baseline_runtime, baseline_gt_found),
             status="failed",
             failed_step="environment",
             error_message="EIGEN3_INCLUDE_DIR is not set.",
@@ -181,9 +192,9 @@ def run_final_selection_report(
             final_best_run_dir=final_best_run_dir,
             final_best_is_baseline=False,
             baseline_benchmark=baseline_benchmark,
-            final_benchmark=empty_benchmark_artifact(_DESCRIPTOR, build_type=effective_build_type),
+            final_benchmark=empty_benchmark_artifact(benchmark_descriptor, build_type=effective_build_type),
             decision_vs_original_baseline=None,
-            comparison=_null_comparison(baseline_runtime),
+            comparison=_null_comparison(baseline_runtime, baseline_gt_found),
             status="failed",
             failed_step="configure_cmake",
             error_message=configure_error,
@@ -197,11 +208,11 @@ def run_final_selection_report(
         _write_json(report_path, report)
         return report_path
 
-    build_log = logs_dir / f"build_{_DESCRIPTOR.benchmark_target}.log"
-    build_cmd = build_cmake_build_command(cmake_exe, build_dir, _DESCRIPTOR.benchmark_target, effective_build_type)
+    build_log = logs_dir / f"build_{benchmark_descriptor.benchmark_target}.log"
+    build_cmd = build_cmake_build_command(cmake_exe, build_dir, benchmark_descriptor.benchmark_target, effective_build_type)
     _, build_error, _ = run_command(
-        f"build_{_DESCRIPTOR.benchmark_target}",
-        f"Build {_DESCRIPTOR.benchmark_target}",
+        f"build_{benchmark_descriptor.benchmark_target}",
+        f"Build {benchmark_descriptor.benchmark_target}",
         build_cmd,
         build_dir.parent,
         build_log,
@@ -215,11 +226,11 @@ def run_final_selection_report(
             final_best_run_dir=final_best_run_dir,
             final_best_is_baseline=False,
             baseline_benchmark=baseline_benchmark,
-            final_benchmark=empty_benchmark_artifact(_DESCRIPTOR, build_type=effective_build_type),
+            final_benchmark=empty_benchmark_artifact(benchmark_descriptor, build_type=effective_build_type),
             decision_vs_original_baseline=None,
-            comparison=_null_comparison(baseline_runtime),
+            comparison=_null_comparison(baseline_runtime, baseline_gt_found),
             status="failed",
-            failed_step=f"build_{_DESCRIPTOR.benchmark_target}",
+            failed_step=f"build_{benchmark_descriptor.benchmark_target}",
             error_message=build_error,
             artifacts={
                 "final_benchmark_run_dir": _display_path(final_benchmark_run_dir, repo_root),
@@ -232,7 +243,7 @@ def run_final_selection_report(
         return report_path
 
     try:
-        benchmark_exe = find_executable(build_dir, _DESCRIPTOR.benchmark_target)
+        benchmark_exe = find_executable(build_dir, benchmark_descriptor.benchmark_target)
     except FileNotFoundError as exc:
         report = _build_report(
             experiment_id=experiment_id,
@@ -242,9 +253,9 @@ def run_final_selection_report(
             final_best_run_dir=final_best_run_dir,
             final_best_is_baseline=False,
             baseline_benchmark=baseline_benchmark,
-            final_benchmark=empty_benchmark_artifact(_DESCRIPTOR, build_type=effective_build_type),
+            final_benchmark=empty_benchmark_artifact(benchmark_descriptor, build_type=effective_build_type),
             decision_vs_original_baseline=None,
-            comparison=_null_comparison(baseline_runtime),
+            comparison=_null_comparison(baseline_runtime, baseline_gt_found),
             status="failed",
             failed_step="find_executable",
             error_message=str(exc),
@@ -259,11 +270,12 @@ def run_final_selection_report(
         return report_path
 
     benchmark_log_path = output_dir / "final_benchmark.log"
-    run_log = logs_dir / f"run_{_DESCRIPTOR.benchmark_target}.log"
+    run_log = logs_dir / f"run_{benchmark_descriptor.benchmark_target}.log"
+    benchmark_command = build_benchmark_run_command(benchmark_exe, benchmark_descriptor)
     _, run_error, stdout = run_command(
-        f"run_{_DESCRIPTOR.benchmark_target}",
-        f"Run {_DESCRIPTOR.benchmark_target}",
-        [str(benchmark_exe)],
+        f"run_{benchmark_descriptor.benchmark_target}",
+        f"Run {benchmark_descriptor.benchmark_target}",
+        benchmark_command,
         build_dir,
         run_log,
     )
@@ -278,11 +290,11 @@ def run_final_selection_report(
             final_best_run_dir=final_best_run_dir,
             final_best_is_baseline=False,
             baseline_benchmark=baseline_benchmark,
-            final_benchmark=empty_benchmark_artifact(_DESCRIPTOR, raw_output_available=False, build_type=effective_build_type),
+            final_benchmark=empty_benchmark_artifact(benchmark_descriptor, raw_output_available=False, build_type=effective_build_type),
             decision_vs_original_baseline=None,
-            comparison=_null_comparison(baseline_runtime),
+            comparison=_null_comparison(baseline_runtime, baseline_gt_found),
             status="failed",
-            failed_step=f"run_{_DESCRIPTOR.benchmark_target}",
+            failed_step=f"run_{benchmark_descriptor.benchmark_target}",
             error_message=run_error,
             artifacts={
                 "final_benchmark_run_dir": _display_path(final_benchmark_run_dir, repo_root),
@@ -294,8 +306,8 @@ def run_final_selection_report(
         _write_json(report_path, report)
         return report_path
 
-    parse_result = _DESCRIPTOR.parser(stdout)
-    final_benchmark = benchmark_artifact_from_parse(parse_result, _DESCRIPTOR, effective_build_type)
+    parse_result = benchmark_descriptor.parser(stdout)
+    final_benchmark = benchmark_artifact_from_parse(parse_result, benchmark_descriptor, effective_build_type)
 
     verification = {
         "overall_status": "success" if parse_result["parse_success"] else "failed",
@@ -323,7 +335,12 @@ def run_final_selection_report(
         status = "failed"
     else:
         try:
-            decision = evaluate_candidate_against_baseline(baseline_run_dir, final_benchmark_run_dir)
+            thresholds = CandidateDecisionThresholds(
+                gt_found_max_drop_points=gt_found_max_drop_points,
+            )
+            decision = evaluate_candidate_against_baseline(
+                baseline_run_dir, final_benchmark_run_dir, thresholds=thresholds,
+            )
         except Exception as exc:
             failed_step = "decision_vs_original_baseline"
             error_message = str(exc)
@@ -341,14 +358,19 @@ def run_final_selection_report(
                 verification["error_message"] = error_message
                 _write_json(verification_path, verification)
 
-    comp = (decision or {}).get("comparison", {})
+    comp_raw = (decision or {}).get("comparison", {})
+    comp: dict[str, Any] = comp_raw if isinstance(comp_raw, dict) else {}
     final_runtime = _runtime_ns(final_benchmark)
+    final_gt_found = _gt_found_percent(final_benchmark)
     comparison = {
         "speedup": comp.get("speedup"),
         "runtime_reduction_percent": comp.get("runtime_reduction_percent"),
         "baseline_runtime_ns_per_problem_median": baseline_runtime,
         "final_runtime_ns_per_problem_median": final_runtime,
         "candidate_runtime_lower": comp.get("candidate_runtime_lower", False),
+        "baseline_gt_found_percent": baseline_gt_found,
+        "final_gt_found_percent": final_gt_found,
+        "final_gt_found_delta_points": comp.get("gt_found_delta_points"),
     }
 
     report = _build_report(
@@ -376,16 +398,19 @@ def run_final_selection_report(
     return report_path
 
 
-def _load_baseline_benchmark(baseline_run_dir: Path) -> dict[str, Any]:
+def _load_baseline_benchmark(
+    baseline_run_dir: Path,
+    descriptor: SolverBenchmarkDescriptor,
+) -> dict[str, Any]:
     metrics_path = baseline_run_dir / "metrics.json"
     try:
         payload = json.loads(metrics_path.read_text(encoding="utf-8-sig"))
     except (OSError, json.JSONDecodeError):
-        return empty_benchmark_artifact(_DESCRIPTOR)
+        return empty_benchmark_artifact(descriptor)
     if not isinstance(payload, dict):
-        return empty_benchmark_artifact(_DESCRIPTOR)
+        return empty_benchmark_artifact(descriptor)
     benchmark = payload.get("benchmark")
-    return benchmark if isinstance(benchmark, dict) else empty_benchmark_artifact(_DESCRIPTOR)
+    return benchmark if isinstance(benchmark, dict) else empty_benchmark_artifact(descriptor)
 
 
 def _runtime_ns(benchmark: dict[str, Any]) -> float | None:
@@ -395,13 +420,26 @@ def _runtime_ns(benchmark: dict[str, Any]) -> float | None:
     return None
 
 
-def _null_comparison(baseline_runtime: float | None) -> dict[str, Any]:
+def _gt_found_percent(benchmark: dict[str, Any]) -> float | None:
+    value = benchmark.get("parsed_gt_found_percent")
+    if isinstance(value, (int, float)) and not isinstance(value, bool):
+        return float(value)
+    return None
+
+
+def _null_comparison(
+    baseline_runtime: float | None,
+    baseline_gt_found: float | None,
+) -> dict[str, Any]:
     return {
         "speedup": None,
         "runtime_reduction_percent": None,
         "baseline_runtime_ns_per_problem_median": baseline_runtime,
         "final_runtime_ns_per_problem_median": None,
         "candidate_runtime_lower": False,
+        "baseline_gt_found_percent": baseline_gt_found,
+        "final_gt_found_percent": None,
+        "final_gt_found_delta_points": None,
     }
 
 

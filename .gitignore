@@ -74,6 +74,9 @@ CLAUDE.md
 .claude/
 opencode.json
 
+# User-generated experiment configs
+configs/experiments/local/
+
 # OS junk
 .DS_Store
 Thumbs.db

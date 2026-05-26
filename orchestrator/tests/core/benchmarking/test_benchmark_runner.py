@@ -12,12 +12,14 @@ from pathlib import Path
 from unittest import mock
 
 from orchestrator.core.benchmarking.benchmark_runner import (
+    build_benchmark_run_command,
     build_cmake_build_command,
     configure_cmake_command,
     find_executable,
     format_command,
     write_step_log,
 )
+from orchestrator.core.benchmarking.solver_registry import get_solver_descriptor
 
 
 class FormatCommandTests(unittest.TestCase):
@@ -41,6 +43,21 @@ class BuildCmakeBuildCommandTests(unittest.TestCase):
         self.assertIn("my_target", cmd)
         self.assertIn("--config", cmd)
         self.assertIn("Release", cmd)
+
+
+class BuildBenchmarkRunCommandTests(unittest.TestCase):
+    def test_absolute_pose_runs_executable_without_args(self) -> None:
+        descriptor = get_solver_descriptor("lambdatwist_p3p")
+        cmd = build_benchmark_run_command(Path("/tmp/benchmark"), descriptor)
+        self.assertEqual(cmd, [str(Path("/tmp/benchmark"))])
+
+    def test_poselib_native_selects_solver_and_json(self) -> None:
+        descriptor = get_solver_descriptor("poselib_p3p")
+        cmd = build_benchmark_run_command(Path("/tmp/poselib_solver_benchmark"), descriptor)
+        self.assertEqual(
+            cmd,
+            [str(Path("/tmp/poselib_solver_benchmark")), "--solver", "p3p", "--json"],
+        )
 
 
 class ConfigureCmakeCommandTests(unittest.TestCase):

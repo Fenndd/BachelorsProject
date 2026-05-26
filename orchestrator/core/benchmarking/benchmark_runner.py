@@ -113,6 +113,20 @@ def build_cmake_build_command(
     ]
 
 
+def build_benchmark_run_command(
+    executable: Path,
+    descriptor: Any,
+) -> list[str]:
+    """Return the executable command for a descriptor-backed benchmark run."""
+    command = [str(executable)]
+    if getattr(descriptor, "benchmark_backend", None) == "poselib_native":
+        solver_key = getattr(descriptor, "benchmark_solver_key", None)
+        if not isinstance(solver_key, str) or not solver_key:
+            raise ValueError("poselib_native descriptor is missing benchmark_solver_key")
+        command.extend(["--solver", solver_key, "--json"])
+    return command
+
+
 def configure_cmake_command(
     source_dir: Path,
     build_dir: Path,

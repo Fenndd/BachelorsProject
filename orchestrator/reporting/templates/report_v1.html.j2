@@ -162,6 +162,9 @@
       <div class="metric"><strong>Final Selection Runtime Reduction %</strong>{{ report.final_result.final_runtime_reduction_percent|display }}</div>
       <div class="metric"><strong>Accepted Improvements</strong>{{ report.final_result.accepted_improvements|display }}</div>
       <div class="metric"><strong>Correctness Preserved</strong>{{ report.final_result.correctness_preserved|yes_no }}</div>
+      <div class="metric"><strong>Baseline GT Found %</strong>{{ report.baseline_metrics.gt_found_percent|display }}</div>
+      <div class="metric"><strong>Final GT Found %</strong>{{ report.final_best_candidate.gt_found_percent|display }}</div>
+      <div class="metric"><strong>Final GT Found Delta (pp)</strong>{{ report.final_best_candidate.gt_found_delta_points|display }}</div>
       <div class="metric"><strong>Baseline Runtime ns/problem</strong>{{ report.final_best_candidate.baseline_runtime_ns_per_problem_median|display }}</div>
       <div class="metric"><strong>Final Best Runtime ns/problem</strong>{{ report.final_best_candidate.runtime_ns_per_problem_median|display }}</div>
       <div class="metric"><strong>Runtime Improvement ns/problem</strong>{{ report.final_best_candidate.absolute_runtime_difference_ns_per_problem|display }}</div>
@@ -193,6 +196,7 @@
         <tr><th>Completed Iterations</th><td>{{ report.experiment.completed_iterations|display }}</td></tr>
         <tr><th>Experiment Mode</th><td>Closed-loop optimization</td></tr>
         <tr><th>Promotion Policy</th><td>{{ report.closed_loop_selection.promotion_policy|display }}</td></tr>
+        <tr><th>GT Found Gate</th><td>{% if report.selection_policy.gt_found_gate_enabled %}enabled, max drop {{ report.selection_policy.gt_found_max_drop_points|display }} pp{% else %}disabled{% endif %}</td></tr>
         <tr><th>Baseline Run Directory</th><td><code>{{ report.experiment_config_details.baseline_run_dir|display }}</code></td></tr>
         <tr><th>Optimization Scope</th><td><code>{{ report.experiment_config_details.optimization_scope_allowed_files|display }}</code></td></tr>
         <tr><th>Reporting Enabled</th><td>{{ report.experiment_config_details.reporting_enabled|yes_no }}</td></tr>
@@ -234,6 +238,9 @@
       <div class="metric"><strong>Runtime Reduction %</strong>{{ report.final_selection.runtime_reduction_percent|display }}</div>
       <div class="metric"><strong>Baseline Runtime ns/problem</strong>{{ report.final_selection.baseline_runtime_ns_per_problem_median|display }}</div>
       <div class="metric"><strong>Final Runtime ns/problem</strong>{{ report.final_selection.final_runtime_ns_per_problem_median|display }}</div>
+      <div class="metric"><strong>Baseline GT Found %</strong>{{ report.final_selection.baseline_gt_found_percent|display }}</div>
+      <div class="metric"><strong>Final GT Found %</strong>{{ report.final_selection.final_gt_found_percent|display }}</div>
+      <div class="metric"><strong>GT Found Delta (pp)</strong>{{ report.final_selection.final_gt_found_delta_points|display }}</div>
       <div class="metric"><strong>Final Correctness Passed</strong>{{ report.final_selection.final_correctness_passed|yes_no }}</div>
     </div>
     {% elif report.final_selection.status == 'failed' %}
@@ -501,6 +508,9 @@
           <th>Iteration</th>
           <th>Status</th>
           <th>Runtime ns/problem</th>
+          <th>GT Found %</th>
+          <th>GT Delta vs Baseline (pp)</th>
+          <th>GT Delta vs Current Best (pp)</th>
           <th>Speedup vs Current Best</th>
           <th>Speedup vs Baseline</th>
           <th>Correctness</th>
@@ -519,6 +529,9 @@
           <td>{{ iteration.iteration|display }}</td>
           <td>{{ iteration.status|display }}</td>
           <td>{{ iteration.runtime_ns_per_problem_median|display }}</td>
+          <td>{{ iteration.gt_found_percent|display }}</td>
+          <td>{{ iteration.gt_found_delta_points_vs_original_baseline|display }}</td>
+          <td>{{ iteration.gt_found_delta_points_vs_current_best|display }}</td>
           <td>{{ iteration.speedup_vs_current_best|display }}</td>
           <td>{{ iteration.speedup_vs_baseline|display }}</td>
           <td>{{ iteration.correctness_passed|yes_no }}</td>
@@ -531,7 +544,7 @@
           <td>{{ iteration.reason|display }}</td>
         </tr>
       {% else %}
-        <tr><td colspan="13">No iterations recorded.</td></tr>
+        <tr><td colspan="16">No iterations recorded.</td></tr>
       {% endfor %}
       </tbody>
     </table>
@@ -549,6 +562,9 @@
         <tr><th>Runtime Improvement ns/problem</th><td>{{ report.final_best_candidate.absolute_runtime_difference_ns_per_problem|display }}</td></tr>
         <tr><th>Speedup vs Baseline</th><td>{{ report.final_best_candidate.speedup_vs_baseline|display }}</td></tr>
         <tr><th>Runtime Reduction %</th><td>{{ report.final_best_candidate.runtime_reduction_percent|display }}</td></tr>
+        <tr><th>Baseline GT Found %</th><td>{{ report.final_best_candidate.baseline_gt_found_percent|display }}</td></tr>
+        <tr><th>GT Found %</th><td>{{ report.final_best_candidate.gt_found_percent|display }}</td></tr>
+        <tr><th>GT Found Delta (pp)</th><td>{{ report.final_best_candidate.gt_found_delta_points|display }}</td></tr>
         <tr><th>Accepted Improvements</th><td>{{ report.final_result.accepted_improvements|display }}</td></tr>
         <tr><th>Correctness Preserved</th><td>{{ report.final_result.correctness_preserved|yes_no }}</td></tr>
         <tr><th>Correctness Passed</th><td>{{ report.final_best_candidate.correctness_passed|yes_no }}</td></tr>

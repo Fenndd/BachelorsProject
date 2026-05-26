@@ -75,6 +75,12 @@ def test_build_baseline_command_uses_unbuffered_python() -> None:
     assert command[1:4] == ["-u", "-m", "orchestrator.cli.main"]
 
 
+def test_build_baseline_command_accepts_solver() -> None:
+    command = baseline_launcher.build_baseline_command("poselib_p3p")
+
+    assert command[-2:] == ["--solver", "poselib_p3p"]
+
+
 def test_baseline_launcher_builds_expected_command_without_real_baseline(
     tmp_path: Path,
     monkeypatch,
@@ -113,6 +119,39 @@ def test_baseline_launcher_builds_expected_command_without_real_baseline(
     assert seen["cwd"] == root
     assert stdout_lines == ["fake baseline output"]
     assert result.latest_run_dir == root / "results" / "runs" / "fake_baseline_run"
+
+
+def test_baseline_launcher_passes_solver_to_command(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    clear_managed_env(monkeypatch)
+    root = repo_root(tmp_path)
+    eigen_dir = tmp_path / "eigen"
+    eigen_dir.mkdir()
+    (root / ".env.local").write_text(
+        f"EIGEN3_INCLUDE_DIR={eigen_dir}\n",
+        encoding="utf-8",
+    )
+    seen: dict[str, object] = {}
+
+    def fake_run_streaming_command(command, cwd, env=None, on_stdout=None, on_stderr=None):
+        seen["command"] = command
+        run_dir = root / "results" / "runs" / "fake_poselib_baseline_run"
+        run_dir.mkdir()
+        now = datetime.now().astimezone()
+        return ProcessResult(command, cwd, 0, now, now, 0.0)
+
+    monkeypatch.setattr(
+        baseline_launcher,
+        "run_streaming_command",
+        fake_run_streaming_command,
+    )
+
+    result = baseline_launcher.run_baseline(root, solver_id="poselib_p3p")
+
+    assert result.status == "success"
+    assert seen["command"] == baseline_launcher.build_baseline_command("poselib_p3p")
 
 
 def test_baseline_launcher_reports_failed_process_and_latest_run(

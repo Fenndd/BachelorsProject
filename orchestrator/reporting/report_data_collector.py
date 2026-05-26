@@ -29,6 +29,7 @@ from orchestrator.reporting.report_data import (
     ReportReasonCodeCount,
     ReportReasonSummaryItem,
     ReportReportingStatus,
+    ReportSelectionPolicy,
     default_status_counts,
     write_report_data,
 )
@@ -132,6 +133,7 @@ def collect_report_data(
             else None,
         ),
         final_result=final_result,
+        selection_policy=_build_selection_policy(config_snapshot),
         baseline_metrics=baseline_metrics,
         iterations=iterations,
         status_counts=status_counts,
@@ -366,6 +368,16 @@ def _build_experiment_config_details(
     )
 
 
+def _build_selection_policy(config_snapshot: dict[str, Any]) -> ReportSelectionPolicy:
+    selection = config_snapshot.get("selection")
+    selection = selection if isinstance(selection, dict) else {}
+    gt_found_max_drop_points = _number_or_none(selection.get("gt_found_max_drop_points"))
+    return ReportSelectionPolicy(
+        gt_found_gate_enabled=gt_found_max_drop_points is not None,
+        gt_found_max_drop_points=gt_found_max_drop_points,
+    )
+
+
 def _build_benchmark_config(
     baseline_raw: dict[str, Any] | None,
     experiment_metadata: dict[str, Any] | None = None,
@@ -517,7 +529,8 @@ def _build_final_selection(experiment_path: Path) -> ReportFinalSelection:
     payload = _safe_read_json_object(report_path)
     if not isinstance(payload, dict):
         return ReportFinalSelection()
-    comparison = payload.get("comparison") if isinstance(payload.get("comparison"), dict) else {}
+    comparison_raw = payload.get("comparison")
+    comparison: dict[str, Any] = comparison_raw if isinstance(comparison_raw, dict) else {}
     return ReportFinalSelection(
         status=_string_or_none(payload.get("status")),
         final_best_is_baseline=_bool_or_none(payload.get("final_best_is_baseline")),
@@ -529,6 +542,15 @@ def _build_final_selection(experiment_path: Path) -> ReportFinalSelection:
         ),
         final_runtime_ns_per_problem_median=_number_or_none(
             comparison.get("final_runtime_ns_per_problem_median")
+        ),
+        baseline_gt_found_percent=_number_or_none(
+            comparison.get("baseline_gt_found_percent")
+        ),
+        final_gt_found_percent=_number_or_none(
+            comparison.get("final_gt_found_percent")
+        ),
+        final_gt_found_delta_points=_number_or_none(
+            comparison.get("final_gt_found_delta_points")
         ),
         final_correctness_passed=_bool_or_none(
             (payload.get("final_benchmark") or {}).get("parsed_correctness_passed")
@@ -566,6 +588,9 @@ def _apply_final_selection_overrides(
     final_best_candidate.speedup_vs_baseline = speedup
     final_best_candidate.runtime_reduction_percent = reduction
     final_best_candidate.correctness_passed = final_selection.final_correctness_passed
+    final_best_candidate.baseline_gt_found_percent = final_selection.baseline_gt_found_percent
+    final_best_candidate.gt_found_percent = final_selection.final_gt_found_percent
+    final_best_candidate.gt_found_delta_points = final_selection.final_gt_found_delta_points
 
 
 def _build_experiment_metadata(
@@ -863,6 +888,20 @@ def _iteration_summary(
             record.get("runtime_ns_per_problem_median"),
             _verification_runtime(verification),
         ),
+        gt_found_percent=_first_available_number(
+            record.get("gt_found_percent"),
+            _verification_gt_found(verification),
+            _decision_comparison_number(decision_vs_current_best, "candidate_gt_found_percent"),
+            _decision_comparison_number(decision_vs_original_baseline, "candidate_gt_found_percent"),
+        ),
+        gt_found_delta_points_vs_original_baseline=_first_available_number(
+            record.get("gt_found_delta_points_vs_original_baseline"),
+            _decision_comparison_number(decision_vs_original_baseline, "gt_found_delta_points"),
+        ),
+        gt_found_delta_points_vs_current_best=_first_available_number(
+            record.get("gt_found_delta_points_vs_current_best"),
+            _decision_comparison_number(decision_vs_current_best, "gt_found_delta_points"),
+        ),
         speedup_vs_current_best=_first_available_number(
             record.get("speedup_vs_current_best"),
             _decision_speedup(decision_vs_current_best),
@@ -1109,6 +1148,25 @@ def _verification_correctness(verification: dict[str, Any]) -> bool | None:
         _verification_payloads(verification),
         ("correctness_passed", "parsed_correctness_passed"),
     )
+
+
+def _verification_gt_found(verification: dict[str, Any]) -> float | None:
+    return _first_number(
+        _verification_payloads(verification),
+        ("gt_found_percent", "parsed_gt_found_percent"),
+    )
+
+
+def _decision_comparison_number(
+    decision: dict[str, Any] | None,
+    key: str,
+) -> float | None:
+    if not isinstance(decision, dict):
+        return None
+    comparison = decision.get("comparison")
+    if not isinstance(comparison, dict):
+        return None
+    return _number_or_none(comparison.get(key))
 
 
 def _decision_speedup(decision: dict[str, Any] | None) -> float | None:

@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import subprocess
 import sys
 import time
@@ -94,6 +95,15 @@ def _parse_args(argv: list[str]) -> argparse.Namespace:
         help=(
             "File path the LLM is allowed to modify (may be repeated). "
             "Defaults to the --source path if not provided."
+        ),
+    )
+    parser.add_argument(
+        "--candidate-run-dir",
+        default=None,
+        help=(
+            "Explicit run directory for closed-loop experiment candidates. "
+            "When provided, the directory is created at this exact path "
+            "(no timestamp-based run id) and results/index.jsonl is NOT appended."
         ),
     )
     return parser.parse_args(argv)
@@ -213,9 +223,10 @@ def _build_metadata(
     physical_source_path: str,
     client: DeepSeekClient | None,
     started_at: datetime,
+    **extra_fields: Any,
 ) -> dict[str, Any]:
     config = client.config if client is not None else None
-    return {
+    metadata: dict[str, Any] = {
         "run_id": run_id,
         "scenario": "llm_candidate",
         "target_file": target_file,
@@ -229,6 +240,8 @@ def _build_metadata(
         "finished_at": None,
         "repository": _repository_info(),
     }
+    metadata.update(extra_fields)
+    return metadata
 
 
 def _build_status(
@@ -327,14 +340,17 @@ def _save_final_artifacts(
     metadata: dict[str, Any],
     status: dict[str, Any],
     candidate: OptimizationCandidate | None,
-) -> Path:
+    append_index: bool = True,
+) -> Path | None:
     metadata["finished_at"] = datetime.now().astimezone().isoformat(timespec="seconds")
     storage.save_metadata(run_dir, metadata)
     storage.save_status(run_dir, status)
     storage.save_summary(run_dir, _build_summary(run_dir, metadata, status, candidate))
-    return storage.append_index_record(
-        _build_index_record(metadata, status, candidate, run_dir)
-    )
+    if append_index:
+        return storage.append_index_record(
+            _build_index_record(metadata, status, candidate, run_dir)
+        )
+    return None
 
 
 def _save_candidate_artifacts(run_dir: Path, candidate: OptimizationCandidate) -> None:
@@ -497,6 +513,31 @@ def _resolve_allowed_files(
         ) from exc
 
 
+_ITERATION_DIR_RE_STR = r"it_\d+"
+
+
+def _derive_group_metadata(run_dir: Path) -> tuple[dict[str, Any], str | None]:
+    """When *run_dir* looks like ``results/runs/<experiment_id>/it_XX``,
+    return extra metadata fields and a compact display id."""
+    name = run_dir.name
+    parent = run_dir.parent
+    parent_name = parent.name if parent != run_dir else None
+    if not re.match(_ITERATION_DIR_RE_STR, name):
+        return {}, None
+    if parent_name is None or parent_name in ("runs",):
+        return {}, None
+    candidate_group_path = f"{parent_name}/{name}"
+    return {
+        "experiment_id": parent_name,
+        "iteration_dir": name,
+        "candidate_run_display_id": candidate_group_path,
+    }, candidate_group_path
+
+
+def _is_candidate_group_path(metadata: dict[str, Any], run_dir: Path) -> bool:
+    return "experiment_id" in metadata and "iteration_dir" in metadata
+
+
 def main(argv: list[str] | None = None) -> int:
     _configure_text_streams()
     configure_logging()
@@ -522,8 +563,18 @@ def main(argv: list[str] | None = None) -> int:
 
     storage = RunStorage(paths.repo_root / "results")
     started_at = datetime.now().astimezone()
-    run_id = storage.build_run_id("llm_candidate", started_at)
-    run_dir = _create_run_directory(storage, run_id)
+
+    _extra_metadata: dict[str, Any] = {}
+    if args.candidate_run_dir is not None:
+        run_dir = _resolve_path(args.candidate_run_dir)
+        run_dir = storage.create_explicit_run_directory(run_dir)
+        run_id = _display_path(run_dir)
+        _extra_metadata, _candidate_group_path = _derive_group_metadata(run_dir)
+        if _candidate_group_path is not None:
+            _extra_metadata["candidate_group_path"] = _candidate_group_path
+    else:
+        run_id = storage.build_run_id("llm_candidate", started_at)
+        run_dir = _create_run_directory(storage, run_id)
     if run_dir is None:
         return 1
 
@@ -540,6 +591,7 @@ def main(argv: list[str] | None = None) -> int:
         physical_source_path_display,
         client,
         started_at,
+        **_extra_metadata,
     )
     candidate: OptimizationCandidate | None = None
 
@@ -554,6 +606,7 @@ def main(argv: list[str] | None = None) -> int:
             physical_source_path_display,
             client,
             started_at,
+            **_extra_metadata,
         )
         LOGGER.info("Provider/model: %s/%s", client.config.provider, client.config.model)
 
@@ -627,13 +680,17 @@ def main(argv: list[str] | None = None) -> int:
         status = _build_status("failed", exc.failed_step, exc.error_message)
 
     try:
-        index_path = _save_final_artifacts(storage, run_dir, metadata, status, candidate)
+        index_path = _save_final_artifacts(
+            storage, run_dir, metadata, status, candidate,
+            append_index=(args.candidate_run_dir is None),
+        )
     except OSError as exc:
         status = _build_status("failed", "save_artifacts", str(exc))
         _print_final_summary(status, run_dir, candidate)
         return 1
 
-    LOGGER.info("[Index] Appended run record to %s", _display_path(index_path))
+    if index_path is not None:
+        LOGGER.info("[Index] Appended run record to %s", _display_path(index_path))
     _print_final_summary(status, run_dir, candidate)
     return 0 if status["overall_status"] == "success" else 1
 

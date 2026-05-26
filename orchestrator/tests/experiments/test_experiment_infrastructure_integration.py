@@ -44,7 +44,7 @@ def test_run_stage_preserves_return_shape_and_stage_log(tmp_path: Path) -> None:
     assert "stage stderr" in result["stderr"]
     assert isinstance(result["duration_seconds"], float)
 
-    log_path = experiment_dir / "logs" / "iteration_007_generate_candidate.log"
+    log_path = experiment_dir / "logs" / "it_07_generate_candidate.log"
     assert log_path.exists()
     log_text = log_path.read_text(encoding="utf-8")
     assert "GLOBAL_ITERATION: 7" in log_text
@@ -75,3 +75,19 @@ def test_parse_candidate_run_dir_from_generation_stdout(monkeypatch, tmp_path: P
         assert iteration_runner._parse_candidate_run_dir(stdout) == str(candidate_run)
     finally:
         monkeypatch.setattr(env, "REPO_ROOT", original_repo_root)
+
+
+def test_format_iteration_dir_1() -> None:
+    assert iteration_runner.format_iteration_dir(1) == "it_01"
+
+
+def test_format_iteration_dir_9() -> None:
+    assert iteration_runner.format_iteration_dir(9) == "it_09"
+
+
+def test_format_iteration_dir_10() -> None:
+    assert iteration_runner.format_iteration_dir(10) == "it_10"
+
+
+def test_format_iteration_dir_100() -> None:
+    assert iteration_runner.format_iteration_dir(100) == "it_100"

@@ -1,0 +1,21 @@
+{
+  "family": "poselib_native",
+  "solver_id": "poselib_p2p2pl",
+  "display_name": "PoseLib P2P2PL",
+  "vendor": "poselib",
+  "benchmark_backend": "poselib_native",
+  "benchmark_target": "poselib_solver_benchmark",
+  "benchmark_solver_key": "p2p2pl",
+  "benchmark_kind": "absolute_pose",
+  "default_target_file": "cpp/external/poselib/PoseLib/solvers/p2p2pl.cc",
+  "default_allowed_files": [
+    "cpp/external/poselib/PoseLib/solvers/p2p2pl.cc"
+  ],
+  "targets": {
+    "benchmark": "poselib_solver_benchmark"
+  },
+  "metrics": {
+    "runtime_metric_key": "parsed_runtime_ns_per_problem_median",
+    "runtime_unit": "ns"
+  }
+}

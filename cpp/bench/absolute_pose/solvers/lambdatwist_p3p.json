@@ -1,0 +1,51 @@
+{
+  "family": "absolute_pose",
+  "solver_id": "lambdatwist_p3p",
+  "display_name": "Lambda Twist P3P",
+  "vendor": "lambdatwist",
+  "sources_root": "cpp/external/lambdatwist",
+  "adapter_dir": "cpp/bench/absolute_pose/adapters/lambdatwist_p3p",
+  "adapter_class": "LambdaTwistP3PAdapter",
+  "adapter_namespace": "benchmark::geometric_pose::absolute_pose::adapters",
+  "adapter_header": "lambdatwist_p3p_adapter.hpp",
+  "adapter_sources": [
+    "cpp/bench/absolute_pose/adapters/lambdatwist_p3p/lambdatwist_p3p_adapter.cpp"
+  ],
+  "default_target_file": "cpp/external/lambdatwist/p3p.cc",
+  "default_allowed_files": [
+    "cpp/external/lambdatwist/p3p.cc"
+  ],
+  "metadata": {
+    "min_points": 3,
+    "default_case_points": 3,
+    "returns_multiple_solutions": true
+  },
+  "targets": {
+    "adapter": "absolute_pose_lambdatwist_adapter",
+    "benchmark": "absolute_pose_lambdatwist_benchmark",
+    "adapter_validator": "absolute_pose_lambdatwist_adapter_validator"
+  },
+  "benchmark_options": {
+    "camera_fov": 75.0,
+    "n_point_point": 3,
+    "n_point_line": 0,
+    "tolerance": 1e-6,
+    "num_problems": 100000,
+    "timed_iterations": 10
+  },
+  "validator_options": {
+    "num_problems": 1000,
+    "tolerance": 1e-6,
+    "camera_fov": 75.0,
+    "n_point_point": 3,
+    "n_point_line": 0,
+    "timed_iterations": 1,
+    "min_gt_found_percent": 99.0,
+    "min_valid_solutions_percent": 0.0,
+    "rotation_tolerance": 1e-5
+  },
+  "extra_libs": [
+    "lambdatwist_baseline"
+  ],
+  "runner_mode": "generated_absolute_pose"
+}

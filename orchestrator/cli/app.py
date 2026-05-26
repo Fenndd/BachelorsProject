@@ -323,11 +323,17 @@ def doctor() -> None:
 
 
 @baseline_app.command("run")
-def baseline_run() -> None:
+def baseline_run(
+    solver: str | None = typer.Option(
+        None,
+        "--solver",
+        help="Optional solver_id from cpp/bench/*/solvers manifests.",
+    ),
+) -> None:
     """Run the existing baseline automation entry point."""
 
     paths = get_project_paths()
-    command = build_baseline_command()
+    command = build_baseline_command(solver)
     command_text = " ".join(command)
     statuses = load_environment()
     summary = summarize_environment(statuses)
@@ -364,6 +370,7 @@ def baseline_run() -> None:
         paths.repo_root,
         on_stdout=print_stdout,
         on_stderr=print_stderr,
+        solver_id=solver,
     )
 
     duration = (
