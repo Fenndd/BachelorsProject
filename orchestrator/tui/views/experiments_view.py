@@ -1,11 +1,11 @@
-"""Experiment config browser and launcher screen."""
+"""Embedded experiment launch view."""
 
 from __future__ import annotations
 
 from textual.app import ComposeResult
 from textual.containers import Horizontal, VerticalScroll
-from textual.screen import Screen
-from textual.widgets import Button, Footer, Header, ListItem, ListView, Static
+from textual.widget import Widget
+from textual.widgets import Button, ListItem, ListView, Static
 
 from orchestrator.control import (
     ExperimentConfigSummary,
@@ -60,37 +60,20 @@ def _compact_summary_label(summary: ExperimentConfigSummary) -> str:
     return f"{summary.path.name} [{summary.status}] {iterations} iter {providers}/{models} [{solver}]"
 
 
-class ExperimentScreen(Screen[None]):
-    DEFAULT_CSS = """
-    #experiment-action-row {
-        height: 3;
-        margin-top: 1;
-        layout: grid;
-        grid-size: 2;
-        grid-gutter: 1;
-    }
+class ExperimentsView(Widget):
+    """Embedded experiment config browser and launcher view.
 
-    .experiment-button {
-        width: 100%;
-        height: 3;
-    }
-
-    .experiment-back-button {
-        width: 100%;
-        height: 3;
-        margin-top: 1;
-    }
+    Starts experiments through ActiveRunsManager -- no local queue, worker,
+    or legacy process registration.
     """
-    BINDINGS = [("escape", "request_back", "Back")]
 
     def __init__(self) -> None:
-        super().__init__()
+        super().__init__(id="view-experiments")
         self.summaries = list_experiment_config_summaries()
         self._can_start = False
 
     def compose(self) -> ComposeResult:
-        yield Header()
-        with VerticalScroll(id="main"):
+        with VerticalScroll():
             yield Static("Run Experiment", classes="title")
             yield Static(
                 "Select a config, run a safe dry-run, or launch the existing experiment runner.",
@@ -104,20 +87,26 @@ class ExperimentScreen(Screen[None]):
                 id="experiment-list",
                 classes="panel",
             )
-            summary = Static(_format_summary(self._selected_summary()), id="experiment-summary", classes="panel")
-            summary.styles.height = 10
+            summary = Static(
+                _format_summary(self._selected_summary()),
+                id="experiment-summary",
+                classes="panel",
+            )
             yield summary
-            yield Static("Idle. Select a config and press Dry Run or Real Run.", id="experiment-status-text", classes="panel")
-            with Horizontal(id="experiment-action-row"):
-                yield Button("Dry Run", id="dry-run", classes="experiment-button")
-                yield Button("Real Run", id="real-run", classes="experiment-button")
-            yield Button("Back", id="back", classes="experiment-back-button")
-        yield Footer()
+            yield Static(
+                "Idle. Select a config and press Dry Run or Real Run.",
+                id="experiment-status-text",
+                classes="panel",
+            )
+            with Horizontal(classes="actions"):
+                yield Button("Dry Run", id="dry-run")
+                yield Button("Real Run", id="real-run")
 
     def on_mount(self) -> None:
-        self.query_one("#experiment-list", ListView).styles.height = 6
-        self._set_status_message("Idle. Select a config and press Dry Run or Real Run.")
-        write_tui_debug("ExperimentScreen mounted")
+        self._set_status_message(
+            "Idle. Select a config and press Dry Run or Real Run."
+        )
+        write_tui_debug("ExperimentsView mounted")
         if self.summaries:
             self.query_one("#experiment-list", ListView).index = 0
         self.set_timer(0.2, self._mark_ready)
@@ -139,26 +128,19 @@ class ExperimentScreen(Screen[None]):
         )
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
-        if event.button.id == "back":
-            self.action_request_back()
-            return
         if event.button.id == "dry-run":
             self._start_experiment(dry_run=True)
-            return
-        if event.button.id == "real-run":
+        elif event.button.id == "real-run":
             self._request_real_run()
-
-    def action_request_back(self) -> None:
-        self.app.pop_screen()
 
     def _mark_ready(self) -> None:
         self._can_start = True
-        write_tui_debug("ExperimentScreen ready for explicit start")
+        write_tui_debug("ExperimentsView ready for explicit start")
 
     def _request_real_run(self) -> None:
         if not self._can_start:
-            write_tui_debug("ignored real run before screen ready")
-            self._set_status_message("Screen initializing, try again.")
+            write_tui_debug("ignored real run before view ready")
+            self._set_status_message("View initializing, try again.")
             return
         summary = self._selected_summary()
         if summary is None:
@@ -178,28 +160,41 @@ class ExperimentScreen(Screen[None]):
         self._start_experiment(dry_run=False)
 
     def _set_status_message(self, status_text: str) -> None:
-        self.query_one("#experiment-status-text", Static).update(status_text)
+        try:
+            self.query_one("#experiment-status-text", Static).update(status_text)
+        except Exception:
+            pass
 
     def _start_experiment(self, dry_run: bool) -> None:
         if not self._can_start:
-            write_tui_debug("ignored experiment start before screen ready")
-            self._set_status_message("Screen initializing, try again.")
+            write_tui_debug("ignored experiment start before view ready")
+            self._set_status_message("View initializing, try again.")
             return
         summary = self._selected_summary()
         if summary is None:
             self._set_status_message("No configs available.")
-            write_tui_debug("ignored experiment start because no configs are available")
+            write_tui_debug(
+                "ignored experiment start because no configs are available"
+            )
             return
         manager = getattr(self.app, "active_runs_manager", None)
         if manager is None:
-            self._set_status_message("Error: active_runs_manager not available.")
+            self._set_status_message(
+                "Error: active_runs_manager not available."
+            )
             write_tui_debug("ignored experiment start: manager missing")
             return
         mode_text = "dry-run" if dry_run else "real run"
         write_tui_debug(f"experiment {mode_text} start accepted")
-        run_id = manager.start(summary.path, dry_run=dry_run)
+        run_id = manager.start_experiment(summary.path, dry_run=dry_run)
         write_tui_debug(f"experiment {mode_text} started as {run_id}")
         self._set_status_message(
             f"{mode_text.title()} started as {run_id}. Opening live output..."
         )
         self.app.push_screen(ActiveRunScreen(run_id))
+
+    def focus_search(self) -> None:
+        pass
+
+    def clear_filter_or_blur(self) -> None:
+        pass

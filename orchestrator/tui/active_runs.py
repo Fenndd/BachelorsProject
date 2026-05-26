@@ -1,4 +1,4 @@
-"""Active run model and manager for non-blocking experiment lifecycle."""
+"""Active run model and manager for non-blocking run lifecycle."""
 
 from __future__ import annotations
 
@@ -10,24 +10,41 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Literal
 
+from orchestrator.control.baseline_launcher import (
+    build_baseline_command,
+    run_baseline,
+)
 from orchestrator.control.experiment_launcher import (
     build_experiment_command,
     run_experiment_control,
 )
 from orchestrator.tui.debug_log import write_tui_debug
 
+ActiveRunKind = Literal["baseline", "experiment"]
 ActiveRunStatus = Literal["starting", "running", "succeeded", "failed", "cancelled"]
+ActiveRunRunner = Callable[
+    [
+        "ActiveRun",
+        threading.Event,
+        Callable[[str], None],
+        Callable[[str], None],
+        Callable[[object], None],
+    ],
+    object,
+]
 
 
 @dataclass(frozen=True)
 class ActiveRunSummary:
     run_id: str
+    kind: ActiveRunKind
     config_path: Path
     dry_run: bool
     status: ActiveRunStatus
     started_at: datetime
     finished_at: datetime | None
     exit_code: int | None
+    latest_result_dir: Path | None
     latest_experiment_dir: Path | None
 
 
@@ -36,12 +53,14 @@ class ActiveRun:
         "run_id",
         "config_path",
         "dry_run",
+        "kind",
         "command",
         "started_at",
         "finished_at",
         "status",
         "exit_code",
         "message",
+        "latest_result_dir",
         "latest_experiment_dir",
         "output_buffer",
         "process",
@@ -58,16 +77,19 @@ class ActiveRun:
         dry_run: bool,
         command: list[str],
         started_at: datetime,
+        kind: ActiveRunKind = "experiment",
     ) -> None:
         self.run_id = run_id
         self.config_path = config_path
         self.dry_run = dry_run
+        self.kind: ActiveRunKind = kind
         self.command = command
         self.started_at = started_at
         self.finished_at: datetime | None = None
         self.status: ActiveRunStatus = "starting"
         self.exit_code: int | None = None
         self.message: str = ""
+        self.latest_result_dir: Path | None = None
         self.latest_experiment_dir: Path | None = None
         self.output_buffer: deque[tuple[str, str]] = deque(maxlen=2000)
         self.process: Any = None
@@ -79,12 +101,14 @@ class ActiveRun:
     def summary(self) -> ActiveRunSummary:
         return ActiveRunSummary(
             run_id=self.run_id,
+            kind=self.kind,
             config_path=self.config_path,
             dry_run=self.dry_run,
             status=self.status,
             started_at=self.started_at,
             finished_at=self.finished_at,
             exit_code=self.exit_code,
+            latest_result_dir=self.latest_result_dir,
             latest_experiment_dir=self.latest_experiment_dir,
         )
 
@@ -114,14 +138,44 @@ class ActiveRunsManager:
         self._global_subscribers: set[Callable[[], None]] = set()
 
     def start(self, config_path: Path, dry_run: bool = False) -> str:
+        return self.start_experiment(config_path, dry_run=dry_run)
+
+    def start_experiment(self, config_path: Path, dry_run: bool = False) -> str:
+        command = build_experiment_command(config_path, dry_run=dry_run)
+        return self._start_run(
+            kind="experiment",
+            config_path=config_path,
+            dry_run=dry_run,
+            command=command,
+            runner=self._experiment_runner(config_path, dry_run),
+        )
+
+    def start_baseline(self, solver_id: str | None = None) -> str:
+        command = build_baseline_command(solver_id)
+        return self._start_run(
+            kind="baseline",
+            config_path=Path("<baseline>"),
+            dry_run=False,
+            command=command,
+            runner=self._baseline_runner(solver_id),
+        )
+
+    def _start_run(
+        self,
+        kind: ActiveRunKind,
+        config_path: Path,
+        dry_run: bool,
+        command: list[str],
+        runner: ActiveRunRunner,
+    ) -> str:
         with self._lock:
             self._counter += 1
             run_id = f"run_{self._counter:03d}"
 
-        command = build_experiment_command(config_path, dry_run=dry_run)
         now = datetime.now().astimezone()
         run = ActiveRun(
             run_id=run_id,
+            kind=kind,
             config_path=config_path,
             dry_run=dry_run,
             command=command,
@@ -130,7 +184,9 @@ class ActiveRunsManager:
         with self._lock:
             self._runs[run_id] = run
 
-        write_tui_debug(f"ActiveRunsManager.start: {run_id} cmd={' '.join(command)}")
+        write_tui_debug(
+            f"ActiveRunsManager.start_{kind}: {run_id} cmd={' '.join(command)}"
+        )
 
         app = self._app
         run_worker = getattr(app, "run_worker", None)
@@ -138,15 +194,17 @@ class ActiveRunsManager:
             run.status = "failed"
             run.message = "Application does not support workers."
             run.finished_at = datetime.now().astimezone()
+            self._notify_global_subscribers(direct=True)
             return run_id
 
         worker_handle = run_worker(
-            lambda: self._run_worker(run, config_path, dry_run),
+            lambda: self._run_worker(run, runner),
             thread=True,
             exit_on_error=False,
             exclusive=False,
         )
         run.worker_handle = worker_handle
+        self._notify_global_subscribers(direct=True)
         return run_id
 
     def get(self, run_id: str) -> ActiveRun | None:
@@ -200,12 +258,19 @@ class ActiveRunsManager:
         with self._lock:
             self._global_subscribers.discard(callback)
 
-    def _notify_global_subscribers(self) -> None:
+    def _notify_global_subscribers(self, direct: bool = False) -> None:
+        with self._lock:
+            callbacks = list(self._global_subscribers)
+        if direct:
+            for cb in callbacks:
+                try:
+                    cb()
+                except Exception:
+                    pass
+            return
         call_from_thread = getattr(self._app, "call_from_thread", None)
         if call_from_thread is None:
             return
-        with self._lock:
-            callbacks = list(self._global_subscribers)
         for cb in callbacks:
             try:
                 call_from_thread(cb)
@@ -227,9 +292,12 @@ class ActiveRunsManager:
             run.cancel_requested.set()
 
     def active_count(self) -> int:
-        return sum(
-            1 for run in self._runs.values() if run.status in ("starting", "running")
-        )
+        with self._lock:
+            return sum(
+                1
+                for run in self._runs.values()
+                if run.status in ("starting", "running")
+            )
 
     def _prune_finished_locked(self) -> None:
         finished = [
@@ -271,8 +339,7 @@ class ActiveRunsManager:
     def _run_worker(
         self,
         run: ActiveRun,
-        config_path: Path,
-        dry_run: bool,
+        runner: ActiveRunRunner,
     ) -> None:
         write_tui_debug(f"worker entered for {run.run_id}")
 
@@ -300,24 +367,26 @@ class ActiveRunsManager:
             run.process = process
 
         try:
-            result = run_experiment_control(
-                config_path,
-                dry_run=dry_run,
-                repo_root=self._repo_root,
-                cancel_event=run.cancel_requested,
-                on_process_started=on_process_started,
-                on_stdout=on_stdout,
-                on_stderr=on_stderr,
+            result = runner(
+                run,
+                run.cancel_requested,
+                on_stdout,
+                on_stderr,
+                on_process_started,
             )
             if run.cancel_requested.is_set():
                 run.status = "cancelled"
-            elif result.status == "success":
+            elif getattr(result, "status", None) == "success":
                 run.status = "succeeded"
             else:
                 run.status = "failed"
-            run.exit_code = result.exit_code
-            run.message = result.message
-            run.latest_experiment_dir = result.latest_experiment_dir
+            run.exit_code = getattr(result, "exit_code", None)
+            run.message = getattr(result, "message", "")
+            if run.kind == "experiment":
+                run.latest_result_dir = getattr(result, "latest_experiment_dir", None)
+                run.latest_experiment_dir = run.latest_result_dir
+            else:
+                run.latest_result_dir = getattr(result, "latest_run_dir", None)
         except Exception as exc:
             write_tui_debug(f"worker for {run.run_id} unexpected error: {exc}")
             if run.cancel_requested.is_set():
@@ -332,3 +401,42 @@ class ActiveRunsManager:
             self._notify_subscribers(run, None, None)
             self._notify_global_subscribers()
             write_tui_debug(f"worker finished for {run.run_id} status={run.status}")
+
+    def _experiment_runner(self, config_path: Path, dry_run: bool) -> ActiveRunRunner:
+        def runner(
+            run: ActiveRun,
+            cancel_event: threading.Event,
+            on_stdout: Callable[[str], None],
+            on_stderr: Callable[[str], None],
+            on_process_started: Callable[[object], None],
+        ) -> object:
+            return run_experiment_control(
+                config_path,
+                dry_run=dry_run,
+                repo_root=self._repo_root,
+                cancel_event=cancel_event,
+                on_process_started=on_process_started,
+                on_stdout=on_stdout,
+                on_stderr=on_stderr,
+            )
+
+        return runner
+
+    def _baseline_runner(self, solver_id: str | None) -> ActiveRunRunner:
+        def runner(
+            run: ActiveRun,
+            cancel_event: threading.Event,
+            on_stdout: Callable[[str], None],
+            on_stderr: Callable[[str], None],
+            on_process_started: Callable[[object], None],
+        ) -> object:
+            return run_baseline(
+                repo_root=self._repo_root,
+                on_stdout=on_stdout,
+                on_stderr=on_stderr,
+                solver_id=solver_id,
+                cancel_event=cancel_event,
+                on_process_started=on_process_started,
+            )
+
+        return runner

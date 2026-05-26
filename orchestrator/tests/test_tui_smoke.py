@@ -15,16 +15,19 @@ pytestmark = pytest.mark.unit
 
 _SCREEN_MODULES = [
     "orchestrator.tui.screens.main_screen",
-    "orchestrator.tui.screens.baseline_screen",
-    "orchestrator.tui.screens.experiment_screen",
     "orchestrator.tui.screens.active_run_screen",
-    "orchestrator.tui.screens.results_screen",
-    "orchestrator.tui.screens.workspace_screen",
-    "orchestrator.tui.screens.help_screen",
-    "orchestrator.tui.screens.environment_screen",
-    "orchestrator.tui.screens.doctor_screen",
-    "orchestrator.tui.screens.placeholder_screen",
     "orchestrator.tui.screens.config_builder_screen",
+    "orchestrator.tui.screens._confirm_paid_run",
+    "orchestrator.tui.screens._quit_confirm",
+]
+
+_VIEW_MODULES = [
+    "orchestrator.tui.views.dashboard_view",
+    "orchestrator.tui.views.baseline_view",
+    "orchestrator.tui.views.experiments_view",
+    "orchestrator.tui.views.results_view",
+    "orchestrator.tui.views.system_view",
+    "orchestrator.tui.views.help_view",
 ]
 
 _OTHER_MODULES = [
@@ -55,78 +58,61 @@ def test_import_other_tui_modules(module_name: str) -> None:
     assert mod is not None
 
 
+@pytest.mark.parametrize("module_name", _VIEW_MODULES)
+def test_import_all_view_modules(module_name: str) -> None:
+    """Every view module under orchestrator.tui.views imports without error."""
+    mod = importlib.import_module(module_name)
+    assert mod is not None
+
+
 # ---------------------------------------------------------------------------
-# 2. HelpScreen safety notes
+# 2. Help view safety notes
 # ---------------------------------------------------------------------------
 
 
-def test_help_screen_safety_notes_present() -> None:
-    import orchestrator.tui.screens.help_screen as m
+def test_help_view_safety_notes_present() -> None:
+    import orchestrator.tui.views.help_view as m
 
     src = _src(m)
-    assert "read-only" in src, "HelpScreen should mention read-only results browsing"
+    assert "read-only" in src, "HelpView should mention read-only results browsing"
     assert "never results/" in src or "never results/" in src.lower(), (
-        "HelpScreen should clarify workspace cleanup never touches results/"
+        "HelpView should clarify workspace cleanup never touches results/"
     )
     assert "not automatically modify" in src, (
-        "HelpScreen should state it does not modify cpp/ automatically"
+        "HelpView should state it does not modify cpp/ automatically"
     )
     assert "API tokens" in src, (
-        "HelpScreen should warn about API token usage"
+        "HelpView should warn about API token usage"
     )
 
 
 # ---------------------------------------------------------------------------
-# 3. PlaceholderScreen
+# 3. ResultsView instantiation
 # ---------------------------------------------------------------------------
 
 
-def test_placeholder_screen_instantiation() -> None:
-    from orchestrator.tui.screens.placeholder_screen import PlaceholderScreen
+def test_results_view_placeholder_exists() -> None:
+    from orchestrator.tui.views.results_view import ResultsView
 
-    screen = PlaceholderScreen("Test Title", "Test message content")
-    assert screen.placeholder_title == "Test Title"
-    assert screen.message == "Test message content"
-
-
-# ---------------------------------------------------------------------------
-# 4. ResultsScreen empty state
-# ---------------------------------------------------------------------------
+    view = ResultsView()
+    assert view.id == "view-results"
 
 
-def test_results_screen_handles_empty_state(monkeypatch) -> None:
-    from orchestrator.tui.screens.results_screen import ResultsScreen, _format_item
-
-    monkeypatch.setattr(
-        "orchestrator.tui.screens.results_screen.list_result_items",
-        lambda: [],
-    )
-
-    screen = ResultsScreen()
-    assert screen.items == []
-    assert _format_item(None) == "No saved results found."
-
-
-def test_results_screen_compose_has_correct_labels() -> None:
-    import orchestrator.tui.screens.results_screen as m
+def test_results_view_has_placeholder_text() -> None:
+    import orchestrator.tui.views.results_view as m
 
     src = _src(m)
-    assert "Browse Results" in src, "ResultsScreen should have correct title"
-    assert "Read-only navigation for saved run and experiment artifacts." in src
-    assert "Refresh" in src
-    assert "Open Dir" in src
-    assert "Summary" in src
-    assert "Final Source" in src
-    assert "Final Diff" in src
+    assert "Results" in src, "ResultsView should mention Results"
+    assert "Read-only navigation" in src, "ResultsView should mention read-only navigation"
 
 
 # ---------------------------------------------------------------------------
-# 5. WorkspaceScreen helpers
+# 4. SystemView helpers (workspace, environment, doctor)
 # ---------------------------------------------------------------------------
 
 
-def test_workspace_format_bytes() -> None:
-    from orchestrator.tui.screens.workspace_screen import _format_bytes
+def test_system_view_format_bytes() -> None:
+    from orchestrator.tui.views.system_view import _format_bytes
 
     assert _format_bytes(0) == "0 B"
     assert _format_bytes(1024) == "1.0 KiB"
@@ -136,51 +122,88 @@ def test_workspace_format_bytes() -> None:
     assert _format_bytes(2048) == "2.0 KiB"
 
 
-def test_workspace_screen_compose_has_correct_labels() -> None:
-    import orchestrator.tui.screens.workspace_screen as m
+def test_system_view_has_workspace_labels() -> None:
+    import orchestrator.tui.views.system_view as m
 
     src = _src(m)
-    assert "Workspace" in src, "WorkspaceScreen should have correct title"
-    assert "Inspect and clean temporary workspace data." in src
+    assert "Workspace" in src, "SystemView should have Workspace section"
     assert "Clean Candidates" in src
     assert "Clean Experiments" in src
     assert "Clean All" in src
     assert "Cleanup only affects workspace/ and never deletes results/" in src
 
 
-# ---------------------------------------------------------------------------
-# 6. EnvironmentScreen secret masking
-# ---------------------------------------------------------------------------
-
-
-def test_environment_screen_secret_masking_static_text() -> None:
-    import orchestrator.tui.screens.environment_screen as m
+def test_system_view_secret_masking_static_text() -> None:
+    import orchestrator.tui.views.system_view as m
 
     src = _src(m)
     assert (
         "Secrets are masked and are never displayed in full." in src
-    ), "EnvironmentScreen should state that secrets are masked"
+    ), "SystemView should state that secrets are masked"
 
 
-def test_environment_screen_compose_has_correct_labels() -> None:
-    import orchestrator.tui.screens.environment_screen as m
+def test_system_view_has_environment_labels() -> None:
+    import orchestrator.tui.views.system_view as m
 
     src = _src(m)
     assert "Environment" in src
-    assert "Local environment diagnostics for CLI/TUI launchers." in src
-    assert "Refresh" in src
+    assert "Refresh Environment" in src
 
 
-# ---------------------------------------------------------------------------
-# 7. DoctorScreen static text
-# ---------------------------------------------------------------------------
-
-
-def test_doctor_screen_compose_has_correct_labels() -> None:
-    import orchestrator.tui.screens.doctor_screen as m
+def test_system_view_has_doctor_labels() -> None:
+    import orchestrator.tui.views.system_view as m
 
     src = _src(m)
-    assert "Doctor" in src, "DoctorScreen should have correct title"
-    assert "Project structure and local environment diagnostics." in src
+    assert "Doctor" in src, "SystemView should have Doctor section"
     assert "Full build/run checks will be added later." in src
-    assert ".env.local" in src, "DoctorScreen should mention .env.local"
+    assert ".env.local" in src, "SystemView should mention .env.local"
+
+
+# ---------------------------------------------------------------------------
+# 5. DashboardView
+# ---------------------------------------------------------------------------
+
+
+def test_dashboard_view_has_project_info() -> None:
+    import orchestrator.tui.views.dashboard_view as m
+
+    src = _src(m)
+    assert "3D Vision Algorithms Optimizer" in src
+    assert "Interactive control layer for LLM optimization experiments" in src
+    assert "Active runs are visible" in src
+    assert "Go to Baseline" in src
+    assert "Go to Experiments" in src
+    assert "Go to Results" in src
+    assert "action_show_view" in src
+
+
+def test_results_view_displays_baseline_label_for_runs() -> None:
+    import orchestrator.tui.views.results_view as m
+
+    assert m._display_kind("run") == "baseline"
+    assert m._display_kind("experiment") == "experiment"
+
+
+def test_main_screen_uses_content_switcher() -> None:
+    import orchestrator.tui.screens.main_screen as m
+
+    src = _src(m)
+    assert "ContentSwitcher" in src
+    assert "content.current" in src
+    assert "child.display" not in src
+
+
+def test_baseline_view_does_not_render_fake_live_log() -> None:
+    import orchestrator.tui.views.baseline_view as m
+
+    src = _src(m)
+    assert "baseline-log" not in src
+    assert "Live output opens in a run screen" in src
+
+
+def test_quit_confirm_mentions_active_runs_not_only_experiments() -> None:
+    import orchestrator.tui.screens._quit_confirm as m
+
+    src = _src(m)
+    assert "active run(s)" in src
+    assert "active experiment run(s)" not in src

@@ -8,22 +8,12 @@ from types import SimpleNamespace
 pytestmark = pytest.mark.unit
 
 from orchestrator.tui import debug_log
-from orchestrator.tui.app import OptimizerTuiApp, QuitConfirmScreen
+from orchestrator.tui.app import OptimizerTuiApp
 from orchestrator.tui.active_runs import ActiveRunsManager, ActiveRun, ActiveRunStatus
-from orchestrator.tui.screens.baseline_screen import BaselineScreen
-from orchestrator.tui.screens.experiment_screen import ExperimentScreen
-
-
-class _FakeTimer:
-    def __init__(self) -> None:
-        self.stopped = False
-
-    def stop(self) -> None:
-        self.stopped = True
 
 
 # ---------------------------------------------------------------------------
-# App process guard (BaselineScreen backward compat)
+# App process guard
 # ---------------------------------------------------------------------------
 
 
@@ -83,6 +73,7 @@ def test_optimizer_tui_quit_shows_modal_when_runs_active(monkeypatch) -> None:
     assert not exits
     assert len(pushed_screens) == 1
     assert getattr(pushed_screens[0], "_count", 0) == 2
+    assert getattr(pushed_screens[0], "_active_run_count", 0) == 2
 
 
 def test_optimizer_tui_quit_shows_modal_when_legacy_process_active(monkeypatch) -> None:
@@ -153,152 +144,194 @@ def test_write_tui_debug_does_not_raise(monkeypatch) -> None:
 
 
 # ---------------------------------------------------------------------------
-# BaselineScreen (unchanged behavior)
+# BaselineView -- manager-based, no legacy queue/watchdog state
 # ---------------------------------------------------------------------------
 
 
-def test_baseline_back_is_blocked_while_active(monkeypatch) -> None:
-    screen = BaselineScreen()
-    messages: list[str] = []
+def test_baseline_view_has_no_legacy_state() -> None:
+    from orchestrator.tui.views.baseline_view import BaselineView
 
-    monkeypatch.setattr(screen, "_set_status_message", messages.append)
-    screen._state = "running"
+    view = BaselineView()
 
-    screen.action_request_back()
-
-    assert messages == [
-        "Baseline is still running. Wait until it finishes before leaving this screen."
-    ]
-
-
-def test_baseline_back_is_not_blocked_when_inactive(monkeypatch) -> None:
-    screen = BaselineScreen()
-    popped: list[bool] = []
-
-    monkeypatch.setattr(BaselineScreen, "app", SimpleNamespace(pop_screen=lambda: popped.append(True)))
-    screen._state = "failed"
-
-    screen.action_request_back()
-
-    assert popped == [True]
+    assert not hasattr(view, "_state")
+    assert not hasattr(view, "_process_registered")
+    assert not hasattr(view, "_log_queue")
+    assert not hasattr(view, "_result_queue")
+    assert not hasattr(view, "_drain_timer")
+    assert not hasattr(view, "_watchdog_timer")
 
 
-def test_baseline_screen_initializes_queues_and_timer() -> None:
-    screen = BaselineScreen()
+def test_baseline_view_start_calls_manager_start_baseline(monkeypatch) -> None:
+    from orchestrator.tui.views.baseline_view import BaselineView
+    from orchestrator.tui.screens.active_run_screen import ActiveRunScreen
 
-    assert screen._state == "idle"
-    assert not screen._can_start
-    assert not screen._process_registered
-    assert not screen._is_active()
-    assert screen._log_queue.empty()
-    assert screen._result_queue.empty()
-    assert screen._drain_timer is None
-    assert screen._watchdog_timer is None
+    view = BaselineView()
+    started_runs: list[str] = []
+    pushed_screens: list[object] = []
+    start_button_queries: list[str] = []
 
+    def fake_query(widget_id, *args, **kwargs):
+        if "start-baseline" in str(widget_id):
+            start_button_queries.append(str(widget_id))
+        if "baseline-status" in str(widget_id):
+            return SimpleNamespace(update=lambda t: None)
+        return SimpleNamespace(update=lambda t: None)
 
-def test_baseline_start_before_ready_is_ignored(monkeypatch) -> None:
-    screen = BaselineScreen()
-    statuses: list[str] = []
-
-    monkeypatch.setattr(screen, "_set_status_message", statuses.append)
-
-    screen._start_baseline()
-
-    assert screen._state == "idle"
-    assert not screen._process_registered
-    assert statuses == ["Status: screen initializing, try again"]
-
-
-def test_baseline_drain_queues_appends_logs(monkeypatch) -> None:
-    screen = BaselineScreen()
-    appended: list[tuple[str, str]] = []
-
-    monkeypatch.setattr(
-        screen,
-        "_append_log",
-        lambda line, stream_name: appended.append((stream_name, line)),
+    mock_manager = SimpleNamespace(
+        start_baseline=lambda: started_runs.append("run_001") or "run_001",
     )
-    screen._log_queue.put(("stdout", "baseline out"))
-    screen._log_queue.put(("stderr", "baseline err"))
+    monkeypatch.setattr(
+        BaselineView,
+        "app",
+        SimpleNamespace(
+            active_runs_manager=mock_manager,
+            push_screen=lambda s: pushed_screens.append(s),
+        ),
+    )
+    monkeypatch.setattr(view, "query_one", fake_query)
 
-    screen._drain_queues()
+    view._start_baseline()
 
-    assert appended == [
-        ("stdout", "baseline out"),
-        ("stderr", "baseline err"),
-    ]
-
-
-def test_baseline_drain_queues_applies_result(monkeypatch) -> None:
-    screen = BaselineScreen()
-    results: list[str] = []
-
-    monkeypatch.setattr(screen, "_set_result", results.append)
-    screen._result_queue.put("Status: success")
-
-    screen._drain_queues()
-
-    assert results == ["Status: success"]
+    assert started_runs == ["run_001"]
+    assert len(pushed_screens) == 1
+    assert isinstance(pushed_screens[0], ActiveRunScreen)
+    assert start_button_queries == []
 
 
-def test_baseline_stop_drain_timer_stops_and_clears_timer() -> None:
-    screen = BaselineScreen()
-    timer = _FakeTimer()
-    screen._drain_timer = timer
+def test_baseline_view_does_not_call_register_process(monkeypatch) -> None:
+    from orchestrator.tui.views.baseline_view import BaselineView
 
-    screen._stop_drain_timer()
+    view = BaselineView()
+    register_calls: list[int] = []
+    unregister_calls: list[int] = []
 
-    assert timer.stopped
-    assert screen._drain_timer is None
+    def fake_query(widget_id, *args, **kwargs):
+        if "baseline-status" in str(widget_id):
+            return SimpleNamespace(update=lambda t: None)
+        return SimpleNamespace(update=lambda t: None)
+
+    mock_manager = SimpleNamespace(start_baseline=lambda: "run_001")
+    monkeypatch.setattr(
+        BaselineView,
+        "app",
+        SimpleNamespace(
+            active_runs_manager=mock_manager,
+            push_screen=lambda s: None,
+            register_process=lambda: register_calls.append(1),
+            unregister_process=lambda: unregister_calls.append(1),
+        ),
+    )
+    monkeypatch.setattr(view, "query_one", fake_query)
+
+    view._start_baseline()
+
+    assert register_calls == []
+    assert unregister_calls == []
 
 
-def test_baseline_force_unlock_clears_active_state(monkeypatch) -> None:
-    screen = BaselineScreen()
-    button = SimpleNamespace(disabled=True)
+# ---------------------------------------------------------------------------
+# ExperimentsView -- manager-based, no queues or timers
+# ---------------------------------------------------------------------------
+
+
+def test_experiments_view_has_no_legacy_state() -> None:
+    from orchestrator.tui.views.experiments_view import ExperimentsView
+
+    view = ExperimentsView()
+
+    assert not hasattr(view, "_state")
+    assert not hasattr(view, "_process_registered")
+    assert not hasattr(view, "_log_queue")
+    assert not hasattr(view, "_result_queue")
+    assert not hasattr(view, "_drain_timer")
+    assert not hasattr(view, "_watchdog_timer")
+
+
+def test_experiments_view_start_before_ready_is_blocked(monkeypatch) -> None:
+    from orchestrator.tui.views.experiments_view import ExperimentsView
+
+    view = ExperimentsView()
     statuses: list[str] = []
-    unregistered: list[bool] = []
 
-    screen._state = "running"
-    screen._process_registered = True
-    monkeypatch.setattr(screen, "query_one", lambda *args, **kwargs: button)
-    monkeypatch.setattr(screen, "_set_status_message", statuses.append)
-    monkeypatch.setattr(screen, "_unregister_process", lambda: unregistered.append(True))
+    monkeypatch.setattr(view, "_set_status_message", statuses.append)
 
-    screen._force_unlock()
+    view._start_experiment(dry_run=True)
 
-    assert screen._state == "failed"
-    assert not button.disabled
-    assert unregistered == [True]
-    assert statuses == [
-        "Status: force-unlocked. Check workspace/tui_debug.log and Task Manager for leftover python processes."
-    ]
+    assert "View initializing" in statuses[0]
+
+
+def test_experiments_view_dry_run_calls_manager_start_experiment(monkeypatch) -> None:
+    from pathlib import Path
+    from orchestrator.tui.views.experiments_view import ExperimentsView
+    from orchestrator.tui.screens.active_run_screen import ActiveRunScreen
+
+    view = ExperimentsView()
+    expected_path = Path("/fake/config.json")
+    start_calls: list[tuple] = []
+    pushed_screens: list[object] = []
+    mock_manager = SimpleNamespace(
+        start_experiment=lambda config_path, dry_run: start_calls.append((config_path, dry_run)) or "run_001",
+    )
+    monkeypatch.setattr(view, "_can_start", True)
+    monkeypatch.setattr(view, "_selected_summary", lambda: SimpleNamespace(path=expected_path))
+    monkeypatch.setattr(view, "query_one", lambda *a, **kw: SimpleNamespace(update=lambda t: None))
+    monkeypatch.setattr(
+        ExperimentsView,
+        "app",
+        SimpleNamespace(
+            active_runs_manager=mock_manager,
+            push_screen=lambda s: pushed_screens.append(s),
+        ),
+    )
+
+    view._start_experiment(dry_run=True)
+
+    assert start_calls == [(expected_path, True)]
+    assert len(pushed_screens) == 1
+    assert isinstance(pushed_screens[0], ActiveRunScreen)
+
+
+def test_experiments_view_real_run_shows_confirm_modal(monkeypatch) -> None:
+    from pathlib import Path
+    from orchestrator.tui.views.experiments_view import ExperimentsView
+    from orchestrator.tui.screens._confirm_paid_run import ConfirmPaidRunScreen
+
+    view = ExperimentsView()
+    pushed_screens: list[object] = []
+    fake_path = Path("/fake/config.json")
+
+    view._can_start = True
+    monkeypatch.setattr(view, "_selected_summary", lambda: SimpleNamespace(path=fake_path))
+    monkeypatch.setattr(
+        ExperimentsView,
+        "app",
+        SimpleNamespace(push_screen=lambda s, callback=None: pushed_screens.append(s)),
+    )
+
+    view._request_real_run()
+
+    assert len(pushed_screens) == 1
+    assert isinstance(pushed_screens[0], ConfirmPaidRunScreen)
+
+
+def test_experiments_view_on_list_view_highlighted_updates_summary(monkeypatch) -> None:
+    from orchestrator.tui.views.experiments_view import ExperimentsView
+
+    view = ExperimentsView()
+    updates: list[str] = []
+    summary_widget = SimpleNamespace(update=updates.append)
+
+    monkeypatch.setattr(view, "_selected_summary", lambda: None)
+    monkeypatch.setattr(view, "query_one", lambda *args, **kwargs: summary_widget)
+
+    view.on_list_view_highlighted(SimpleNamespace())
+
+    assert len(updates) == 1
 
 
 # ---------------------------------------------------------------------------
-# ExperimentScreen (refactored — no queues, no timers, no back blocking)
+# ActiveRunScreen -- escape pops without cancelling
 # ---------------------------------------------------------------------------
-
-
-def test_experiment_back_is_never_blocked(monkeypatch) -> None:
-    screen = ExperimentScreen()
-    popped: list[bool] = []
-
-    monkeypatch.setattr(ExperimentScreen, "app", SimpleNamespace(pop_screen=lambda: popped.append(True)))
-
-    screen.action_request_back()
-    assert popped == [True]
-
-
-def test_experiment_screen_initializes_without_queues_or_timers() -> None:
-    screen = ExperimentScreen()
-
-    assert not screen._can_start
-    assert not hasattr(screen, "_state")
-    assert not hasattr(screen, "_process_registered")
-    assert not hasattr(screen, "_log_queue")
-    assert not hasattr(screen, "_result_queue")
-    assert not hasattr(screen, "_drain_timer")
-    assert not hasattr(screen, "_watchdog_timer")
 
 
 def test_active_run_screen_escape_action_pops_without_cancelling(monkeypatch) -> None:
@@ -320,49 +353,3 @@ def test_active_run_screen_escape_action_pops_without_cancelling(monkeypatch) ->
 
     assert popped == [True]
     assert cancelled == []
-
-
-def test_experiment_start_before_ready_is_ignored(monkeypatch) -> None:
-    screen = ExperimentScreen()
-    statuses: list[str] = []
-
-    monkeypatch.setattr(screen, "_set_status_message", statuses.append)
-
-    screen._start_experiment(dry_run=True)
-
-    assert statuses == ["Screen initializing, try again."]
-
-
-def test_experiment_real_run_shows_confirm_modal(monkeypatch) -> None:
-    from pathlib import Path
-    from orchestrator.tui.screens._confirm_paid_run import ConfirmPaidRunScreen
-
-    screen = ExperimentScreen()
-    pushed_screens: list[object] = []
-    fake_path = Path("/fake/config.json")
-
-    screen._can_start = True
-    monkeypatch.setattr(screen, "_selected_summary", lambda: SimpleNamespace(path=fake_path))
-    monkeypatch.setattr(
-        ExperimentScreen,
-        "app",
-        SimpleNamespace(push_screen=lambda s, callback=None: pushed_screens.append(s)),
-    )
-
-    screen._request_real_run()
-
-    assert len(pushed_screens) == 1
-    assert isinstance(pushed_screens[0], ConfirmPaidRunScreen)
-
-
-def test_experiment_on_list_view_highlighted_updates_summary(monkeypatch) -> None:
-    screen = ExperimentScreen()
-    updates: list[str] = []
-    summary_widget = SimpleNamespace(update=updates.append)
-
-    monkeypatch.setattr(screen, "_selected_summary", lambda: None)
-    monkeypatch.setattr(screen, "query_one", lambda *args, **kwargs: summary_widget)
-
-    screen.on_list_view_highlighted(SimpleNamespace())
-
-    assert len(updates) == 1
