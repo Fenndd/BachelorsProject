@@ -102,6 +102,21 @@ def load_experiment_config(path: Path | str) -> ExperimentConfig:
     if not isinstance(payload, dict):
         raise ExperimentConfigError("Experiment config must contain a JSON object.")
 
+    return _build_experiment_config(payload, config_path)
+
+
+def validate_experiment_config_dict(payload: dict[str, Any]) -> ExperimentConfig:
+    """Validate a payload dict and return ExperimentConfig without a file on disk."""
+    if not isinstance(payload, dict):
+        raise ExperimentConfigError("Experiment config must contain a JSON object.")
+    return _build_experiment_config(payload, paths.repo_root / "_virtual.json")
+
+
+def _build_experiment_config(
+    payload: dict[str, Any],
+    config_path: Path,
+) -> ExperimentConfig:
+    """Parse and validate a payload dict into an ExperimentConfig."""
     solver_id = _optional_string(payload, "solver_id")
     try:
         solver_descriptor = (

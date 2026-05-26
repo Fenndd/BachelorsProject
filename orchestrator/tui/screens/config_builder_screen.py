@@ -5,7 +5,6 @@ from __future__ import annotations
 import json
 import math
 import re
-import tempfile
 from pathlib import Path
 from typing import Any
 
@@ -18,9 +17,10 @@ from orchestrator.control import get_project_paths
 from orchestrator.control import list_run_items
 from orchestrator.experiments.experiment_config import (
     ExperimentConfigError,
-    load_experiment_config,
+    validate_experiment_config_dict,
 )
 from orchestrator.shared.io.json_io import read_json
+from orchestrator.tui.screens._confirm_paid_run import ConfirmPaidRunScreen
 
 
 def _read_solver_manifest_options() -> list[tuple[str, str, str | None, list[str] | None]]:
@@ -178,50 +178,6 @@ def _safe_name(name: str) -> str:
     return safe
 
 
-class ConfirmPaidRunScreen(ModalScreen[bool]):
-    """Confirm launching a real experiment that may call paid LLM APIs."""
-
-    DEFAULT_CSS = """
-    ConfirmPaidRunScreen {
-        align: center middle;
-    }
-    #paid-run-dialog {
-        width: 62;
-        height: auto;
-        background: #1f2937;
-        border: solid #ef4444;
-        padding: 2 3;
-    }
-    #paid-run-dialog Static {
-        color: #f8fafc;
-        margin-bottom: 1;
-    }
-    #paid-run-dialog Button {
-        width: 100%;
-    }
-    """
-
-    def __init__(self, config_path: Path) -> None:
-        super().__init__()
-        self._config_path = config_path
-
-    def compose(self) -> ComposeResult:
-        with VerticalScroll(id="paid-run-dialog"):
-            yield Static(
-                "This will start a real LLM experiment and may use paid LLM API calls.\n"
-                f"Config: {self._config_path}"
-            )
-            with Horizontal():
-                yield Button("Confirm Run", id="confirm-paid-run", variant="error")
-                yield Button("Cancel", id="cancel-paid-run", variant="primary")
-
-    def on_button_pressed(self, event: Button.Pressed) -> None:
-        if event.button.id == "confirm-paid-run":
-            self.dismiss(True)
-        elif event.button.id == "cancel-paid-run":
-            self.dismiss(False)
-
-
 class ConfigFilePickerScreen(ModalScreen[Path | None]):
     """Simple modal file picker for config builder templates/local files."""
 
@@ -330,6 +286,8 @@ class ConfigBuilderScreen(Screen[None]):
         self._templates: list[Path] = self._discover_templates()
         self._local_configs: list[Path] = self._discover_local()
         self._pending_run_config: Path | None = None
+        self._loading = False
+        self._last_solver_id: str | None = None
 
     def _discover_templates(self) -> list[Path]:
         paths = get_project_paths()
@@ -524,24 +482,42 @@ class ConfigBuilderScreen(Screen[None]):
         if event.select.id == "algorithm":
             self._on_algorithm_changed()
 
+    def _get_solver_defaults(self, solver_id: str | None) -> tuple[str | None, list[str] | None]:
+        if solver_id is None:
+            return (None, None)
+        for _label, sid, target_file, allowed_files in self._solver_options:
+            if sid == solver_id:
+                return (target_file, allowed_files)
+        return (None, None)
+
     def _on_algorithm_changed(self) -> None:
+        if self._loading:
+            return
         select = self.query_one("#algorithm", Select)
         selected = select.value
         if not selected or selected == Select.BLANK:
+            self._last_solver_id = None
             self._refresh_baseline_options(None)
             return
         if not isinstance(selected, str):
+            self._last_solver_id = None
             self._refresh_baseline_options(None)
             return
         self._refresh_baseline_options(selected)
-        for label, solver_id, target_file, allowed_files in self._solver_options:
+        prev_target_default, prev_allowed_default = self._get_solver_defaults(self._last_solver_id)
+        self._last_solver_id = selected
+        for _label, solver_id, target_file, allowed_files in self._solver_options:
             if solver_id == selected:
-                if target_file:
+                current_target = self.query_one("#target_file", Input).value
+                if target_file and (not current_target or current_target == prev_target_default):
                     self.query_one("#target_file", Input).value = target_file
                 if allowed_files:
-                    textarea = self.query_one("#allowed_files", TextArea)
-                    textarea.clear()
-                    textarea.insert("\n".join(allowed_files))
+                    current_allowed = self.query_one("#allowed_files", TextArea).text.strip()
+                    prev_allowed_text = "\n".join(prev_allowed_default) if prev_allowed_default else ""
+                    if not current_allowed or current_allowed == prev_allowed_text.strip():
+                        textarea = self.query_one("#allowed_files", TextArea)
+                        textarea.clear()
+                        textarea.insert("\n".join(allowed_files))
                 return
 
     def _refresh_baseline_options(self, solver_id: str | None) -> None:
@@ -690,16 +666,14 @@ class ConfigBuilderScreen(Screen[None]):
             variant_id = "default"
 
         iterations_str = self.query_one("#iterations", Input).value.strip()
-        try:
-            iterations = int(iterations_str)
-        except (ValueError, TypeError):
-            iterations = 0
+        iterations = self._parse_optional_positive_int(iterations_str, "iterations")
+        if iterations is None:
+            raise ExperimentConfigError("Field 'iterations' is required and must be a positive integer.")
 
         max_chars_str = self.query_one("#max_source_chars", Input).value.strip()
-        try:
-            max_source_chars = int(max_chars_str)
-        except (ValueError, TypeError):
-            max_source_chars = 0
+        max_source_chars = self._parse_optional_positive_int(max_chars_str, "max_source_chars")
+        if max_source_chars is None:
+            raise ExperimentConfigError("Field 'max_source_chars' is required and must be a positive integer.")
 
         additional_ctx = self.query_one("#additional_context", TextArea).text.strip() or None
 
@@ -748,12 +722,7 @@ class ConfigBuilderScreen(Screen[None]):
         self._clear_log()
         try:
             payload = self._build_payload()
-        except ExperimentConfigError as exc:
-            self._log(f"[error] Validation failed: {exc}")
-            return str(exc)
-        tmp_path = self._write_temp_payload(payload)
-        try:
-            load_experiment_config(tmp_path)
+            validate_experiment_config_dict(payload)
             self._log("[success] Config is valid.")
             return None
         except ExperimentConfigError as exc:
@@ -762,55 +731,28 @@ class ConfigBuilderScreen(Screen[None]):
         except Exception as exc:
             self._log(f"[error] Unexpected validation error: {exc}")
             return str(exc)
-        finally:
-            try:
-                tmp_path.unlink(missing_ok=True)
-            except OSError:
-                pass
-
-    def _write_temp_payload(self, payload: dict[str, Any]) -> Path:
-        with tempfile.NamedTemporaryFile(
-            mode="w", suffix=".json", delete=False, encoding="utf-8"
-        ) as tmp:
-            json.dump(payload, tmp, indent=2, ensure_ascii=False)
-            tmp.write("\n")
-            return Path(tmp.name)
 
     def _save_to_local(self) -> Path | None:
         self._clear_log()
         try:
             payload = self._build_payload()
+            validate_experiment_config_dict(payload)
         except ExperimentConfigError as exc:
             self._log(f"[error] Validation failed: {exc}")
             return None
         name = payload.get("experiment_name", "")
         safe = _safe_name(str(name))
-        paths = get_project_paths()
-        local_dir = paths.experiments_config / "local"
+        project_paths = get_project_paths()
+        local_dir = project_paths.experiments_config / "local"
         local_dir.mkdir(parents=True, exist_ok=True)
         out_path = local_dir / f"{safe}.json"
-        tmp_path = self._write_temp_payload(payload)
         try:
             from orchestrator.shared.io.json_io import write_json
 
-            load_experiment_config(tmp_path)
             write_json(out_path, payload)
-            load_experiment_config(out_path)
         except OSError as exc:
             self._log(f"[error] Could not write config: {exc}")
             return None
-        except ExperimentConfigError as exc:
-            try:
-                out_path.unlink(missing_ok=True)
-            except OSError:
-                pass
-            self._log(f"[error] Validation failed: {exc}")
-            return None
-        finally:
-            try:
-                tmp_path.unlink(missing_ok=True)
-            except OSError:
-                pass
         self._log(f"[success] Saved to: {out_path}")
         self._log("[success] Saved config passes validation.")
         return out_path
@@ -894,81 +836,87 @@ class ConfigBuilderScreen(Screen[None]):
             self._log(f"[error] {path.name} does not contain a JSON object.")
             return
 
-        self._set_input("experiment_name", str(payload.get("experiment_name", "")))
-        self._set_input("description", str(payload.get("description") or ""))
         sid = payload.get("solver_id")
-        if isinstance(sid, str) and sid:
-            try:
-                self.query_one("#algorithm", Select).value = sid
-            except Exception:
-                pass
-        self._set_input("target_file", str(payload.get("target_file", "")))
-        self._set_input("baseline_run_dir", str(payload.get("baseline_run_dir", "")))
+        self._loading = True
+        try:
+            self._set_input("experiment_name", str(payload.get("experiment_name", "")))
+            self._set_input("description", str(payload.get("description") or ""))
+            if isinstance(sid, str) and sid:
+                try:
+                    self.query_one("#algorithm", Select).value = sid
+                except Exception:
+                    pass
+            self._set_input("target_file", str(payload.get("target_file", "")))
+            self._set_input("baseline_run_dir", str(payload.get("baseline_run_dir", "")))
 
-        cg = payload.get("candidate_generation")
-        if isinstance(cg, dict):
-            self._set_input("max_source_chars", str(cg.get("max_source_chars", "120000")))
+            cg = payload.get("candidate_generation")
+            if isinstance(cg, dict):
+                self._set_input("max_source_chars", str(cg.get("max_source_chars", "120000")))
 
-        scope = payload.get("optimization_scope")
-        if isinstance(scope, dict):
-            af = scope.get("allowed_files")
-            if isinstance(af, list):
-                textarea = self.query_one("#allowed_files", TextArea)
-                textarea.clear()
-                textarea.insert("\n".join(str(f) for f in af))
-
-        reporting = payload.get("reporting")
-        if isinstance(reporting, dict):
-            formats = reporting.get("formats")
-            if reporting.get("enabled") is False:
-                self.query_one("#reporting_html", Switch).value = False
-                self.query_one("#reporting_pdf", Switch).value = False
-            elif isinstance(formats, list):
-                self.query_one("#reporting_html", Switch).value = "html" in formats
-                self.query_one("#reporting_pdf", Switch).value = "pdf" in formats
-            renderer = reporting.get("renderer")
-            if isinstance(renderer, str) and renderer in ("auto", "weasyprint", "playwright"):
-                self.query_one("#reporting_renderer", Select).value = renderer
-            if isinstance(reporting.get("fail_on_error"), bool):
-                self.query_one("#reporting_fail_on_error", Switch).value = reporting["fail_on_error"]
-
-        selection = payload.get("selection")
-        if isinstance(selection, dict):
-            gt_drop = selection.get("gt_found_max_drop_points")
-            if gt_drop is None:
-                self._set_input("gt_found_max_drop_points", "")
-            elif isinstance(gt_drop, (int, float)) and not isinstance(gt_drop, bool):
-                self._set_input("gt_found_max_drop_points", str(float(gt_drop)))
-
-        variants = payload.get("variants")
-        if isinstance(variants, list) and variants:
-            variant = variants[0]
-            if isinstance(variant, dict):
-                self._set_input("variant_id", str(variant.get("variant_id", "")))
-                self._set_input("variant_description", str(variant.get("description") or ""))
-                llm_cfg = variant.get("llm_config")
-                if isinstance(llm_cfg, str):
-                    self.query_one("#variant_llm_config", Select).value = llm_cfg
-                self._set_input("iterations", str(variant.get("iterations", "3")))
-                ac = variant.get("additional_context")
-                if isinstance(ac, str) and ac:
-                    textarea = self.query_one("#additional_context", TextArea)
+            scope = payload.get("optimization_scope")
+            if isinstance(scope, dict):
+                af = scope.get("allowed_files")
+                if isinstance(af, list):
+                    textarea = self.query_one("#allowed_files", TextArea)
                     textarea.clear()
-                    textarea.insert(ac)
-                overrides = variant.get("llm_overrides")
-                if isinstance(overrides, dict):
-                    if isinstance(overrides.get("provider"), str):
-                        self.query_one("#llm_provider_override", Select).value = overrides["provider"]
-                    if isinstance(overrides.get("model"), str):
-                        self._set_input("llm_model_override", overrides["model"])
-                    if isinstance(overrides.get("max_tokens"), int):
-                        self._set_input("llm_max_tokens_override", str(overrides["max_tokens"]))
-                    thinking = overrides.get("thinking")
-                    if isinstance(thinking, dict):
-                        if isinstance(thinking.get("enabled"), bool):
-                            self.query_one("#thinking_enabled", Switch).value = thinking["enabled"]
-                        if isinstance(thinking.get("effort"), str):
-                            self.query_one("#thinking_effort", Select).value = thinking["effort"]
+                    textarea.insert("\n".join(str(f) for f in af))
+
+            reporting = payload.get("reporting")
+            if isinstance(reporting, dict):
+                formats = reporting.get("formats")
+                if reporting.get("enabled") is False:
+                    self.query_one("#reporting_html", Switch).value = False
+                    self.query_one("#reporting_pdf", Switch).value = False
+                elif isinstance(formats, list):
+                    self.query_one("#reporting_html", Switch).value = "html" in formats
+                    self.query_one("#reporting_pdf", Switch).value = "pdf" in formats
+                renderer = reporting.get("renderer")
+                if isinstance(renderer, str) and renderer in ("auto", "weasyprint", "playwright"):
+                    self.query_one("#reporting_renderer", Select).value = renderer
+                if isinstance(reporting.get("fail_on_error"), bool):
+                    self.query_one("#reporting_fail_on_error", Switch).value = reporting["fail_on_error"]
+
+            selection = payload.get("selection")
+            if isinstance(selection, dict):
+                gt_drop = selection.get("gt_found_max_drop_points")
+                if gt_drop is None:
+                    self._set_input("gt_found_max_drop_points", "")
+                elif isinstance(gt_drop, (int, float)) and not isinstance(gt_drop, bool):
+                    self._set_input("gt_found_max_drop_points", str(float(gt_drop)))
+
+            variants = payload.get("variants")
+            if isinstance(variants, list) and variants:
+                variant = variants[0]
+                if isinstance(variant, dict):
+                    self._set_input("variant_id", str(variant.get("variant_id", "")))
+                    self._set_input("variant_description", str(variant.get("description") or ""))
+                    llm_cfg = variant.get("llm_config")
+                    if isinstance(llm_cfg, str):
+                        self.query_one("#variant_llm_config", Select).value = llm_cfg
+                    self._set_input("iterations", str(variant.get("iterations", "3")))
+                    ac = variant.get("additional_context")
+                    if isinstance(ac, str) and ac:
+                        textarea = self.query_one("#additional_context", TextArea)
+                        textarea.clear()
+                        textarea.insert(ac)
+                    overrides = variant.get("llm_overrides")
+                    if isinstance(overrides, dict):
+                        if isinstance(overrides.get("provider"), str):
+                            self.query_one("#llm_provider_override", Select).value = overrides["provider"]
+                        if isinstance(overrides.get("model"), str):
+                            self._set_input("llm_model_override", overrides["model"])
+                        if isinstance(overrides.get("max_tokens"), int):
+                            self._set_input("llm_max_tokens_override", str(overrides["max_tokens"]))
+                        thinking = overrides.get("thinking")
+                        if isinstance(thinking, dict):
+                            if isinstance(thinking.get("enabled"), bool):
+                                self.query_one("#thinking_enabled", Switch).value = thinking["enabled"]
+                            if isinstance(thinking.get("effort"), str):
+                                self.query_one("#thinking_effort", Select).value = thinking["effort"]
+        finally:
+            self._loading = False
+            if isinstance(sid, str) and sid:
+                self._last_solver_id = sid
 
         self._log(f"[info] Loaded config from: {path}")
 

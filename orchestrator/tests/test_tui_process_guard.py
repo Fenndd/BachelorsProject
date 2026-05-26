@@ -292,8 +292,8 @@ def test_experiment_back_is_never_blocked(monkeypatch) -> None:
 def test_experiment_screen_initializes_without_queues_or_timers() -> None:
     screen = ExperimentScreen()
 
-    assert screen._state == "idle"
     assert not screen._can_start
+    assert not hasattr(screen, "_state")
     assert not hasattr(screen, "_process_registered")
     assert not hasattr(screen, "_log_queue")
     assert not hasattr(screen, "_result_queue")
@@ -330,34 +330,39 @@ def test_experiment_start_before_ready_is_ignored(monkeypatch) -> None:
 
     screen._start_experiment(dry_run=True)
 
-    assert screen._state == "idle"
     assert statuses == ["Screen initializing, try again."]
 
 
-def test_experiment_real_run_first_click_enters_confirmation(monkeypatch) -> None:
+def test_experiment_real_run_shows_confirm_modal(monkeypatch) -> None:
+    from pathlib import Path
+    from orchestrator.tui.screens._confirm_paid_run import ConfirmPaidRunScreen
+
     screen = ExperimentScreen()
-    statuses: list[str] = []
+    pushed_screens: list[object] = []
+    fake_path = Path("/fake/config.json")
 
     screen._can_start = True
-    monkeypatch.setattr(screen, "_set_status_message", statuses.append)
+    monkeypatch.setattr(screen, "_selected_summary", lambda: SimpleNamespace(path=fake_path))
+    monkeypatch.setattr(
+        ExperimentScreen,
+        "app",
+        SimpleNamespace(push_screen=lambda s, callback=None: pushed_screens.append(s)),
+    )
 
     screen._request_real_run()
 
-    assert screen._state == "confirming"
-    assert "Confirmation required" in statuses[0]
-    assert "paid LLM API" in statuses[0]
+    assert len(pushed_screens) == 1
+    assert isinstance(pushed_screens[0], ConfirmPaidRunScreen)
 
 
-def test_experiment_confirmation_reset_on_config_highlight(monkeypatch) -> None:
+def test_experiment_on_list_view_highlighted_updates_summary(monkeypatch) -> None:
     screen = ExperimentScreen()
-    summary = SimpleNamespace(update=lambda value: None)
-    statuses: list[str] = []
+    updates: list[str] = []
+    summary_widget = SimpleNamespace(update=updates.append)
 
-    screen._state = "confirming"
-    monkeypatch.setattr(screen, "_set_status_message", statuses.append)
-    monkeypatch.setattr(screen, "query_one", lambda *args, **kwargs: summary)
+    monkeypatch.setattr(screen, "_selected_summary", lambda: None)
+    monkeypatch.setattr(screen, "query_one", lambda *args, **kwargs: summary_widget)
 
     screen.on_list_view_highlighted(SimpleNamespace())
 
-    assert screen._state == "idle"
-    assert "Idle" in statuses[0]
+    assert len(updates) == 1

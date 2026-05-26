@@ -178,6 +178,10 @@ foreach(_MANIFEST_PATH ${_SOLVER_MANIFESTS})
         foreach(_src_idx RANGE 0 ${_src_max})
             string(JSON _src GET "${_M}" "adapter_sources" ${_src_idx})
             string(REGEX REPLACE "^\"(.*)\"$" "\\1" _src_stripped "${_src}")
+            if(NOT _src_stripped MATCHES "^cpp/")
+                message(FATAL_ERROR
+                    "Solver manifest source path must start with 'cpp/': '${_src_stripped}'")
+            endif()
             string(REPLACE "cpp/" "" _src_relative "${_src_stripped}")
             list(APPEND _adapter_srcs "${_src_relative}")
         endforeach()
@@ -196,6 +200,10 @@ foreach(_MANIFEST_PATH ${_SOLVER_MANIFESTS})
     endif()
 
     # --- adapter library ---------------------------------------------------
+    if(NOT _adapter_dir MATCHES "^cpp/")
+        message(FATAL_ERROR
+            "Solver manifest adapter_dir must start with 'cpp/': '${_adapter_dir}'")
+    endif()
     string(REPLACE "cpp/" "" _adapter_dir_relative "${_adapter_dir}")
     set(_adapter_dir_cmake "${CMAKE_CURRENT_SOURCE_DIR}/${_adapter_dir_relative}")
 
@@ -313,7 +321,7 @@ foreach(_MANIFEST_PATH ${_SOLVER_MANIFESTS})
     else()
         message(FATAL_ERROR "Solver '${_solver_id}' has unsupported "
                             "runner_mode '${_runner_mode}'. "
-                            "Supported modes: generated_absolute_pose")
+                            "Supported modes: generated_absolute_pose, static")
     endif()
 
     unset(SOLVER_ID)

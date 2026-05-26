@@ -44,7 +44,7 @@ def test_run_stage_preserves_return_shape_and_stage_log(tmp_path: Path) -> None:
     assert "stage stderr" in result["stderr"]
     assert isinstance(result["duration_seconds"], float)
 
-    log_path = experiment_dir / "logs" / "iteration_007_generate_candidate.log"
+    log_path = experiment_dir / "logs" / "it_07_generate_candidate.log"
     assert log_path.exists()
     log_text = log_path.read_text(encoding="utf-8")
     assert "GLOBAL_ITERATION: 7" in log_text

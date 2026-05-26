@@ -146,7 +146,7 @@ def _run_stage(
     stage_name: str,
     command: Sequence[str],
 ) -> dict[str, Any]:
-    log_path = experiment_dir / "logs" / f"iteration_{global_iteration:03d}_{stage_name}.log"
+    log_path = experiment_dir / "logs" / f"{format_iteration_dir(global_iteration)}_{stage_name}.log"
     result = _STEP_RUNNER.run_step(
         stage_name,
         list(command),
@@ -233,7 +233,7 @@ def _closed_loop_history_context_log_path(
     experiment_dir: Path,
     iteration: int,
 ) -> Path:
-    return experiment_dir / "logs" / f"iteration_{iteration:03d}_closed_loop_history_context.txt"
+    return experiment_dir / "logs" / f"{format_iteration_dir(iteration)}_closed_loop_history_context.txt"
 
 
 def _write_closed_loop_history_context_file(

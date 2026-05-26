@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-from typing import Literal
-
 from textual.app import ComposeResult
 from textual.containers import Horizontal, VerticalScroll
 from textual.screen import Screen
@@ -14,10 +12,8 @@ from orchestrator.control import (
     list_experiment_config_summaries,
 )
 from orchestrator.tui.debug_log import write_tui_debug
+from orchestrator.tui.screens._confirm_paid_run import ConfirmPaidRunScreen
 from orchestrator.tui.screens.active_run_screen import ActiveRunScreen
-
-
-ExperimentScreenState = Literal["idle", "confirming"]
 
 
 def _format_bool(value: bool | None) -> str:
@@ -90,7 +86,6 @@ class ExperimentScreen(Screen[None]):
     def __init__(self) -> None:
         super().__init__()
         self.summaries = list_experiment_config_summaries()
-        self._state: ExperimentScreenState = "idle"
         self._can_start = False
 
     def compose(self) -> ComposeResult:
@@ -121,7 +116,6 @@ class ExperimentScreen(Screen[None]):
 
     def on_mount(self) -> None:
         self.query_one("#experiment-list", ListView).styles.height = 6
-        self._set_state("idle")
         self._set_status_message("Idle. Select a config and press Dry Run or Real Run.")
         write_tui_debug("ExperimentScreen mounted")
         if self.summaries:
@@ -140,10 +134,6 @@ class ExperimentScreen(Screen[None]):
         return self.summaries[index]
 
     def on_list_view_highlighted(self, event: ListView.Highlighted) -> None:
-        if self._state == "confirming":
-            self._set_state("idle")
-            self._set_status_message("Idle. Select a config and press Dry Run or Real Run.")
-            write_tui_debug("experiment confirmation reset after config highlight")
         self.query_one("#experiment-summary", Static).update(
             _format_summary(self._selected_summary())
         )
@@ -161,9 +151,6 @@ class ExperimentScreen(Screen[None]):
     def action_request_back(self) -> None:
         self.app.pop_screen()
 
-    def _set_state(self, state: ExperimentScreenState) -> None:
-        self._state = state
-
     def _mark_ready(self) -> None:
         self._can_start = True
         write_tui_debug("ExperimentScreen ready for explicit start")
@@ -173,12 +160,20 @@ class ExperimentScreen(Screen[None]):
             write_tui_debug("ignored real run before screen ready")
             self._set_status_message("Screen initializing, try again.")
             return
-        if self._state != "confirming":
-            self._set_state("confirming")
-            self._set_status_message(
-                "Confirmation required. This may use paid LLM API calls. Click Real Run again to continue."
-            )
-            write_tui_debug("experiment real run confirmation requested")
+        summary = self._selected_summary()
+        if summary is None:
+            self._set_status_message("No configs available.")
+            return
+        write_tui_debug("experiment real run confirmation dialog shown")
+        self.app.push_screen(
+            ConfirmPaidRunScreen(summary.path),
+            callback=self._on_paid_run_confirmed,
+        )
+
+    def _on_paid_run_confirmed(self, confirmed: bool | None) -> None:
+        if not confirmed:
+            self._set_status_message("Idle. Real run cancelled.")
+            write_tui_debug("experiment real run cancelled by user")
             return
         self._start_experiment(dry_run=False)
 
@@ -204,7 +199,6 @@ class ExperimentScreen(Screen[None]):
         write_tui_debug(f"experiment {mode_text} start accepted")
         run_id = manager.start(summary.path, dry_run=dry_run)
         write_tui_debug(f"experiment {mode_text} started as {run_id}")
-        self._set_state("idle")
         self._set_status_message(
             f"{mode_text.title()} started as {run_id}. Opening live output..."
         )

@@ -77,30 +77,50 @@ def parse_absolute_pose_benchmark_output(text: str) -> dict[str, Any]:
 def parse_poselib_native_benchmark_output(text: str) -> dict[str, Any]:
     """Parse the prefixed JSON line emitted by the PoseLib native benchmark."""
     parse_errors: list[str] = []
-    json_lines = []
+    raw_json_lines = []
     for line in text.splitlines():
         stripped = line.strip()
         if stripped.startswith(_POSELIB_JSON_PREFIX):
-            json_lines.append(stripped[len(_POSELIB_JSON_PREFIX) :].strip())
-    if len(json_lines) != 1:
+            raw_json_lines.append(stripped[len(_POSELIB_JSON_PREFIX) :].strip())
+    if not raw_json_lines:
         return {
             "parse_success": False,
             "missing_fields": list(_REQUIRED_FIELDS),
             "parse_errors": [
-                f"expected exactly one {_POSELIB_JSON_PREFIX} line, found {len(json_lines)}"
+                f"no {_POSELIB_JSON_PREFIX} line found in output"
             ],
             "metrics": {},
         }
 
-    try:
-        payload = json.loads(json_lines[0])
-    except json.JSONDecodeError as exc:
+    valid_payloads: list[dict[str, Any]] = []
+    for raw in raw_json_lines:
+        try:
+            parsed = json.loads(raw)
+        except json.JSONDecodeError:
+            continue
+        if isinstance(parsed, dict):
+            valid_payloads.append(parsed)
+
+    if len(valid_payloads) == 0:
         return {
             "parse_success": False,
             "missing_fields": list(_REQUIRED_FIELDS),
-            "parse_errors": [f"invalid JSON: {exc}"],
+            "parse_errors": [f"no valid JSON object found among {len(raw_json_lines)} line(s)"],
             "metrics": {},
         }
+    if len(valid_payloads) > 1:
+        keys = [p.get("solver_key", "?") for p in valid_payloads]
+        return {
+            "parse_success": False,
+            "missing_fields": list(_REQUIRED_FIELDS),
+            "parse_errors": [
+                f"ambiguous output: {len(valid_payloads)} JSON objects found "
+                f"(solver_keys: {keys})"
+            ],
+            "metrics": {},
+        }
+
+    payload = valid_payloads[0]
     if not isinstance(payload, dict):
         return {
             "parse_success": False,

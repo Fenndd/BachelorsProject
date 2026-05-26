@@ -118,17 +118,16 @@ class ActiveRunScreen(Screen[None]):
             return
 
         log = self.query_one("#run-log", RichLog)
-        for stream_name, line in run.output_buffer:
+        snapshot = manager.snapshot_and_attach(self._run_id, self._on_run_update)
+        for stream_name, line in snapshot:
             prefix = "[stderr] " if stream_name == "stderr" else ""
             log.write(f"{prefix}{line}")
-        self._loaded_count = len(run.output_buffer)
+        self._loaded_count = len(snapshot)
 
         self._update_status_panel(run)
 
         if run.status in self._terminal_statuses:
             self.query_one("#cancel-run", Button).disabled = True
-
-        manager.attach(self._run_id, self._on_run_update)
         write_tui_debug(f"ActiveRunScreen mounted for {self._run_id}")
 
     def on_unmount(self) -> None:

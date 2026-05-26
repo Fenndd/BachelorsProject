@@ -1,8 +1,10 @@
 """Materialize a generated candidate patch into an isolated workspace copy.
 
 This command never modifies the main project source tree. It copies a
-base source root into workspace/candidates/<candidate_run_id>/ and applies
-the candidate edits only inside that workspace copy.
+base source root into the workspace directory specified by
+``--candidate-workspace-dir`` and applies candidate edits only inside that
+copy. In the closed-loop flow the workspace lives under
+``workspace/experiments/<experiment_id>/candidate_workspaces/<iteration>/``.
 """
 
 from __future__ import annotations
@@ -33,7 +35,6 @@ from orchestrator.paths import paths
 LOGGER = get_logger(__name__)
 
 
-DEFAULT_WORKSPACE_ROOT = "workspace/candidates"
 EXTERNAL_SCOPE_ENFORCEMENT = "external_allowed_files"
 
 
@@ -53,11 +54,6 @@ def _parse_args(argv: list[str]) -> argparse.Namespace:
         "--candidate-run",
         required=True,
         help="Path to a candidate run directory containing candidate.json.",
-    )
-    parser.add_argument(
-        "--workspace-root",
-        default=DEFAULT_WORKSPACE_ROOT,
-        help="Root directory for materialized candidate workspaces.",
     )
     parser.add_argument(
         "--base-source-root",
@@ -91,11 +87,10 @@ def _parse_args(argv: list[str]) -> argparse.Namespace:
     )
     parser.add_argument(
         "--candidate-workspace-dir",
-        default=None,
+        required=True,
         help=(
-            "Explicit workspace directory for closed-loop experiment candidates. "
-            "When provided, this exact path is used instead of deriving the "
-            "workspace path from the candidate run directory name."
+            "Workspace directory for this candidate. This exact path is used as "
+            "the isolated copy where edits are applied."
         ),
     )
     return parser.parse_args(argv)
@@ -1120,11 +1115,8 @@ def main(argv: list[str] | None = None) -> int:
     started_at = datetime.now().astimezone()
     candidate_run_dir = _resolve_path(args.candidate_run)
     candidate_run_id = candidate_run_dir.name
-    workspace_root = _resolve_path(args.workspace_root)
-    if args.candidate_workspace_dir is not None:
-        workspace_path = _resolve_path(args.candidate_workspace_dir)
-    else:
-        workspace_path = workspace_root / candidate_run_id
+    workspace_path = _resolve_path(args.candidate_workspace_dir)
+    workspace_root = workspace_path.parent
     try:
         base_source_root_path, base_source_root_display = (
             _resolve_base_source_root(args)

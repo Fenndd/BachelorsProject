@@ -103,6 +103,25 @@ def _require_string_list(obj: dict[str, Any], key: str, source: Path) -> tuple[s
     return tuple(parsed)
 
 
+def _optional_string_list(obj: dict[str, Any], key: str, source: Path) -> tuple[str, ...]:
+    """Validate and return a string list field, or empty tuple if absent."""
+    value = obj.get(key)
+    if value is None:
+        return ()
+    if not isinstance(value, list):
+        raise ValueError(
+            f"Manifest {source}: field {key!r} must be a list of strings"
+        )
+    parsed: list[str] = []
+    for index, item in enumerate(value):
+        if not isinstance(item, str) or not item:
+            raise ValueError(
+                f"Manifest {source}: field {key!r}[{index}] must be a non-empty string"
+            )
+        parsed.append(item)
+    return tuple(parsed)
+
+
 def _load_manifests() -> dict[str, SolverBenchmarkDescriptor]:
     """Discover and parse solver manifest files."""
     paths = get_project_paths()
@@ -163,7 +182,7 @@ def _load_manifests() -> dict[str, SolverBenchmarkDescriptor]:
             benchmark_solver_key = data.get("benchmark_solver_key")
             benchmark_kind = data.get("benchmark_kind")
             default_target_file = data.get("default_target_file")
-            default_allowed_files = tuple(data.get("default_allowed_files", ()))
+            default_allowed_files = _optional_string_list(data, "default_allowed_files", manifest_path)
             parser = _family_parser(family)
 
         if runner_mode == "generated_absolute_pose":

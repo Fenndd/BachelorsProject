@@ -78,7 +78,14 @@ class MainScreen(Screen[None]):
     def on_mount(self) -> None:
         self.query_one("#active-runs-list", ListView).styles.height = 5
         self._refresh_active_runs()
-        self.set_interval(1.5, self._refresh_active_runs)
+        manager = getattr(self.app, "active_runs_manager", None)
+        if manager is not None:
+            manager.attach_global(self._refresh_active_runs)
+
+    def on_unmount(self) -> None:
+        manager = getattr(self.app, "active_runs_manager", None)
+        if manager is not None:
+            manager.detach_global(self._refresh_active_runs)
 
     def _refresh_active_runs(self) -> None:
         manager = getattr(self.app, "active_runs_manager", None)

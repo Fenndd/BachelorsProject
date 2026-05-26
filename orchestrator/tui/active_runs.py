@@ -88,6 +88,20 @@ class ActiveRun:
             latest_experiment_dir=self.latest_experiment_dir,
         )
 
+    def append_output(self, stream: str, line: str) -> None:
+        with self._lock:
+            self.output_buffer.append((stream, line))
+
+    def snapshot_and_attach(
+        self,
+        subscriber: Callable[[str | None, str | None], None],
+    ) -> list[tuple[str, str]]:
+        """Atomically snapshot buffer and register subscriber to prevent missing lines."""
+        with self._lock:
+            snapshot = list(self.output_buffer)
+            self._subscribers.add(subscriber)
+        return snapshot
+
 
 class ActiveRunsManager:
     def __init__(self, app: object, repo_root: Path | None = None) -> None:
@@ -97,6 +111,7 @@ class ActiveRunsManager:
         self._runs: dict[str, ActiveRun] = {}
         self._lock = threading.Lock()
         self._max_finished_history = 20
+        self._global_subscribers: set[Callable[[], None]] = set()
 
     def start(self, config_path: Path, dry_run: bool = False) -> str:
         with self._lock:
@@ -150,7 +165,8 @@ class ActiveRunsManager:
         run = self._runs.get(run_id)
         if run is None:
             return
-        run._subscribers.add(subscriber)
+        with run._lock:
+            run._subscribers.add(subscriber)
 
     def detach(
         self,
@@ -160,7 +176,41 @@ class ActiveRunsManager:
         run = self._runs.get(run_id)
         if run is None:
             return
-        run._subscribers.discard(subscriber)
+        with run._lock:
+            run._subscribers.discard(subscriber)
+
+    def snapshot_and_attach(
+        self,
+        run_id: str,
+        subscriber: Callable[[str | None, str | None], None],
+    ) -> list[tuple[str, str]]:
+        """Atomically return buffered output and register subscriber."""
+        run = self._runs.get(run_id)
+        if run is None:
+            return []
+        return run.snapshot_and_attach(subscriber)
+
+    def attach_global(self, callback: Callable[[], None]) -> None:
+        """Register a callback to be notified on any run status change."""
+        with self._lock:
+            self._global_subscribers.add(callback)
+
+    def detach_global(self, callback: Callable[[], None]) -> None:
+        """Unregister a global status-change callback."""
+        with self._lock:
+            self._global_subscribers.discard(callback)
+
+    def _notify_global_subscribers(self) -> None:
+        call_from_thread = getattr(self._app, "call_from_thread", None)
+        if call_from_thread is None:
+            return
+        with self._lock:
+            callbacks = list(self._global_subscribers)
+        for cb in callbacks:
+            try:
+                call_from_thread(cb)
+            except Exception:
+                pass
 
     def cancel(self, run_id: str) -> None:
         run = self._runs.get(run_id)
@@ -171,7 +221,9 @@ class ActiveRunsManager:
 
     def cancel_all(self) -> None:
         write_tui_debug("ActiveRunsManager.cancel_all")
-        for run in self._runs.values():
+        with self._lock:
+            runs_snapshot = list(self._runs.values())
+        for run in runs_snapshot:
             run.cancel_requested.set()
 
     def active_count(self) -> int:
@@ -208,7 +260,9 @@ class ActiveRunsManager:
         call_from_thread = getattr(self._app, "call_from_thread", None)
         if call_from_thread is None:
             return
-        for cb in frozenset(run._subscribers):
+        with run._lock:
+            callbacks = list(run._subscribers)
+        for cb in callbacks:
             try:
                 call_from_thread(lambda c=cb, s=stream_name, l=line: c(s, l))
             except Exception:
@@ -227,17 +281,19 @@ class ActiveRunsManager:
             run.message = "Cancelled before start."
             run.finished_at = datetime.now().astimezone()
             self._notify_subscribers(run, None, None)
+            self._notify_global_subscribers()
             return
 
         run.status = "running"
         self._notify_subscribers(run, None, None)
+        self._notify_global_subscribers()
 
         def on_stdout(line: str) -> None:
-            run.output_buffer.append(("stdout", line))
+            run.append_output("stdout", line)
             self._notify_subscribers(run, "stdout", line)
 
         def on_stderr(line: str) -> None:
-            run.output_buffer.append(("stderr", line))
+            run.append_output("stderr", line)
             self._notify_subscribers(run, "stderr", line)
 
         def on_process_started(process: object) -> None:
@@ -274,4 +330,5 @@ class ActiveRunsManager:
             with self._lock:
                 self._prune_finished_locked()
             self._notify_subscribers(run, None, None)
+            self._notify_global_subscribers()
             write_tui_debug(f"worker finished for {run.run_id} status={run.status}")
