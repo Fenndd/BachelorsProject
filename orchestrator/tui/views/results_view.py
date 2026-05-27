@@ -200,30 +200,29 @@ class ResultsView(Widget):
 
     def compose(self) -> ComposeResult:
         with Vertical(id="results-view"):
-            yield Static("Browse Results", classes="title")
-            yield Static(
-                "Read-only navigation for saved run and experiment artifacts.",
-                classes="subtitle",
-            )
-            with Horizontal(id="filter-row"):
-                yield Input(placeholder="Filter by name...", id="name-filter")
-                yield Select(
-                    [("all", "all"), ("baseline", "baseline"), ("candidate", "candidate"), ("experiment", "experiment")],
-                    prompt="Kind",
-                    value="all",
-                    id="kind-filter",
-                    allow_blank=False,
+            with VerticalScroll(id="results-scroll"):
+                yield Static("Browse Results", classes="title")
+                yield Static(
+                    "Read-only navigation for saved run and experiment artifacts.",
+                    classes="subtitle",
                 )
-            yield DataTable(id="results-table", cursor_type="row")
-            with VerticalScroll(id="result-summary-panel", classes="panel"):
-                yield Static("No item selected.", id="result-summary-text")
-            yield Static("Status: idle", id="results-status", classes="panel")
-            with Horizontal(classes="actions"):
-                yield Button("Refresh", id="refresh")
-                yield Button("Open Dir", id="open-directory", variant="primary")
-                yield Button("Summary", id="open-summary")
-                yield Button("Final Source", id="open-final-source")
-                yield Button("Final Diff", id="open-final-diff")
+                with Vertical(id="results-filter-panel", classes="panel"):
+                    with Horizontal(id="filter-row"):
+                        yield Input(placeholder="Filter by name...", id="name-filter")
+                        yield Select(
+                            [("all", "all"), ("baseline", "baseline"), ("candidate", "candidate"), ("experiment", "experiment")],
+                            prompt="Kind",
+                            value="all",
+                            id="kind-filter",
+                            allow_blank=False,
+                        )
+                yield DataTable(id="results-table", cursor_type="row")
+                with VerticalScroll(id="result-summary-panel", classes="panel"):
+                    yield Static("No item selected.", id="result-summary-text")
+                yield Static("Status: idle", id="results-status", classes="panel")
+                with Horizontal(classes="actions", id="results-actions"):
+                    yield Button("Open Dir", id="open-directory", variant="primary")
+                    yield Button("Summary", id="open-summary")
 
     def on_mount(self) -> None:
         self._all_items = list_result_items()
@@ -242,6 +241,9 @@ class ResultsView(Widget):
         self._rebuild_table(selected_key=selected_key)
         if status_message is not None:
             self._set_status(status_message)
+
+    def refresh_view(self) -> None:
+        self.refresh_summaries("refreshed")
 
     # ------------------------------------------------------------------
     # Public helpers for shell bindings (called by MainScreen)
@@ -320,9 +322,6 @@ class ResultsView(Widget):
     def _set_status(self, message: str) -> None:
         self.query_one("#results-status", Static).update(f"Status: {message}")
 
-    def _refresh(self) -> None:
-        self.refresh_summaries("refreshed")
-
     def _open_artifact(self, artifact: str) -> None:
         item = self._selected_item()
         if item is None:
@@ -364,17 +363,9 @@ class ResultsView(Widget):
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
         button_id = event.button.id
-        if button_id == "refresh":
-            self._refresh()
-            return
         if button_id == "open-directory":
             self._open_artifact("directory")
             return
         if button_id == "open-summary":
             self._open_artifact("summary")
             return
-        if button_id == "open-final-source":
-            self._open_artifact("final-source")
-            return
-        if button_id == "open-final-diff":
-            self._open_artifact("final-diff")

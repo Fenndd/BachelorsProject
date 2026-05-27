@@ -24,33 +24,51 @@
     padding: 0 1;
     background: #eef0f3;
     color: #111827;
+    margin-bottom: 0;
+    border-bottom: solid #d6d8de;
 }
 
 #nav ListItem Static {
     color: #111827;
 }
 
-#nav ListItem.--highlight {
+#nav ListItem.-highlight {
     background: #dbeafe;
     color: #111827;
     text-style: bold;
 }
 
-#nav ListItem.--highlight Static {
+#nav ListItem.-highlight Static {
     color: #111827;
 }
 
-#nav ListItem:hover {
-    background: #2563eb;
-    color: #ffffff;
+#nav ListItem.-hovered {
+    background: #bfdbfe;
+    color: #111827;
 }
 
-#nav ListItem:hover Static {
-    color: #ffffff;
+#nav ListItem.-hovered Static {
+    color: #111827;
+    text-style: bold;
+}
+
+#global-refresh {
+    margin: 1 0;
+    width: 7;
+    min-height: 3;
+    background: #d1d5db;
+    color: #111827;
+    border: tall #9ca3af;
+    text-style: bold;
+}
+
+#global-refresh:hover {
+    background: #9ca3af;
+    color: #111827;
 }
 
 #clear-finished-runs {
-    margin: 1 0;
+    margin: 0 0 1 0;
     width: 100%;
     background: #d1d5db;
     color: #111827;
@@ -90,16 +108,20 @@
     color: #111827;
 }
 
-#active-runs ListItem.--highlight {
+#active-runs ListItem.-highlight {
     background: #dbeafe;
     color: #111827;
 }
 
-#active-runs ListItem:hover {
+#active-runs ListItem.-highlight Static {
+    color: #111827;
+}
+
+#active-runs ListItem.-hovered {
     background: #2563eb;
     color: #ffffff;
 }
 
-#active-runs ListItem:hover Static {
+#active-runs ListItem.-hovered Static {
     color: #ffffff;
 }

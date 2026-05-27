@@ -465,6 +465,43 @@ class ConfigBuilderView(Widget):
             self._log("[warning] No LLM configs found under configs/llm_*.json")
         self._on_algorithm_changed()
 
+    def refresh_view(self) -> None:
+        """Refresh option sources without clearing user-entered form fields."""
+        self._solver_options = _read_solver_manifest_options()
+        self._llm_configs = _discover_llm_configs()
+        self._templates = self._discover_templates()
+        self._local_configs = self._discover_local()
+
+        try:
+            algorithm = self.query_one("#algorithm", Select)
+            current_algorithm = algorithm.value if isinstance(algorithm.value, str) else ""
+            algorithm_options = [("-- select algorithm --", "")] + [
+                (label, solver_id) for label, solver_id, _, _ in self._solver_options
+            ]
+            algorithm.set_options(algorithm_options)
+            algorithm_values = {value for _label, value in algorithm_options}
+            if current_algorithm in algorithm_values:
+                algorithm.value = current_algorithm
+        except Exception:
+            current_algorithm = self._last_solver_id
+
+        try:
+            llm_select = self.query_one("#variant_llm_config", Select)
+            current_llm = llm_select.value if isinstance(llm_select.value, str) else ""
+            llm_options = [("-- select LLM config --", "")] + self._llm_configs
+            llm_select.set_options(llm_options)
+            llm_values = {value for _label, value in llm_options}
+            if current_llm in llm_values:
+                llm_select.value = current_llm
+        except Exception:
+            pass
+
+        self._refresh_baseline_options(current_algorithm if current_algorithm else None)
+        try:
+            self._log("[info] Option lists refreshed.")
+        except Exception:
+            pass
+
     def on_select_changed(self, event: Select.Changed) -> None:
         if event.select.id == "algorithm":
             self._on_algorithm_changed()

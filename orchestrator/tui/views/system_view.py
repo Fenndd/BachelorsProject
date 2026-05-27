@@ -156,7 +156,6 @@ class SystemView(Widget):
                     id="system-environment",
                     classes="panel",
                 )
-                yield Button("Refresh Environment", id="refresh-environment")
 
                 # --- Doctor section ---
                 yield Static("Doctor", classes="title")
@@ -165,7 +164,6 @@ class SystemView(Widget):
                     id="system-doctor",
                     classes="panel",
                 )
-                yield Button("Refresh Doctor", id="refresh-doctor")
 
                 # --- Workspace section ---
                 yield Static("Workspace", classes="title")
@@ -177,7 +175,6 @@ class SystemView(Widget):
                 yield Static("Status: idle", id="workspace-message", classes="panel")
                 yield Static("", classes="bottom-spacer")
             with Horizontal(classes="actions", id="system-actions"):
-                yield Button("Refresh Workspace", id="refresh-workspace")
                 yield Button("Clean Candidates", id="clean-candidates")
                 yield Button("Clean Experiments", id="clean-experiments")
                 yield Button("Clean All", id="clean-all", variant="warning")
@@ -197,6 +194,13 @@ class SystemView(Widget):
         self.query_one("#system-workspace", Static).update(
             _format_workspace(get_workspace_status())
         )
+
+    def refresh_view(self) -> None:
+        self._pending_cleanup = None
+        self._refresh_environment()
+        self._refresh_doctor()
+        self._refresh_workspace()
+        self._set_message("refreshed")
 
     def _set_message(self, message: str) -> None:
         self.query_one("#workspace-message", Static).update(f"Status: {message}")
@@ -223,17 +227,6 @@ class SystemView(Widget):
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
         button_id = event.button.id
-        if button_id == "refresh-environment":
-            self._refresh_environment()
-            return
-        if button_id == "refresh-doctor":
-            self._refresh_doctor()
-            return
-        if button_id == "refresh-workspace":
-            self._pending_cleanup = None
-            self._refresh_workspace()
-            self._set_message("refreshed")
-            return
         if button_id in {"clean-candidates", "clean-experiments", "clean-all"}:
             self._cleanup(button_id)
             return

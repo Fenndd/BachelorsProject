@@ -5,7 +5,7 @@ from __future__ import annotations
 from textual.app import ComposeResult
 from textual.containers import Horizontal, Vertical, VerticalScroll
 from textual.widget import Widget
-from textual.widgets import Button, ListItem, ListView, Static
+from textual.widgets import Button, Select, Static
 
 from orchestrator.control import (
     ExperimentConfigSummary,
@@ -13,6 +13,8 @@ from orchestrator.control import (
 )
 from orchestrator.tui.debug_log import write_tui_debug
 from orchestrator.tui.screens._confirm_paid_run import ConfirmPaidRunScreen
+
+_NO_CONFIG_VALUE = "__no_config__"
 
 
 def _format_bool(value: bool | None) -> str:
@@ -59,6 +61,14 @@ def _compact_summary_label(summary: ExperimentConfigSummary) -> str:
     return f"{summary.path.name} [{summary.status}] {iterations} iter {providers}/{models} [{solver}]"
 
 
+def _config_select_options(
+    summaries: list[ExperimentConfigSummary],
+) -> list[tuple[str, str]]:
+    if not summaries:
+        return [("No configs available", _NO_CONFIG_VALUE)]
+    return [(_compact_summary_label(summary), str(summary.path)) for summary in summaries]
+
+
 class ExperimentsView(Widget):
     """Embedded experiment config browser and launcher view.
 
@@ -79,13 +89,12 @@ class ExperimentsView(Widget):
                     "Select a config, run a safe dry-run, or launch the existing experiment runner.",
                     classes="subtitle",
                 )
-                yield ListView(
-                    *[
-                        ListItem(Static(_compact_summary_label(summary)))
-                        for summary in self.summaries
-                    ],
-                    id="experiment-list",
-                    classes="panel",
+                yield Static("Experiment Config", classes="field-label")
+                yield Select(
+                    _config_select_options(self.summaries),
+                    value=(str(self.summaries[0].path) if self.summaries else _NO_CONFIG_VALUE),
+                    id="experiment-config",
+                    allow_blank=False,
                 )
                 summary = Static(
                     _format_summary(self._selected_summary()),
@@ -98,8 +107,7 @@ class ExperimentsView(Widget):
                     id="experiment-status-text",
                     classes="panel",
                 )
-            with Horizontal(classes="actions"):
-                yield Button("Refresh", id="refresh-configs")
+            with Horizontal(classes="actions", id="experiment-actions"):
                 yield Button("Dry Run", id="dry-run")
                 yield Button("Real Run", id="real-run")
 
@@ -113,23 +121,21 @@ class ExperimentsView(Widget):
 
     def refresh_summaries(self, status_message: str | None = "Config list refreshed.") -> None:
         current = self._selected_summary()
-        current_path = current.path if current is not None else None
+        current_path = str(current.path) if current is not None else None
         self.summaries = list_experiment_config_summaries()
         try:
-            list_view = self.query_one("#experiment-list", ListView)
-            list_view.clear()
-            for summary in self.summaries:
-                list_view.append(ListItem(Static(_compact_summary_label(summary))))
+            config_select = self.query_one("#experiment-config", Select)
+            options = _config_select_options(self.summaries)
+            config_select.set_options(options)
             if self.summaries:
-                selected_index = 0
-                if current_path is not None:
-                    for index, summary in enumerate(self.summaries):
-                        if summary.path == current_path:
-                            selected_index = index
-                            break
-                list_view.index = selected_index
+                values = {str(summary.path) for summary in self.summaries}
+                config_select.value = (
+                    current_path
+                    if current_path in values
+                    else str(self.summaries[0].path)
+                )
             else:
-                list_view.index = None
+                config_select.value = _NO_CONFIG_VALUE
             self.query_one("#experiment-summary", Static).update(
                 _format_summary(self._selected_summary())
             )
@@ -138,26 +144,30 @@ class ExperimentsView(Widget):
         except Exception:
             pass
 
+    def refresh_view(self) -> None:
+        self.refresh_summaries()
+
     def _selected_summary(self) -> ExperimentConfigSummary | None:
         if not self.summaries:
             return None
         try:
-            index = self.query_one("#experiment-list", ListView).index
+            value = self.query_one("#experiment-config", Select).value
         except Exception:
-            index = 0
-        if index is None or index < 0 or index >= len(self.summaries):
-            index = 0
-        return self.summaries[index]
+            value = str(self.summaries[0].path)
+        if isinstance(value, str) and value != _NO_CONFIG_VALUE:
+            for summary in self.summaries:
+                if str(summary.path) == value:
+                    return summary
+        return self.summaries[0]
 
-    def on_list_view_highlighted(self, event: ListView.Highlighted) -> None:
-        self.query_one("#experiment-summary", Static).update(
-            _format_summary(self._selected_summary())
-        )
+    def on_select_changed(self, event: Select.Changed) -> None:
+        if event.select.id == "experiment-config":
+            self.query_one("#experiment-summary", Static).update(
+                _format_summary(self._selected_summary())
+            )
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
-        if event.button.id == "refresh-configs":
-            self.refresh_summaries()
-        elif event.button.id == "dry-run":
+        if event.button.id == "dry-run":
             self._start_experiment(dry_run=True)
         elif event.button.id == "real-run":
             self._request_real_run()

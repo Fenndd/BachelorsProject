@@ -111,6 +111,9 @@ class MainScreen(Screen[None]):
                     *[ListItem(Static(label)) for label, _ in _NAV_ITEMS],
                     id="nav",
                 )
+                refresh_button = Button("↻", id="global-refresh")
+                refresh_button.tooltip = "Refresh"
+                yield refresh_button
                 yield Button("Clear finished", id="clear-finished-runs")
                 yield Static("Active runs (0)", id="active-runs-title")
                 yield ListView(id="active-runs")
@@ -148,6 +151,9 @@ class MainScreen(Screen[None]):
             self._handle_active_run_selection(event)
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
+        if event.button.id == "global-refresh":
+            self.action_global_refresh()
+            return
         if event.button.id != "clear-finished-runs":
             return
         manager = getattr(self.app, "active_runs_manager", None)
@@ -223,6 +229,14 @@ class MainScreen(Screen[None]):
         method = getattr(child, "clear_filter_or_blur", None)
         if callable(method):
             method()
+
+    def action_global_refresh(self) -> None:
+        content = self.query_one("#content", ContentSwitcher)
+        for child in content.children:
+            refresh = getattr(child, "refresh_view", None)
+            if callable(refresh):
+                refresh()
+        self._refresh_active_runs()
 
     # ------------------------------------------------------------------
     # Active runs sidebar

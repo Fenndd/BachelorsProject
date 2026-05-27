@@ -54,13 +54,13 @@ class BaselineView(Widget):
             )
             with Horizontal(classes="actions"):
                 yield Button("Start Baseline", id="start-baseline")
-                yield Button("Refresh Solvers", id="refresh-solvers")
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
         if event.button.id == "start-baseline":
             self._start_baseline()
-        elif event.button.id == "refresh-solvers":
-            self._refresh_solvers()
+
+    def refresh_view(self) -> None:
+        self._refresh_solvers()
 
     def _selected_solver_id(self) -> str | None:
         try:

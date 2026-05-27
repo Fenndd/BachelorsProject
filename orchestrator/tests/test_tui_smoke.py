@@ -149,7 +149,8 @@ def test_system_view_has_environment_labels() -> None:
 
     src = _src(m)
     assert "Environment" in src
-    assert "Refresh Environment" in src
+    assert "Refresh Environment" not in src
+    assert "def refresh_view" in src
 
 
 def test_system_view_has_doctor_labels() -> None:
@@ -173,10 +174,11 @@ def test_dashboard_view_has_project_info() -> None:
     assert "Dashboard" in src
     assert "Interactive control layer for LLM optimization experiments" in src
     assert "Active runs are visible" in src
-    assert "Go to Baseline" in src
-    assert "Go to Experiments" in src
-    assert "Go to Results" in src
-    assert "action_show_view" in src
+    assert "dashboard-refresh" not in src
+    assert "Go to Baseline" not in src
+    assert "Go to Experiments" not in src
+    assert "Go to Results" not in src
+    assert "def refresh_view" in src
 
 
 def test_results_view_displays_baseline_label_for_runs() -> None:
@@ -333,3 +335,92 @@ def test_quit_confirm_mentions_active_runs_not_only_experiments() -> None:
     src = _src(m)
     assert "active run(s)" in src
     assert "active experiment run(s)" not in src
+
+
+def test_experiments_view_uses_select_for_config_selection() -> None:
+    import orchestrator.tui.views.experiments_view as m
+
+    src = _src(m)
+    assert "Select(" in src
+    assert "id=\"experiment-config\"" in src
+    assert "ListView" not in src
+    assert "on_list_view_highlighted" not in src
+
+
+def test_experiments_view_has_all_action_buttons() -> None:
+    import orchestrator.tui.views.experiments_view as m
+
+    src = _src(m)
+    assert "id=\"experiment-actions\"" in src
+    assert "id=\"refresh-configs\"" not in src
+    assert "id=\"dry-run\"" in src
+    assert "id=\"real-run\"" in src
+    assert "def refresh_view" in src
+
+
+def test_results_view_has_outer_and_inner_scroll_regions() -> None:
+    import orchestrator.tui.views.results_view as m
+
+    src = _src(m)
+    assert "VerticalScroll(id=\"results-scroll\")" in src
+    assert "id=\"results-filter-panel\"" in src
+    assert "VerticalScroll(id=\"result-summary-panel\"" in src
+    assert "id=\"results-actions\"" in src
+
+
+def test_results_view_visible_actions_are_limited() -> None:
+    import orchestrator.tui.views.results_view as m
+
+    src = _src(m)
+    assert "Button(\"Open Dir\"" in src
+    assert "Button(\"Summary\"" in src
+    assert "Button(\"Refresh\"" not in src
+    assert "Button(\"Final Source\"" not in src
+    assert "Button(\"Final Diff\"" not in src
+
+
+def test_active_run_screen_back_button_is_not_primary() -> None:
+    import orchestrator.tui.screens.active_run_screen as m
+
+    src = _src(m)
+    back_block = src[src.index('"Back"'):src.index('classes="run-action-button"', src.index('"Back"'))]
+    assert "variant=\"primary\"" not in back_block
+    assert "with Vertical(id=\"main\")" in src
+
+
+def test_tui_css_layout_rules_present() -> None:
+    root = Path(__file__).resolve().parents[1]
+    views_css = (root / "tui" / "styles" / "views.tcss").read_text(encoding="utf-8")
+    sidebar_css = (root / "tui" / "styles" / "sidebar.tcss").read_text(encoding="utf-8")
+    app_css = (root / "tui" / "styles" / "app.tcss").read_text(encoding="utf-8")
+
+    assert "#experiment-actions" in views_css and "grid-size: 2" in views_css
+    assert "#results-actions" in views_css and "grid-size: 2" in views_css
+    assert "#results-filter-panel" in views_css
+    assert "#results-scroll" in views_css
+    assert "#results-table" in views_css and "min-height: 6" in views_css
+    assert "#result-summary-panel" in views_css and "min-height: 20" in views_css
+    assert "#main" in views_css and "#run-log" in views_css and "height: 1fr" in views_css
+    assert "#global-refresh" in sidebar_css
+    assert "#nav ListItem.-hovered" in sidebar_css
+    assert "#nav ListItem.-highlight" in sidebar_css
+    assert "#nav ListItem.--highlight" not in sidebar_css
+    assert "Button {\n    width: 100%;\n}" not in app_css
+
+
+def test_main_screen_has_global_refresh_button() -> None:
+    import orchestrator.tui.screens.main_screen as m
+
+    src = _src(m)
+    assert "id=\"global-refresh\"" in src
+    assert "tooltip = \"Refresh\"" in src
+    assert "def action_global_refresh" in src
+
+
+def test_baseline_view_start_action_without_refresh_button() -> None:
+    import orchestrator.tui.views.baseline_view as m
+
+    src = _src(m)
+    assert "id=\"start-baseline\"" in src
+    assert "id=\"refresh-solvers\"" not in src
+    assert "def refresh_view" in src

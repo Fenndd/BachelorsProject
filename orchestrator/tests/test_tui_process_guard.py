@@ -316,7 +316,7 @@ def test_experiments_view_real_run_shows_confirm_modal(monkeypatch) -> None:
     assert isinstance(pushed_screens[0], ConfirmPaidRunScreen)
 
 
-def test_experiments_view_on_list_view_highlighted_updates_summary(monkeypatch) -> None:
+def test_experiments_view_on_select_changed_updates_summary(monkeypatch) -> None:
     from orchestrator.tui.views.experiments_view import ExperimentsView
 
     view = ExperimentsView()
@@ -326,7 +326,7 @@ def test_experiments_view_on_list_view_highlighted_updates_summary(monkeypatch) 
     monkeypatch.setattr(view, "_selected_summary", lambda: None)
     monkeypatch.setattr(view, "query_one", lambda *args, **kwargs: summary_widget)
 
-    view.on_list_view_highlighted(SimpleNamespace())
+    view.on_select_changed(SimpleNamespace(select=SimpleNamespace(id="experiment-config")))
 
     assert len(updates) == 1
 
@@ -362,18 +362,17 @@ def test_experiments_view_refresh_rebuilds_summaries(monkeypatch) -> None:
 
     view = ExperimentsView()
     view.summaries = [old_a, old_b]
-    list_view = SimpleNamespace(
-        index=1,
-        items=[],
-        clear=lambda: list_view.items.clear(),
-        append=lambda item: list_view.items.append(item),
+    config_select = SimpleNamespace(
+        value=str(old_b.path),
+        options=[],
+        set_options=lambda options: setattr(config_select, "options", options),
     )
     summary_updates: list[str] = []
     status_updates: list[str] = []
 
     def query_one(selector, *args, **kwargs):
-        if selector == "#experiment-list":
-            return list_view
+        if selector == "#experiment-config":
+            return config_select
         if selector == "#experiment-summary":
             return SimpleNamespace(update=summary_updates.append)
         if selector == "#experiment-status-text":
@@ -390,10 +389,108 @@ def test_experiments_view_refresh_rebuilds_summaries(monkeypatch) -> None:
     view.refresh_summaries()
 
     assert view.summaries == [new_a, new_b, new_c]
-    assert len(list_view.items) == 3
-    assert list_view.index == 1
+    assert len(config_select.options) == 3
+    assert config_select.value == str(new_b.path)
     assert "new b" in summary_updates[-1]
     assert status_updates == ["Config list refreshed."]
+
+
+def test_experiments_view_selected_summary_uses_select_value(monkeypatch) -> None:
+    from pathlib import Path
+    from orchestrator.control import ExperimentConfigSummary
+    from orchestrator.tui.views.experiments_view import ExperimentsView
+
+    def summary(path: str, name: str) -> ExperimentConfigSummary:
+        return ExperimentConfigSummary(
+            path=Path(path),
+            name=name,
+            description=None,
+            target_file=None,
+            solver_id="solver",
+            variants_count=1,
+            total_iterations=1,
+            baseline_run_dir=None,
+            reporting_enabled=True,
+            providers=[],
+            models=[],
+            status="ok",
+            message=None,
+        )
+
+    first = summary("/configs/a.json", "a")
+    second = summary("/configs/b.json", "b")
+    view = ExperimentsView()
+    view.summaries = [first, second]
+    monkeypatch.setattr(
+        view,
+        "query_one",
+        lambda *args, **kwargs: SimpleNamespace(value=str(second.path)),
+    )
+
+    assert view._selected_summary() == second
+
+
+def test_experiments_view_start_uses_selected_config_from_select(monkeypatch) -> None:
+    from pathlib import Path
+    from orchestrator.control import ExperimentConfigSummary
+    from orchestrator.tui.views.experiments_view import ExperimentsView
+
+    selected_path = Path("/configs/selected.json")
+    view = ExperimentsView()
+    view.summaries = [
+        ExperimentConfigSummary(
+            path=Path("/configs/first.json"),
+            name="first",
+            description=None,
+            target_file=None,
+            solver_id="solver",
+            variants_count=1,
+            total_iterations=1,
+            baseline_run_dir=None,
+            reporting_enabled=True,
+            providers=[],
+            models=[],
+            status="ok",
+            message=None,
+        ),
+        ExperimentConfigSummary(
+            path=selected_path,
+            name="selected",
+            description=None,
+            target_file=None,
+            solver_id="solver",
+            variants_count=1,
+            total_iterations=1,
+            baseline_run_dir=None,
+            reporting_enabled=True,
+            providers=[],
+            models=[],
+            status="ok",
+            message=None,
+        ),
+    ]
+    start_calls: list[tuple] = []
+    mock_manager = SimpleNamespace(
+        start_experiment=lambda config_path, dry_run: start_calls.append((config_path, dry_run)) or "run_001",
+    )
+    monkeypatch.setattr(view, "_can_start", True)
+    monkeypatch.setattr(
+        view,
+        "query_one",
+        lambda *args, **kwargs: SimpleNamespace(
+            value=str(selected_path),
+            update=lambda _text: None,
+        ),
+    )
+    monkeypatch.setattr(
+        ExperimentsView,
+        "app",
+        SimpleNamespace(active_runs_manager=mock_manager),
+    )
+
+    view._start_experiment(dry_run=True)
+
+    assert start_calls == [(selected_path, True)]
 
 
 def test_baseline_view_refresh_preserves_selected_solver(monkeypatch) -> None:
@@ -514,6 +611,23 @@ def test_main_screen_active_run_refresh_updates_labels_without_rebuild(monkeypat
     screen._refresh_active_runs()
 
     assert updates
+
+
+def test_main_screen_global_refresh_calls_refreshable_views(monkeypatch) -> None:
+    from orchestrator.tui.screens.main_screen import MainScreen
+
+    screen = MainScreen()
+    calls: list[str] = []
+    refreshable = SimpleNamespace(refresh_view=lambda: calls.append("view"))
+    static_view = SimpleNamespace()
+    content = SimpleNamespace(children=[refreshable, static_view])
+
+    monkeypatch.setattr(screen, "query_one", lambda selector, *args, **kwargs: content)
+    monkeypatch.setattr(screen, "_refresh_active_runs", lambda: calls.append("active-runs"))
+
+    screen.action_global_refresh()
+
+    assert calls == ["view", "active-runs"]
 
 
 # ---------------------------------------------------------------------------

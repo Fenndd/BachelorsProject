@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from textual.app import ComposeResult
-from textual.containers import Horizontal, VerticalScroll
+from textual.containers import Horizontal, Vertical
 from textual.screen import Screen
 from textual.widgets import Button, Footer, Header, RichLog, Static
 
@@ -67,7 +67,7 @@ class ActiveRunScreen(Screen[None]):
 
     def compose(self) -> ComposeResult:
         yield Header()
-        with VerticalScroll(id="main"):
+        with Vertical(id="main"):
             yield Static(f"Run: {self._run_id}", classes="title")
             yield Static("", id="run-status", classes="panel")
             yield RichLog(
@@ -87,7 +87,6 @@ class ActiveRunScreen(Screen[None]):
                 yield Button(
                     "Back",
                     id="back",
-                    variant="primary",
                     classes="run-action-button",
                 )
         yield Footer()

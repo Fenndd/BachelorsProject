@@ -3,9 +3,9 @@
 from __future__ import annotations
 
 from textual.app import ComposeResult
-from textual.containers import Horizontal, VerticalScroll
+from textual.containers import VerticalScroll
 from textual.widget import Widget
-from textual.widgets import Button, Static
+from textual.widgets import Static
 
 from orchestrator.control import load_environment, read_project_status, summarize_environment
 
@@ -32,7 +32,7 @@ def _format_dashboard() -> str:
 
 
 class DashboardView(Widget):
-    """Embedded dashboard showing project/environment summary and quick actions."""
+    """Embedded dashboard showing project/environment summary."""
 
     def __init__(self) -> None:
         super().__init__(id="view-dashboard")
@@ -50,24 +50,9 @@ class DashboardView(Widget):
                 "Click a run to open its live output.",
                 classes="panel",
             )
-            with Horizontal():
-                yield Button("Refresh", id="dashboard-refresh")
-                yield Button("Go to Baseline", id="goto-baseline")
-                yield Button("Go to Experiments", id="goto-experiments")
-                yield Button("Go to Results", id="goto-results")
 
-    def on_button_pressed(self, event: Button.Pressed) -> None:
-        if event.button.id == "dashboard-refresh":
+    def refresh_view(self) -> None:
+        try:
             self.query_one("#dashboard-panel", Static).update(_format_dashboard())
-            return
-        view_by_button = {
-            "goto-baseline": "view-baseline",
-            "goto-experiments": "view-experiments",
-            "goto-results": "view-results",
-        }
-        view_id = view_by_button.get(event.button.id or "")
-        if view_id is None:
-            return
-        show_view = getattr(self.screen, "action_show_view", None)
-        if callable(show_view):
-            show_view(view_id)
+        except Exception:
+            pass
