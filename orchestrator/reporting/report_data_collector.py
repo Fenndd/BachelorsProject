@@ -165,6 +165,14 @@ def collect_report_data(
         experiment_metadata=_build_experiment_metadata(experiment_metadata),
     )
 
+    report_data.final_code_diff = _read_file_text(
+        experiment_path / "final_optimized_source.diff"
+    )
+    report_data.executive_narrative = _build_executive_narrative(report_data)
+    report_data.closed_loop_selection_explanation = _build_closed_loop_selection_explanation(
+        report_data
+    )
+
     if output_path is not None:
         write_report_data(report_data_path, report_data)
     return report_data
@@ -1544,6 +1552,169 @@ def _build_reason_code_counts(
         )
         for category, code in order
     ]
+
+
+# ---------------------------------------------------------------------------
+# Narrative generation
+# ---------------------------------------------------------------------------
+
+
+def _read_file_text(path: Path) -> str | None:
+    if not path.is_file():
+        return None
+    try:
+        return path.read_text(encoding="utf-8")
+    except OSError:
+        return None
+
+
+def _get_sc(
+    status_counts: Any,
+    key: str,
+) -> int:
+    if isinstance(status_counts, dict):
+        value = status_counts.get(key, 0)
+        return value if isinstance(value, int) and not isinstance(value, bool) else 0
+    return int(getattr(status_counts, key, 0))
+
+
+def _build_executive_narrative(report_data: ReportData) -> str:
+    sentences: list[str] = []
+    exp = report_data.experiment
+    sc = report_data.status_counts
+    fr = report_data.final_result
+    bm = report_data.baseline_metrics
+    fbc = report_data.final_best_candidate
+    usage = report_data.llm_usage_summary
+    meta = report_data.experiment_metadata
+
+    model_name = exp.model or report_data.llm.model
+    target = exp.target_file
+
+    parts: list[str] = []
+    if model_name:
+        parts.append(f"Using {model_name}")
+    if target:
+        parts.append(f"on {target}")
+    parts.append(
+        f"the experiment completed {exp.completed_iterations} of {exp.total_iterations} iterations."
+    )
+    sentences.append(" ".join(parts))
+
+    accepted = _get_sc(sc, "accepted_improvement")
+    no_op = _get_sc(sc, "no_op")
+    valid_no_improve = _get_sc(sc, "valid_not_improved")
+    rejected = _get_sc(sc, "rejected")
+    mat_failed = _get_sc(sc, "materialization_failed")
+    verif_failed = _get_sc(sc, "verification_failed")
+    gen_failed = _get_sc(sc, "generation_failed")
+    total_failed = mat_failed + verif_failed + gen_failed + rejected
+
+    speedup = fr.final_speedup_vs_baseline
+    reduction = fr.final_runtime_reduction_percent
+
+    if accepted > 0 and speedup is not None and speedup > 1.0:
+        baseline_rt = fbc.baseline_runtime_ns_per_problem_median or bm.runtime_ns_per_problem_median
+        final_rt = fbc.runtime_ns_per_problem_median
+        runtime_parts: list[str] = [
+            "Runtime improved",
+        ]
+        if baseline_rt is not None and final_rt is not None:
+            runtime_parts.append(
+                f"from {baseline_rt:.0f} ns/problem to {final_rt:.0f} ns/problem"
+            )
+        metrics: list[str] = []
+        if speedup is not None:
+            metrics.append(f"speedup {speedup:.2f}x")
+        if reduction is not None:
+            metrics.append(f"{reduction:.1f}% reduction")
+        if metrics:
+            runtime_parts.append(f"({', '.join(metrics)})")
+        runtime_parts.append(".")
+        sentences.append(" ".join(runtime_parts))
+    elif accepted == 0:
+        sentences.append("No accepted runtime improvement was found.")
+
+    # Candidate counts
+    count_parts: list[str] = []
+    if accepted:
+        count_parts.append(f"{accepted} accepted")
+    if valid_no_improve:
+        count_parts.append(f"{valid_no_improve} valid but not improved")
+    if no_op:
+        count_parts.append(f"{no_op} no-op")
+    if count_parts:
+        sentences.append(f"{', '.join(count_parts)} candidates were produced.")
+
+    # Correctness
+    cp = fr.correctness_preserved
+    baseline_gt = bm.gt_found_percent
+    final_gt = fbc.gt_found_percent
+    if cp is False:
+        regress_parts: list[str] = ["Correctness regressed."]
+        if baseline_gt is not None and final_gt is not None:
+            delta = final_gt - baseline_gt
+            regress_parts.append(
+                f"GT Found dropped from {baseline_gt:.1f}% to {final_gt:.1f}% ({delta:+.1f} pp)."
+            )
+        sentences.append(" ".join(regress_parts))
+    elif cp is True:
+        sentences.append("Correctness was preserved.")
+
+    # Pipeline health
+    completed = exp.completed_iterations
+    if completed > 0 and total_failed > 0 and total_failed > completed * 0.25:
+        sentences.append(
+            f"Pipeline failures ({total_failed} of {completed} iterations, "
+            f"{total_failed / completed:.0%}) limited the session."
+        )
+
+    # Token usage and duration
+    resource_parts: list[str] = []
+    if usage.total_tokens is not None:
+        resource_parts.append(f"{usage.total_tokens:,} tokens")
+    if meta is not None and meta.total_duration_seconds is not None:
+        duration_min = meta.total_duration_seconds / 60
+        if duration_min >= 1:
+            resource_parts.append(f"{duration_min:.1f} minutes")
+        else:
+            resource_parts.append(f"{meta.total_duration_seconds:.0f} seconds")
+    if resource_parts:
+        sentences.append(f"Total LLM usage: {', '.join(resource_parts)}.")
+
+    return " ".join(sentences)
+
+
+def _build_closed_loop_selection_explanation(report_data: ReportData) -> str | None:
+    cs = report_data.closed_loop_selection
+    if cs.best_verified_candidate_iteration is None:
+        return None
+    if cs.final_current_best_iteration is None:
+        return None
+    if cs.matches_final_current_best is not False:
+        return None
+
+    best_iter = cs.best_verified_candidate_iteration
+    iter_reason = None
+    for it in report_data.iterations:
+        if it.iteration == best_iter:
+            if it.reason and it.reason != "runtime_not_improved":
+                iter_reason = it.reason
+            if iter_reason is None and it.outcome_reason and it.outcome_reason.code:
+                iter_reason = it.outcome_reason.code
+            break
+
+    if iter_reason:
+        return (
+            f"Iteration {best_iter} was faster on its single-run measurement, "
+            f"but it was not promoted because the current-best promotion policy "
+            f"did not accept it. Recorded reason: {iter_reason}."
+        )
+    return (
+        f"Iteration {best_iter} was faster on its single-run measurement, "
+        f"but it was not promoted because the current-best promotion policy "
+        f"did not accept it."
+    )
 
 
 __all__ = [

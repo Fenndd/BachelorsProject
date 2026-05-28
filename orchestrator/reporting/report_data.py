@@ -396,6 +396,9 @@ class ReportData:
     reason_summary: list[ReportReasonSummaryItem] = field(default_factory=list)
     reason_code_counts: list[ReportReasonCodeCount] = field(default_factory=list)
     experiment_metadata: ReportExperimentMetadata | None = None
+    executive_narrative: str | None = None
+    final_code_diff: str | None = None
+    closed_loop_selection_explanation: str | None = None
 
 
 def default_status_counts() -> dict[str, int]:

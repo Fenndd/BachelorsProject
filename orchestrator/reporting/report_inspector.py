@@ -8,43 +8,19 @@ import sys
 from pathlib import Path
 from typing import Any
 
+from orchestrator.reporting.figure_builder import PLOT_FILENAMES
 
-EXPECTED_PLOTS = (
-    "runtime_progress.svg",
-    "candidate_runtime_by_iteration.svg",
-    "runtime_reduction_by_iteration.svg",
-    "correctness_metrics.svg",
-    "status_breakdown.svg",
-    "candidate_funnel.svg",
-    "phase_timings.svg",
-    "llm_tokens_by_iteration.svg",
-    "llm_latency_by_iteration.svg",
-    "failure_reason_breakdown.svg",
-    "diff_stats_by_iteration.svg",
-)
+EXPECTED_PLOTS = tuple(PLOT_FILENAMES.values())
 
 EXPECTED_SECTIONS = (
-    "cover",
     "executive-summary",
-    "experiment-configuration",
-    "benchmark-configuration",
-    "final-comparison",
-    "baseline-metrics",
-    "reproducibility-environment",
-    "runtime-progress",
-    "correctness-and-accuracy-safety",
-    "status-breakdown",
-    "candidate-funnel",
-    "failure-analysis",
-    "phase-timings",
-    "llm-usage",
-    "diff-statistics",
-    "closed-loop-selection",
-    "per-iteration-table",
-    "final-best-candidate-summary",
-    "reporting-status",
-    "artifact-map",
-    "iteration-appendix",
+    "setup",
+    "final-result",
+    "optimization-process",
+    "iteration-outcomes",
+    "cost-performance-profile",
+    "reproducibility",
+    "appendix",
 )
 
 IMPORTANT_REPORT_DATA_KEYS = (

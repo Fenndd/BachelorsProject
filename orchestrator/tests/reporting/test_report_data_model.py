@@ -72,6 +72,9 @@ def test_json_output_contains_required_top_level_sections(tmp_path: Path) -> Non
         "reason_summary",
         "reason_code_counts",
         "experiment_metadata",
+        "executive_narrative",
+        "final_code_diff",
+        "closed_loop_selection_explanation",
     ]
     assert payload["schema_version"] == "report.v2"
     assert payload["report_metadata"]["report_profile"] == "single_experiment"
@@ -172,3 +175,25 @@ def test_materialization_failed_iteration_with_no_runtime_serializes() -> None:
     assert payload["correctness_passed"] is None
     assert payload["promoted"] is False
     json.dumps(payload)
+
+
+def test_narrative_fields_serialize_and_default_to_none() -> None:
+    report_data = make_empty_report_data("exp_001", TARGET_FILE)
+    payload = to_report_dict(report_data)
+
+    assert payload["executive_narrative"] is None
+    assert payload["final_code_diff"] is None
+    assert payload["closed_loop_selection_explanation"] is None
+
+
+def test_narrative_fields_preserve_set_values() -> None:
+    report_data = make_empty_report_data("exp_001", TARGET_FILE)
+    report_data.executive_narrative = "The experiment succeeded."
+    report_data.final_code_diff = "diff --git ..."
+    report_data.closed_loop_selection_explanation = "Mismatch: policy threshold."
+
+    payload = to_report_dict(report_data)
+
+    assert payload["executive_narrative"] == "The experiment succeeded."
+    assert payload["final_code_diff"] == "diff --git ..."
+    assert payload["closed_loop_selection_explanation"] == "Mismatch: policy threshold."

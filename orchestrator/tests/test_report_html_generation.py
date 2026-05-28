@@ -40,7 +40,6 @@ from orchestrator.reporting import (
 from orchestrator.tests.conftest import TARGET_FILE
 EXPECTED_PLOTS = {
     "runtime_progress": "runtime_progress.svg",
-    "candidate_runtime_by_iteration": "candidate_runtime_by_iteration.svg",
     "runtime_reduction_by_iteration": "runtime_reduction_by_iteration.svg",
     "correctness_metrics": "correctness_metrics.svg",
     "status_breakdown": "status_breakdown.svg",
@@ -408,7 +407,7 @@ def test_report_html_handles_older_missing_enriched_fields(tmp_path: Path) -> No
     assert "exp_old" in html
     assert "Old artifact without enriched fields." in html
     assert "No structured outcome reasons are available" in html
-    assert "Not available" in html
+    assert "\u2014" in html
     for section_id in NEW_SECTION_IDS:
         assert f'id="{section_id}"' in html
 
@@ -591,7 +590,9 @@ def test_runtime_progress_uses_current_best_step_plot(tmp_path: Path) -> None:
     assert svg_path.is_file()
     svg_text = svg_path.read_text(encoding="utf-8")
     assert svg_text.strip() != ""
-    assert "Current Best Runtime Progress" in svg_text
+    assert "Runtime Progress" in svg_text
+    assert "baseline" in svg_text
+    assert "current best" in svg_text
 
 
 def test_runtime_progress_placeholder_when_no_runtime_data(tmp_path: Path) -> None:
@@ -613,6 +614,146 @@ def test_runtime_progress_placeholder_when_no_runtime_data(tmp_path: Path) -> No
     assert "Current best runtime data unavailable" in svg_text
 
 
+def test_combined_runtime_plot_includes_scatter_by_status(tmp_path: Path) -> None:
+    """runtime_progress.svg combines step line and scatter with semantic colors."""
+
+    report_data = make_empty_report_data("exp_004", TARGET_FILE)
+    report_data.baseline_metrics = ReportBaselineMetrics(runtime_ns_per_problem_median=100.0)
+    report_data.iterations = [
+        ReportIterationSummary(
+            iteration=1,
+            status="accepted_improvement",
+            runtime_ns_per_problem_median=90.0,
+            promoted=True,
+        ),
+        ReportIterationSummary(
+            iteration=2,
+            status="valid_not_improved",
+            runtime_ns_per_problem_median=95.0,
+            promoted=False,
+        ),
+        ReportIterationSummary(
+            iteration=3,
+            status="rejected",
+            runtime_ns_per_problem_median=105.0,
+            promoted=False,
+        ),
+        ReportIterationSummary(
+            iteration=4,
+            status="generation_failed",
+            promoted=False,
+        ),
+    ]
+    plots_dir = tmp_path / "plots"
+    build_report_figures(report_data, plots_dir)
+
+    svg_path = plots_dir / "runtime_progress.svg"
+    assert svg_path.is_file()
+    svg_text = svg_path.read_text(encoding="utf-8")
+
+    assert "Runtime Progress" in svg_text
+    assert "baseline" in svg_text
+    assert "current best" in svg_text
+
+    assert "accepted_improvement" in svg_text
+    assert "valid_not_improved" in svg_text
+    assert "rejected" in svg_text
+    assert "generation_failed" not in svg_text
+
+
+def test_combined_runtime_plot_works_without_baseline(tmp_path: Path) -> None:
+    """runtime_progress.svg works when baseline is missing but iterations have data."""
+
+    report_data = make_empty_report_data("exp_005", TARGET_FILE)
+    report_data.iterations = [
+        ReportIterationSummary(
+            iteration=1,
+            status="accepted_improvement",
+            runtime_ns_per_problem_median=90.0,
+            promoted=True,
+        ),
+        ReportIterationSummary(
+            iteration=2,
+            status="valid_not_improved",
+            runtime_ns_per_problem_median=85.0,
+            promoted=True,
+        ),
+    ]
+    plots_dir = tmp_path / "plots"
+    build_report_figures(report_data, plots_dir)
+
+    svg_path = plots_dir / "runtime_progress.svg"
+    assert svg_path.is_file()
+    svg_text = svg_path.read_text(encoding="utf-8")
+    assert "Runtime Progress" in svg_text
+    assert "current best" in svg_text
+
+
+def test_candidate_runtime_by_iteration_not_generated(tmp_path: Path) -> None:
+    """candidate_runtime_by_iteration.svg is no longer generated."""
+
+    from orchestrator.reporting.figure_builder import PLOT_FILENAMES
+
+    assert "candidate_runtime_by_iteration" not in PLOT_FILENAMES
+    assert "candidate_runtime_by_iteration.svg" not in PLOT_FILENAMES.values()
+
+    report_data = _report_data()
+    plots_dir = tmp_path / "plots"
+    build_report_figures(report_data, plots_dir)
+
+    assert not (plots_dir / "candidate_runtime_by_iteration.svg").exists()
+
+
+def test_runtime_reduction_uses_semantic_colors(tmp_path: Path) -> None:
+    """runtime_reduction_by_iteration.svg uses semantic status colors."""
+
+    report_data = make_empty_report_data("exp_006", TARGET_FILE)
+    report_data.baseline_metrics = ReportBaselineMetrics(runtime_ns_per_problem_median=100.0)
+    report_data.iterations = [
+        ReportIterationSummary(
+            iteration=1,
+            status="accepted_improvement",
+            runtime_ns_per_problem_median=90.0,
+            speedup_vs_baseline=1.11,
+            promoted=True,
+        ),
+        ReportIterationSummary(
+            iteration=2,
+            status="valid_not_improved",
+            runtime_ns_per_problem_median=95.0,
+            speedup_vs_baseline=1.05,
+            promoted=False,
+        ),
+    ]
+    plots_dir = tmp_path / "plots"
+    build_report_figures(report_data, plots_dir)
+
+    svg_path = plots_dir / "runtime_reduction_by_iteration.svg"
+    assert svg_path.is_file()
+    svg_text = svg_path.read_text(encoding="utf-8")
+    assert "Runtime Reduction by Iteration" in svg_text
+    assert "baseline (1.0)" in svg_text
+
+
+def test_status_breakdown_uses_semantic_colors(tmp_path: Path) -> None:
+    """Status breakdown bars use semantic status colors."""
+
+    report_data = make_empty_report_data("exp_007", TARGET_FILE)
+    counts = default_status_counts()
+    counts["accepted_improvement"] = 1
+    counts["valid_not_improved"] = 1
+    counts["rejected"] = 1
+    report_data.status_counts = counts
+
+    plots_dir = tmp_path / "plots"
+    build_report_figures(report_data, plots_dir)
+
+    svg_path = plots_dir / "status_breakdown.svg"
+    assert svg_path.is_file()
+    svg_text = svg_path.read_text(encoding="utf-8")
+    assert "Status Breakdown" in svg_text
+
+
 def test_report_html_includes_reason_summary_and_new_plot(tmp_path: Path) -> None:
     """Generated HTML contains reason summary, new plot, and key section headings."""
 
@@ -632,7 +773,6 @@ def test_report_html_includes_reason_summary_and_new_plot(tmp_path: Path) -> Non
     html = html_path.read_text(encoding="utf-8")
 
     assert "Reason Summary" in html
-    assert "candidate_runtime_by_iteration.svg" in html
     assert "Speedup vs Current Best" in html
     assert "Closed-Loop Selection" in html
     assert "Final Best Candidate Summary" in html
@@ -655,10 +795,10 @@ def test_iteration_appendix_appears_after_artifact_map(tmp_path: Path) -> None:
 
 
 def test_report_template_packaging_renders_real_template(tmp_path: Path) -> None:
-    """report_v1.html.j2 exists on disk and generate_basic_report renders report.html."""
+    """report.html.j2 exists on disk and generate_basic_report renders report.html."""
 
     from pathlib import Path as _Path
-    template_path = _Path(__file__).resolve().parents[2] / "orchestrator" / "reporting" / "templates" / "report_v1.html.j2"
+    template_path = _Path(__file__).resolve().parents[2] / "orchestrator" / "reporting" / "templates" / "report.html.j2"
     assert template_path.is_file(), f"Template missing: {template_path}"
 
     experiment_dir = tmp_path / "results" / "experiments" / "exp_tpl"
@@ -763,9 +903,9 @@ def test_executive_summary_not_available_when_final_selection_metrics_null(tmp_p
     html = html_path.read_text(encoding="utf-8")
     executive = html.split('id="experiment-configuration"', 1)[0]
 
-    assert "Final Selection Speedup</strong>Not available" in executive
-    assert "Final Selection Runtime Reduction %</strong>Not available" in executive
-    assert "Correctness Preserved</strong>Not available" in executive
+    assert "Final Selection Speedup</strong>\u2014" in executive
+    assert "Final Selection Runtime Reduction %</strong>\u2014" in executive
+    assert "Correctness Preserved</strong>\u2014" in executive
     assert "Headline performance metrics are unavailable" in executive
 
 
