@@ -28,6 +28,17 @@ EXPECTED_PLOTS = (
     "diff_stats_by_iteration.svg",
 )
 
+EXPECTED_SECTIONS = (
+    "executive-summary",
+    "setup",
+    "final-result",
+    "optimization-process",
+    "iteration-outcomes",
+    "cost-performance-profile",
+    "reproducibility",
+    "appendix",
+)
+
 
 def _summary() -> dict:
     return {
@@ -122,7 +133,11 @@ def test_generate_basic_report_html_only_does_not_require_pdf_exporter(
     assert payload["reporting_status"]["report_pdf_path"] is None
     assert payload["reporting_status"]["pdf_display"] == 'Not generated. Current reporting formats: ["html"]'
     html = (experiment_dir / "report" / "report.html").read_text(encoding="utf-8")
-    assert "<th>Status</th><td>completed</td>" in html
+    for section_id in EXPECTED_SECTIONS:
+        assert f'id="{section_id}"' in html
+    assert 'id="reporting-status"' not in html
+    assert "Not generated" not in html
+    assert "Not available" not in html
     _assert_inputs_unchanged(experiment_dir, before)
 
 
@@ -145,8 +160,9 @@ def test_refresh_report_artifact_map_updates_final_status_and_summary(tmp_path: 
     assert payload["artifacts"]["experiment_status"].endswith("experiment_status.json")
     assert payload["artifacts"]["summary_txt"].endswith("summary.txt")
     html = html_path.read_text(encoding="utf-8")
-    assert "experiment_status.json" in html
-    assert "summary.txt" in html
+    assert 'id="artifact-map"' not in html
+    assert "experiment_status.json" not in html
+    assert "summary.txt" not in html
 
 
 def test_generate_basic_report_pdf_calls_exporter(
@@ -160,11 +176,10 @@ def test_generate_basic_report_pdf_calls_exporter(
         calls.append(html_path)
         assert html_path == experiment_dir / "report" / "report.html"
         html = html_path.read_text(encoding="utf-8")
-        # Pre-render shows honest "pdf_pending" status, not falsely "completed"
-        assert "<th>Status</th><td>pdf_pending</td>" in html
-        # TODO(Agent4): re-add section-ID checks (executive-summary, setup,
-        # final-result, etc.) after the template is rewritten to use the new
-        # report.html.j2 section structure.
+        for section_id in EXPECTED_SECTIONS:
+            assert f'id="{section_id}"' in html
+        assert 'id="reporting-status"' not in html
+        assert "pdf_pending" not in html
         assert "exp_001" in html
         assert renderer == "weasyprint"
         pdf_path.write_bytes(b"%PDF-dummy")
@@ -187,7 +202,8 @@ def test_generate_basic_report_pdf_calls_exporter(
     assert payload["reporting_status"]["pdf_generated"] is True
     assert payload["reporting_status"]["report_pdf_path"].endswith("report.pdf")
     html = (experiment_dir / "report" / "report.html").read_text(encoding="utf-8")
-    assert "<th>Status</th><td>completed</td>" in html
+    assert 'id="reporting-status"' not in html
+    assert "Not available" not in html
 
 
 def test_generate_basic_report_pdf_failure_writes_failed_status(
@@ -198,8 +214,9 @@ def test_generate_basic_report_pdf_failure_writes_failed_status(
 
     def fake_pdf_export(html_path: Path, pdf_path: Path, *, renderer: str) -> Path:
         html = html_path.read_text(encoding="utf-8")
-        # Pre-render shows honest "pdf_pending" status
-        assert "<th>Status</th><td>pdf_pending</td>" in html
+        for section_id in EXPECTED_SECTIONS:
+            assert f'id="{section_id}"' in html
+        assert "pdf_pending" not in html
         raise RuntimeError("pdf boom")
 
     monkeypatch.setattr(generate_report, "export_pdf_from_html", fake_pdf_export)
@@ -212,8 +229,8 @@ def test_generate_basic_report_pdf_failure_writes_failed_status(
     assert payload["reporting_status"]["pdf_generated"] is False
     assert payload["reporting_status"]["error"] == "pdf boom"
     html = (experiment_dir / "report" / "report.html").read_text(encoding="utf-8")
-    assert "<th>Status</th><td>failed</td>" in html
-    assert "pdf boom" in html
+    assert 'id="reporting-status"' not in html
+    assert "pdf boom" not in html
 
 
 def test_cli_no_pdf_creates_html_report(

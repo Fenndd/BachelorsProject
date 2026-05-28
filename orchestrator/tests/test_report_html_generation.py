@@ -52,12 +52,24 @@ EXPECTED_PLOTS = {
 }
 
 NEW_SECTION_IDS = (
-    "reproducibility-environment",
-    "failure-analysis",
-    "phase-timings",
-    "llm-usage",
+    "executive-summary",
+    "setup",
+    "final-result",
+    "optimization-process",
+    "iteration-outcomes",
+    "cost-performance-profile",
+    "reproducibility",
+    "appendix",
+)
+
+OLD_SECTION_IDS = (
+    "cover",
+    "reporting-status",
+    "artifact-map",
+    "reason-summary",
     "final-comparison",
-    "diff-statistics",
+    "baseline-metrics",
+    "final-best-candidate-summary",
     "iteration-appendix",
 )
 
@@ -336,16 +348,16 @@ def test_report_html_contains_expected_report_content(tmp_path: Path) -> None:
     assert "20" in html
     assert "accepted_improvement" in html
     assert "valid_not_improved" in html
-    assert "Per-Iteration Table" in html
+    assert "Per-Iteration Summary" in html
     assert "Simplify arithmetic." in html
-    assert "Artifact Map" in html
-    assert "final_optimized_source" in html
-    assert "experiment_metadata" in html
-    assert "closed_loop_selection_report" in html
     for section_id in NEW_SECTION_IDS:
         assert f'id="{section_id}"' in html
+    for section_id in OLD_SECTION_IDS:
+        assert f'id="{section_id}"' not in html
     for filename in EXPECTED_PLOTS.values():
         assert f"plots/{filename}" in html
+    assert "candidate_runtime_by_iteration" not in html
+    assert "Not available" not in html
 
 
 def test_report_html_contains_enriched_sections(tmp_path: Path) -> None:
@@ -361,21 +373,19 @@ def test_report_html_contains_enriched_sections(tmp_path: Path) -> None:
 
     for section_id in NEW_SECTION_IDS:
         assert f'id="{section_id}"' in html
-    assert 'id="failure-analysis"' in html
-    assert "Outcome and Failure Analysis" in html
-    assert "Phase Timings" in html
-    assert "LLM Usage" in html
+    assert "Iteration Outcomes" in html
+    assert "Cost &amp; Performance Profile" in html
     assert "Total Tokens" in html
     assert "310" in html
-    assert "Diff Statistics" in html
-    assert "Iteration Appendix" in html
-    assert "Reproducibility and Environment" in html
+    assert "Final Diff Statistics" in html
+    assert "Selected Iteration Details" in html
+    assert "Reproducibility" in html
     assert "reportUpdatev2v3" in html
     assert "valid_not_improved" in html
-    assert "mock-model" in html
     assert "Candidate improved the current best runtime." in html
     assert "reports/runs" not in html
     assert "Benchmark s" not in html
+    assert "Not available" not in html
 
 
 def test_report_html_handles_older_missing_enriched_fields(tmp_path: Path) -> None:
@@ -406,10 +416,12 @@ def test_report_html_handles_older_missing_enriched_fields(tmp_path: Path) -> No
 
     assert "exp_old" in html
     assert "Old artifact without enriched fields." in html
-    assert "No structured outcome reasons are available" in html
     assert "\u2014" in html
     for section_id in NEW_SECTION_IDS:
         assert f'id="{section_id}"' in html
+    for section_id in OLD_SECTION_IDS:
+        assert f'id="{section_id}"' not in html
+    assert "Not available" not in html
 
 
 def test_generate_basic_html_report_creates_report_outputs_read_only(
@@ -531,18 +543,15 @@ def test_f_html_contains_enriched_fields(tmp_path: Path) -> None:
     assert "lambdatwist_p3p" in html
     assert "Speedup vs Current Best" in html
     assert "Closed-Loop Selection" in html
-    assert "single-run selection analytics from per-iteration candidate verification" in html
-    assert "Best Verified Candidate Single-Run Speedup vs Baseline" in html
-    assert "Best Verified Candidate Single-Run Runtime Reduction %" in html
+    assert "Best Verified Candidate Speedup vs Baseline" in html
     assert "Promotion Policy" in html
     assert "decision_vs_current_best.accepted_improvement_only" in html
     assert "Selection Enabled" not in html
     assert "History Policy Enabled" not in html
     assert "Final Best Candidate" in html
-    assert "Candidate runtime fields in this section reflect the final single-run comparison against the original baseline" in html
-    assert "Not generated" in html
     # correctness_preserved rendered as Yes/No
     assert "Yes" in html
+    assert "Not available" not in html
 
 
 def test_g_html_does_not_contain_manual_prose_paragraphs(tmp_path: Path) -> None:
@@ -754,12 +763,17 @@ def test_status_breakdown_uses_semantic_colors(tmp_path: Path) -> None:
     assert "Status Breakdown" in svg_text
 
 
-def test_report_html_includes_reason_summary_and_new_plot(tmp_path: Path) -> None:
-    """Generated HTML contains reason summary, new plot, and key section headings."""
+def test_report_html_includes_reason_codes_and_final_sections(tmp_path: Path) -> None:
+    """Generated HTML contains reason codes, plots, and final section headings."""
 
     report_data = _report_data()
-    report_data.reason_summary = [
-        ReportReasonSummaryItem(reason="runtime_not_improved", count=1, iterations=[2]),
+    report_data.reason_code_counts = [
+        ReportReasonCodeCount(
+            category="decision",
+            code="runtime_not_improved",
+            count=1,
+            iterations=[2],
+        ),
     ]
     report_data.reporting_status = ReportReportingStatus(
         enabled=True,
@@ -772,26 +786,30 @@ def test_report_html_includes_reason_summary_and_new_plot(tmp_path: Path) -> Non
     html_path = render_report_html(report_data, plot_paths, tmp_path / "report.html")
     html = html_path.read_text(encoding="utf-8")
 
-    assert "Reason Summary" in html
+    assert "Reason Codes" in html
+    assert "runtime_not_improved" in html
     assert "Speedup vs Current Best" in html
     assert "Closed-Loop Selection" in html
-    assert "Final Best Candidate Summary" in html
-    assert "Not generated" in html
+    assert "Final Best Candidate" in html
     # Must not contain explanatory prose
     assert "This report describes" not in html
     assert "The final promoted version" not in html
     assert "All benchmarked non-no-op candidates" not in html
     # Must not leak absolute temp path into HTML body
     assert str(tmp_path) not in html
+    assert "Not available" not in html
 
 
-def test_iteration_appendix_appears_after_artifact_map(tmp_path: Path) -> None:
+def test_appendix_contains_final_diff_area_after_iteration_outcomes(tmp_path: Path) -> None:
     report_data = _enriched_report_data()
     plot_paths = build_report_figures(report_data, tmp_path / "plots")
     html_path = render_report_html(report_data, plot_paths, tmp_path / "report.html")
     html = html_path.read_text(encoding="utf-8")
 
-    assert html.index('id="artifact-map"') < html.index('id="iteration-appendix"')
+    assert html.index('id="iteration-outcomes"') < html.index('id="appendix"')
+    assert 'id="final-code-diff"' in html
+    assert 'id="artifact-map"' not in html
+    assert 'id="iteration-appendix"' not in html
 
 
 def test_report_template_packaging_renders_real_template(tmp_path: Path) -> None:
@@ -822,11 +840,14 @@ def test_report_template_packaging_renders_real_template(tmp_path: Path) -> None
     assert html_path.is_file()
     html = html_path.read_text(encoding="utf-8")
     assert "exp_tpl" in html
+    for section_id in NEW_SECTION_IDS:
+        assert f'id="{section_id}"' in html
     payload = json.loads((experiment_dir / "report" / "report_data.json").read_text(encoding="utf-8"))
     assert payload["reporting_status"]["status"] == "completed"
     assert payload["reporting_status"]["pdf_generated"] is False
     assert payload["reporting_status"]["pdf_display"] == 'Not generated. Current reporting formats: ["html"]'
-    assert "<th>Status</th><td>completed</td>" in html
+    assert "Not generated" not in html
+    assert "Not available" not in html
     assert "PDF requested" not in payload["reporting_status"]["pdf_display"]
 
 
@@ -839,7 +860,6 @@ def test_phase_timings_chart_still_generated_without_benchmark_column(tmp_path: 
     assert (plots_dir / "phase_timings.svg").is_file()
     html = html_path.read_text(encoding="utf-8")
     assert "Benchmark s" not in html
-    assert "Verification time includes build" in html
     assert 'colspan="6"' not in html
 
 
@@ -864,15 +884,15 @@ def test_html_contains_final_comparison_section_and_llm_kpis(tmp_path: Path) -> 
     html_path = render_report_html(report_data, plot_paths, tmp_path / "report.html")
     html = html_path.read_text(encoding="utf-8")
 
-    assert 'id="final-comparison"' in html
+    assert 'id="final-result"' in html
     assert "Speedup vs Original Baseline" in html
-    assert "Runtime Reduction %" in html
-    assert "Final Correctness Passed" in html
+    assert "Runtime Reduction" in html
+    assert "Correctness Passed" in html
     assert "Most Expensive Iteration" in html
     assert "Highest Latency Iteration" in html
 
 
-def test_executive_summary_uses_final_selection_baseline_runtime(tmp_path: Path) -> None:
+def test_final_result_uses_final_best_runtime_fallback(tmp_path: Path) -> None:
     report_data = _report_data()
     report_data.final_result.final_speedup_vs_baseline = 1.25
     report_data.final_result.final_runtime_reduction_percent = 20.0
@@ -884,11 +904,13 @@ def test_executive_summary_uses_final_selection_baseline_runtime(tmp_path: Path)
     plot_paths = build_report_figures(report_data, tmp_path / "plots")
     html_path = render_report_html(report_data, plot_paths, tmp_path / "report.html")
     html = html_path.read_text(encoding="utf-8")
-    executive = html.split('id="experiment-configuration"', 1)[0]
+    final_result = html.split('id="final-result"', 1)[1].split(
+        'id="optimization-process"', 1
+    )[0]
 
-    assert "Baseline Runtime ns/problem</strong>900" in executive
-    assert "Final Best Runtime ns/problem</strong>700" in executive
-    assert "Baseline Runtime ns/problem</strong>1000" not in executive
+    assert "900" in final_result
+    assert "700" in final_result
+    assert "1000" not in final_result
 
 
 def test_executive_summary_not_available_when_final_selection_metrics_null(tmp_path: Path) -> None:
@@ -901,39 +923,43 @@ def test_executive_summary_not_available_when_final_selection_metrics_null(tmp_p
     plot_paths = build_report_figures(report_data, tmp_path / "plots")
     html_path = render_report_html(report_data, plot_paths, tmp_path / "report.html")
     html = html_path.read_text(encoding="utf-8")
-    executive = html.split('id="experiment-configuration"', 1)[0]
+    executive = html.split('id="setup"', 1)[0]
+    final_result = html.split('id="final-result"', 1)[1].split(
+        'id="optimization-process"', 1
+    )[0]
 
-    assert "Final Selection Speedup</strong>\u2014" in executive
-    assert "Final Selection Runtime Reduction %</strong>\u2014" in executive
-    assert "Correctness Preserved</strong>\u2014" in executive
-    assert "Headline performance metrics are unavailable" in executive
+    assert "Speedup vs Baseline" in executive
+    assert "Runtime Reduction" in executive
+    assert "Correctness Preserved" in executive
+    assert "Final single-run comparison metrics are unavailable" in final_result
+    assert "Not available" not in html
 
 
-def test_final_comparison_html_not_available_message(tmp_path: Path) -> None:
+def test_final_result_html_missing_metrics_message(tmp_path: Path) -> None:
     report_data = _report_data()
 
     plot_paths = build_report_figures(report_data, tmp_path / "plots")
     html_path = render_report_html(report_data, plot_paths, tmp_path / "report.html")
     html = html_path.read_text(encoding="utf-8")
-    final_comparison = html.split('id="final-comparison"', 1)[1].split(
-        'id="baseline-metrics"', 1
+    final_result = html.split('id="final-result"', 1)[1].split(
+        'id="optimization-process"', 1
     )[0]
 
-    assert "Final single-run comparison was not available" in final_comparison
+    assert "Final single-run comparison metrics are unavailable" in final_result
 
 
-def test_final_comparison_html_failed_message(tmp_path: Path) -> None:
+def test_final_result_html_failed_message(tmp_path: Path) -> None:
     report_data = _report_data()
     report_data.final_selection = ReportFinalSelection(status="failed")
 
     plot_paths = build_report_figures(report_data, tmp_path / "plots")
     html_path = render_report_html(report_data, plot_paths, tmp_path / "report.html")
     html = html_path.read_text(encoding="utf-8")
-    final_comparison = html.split('id="final-comparison"', 1)[1].split(
-        'id="baseline-metrics"', 1
+    final_result = html.split('id="final-result"', 1)[1].split(
+        'id="optimization-process"', 1
     )[0]
 
-    assert "Final single-run comparison failed" in final_comparison
+    assert "because the final selection step failed" in final_result
 
 
 def test_final_validation_runtime_distribution_plot_not_generated(tmp_path: Path) -> None:
@@ -1012,7 +1038,7 @@ def test_list_fields_render_as_comma_separated(tmp_path: Path) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Fix 7: Empty reason_summary hides the section
+# Fix 7: reason_summary is not rendered as a standalone section
 # ---------------------------------------------------------------------------
 
 
@@ -1029,8 +1055,8 @@ def test_reason_summary_section_absent_when_empty(tmp_path: Path) -> None:
     assert "Reason Summary" not in html
 
 
-def test_reason_summary_section_present_when_nonempty(tmp_path: Path) -> None:
-    """Reason Summary section is rendered when reason_summary has entries."""
+def test_reason_summary_section_absent_when_nonempty(tmp_path: Path) -> None:
+    """Reason Summary is no longer rendered as a standalone report section."""
 
     report_data = _report_data()
     report_data.reason_summary = [
@@ -1048,5 +1074,6 @@ def test_reason_summary_section_present_when_nonempty(tmp_path: Path) -> None:
     html_path = render_report_html(report_data, plot_paths, tmp_path / "report.html")
     html = html_path.read_text(encoding="utf-8")
 
-    assert "Reason Summary" in html
-    assert "runtime_not_improved" in html
+    assert "Reason Summary" not in html
+    assert "runtime_not_improved" not in html
+    assert 'id="reason-summary"' not in html

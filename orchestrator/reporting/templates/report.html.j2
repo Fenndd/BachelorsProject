@@ -6,630 +6,805 @@
   <style>
     :root {
       color-scheme: light;
-      --ink: #1f2933;
-      --muted: #62717f;
-      --line: #d8dee6;
-      --panel: #f6f8fa;
-      --accent: #246b8f;
+      --ink: #17212b;
+      --muted: #5f6f7f;
+      --soft: #f5f7fa;
+      --panel: #ffffff;
+      --line: #d7dee8;
+      --line-strong: #b8c3cf;
+      --accent: #1f5f8b;
+      --accent-soft: #e9f2f8;
+      --success: #166534;
+      --success-bg: #ecfdf3;
+      --warning: #92400e;
       --warning-bg: #fff7ed;
-      --warning-line: #f59e0b;
+      --danger: #991b1b;
+      --danger-bg: #fef2f2;
+      --neutral-bg: #eef2f7;
     }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    html {
+      scroll-behavior: smooth;
+    }
+
     body {
       margin: 0;
-      font-family: Arial, Helvetica, sans-serif;
-      color: var(--ink);
       background: #ffffff;
-      line-height: 1.45;
+      color: var(--ink);
+      font-family: Arial, Helvetica, sans-serif;
+      font-size: 14px;
+      line-height: 1.5;
     }
+
     main {
-      max-width: 1080px;
+      max-width: 1120px;
       margin: 0 auto;
-      padding: 36px 28px 56px;
+      padding: 36px 28px 60px;
     }
-    header {
-      border-bottom: 2px solid var(--line);
-      margin-bottom: 28px;
-      padding-bottom: 24px;
+
+    h1,
+    h2,
+    h3 {
+      color: var(--ink);
+      line-height: 1.2;
     }
+
     h1 {
       margin: 0 0 8px;
-      font-size: 32px;
+      font-size: 34px;
+      letter-spacing: -0.02em;
     }
+
     h2 {
+      margin: 34px 0 14px;
+      padding-bottom: 8px;
       border-bottom: 1px solid var(--line);
       font-size: 22px;
-      margin: 34px 0 14px;
-      padding-bottom: 6px;
     }
+
+    h3 {
+      margin: 20px 0 10px;
+      font-size: 16px;
+    }
+
+    p {
+      margin: 0 0 12px;
+    }
+
+    a {
+      color: var(--accent);
+      text-decoration: none;
+    }
+
+    a:hover {
+      text-decoration: underline;
+    }
+
+    code {
+      color: #334155;
+      overflow-wrap: anywhere;
+      word-break: break-word;
+    }
+
     .muted {
       color: var(--muted);
     }
-    .summary-grid,
-    .metric-grid {
+
+    .path {
+      overflow-wrap: anywhere;
+      word-break: break-word;
+    }
+
+    .report-header {
+      border-bottom: 2px solid var(--line-strong);
+      margin-bottom: 24px;
+      padding-bottom: 24px;
+    }
+
+    .subtitle {
+      color: var(--muted);
+      font-size: 16px;
+      margin-bottom: 18px;
+    }
+
+    .header-grid,
+    .kpi-grid,
+    .card-grid {
       display: grid;
       gap: 12px;
       grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
     }
-    .metric {
+
+    .header-item,
+    .kpi-card,
+    .card {
       background: var(--panel);
       border: 1px solid var(--line);
-      border-radius: 6px;
-      padding: 12px;
+      border-radius: 8px;
+      padding: 12px 14px;
+      break-inside: avoid;
+      page-break-inside: avoid;
     }
-    .metric strong {
+
+    .header-item strong,
+    .kpi-card strong,
+    .card strong {
       display: block;
-      font-size: 13px;
       color: var(--muted);
-      margin-bottom: 4px;
+      font-size: 12px;
+      font-weight: 700;
+      letter-spacing: 0.02em;
+      margin-bottom: 5px;
+      text-transform: uppercase;
     }
-    .warning-panel {
-      background: var(--warning-bg);
-      border: 1px solid var(--warning-line);
-      border-radius: 6px;
-      margin: 14px 0;
-      padding: 12px;
+
+    .kpi-card .value {
+      font-size: 20px;
+      font-weight: 700;
     }
-    .warning-panel h3 {
+
+    .toc {
+      background: var(--soft);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      margin: 18px 0 30px;
+      padding: 14px 16px;
+    }
+
+    .toc h2 {
+      border: 0;
       font-size: 16px;
       margin: 0 0 10px;
+      padding: 0;
     }
-    figure {
-      margin: 18px 0;
+
+    .toc ol {
+      display: grid;
+      gap: 6px 18px;
+      grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+      list-style-position: inside;
+      margin: 0;
+      padding: 0;
     }
-    figure img {
-      border: 1px solid var(--line);
-      border-radius: 6px;
-      max-width: 100%;
-      width: 100%;
-      height: auto;
+
+    .note,
+    .warning-panel {
+      border-radius: 8px;
+      margin: 14px 0;
+      padding: 12px 14px;
+      break-inside: avoid;
+      page-break-inside: avoid;
     }
+
+    .note {
+      background: var(--accent-soft);
+      border: 1px solid #b9d7e9;
+    }
+
+    .warning-panel {
+      background: var(--warning-bg);
+      border: 1px solid #fed7aa;
+      color: #3b2a15;
+    }
+
+    .section-lead {
+      color: var(--muted);
+      margin-bottom: 14px;
+      max-width: 860px;
+    }
+
     table {
       border-collapse: collapse;
-      font-size: 14px;
+      font-size: 13px;
+      margin: 10px 0 18px;
+      table-layout: fixed;
       width: 100%;
+      break-inside: avoid;
+      page-break-inside: avoid;
     }
-    table.compact {
-      font-size: 12px;
-    }
+
     th,
     td {
       border: 1px solid var(--line);
-      padding: 8px 9px;
+      padding: 7px 9px;
       text-align: left;
       vertical-align: top;
-    }
-    th {
-      background: var(--panel);
-    }
-    code {
       overflow-wrap: anywhere;
-      color: #334155;
+      word-break: normal;
     }
+
+    th {
+      background: var(--soft);
+      color: #263442;
+      font-weight: 700;
+    }
+
+    table.key-value th {
+      width: 34%;
+    }
+
+    table.compact {
+      font-size: 12px;
+    }
+
+    .table-scroll {
+      overflow-x: auto;
+      width: 100%;
+    }
+
+    figure {
+      margin: 16px 0;
+      break-inside: avoid;
+      page-break-inside: avoid;
+    }
+
+    figure img {
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      display: block;
+      height: auto;
+      max-width: 100%;
+      width: 100%;
+    }
+
+    figcaption {
+      color: var(--muted);
+      font-size: 12px;
+      margin-top: 6px;
+    }
+
     .plot-grid {
       display: grid;
       gap: 14px;
       grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
     }
+
     .badge {
-      background: #eef3f7;
-      border: 1px solid var(--line);
+      background: var(--neutral-bg);
+      border: 1px solid var(--line-strong);
       border-radius: 999px;
       display: inline-block;
-      font-size: 12px;
-      padding: 2px 8px;
+      font-size: 11px;
+      font-weight: 700;
+      line-height: 1.2;
+      padding: 3px 8px;
+      text-transform: uppercase;
+      white-space: nowrap;
     }
-    .appendix-card {
+
+    .status-accepted_improvement {
+      background: var(--success-bg);
+      border-color: #86efac;
+      color: var(--success);
+    }
+
+    .status-valid_not_improved,
+    .status-no_op {
+      background: #eff6ff;
+      border-color: #bfdbfe;
+      color: #1e40af;
+    }
+
+    .status-rejected,
+    .status-materialization_failed,
+    .status-verification_failed,
+    .status-generation_failed {
+      background: var(--danger-bg);
+      border-color: #fecaca;
+      color: var(--danger);
+    }
+
+    details {
       border: 1px solid var(--line);
-      border-radius: 6px;
+      border-radius: 8px;
       margin: 14px 0;
-      padding: 12px;
+      padding: 10px 12px;
       break-inside: avoid;
       page-break-inside: avoid;
     }
-    .appendix-card h3 {
-      font-size: 16px;
-      margin: 0 0 10px;
+
+    summary {
+      cursor: pointer;
+      font-weight: 700;
     }
-    .page-break-before {
-      break-before: page;
-      page-break-before: always;
+
+    .diff-container {
+      background: #0f172a;
+      border-radius: 6px;
+      color: #e5e7eb;
+      margin-top: 10px;
+      max-height: 640px;
+      overflow: auto;
+      padding: 12px;
+    }
+
+    .diff-container pre {
+      font-family: Consolas, "Courier New", monospace;
+      font-size: 12px;
+      line-height: 1.45;
+      margin: 0;
+      white-space: pre;
+    }
+
+    section {
+      break-inside: auto;
+    }
+
+    @media print {
+      body {
+        font-size: 11px;
+      }
+
+      main {
+        max-width: none;
+        padding: 0;
+      }
+
+      h2 {
+        break-before: page;
+        page-break-before: always;
+      }
+
+      #executive-summary h2,
+      #setup h2 {
+        break-before: auto;
+        page-break-before: auto;
+      }
+
+      .toc,
+      .header-item,
+      .kpi-card,
+      .card,
+      figure,
+      table,
+      details {
+        break-inside: avoid;
+        page-break-inside: avoid;
+      }
+
+      .table-scroll,
+      .diff-container {
+        overflow: visible;
+      }
+
+      .diff-container {
+        background: #ffffff;
+        border: 1px solid var(--line);
+        color: var(--ink);
+        max-height: none;
+      }
     }
   </style>
 </head>
 <body>
 <main>
-  <header>
+  <header id="report-header" class="report-header">
     <h1>Experiment Report</h1>
-    <p class="muted">Experiment {{ report.experiment.experiment_id|display }} for <code>{{ report.experiment.target_file|display }}</code></p>
+    <p class="subtitle">Closed-loop LLM optimization experiment for a C++ 3D vision solver.</p>
+    <div class="header-grid">
+      <div class="header-item"><strong>Experiment</strong>{{ report.experiment.experiment_name|default(report.experiment.experiment_id, true)|display }}</div>
+      <div class="header-item"><strong>Experiment ID</strong>{{ report.experiment.experiment_id|display }}</div>
+      <div class="header-item"><strong>Target File</strong><code>{{ report.experiment.target_file|display }}</code></div>
+      <div class="header-item"><strong>Model</strong>{{ report.llm.model|default(report.experiment.model, true)|display }}</div>
+      <div class="header-item"><strong>Generated At</strong>{{ report.report_metadata.generated_at|human_datetime }}</div>
+    </div>
   </header>
 
-  <section id="cover">
-    <h2>Cover</h2>
-    <div class="summary-grid">
-      <div class="metric"><strong>Experiment ID</strong>{{ report.experiment.experiment_id|display }}</div>
-      <div class="metric"><strong>Experiment Name</strong>{{ report.experiment.experiment_name|display }}</div>
-      <div class="metric"><strong>Target File</strong><code>{{ report.experiment.target_file|display }}</code></div>
-      <div class="metric"><strong>Generated At</strong>{{ report.report_metadata.generated_at|display }}</div>
-      <div class="metric"><strong>Report Profile</strong>{{ report.report_metadata.report_profile|display }}</div>
-    </div>
-  </section>
+  <nav id="table-of-contents" class="toc" aria-label="Table of contents">
+    <h2>Table of Contents</h2>
+    <ol>
+      <li><a href="#executive-summary">Executive Summary</a></li>
+      <li><a href="#setup">Setup</a></li>
+      <li><a href="#final-result">Final Result</a></li>
+      <li><a href="#optimization-process">Optimization Process</a></li>
+      <li><a href="#iteration-outcomes">Iteration Outcomes</a></li>
+      <li><a href="#cost-performance-profile">Cost &amp; Performance Profile</a></li>
+      <li><a href="#reproducibility">Reproducibility</a></li>
+      <li><a href="#appendix">Appendix</a></li>
+    </ol>
+  </nav>
 
   <section id="executive-summary">
     <h2>Executive Summary</h2>
-    <div class="metric-grid">
-      <div class="metric"><strong>Final Best Iteration</strong>{{ report.final_result.final_best_iteration|display }}</div>
-      <div class="metric"><strong>Final Selection Speedup</strong>{{ report.final_result.final_speedup_vs_baseline|display }}</div>
-      <div class="metric"><strong>Final Selection Runtime Reduction %</strong>{{ report.final_result.final_runtime_reduction_percent|display }}</div>
-      <div class="metric"><strong>Accepted Improvements</strong>{{ report.final_result.accepted_improvements|display }}</div>
-      <div class="metric"><strong>Correctness Preserved</strong>{{ report.final_result.correctness_preserved|yes_no }}</div>
-      <div class="metric"><strong>Baseline GT Found %</strong>{{ report.baseline_metrics.gt_found_percent|display }}</div>
-      <div class="metric"><strong>Final GT Found %</strong>{{ report.final_best_candidate.gt_found_percent|display }}</div>
-      <div class="metric"><strong>Final GT Found Delta (pp)</strong>{{ report.final_best_candidate.gt_found_delta_points|display }}</div>
-      <div class="metric"><strong>Baseline Runtime ns/problem</strong>{{ report.final_best_candidate.baseline_runtime_ns_per_problem_median|display }}</div>
-      <div class="metric"><strong>Final Best Runtime ns/problem</strong>{{ report.final_best_candidate.runtime_ns_per_problem_median|display }}</div>
-      <div class="metric"><strong>Runtime Improvement ns/problem</strong>{{ report.final_best_candidate.absolute_runtime_difference_ns_per_problem|display }}</div>
-      <div class="metric"><strong>PDF Report</strong>{{ report.reporting_status.pdf_display|display }}</div>
-    </div>
-    {% if report.final_selection.status not in ['completed', 'skipped'] or report.final_selection.speedup_vs_original_baseline is none %}
-    <div class="metric"><strong>Final Selection Warning</strong>Final single-run comparison did not produce metrics. Headline performance metrics are unavailable.</div>
-    {% endif %}
-  </section>
-
-  <section id="experiment-configuration">
-    <h2>Experiment Configuration</h2>
-    <table>
-      <tbody>
-        <tr><th>Experiment Name</th><td>{{ report.experiment.experiment_name|display }}</td></tr>
-        <tr><th>Description</th><td>{{ report.experiment_config_details.description|display }}</td></tr>
-        <tr><th>Target File</th><td><code>{{ report.experiment.target_file|display }}</code></td></tr>
-        <tr><th>LLM Provider</th><td>{{ report.llm.provider|display }}</td></tr>
-        <tr><th>Model</th><td>{{ report.llm.model|display }}</td></tr>
-        <tr><th>LLM Config</th><td>{{ report.llm.llm_config|display }}</td></tr>
-        <tr><th>Thinking Enabled</th><td>{{ report.llm.thinking_enabled|yes_no }}</td></tr>
-        <tr><th>Thinking Effort</th><td>{{ report.llm.thinking_effort|display }}</td></tr>
-        <tr><th>Max Tokens</th><td>{{ report.llm.max_tokens|display }}</td></tr>
-        <tr><th>Total Iterations</th><td>{{ report.experiment.total_iterations|display }}</td></tr>
-        <tr><th>Completed Iterations</th><td>{{ report.experiment.completed_iterations|display }}</td></tr>
-        <tr><th>Experiment Mode</th><td>Closed-loop optimization</td></tr>
-        <tr><th>Promotion Policy</th><td>{{ report.closed_loop_selection.promotion_policy|display }}</td></tr>
-        <tr><th>GT Found Gate</th><td>{% if report.selection_policy.gt_found_gate_enabled %}enabled, max drop {{ report.selection_policy.gt_found_max_drop_points|display }} pp{% else %}disabled{% endif %}</td></tr>
-        <tr><th>Baseline Run Directory</th><td><code>{{ report.experiment_config_details.baseline_run_dir|display }}</code></td></tr>
-        <tr><th>Optimization Scope</th><td><code>{{ report.experiment_config_details.optimization_scope_allowed_files|display }}</code></td></tr>
-        <tr><th>Reporting Enabled</th><td>{{ report.experiment_config_details.reporting_enabled|yes_no }}</td></tr>
-        <tr><th>Reporting Formats</th><td>{{ report.experiment_config_details.reporting_formats|display }}</td></tr>
-        <tr><th>Reporting Renderer</th><td>{{ report.experiment_config_details.reporting_renderer|display }}</td></tr>
-        <tr><th>Benchmark Family</th><td>{{ report.experiment.benchmark_family|display }}</td></tr>
-        <tr><th>Build Type</th><td>{{ report.benchmark_config.build_type|display }}</td></tr>
-      </tbody>
-    </table>
-  </section>
-
-  <section id="benchmark-configuration">
-    <h2>Benchmark Configuration</h2>
-    <table>
-      <tbody>
-        <tr><th>Family</th><td>{{ report.benchmark_config.family|display }}</td></tr>
-        <tr><th>Solver</th><td>{{ report.benchmark_config.solver|display }}</td></tr>
-        <tr><th>Num Problems</th><td>{{ report.benchmark_config.num_problems|display }}</td></tr>
-        <tr><th>n_point_point</th><td>{{ report.benchmark_config.n_point_point|display }}</td></tr>
-        <tr><th>n_point_line</th><td>{{ report.benchmark_config.n_point_line|display }}</td></tr>
-        <tr><th>Tolerance</th><td>{{ report.benchmark_config.tolerance|display }}</td></tr>
-        <tr><th>Camera FOV</th><td>{{ report.benchmark_config.camera_fov|display }}</td></tr>
-        <tr><th>Timed Iterations</th><td>{{ report.benchmark_config.timed_iterations|display }}</td></tr>
-        <tr><th>Seed</th><td>{{ report.benchmark_config.seed|display }}</td></tr>
-        <tr><th>Runtime Unit</th><td>{{ report.benchmark_config.runtime_unit|display }}</td></tr>
-        <tr><th>Build Type</th><td>{{ report.benchmark_config.build_type|display }}</td></tr>
-      </tbody>
-    </table>
-  </section>
-
-  <section id="final-comparison">
-    <h2>Final Comparison vs Original Baseline</h2>
-    <p class="muted">The final optimized source is benchmarked once using the same protocol as candidate verification. Result is compared against the original baseline metrics.</p>
-    {% if report.final_selection.status in ['completed', 'skipped'] and report.final_selection.speedup_vs_original_baseline is not none %}
-    <div class="metric-grid">
-      <div class="metric"><strong>Status</strong>{{ report.final_selection.status|display }}</div>
-      <div class="metric"><strong>Final Best Is Baseline</strong>{{ report.final_selection.final_best_is_baseline|yes_no }}</div>
-      <div class="metric"><strong>Speedup vs Original Baseline</strong>{{ report.final_selection.speedup_vs_original_baseline|display }}</div>
-      <div class="metric"><strong>Runtime Reduction %</strong>{{ report.final_selection.runtime_reduction_percent|display }}</div>
-      <div class="metric"><strong>Baseline Runtime ns/problem</strong>{{ report.final_selection.baseline_runtime_ns_per_problem_median|display }}</div>
-      <div class="metric"><strong>Final Runtime ns/problem</strong>{{ report.final_selection.final_runtime_ns_per_problem_median|display }}</div>
-      <div class="metric"><strong>Baseline GT Found %</strong>{{ report.final_selection.baseline_gt_found_percent|display }}</div>
-      <div class="metric"><strong>Final GT Found %</strong>{{ report.final_selection.final_gt_found_percent|display }}</div>
-      <div class="metric"><strong>GT Found Delta (pp)</strong>{{ report.final_selection.final_gt_found_delta_points|display }}</div>
-      <div class="metric"><strong>Final Correctness Passed</strong>{{ report.final_selection.final_correctness_passed|yes_no }}</div>
-    </div>
-    {% elif report.final_selection.status == 'failed' %}
-    <p class="muted">Final single-run comparison failed. Headline performance metrics are unavailable.</p>
-    <div class="metric-grid">
-      <div class="metric"><strong>Status</strong>{{ report.final_selection.status|display }}</div>
-    </div>
+    {% if report.executive_narrative %}
+    <p>{{ report.executive_narrative }}</p>
     {% else %}
-    <p class="muted">Final single-run comparison was not available for this experiment.</p>
+    <p class="muted">This report summarizes the final outcome of the closed-loop optimization run.</p>
     {% endif %}
-  </section>
-
-  <section id="baseline-metrics">
-    <h2>Baseline Metrics</h2>
-    <div class="metric-grid">
-      <div class="metric"><strong>Median Runtime ns/problem</strong>{{ report.baseline_metrics.runtime_ns_per_problem_median|display }}</div>
-      <div class="metric"><strong>GT Found %</strong>{{ report.baseline_metrics.gt_found_percent|display }}</div>
-      <div class="metric"><strong>Valid Solutions %</strong>{{ report.baseline_metrics.valid_solutions_percent|display }}</div>
-      <div class="metric"><strong>Total Solutions</strong>{{ report.baseline_metrics.total_solutions|display }}</div>
-      <div class="metric"><strong>Solutions per Problem</strong>{{ report.baseline_metrics.solutions_per_problem|display }}</div>
-      <div class="metric"><strong>GT Found</strong>{{ report.baseline_metrics.gt_found|display }}</div>
-      <div class="metric"><strong>Valid Solutions</strong>{{ report.baseline_metrics.valid_solutions|display }}</div>
-      <div class="metric"><strong>Correctness Passed</strong>{{ report.baseline_metrics.correctness_passed|yes_no }}</div>
+    <div class="kpi-grid">
+      <div class="kpi-card"><strong>Final Best Iteration</strong><span class="value">{{ report.final_result.final_best_iteration|display }}</span></div>
+      <div class="kpi-card"><strong>Speedup vs Baseline</strong><span class="value">{{ report.final_result.final_speedup_vs_baseline|speedup }}</span></div>
+      <div class="kpi-card"><strong>Runtime Reduction</strong><span class="value">{{ report.final_result.final_runtime_reduction_percent|percent }}</span></div>
+      <div class="kpi-card"><strong>Accepted Improvements</strong><span class="value">{{ report.final_result.accepted_improvements|human_int }}</span></div>
+      <div class="kpi-card"><strong>Correctness Preserved</strong><span class="value">{{ report.final_result.correctness_preserved|yes_no }}</span></div>
+      <div class="kpi-card"><strong>Total / Completed Iterations</strong><span class="value">{{ report.experiment.total_iterations|human_int }} / {{ report.experiment.completed_iterations|human_int }}</span></div>
+      <div class="kpi-card"><strong>Model</strong><span class="value">{{ report.llm.model|default(report.experiment.model, true)|display }}</span></div>
+      <div class="kpi-card"><strong>Total Tokens</strong><span class="value">{{ report.llm_usage_summary.total_tokens|human_int }}</span></div>
     </div>
   </section>
 
-  <section id="runtime-progress">
-    <h2>Runtime Progress</h2>
-    <figure><img src="{{ plots.runtime_progress }}" alt="Current best runtime progress plot"></figure>
-    <figure><img src="{{ plots.candidate_runtime_by_iteration }}" alt="Candidate runtime by iteration plot"></figure>
-    <figure><img src="{{ plots.runtime_reduction_by_iteration }}" alt="Runtime reduction by iteration plot"></figure>
+  <section id="setup">
+    <h2>Setup</h2>
+    <div class="card-grid">
+      <div class="card">
+        <h3>Experiment</h3>
+        <table class="key-value compact">
+          <tbody>
+            <tr><th>Experiment Name</th><td>{{ report.experiment.experiment_name|display }}</td></tr>
+            <tr><th>Experiment ID</th><td>{{ report.experiment.experiment_id|display }}</td></tr>
+            <tr><th>Target File</th><td><code>{{ report.experiment.target_file|display }}</code></td></tr>
+            <tr><th>Experiment Mode</th><td>{{ report.experiment.experiment_mode|display }}</td></tr>
+            <tr><th>Benchmark Family</th><td>{{ report.experiment.benchmark_family|default(report.benchmark_config.family, true)|display }}</td></tr>
+            <tr><th>Solver / Model</th><td>{{ report.benchmark_config.solver|default(report.experiment.model, true)|display }}</td></tr>
+            {% if report.experiment_config_details.description %}
+            <tr><th>Description</th><td>{{ report.experiment_config_details.description|display }}</td></tr>
+            {% endif %}
+          </tbody>
+        </table>
+      </div>
+
+      <div class="card">
+        <h3>LLM</h3>
+        <table class="key-value compact">
+          <tbody>
+            <tr><th>Provider</th><td>{{ report.llm.provider|display }}</td></tr>
+            <tr><th>Model</th><td>{{ report.llm.model|display }}</td></tr>
+            <tr><th>LLM Config</th><td>{{ report.llm.llm_config|display }}</td></tr>
+            <tr><th>Thinking Enabled</th><td>{{ report.llm.thinking_enabled|yes_no }}</td></tr>
+            <tr><th>Thinking Effort</th><td>{{ report.llm.thinking_effort|display }}</td></tr>
+            <tr><th>Max Tokens</th><td>{{ report.llm.max_tokens|human_int }}</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="card">
+        <h3>Benchmark</h3>
+        <table class="key-value compact">
+          <tbody>
+            <tr><th>Family</th><td>{{ report.benchmark_config.family|display }}</td></tr>
+            <tr><th>Solver</th><td>{{ report.benchmark_config.solver|display }}</td></tr>
+            <tr><th>Num Problems</th><td>{{ report.benchmark_config.num_problems|human_int }}</td></tr>
+            <tr><th>Timed Iterations</th><td>{{ report.benchmark_config.timed_iterations|human_int }}</td></tr>
+            <tr><th>Runtime Unit</th><td>{{ report.benchmark_config.runtime_unit|display }}</td></tr>
+            <tr><th>Build Type</th><td>{{ report.benchmark_config.build_type|display }}</td></tr>
+            <tr><th>Seed</th><td>{{ report.benchmark_config.seed|display }}</td></tr>
+            <tr><th>Tolerance</th><td>{{ report.benchmark_config.tolerance|display }}</td></tr>
+            <tr><th>Camera FOV</th><td>{{ report.benchmark_config.camera_fov|display }}</td></tr>
+            {% if report.benchmark_config.n_point_point is not none %}
+            <tr><th>n_point_point</th><td>{{ report.benchmark_config.n_point_point|human_int }}</td></tr>
+            {% endif %}
+            {% if report.benchmark_config.n_point_line is not none %}
+            <tr><th>n_point_line</th><td>{{ report.benchmark_config.n_point_line|human_int }}</td></tr>
+            {% endif %}
+          </tbody>
+        </table>
+      </div>
+
+      <div class="card">
+        <h3>Selection Policy</h3>
+        <table class="key-value compact">
+          <tbody>
+            <tr><th>GT Found Gate Enabled</th><td>{{ report.selection_policy.gt_found_gate_enabled|yes_no }}</td></tr>
+            <tr><th>GT Found Max Drop Points</th><td>{{ report.selection_policy.gt_found_max_drop_points|display }}</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
   </section>
 
-  <section id="correctness-and-accuracy-safety">
-    <h2>Correctness and Accuracy Safety</h2>
-    <figure><img src="{{ plots.correctness_metrics }}" alt="Correctness metrics plot"></figure>
-  </section>
-
-  <section id="status-breakdown">
-    <h2>Status Breakdown</h2>
-    <figure><img src="{{ plots.status_breakdown }}" alt="Status breakdown plot"></figure>
-    <table>
-      <thead><tr><th>Status</th><th>Count</th></tr></thead>
-      <tbody>
-      {% for status, count in status_items %}
-        <tr><td>{{ status }}</td><td>{{ count }}</td></tr>
-      {% endfor %}
-      </tbody>
-    </table>
-  </section>
-
-  <section id="candidate-funnel">
-    <h2>Candidate Funnel</h2>
-    <figure><img src="{{ plots.candidate_funnel }}" alt="Candidate funnel plot"></figure>
-  </section>
-
-  <section id="reproducibility-environment">
-    <h2>Reproducibility and Environment</h2>
-    <table>
-      <tbody>
-        <tr><th>Started At</th><td>{{ report.experiment_metadata.started_at|display }}</td></tr>
-        <tr><th>Finished At</th><td>{{ report.experiment_metadata.finished_at|display }}</td></tr>
-        <tr><th>Total Duration s</th><td>{{ report.experiment_metadata.total_duration_seconds|display }}</td></tr>
-        <tr><th>Git Commit</th><td>{{ report.experiment_metadata.repository.git_commit|display }}</td></tr>
-        <tr><th>Git Branch</th><td>{{ report.experiment_metadata.repository.git_branch|display }}</td></tr>
-        <tr><th>Dirty Worktree</th><td>{{ report.experiment_metadata.repository.dirty_worktree|display }}</td></tr>
-        <tr><th>OS</th><td>{{ report.experiment_metadata.environment.os|display }}</td></tr>
-        <tr><th>Platform</th><td>{{ report.experiment_metadata.environment.platform|display }}</td></tr>
-        <tr><th>Python Version</th><td>{{ report.experiment_metadata.environment.python_version|display }}</td></tr>
-        <tr><th>CMake Build Type</th><td>{{ report.experiment_metadata.environment.cmake_build_type|display }}</td></tr>
-        <tr><th>CMake Executable</th><td>{{ report.experiment_metadata.environment.cmake_exe|display }}</td></tr>
-        <tr><th>CMake Generator</th><td>{{ report.experiment_metadata.environment.cmake_generator|display }}</td></tr>
-        <tr><th>C++ Compiler</th><td>{{ report.experiment_metadata.environment.cxx_compiler|display }}</td></tr>
-      </tbody>
-    </table>
-  </section>
-
-  <section id="failure-analysis">
-    <h2>Outcome and Failure Analysis</h2>
-    <p class="muted">Structured outcome reason codes summarize why each iteration reached its final status, including accepted improvements, valid-but-not-promoted candidates, rejected candidates, and pipeline failures.</p>
-    <figure><img src="{{ plots.failure_reason_breakdown }}" alt="Outcome reason breakdown plot"></figure>
-    {% if report.reason_code_counts %}
-    <table class="compact">
-      <thead><tr><th>Category</th><th>Reason Code</th><th>Count</th><th>Iterations</th></tr></thead>
-      <tbody>
-      {% for item in report.reason_code_counts %}
-        <tr>
-          <td>{{ item.category|display }}</td>
-          <td>{{ item.code|display }}</td>
-          <td>{{ item.count|display }}</td>
-          <td>{{ item.iterations | join(', ') }}</td>
-        </tr>
-      {% endfor %}
-      </tbody>
-    </table>
-    {% else %}
-    <p>No structured outcome reasons are available for this report.</p>
+  <section id="final-result">
+    <h2>Final Result</h2>
+    {% set final_metrics_available = report.final_selection.status in ['completed', 'skipped'] and report.final_selection.speedup_vs_original_baseline is not none %}
+    {% if not final_metrics_available %}
+    <div class="warning-panel">
+      {% if report.final_selection.status == 'failed' %}
+      Final single-run comparison metrics are unavailable because the final selection step failed. Closed-loop final best candidate data is still shown when present.
+      {% else %}
+      Final single-run comparison metrics are unavailable. Closed-loop final best candidate data is still shown when present.
+      {% endif %}
+    </div>
     {% endif %}
-  </section>
 
-  <section id="phase-timings">
-    <h2>Phase Timings</h2>
-    <p class="muted">Verification time includes build, adapter validation, benchmark execution, parsing, and correctness checks.</p>
-    <figure><img src="{{ plots.phase_timings }}" alt="Phase timings plot"></figure>
-    <table class="compact">
+    <div class="kpi-grid">
+      <div class="kpi-card"><strong>Final Selection Status</strong><span class="value">{{ report.final_selection.status|display }}</span></div>
+      <div class="kpi-card"><strong>Final Best Is Baseline</strong><span class="value">{{ report.final_selection.final_best_is_baseline|yes_no }}</span></div>
+      <div class="kpi-card"><strong>Speedup vs Original Baseline</strong><span class="value">{{ report.final_selection.speedup_vs_original_baseline|default(report.final_best_candidate.speedup_vs_baseline, true)|speedup }}</span></div>
+      <div class="kpi-card"><strong>Runtime Reduction</strong><span class="value">{{ report.final_selection.runtime_reduction_percent|default(report.final_best_candidate.runtime_reduction_percent, true)|percent }}</span></div>
+      <div class="kpi-card"><strong>Runtime Improvement ns/problem</strong><span class="value">{{ report.final_best_candidate.absolute_runtime_difference_ns_per_problem|display }}</span></div>
+      <div class="kpi-card"><strong>Final Best Iteration</strong><span class="value">{{ report.final_best_candidate.iteration|default(report.final_result.final_best_iteration, true)|display }}</span></div>
+      <div class="kpi-card"><strong>Correctness Passed</strong><span class="value">{{ report.final_selection.final_correctness_passed|default(report.final_best_candidate.correctness_passed, true)|yes_no }}</span></div>
+    </div>
+
+    <h3>Comparison</h3>
+    <table>
       <thead>
-        <tr>
-          <th>Iteration</th>
-          <th>Generation s</th>
-          <th>Materialization s</th>
-          <th>Verification s</th>
-          <th>Total s</th>
-        </tr>
+        <tr><th>Metric</th><th>Baseline</th><th>Final</th><th>Delta / Result</th></tr>
       </thead>
       <tbody>
-      {% for iteration in report.iterations %}
         <tr>
-          <td>{{ iteration.iteration|display }}</td>
-          <td>{{ iteration.phase_timings.generation_seconds|display }}</td>
-          <td>{{ iteration.phase_timings.materialization_seconds|display }}</td>
-          <td>{{ iteration.phase_timings.verification_seconds|display }}</td>
-          <td>{{ iteration.phase_timings.total_iteration_seconds|display }}</td>
+          <th>Runtime ns/problem</th>
+          <td>{{ report.final_selection.baseline_runtime_ns_per_problem_median|default(report.final_best_candidate.baseline_runtime_ns_per_problem_median, true)|display }}</td>
+          <td>{{ report.final_selection.final_runtime_ns_per_problem_median|default(report.final_best_candidate.runtime_ns_per_problem_median, true)|display }}</td>
+          <td>{{ report.final_best_candidate.absolute_runtime_difference_ns_per_problem|display }}</td>
         </tr>
-      {% else %}
-        <tr><td colspan="5">No iterations recorded.</td></tr>
-      {% endfor %}
+        <tr>
+          <th>GT Found</th>
+          <td>{{ report.final_selection.baseline_gt_found_percent|default(report.final_best_candidate.baseline_gt_found_percent, true)|percent }}</td>
+          <td>{{ report.final_selection.final_gt_found_percent|default(report.final_best_candidate.gt_found_percent, true)|percent }}</td>
+          <td>{{ report.final_selection.final_gt_found_delta_points|default(report.final_best_candidate.gt_found_delta_points, true)|display }}</td>
+        </tr>
+        <tr>
+          <th>Correctness</th>
+          <td>{{ report.baseline_metrics.correctness_passed|yes_no }}</td>
+          <td>{{ report.final_selection.final_correctness_passed|default(report.final_best_candidate.correctness_passed, true)|yes_no }}</td>
+          <td>{{ report.final_result.correctness_preserved|yes_no }}</td>
+        </tr>
+        <tr>
+          <th>Performance</th>
+          <td>Reference</td>
+          <td>{{ report.final_selection.speedup_vs_original_baseline|default(report.final_best_candidate.speedup_vs_baseline, true)|speedup }}</td>
+          <td>{{ report.final_selection.runtime_reduction_percent|default(report.final_best_candidate.runtime_reduction_percent, true)|percent }}</td>
+        </tr>
+      </tbody>
+    </table>
+
+    <h3>Final Best Candidate</h3>
+    <table class="key-value">
+      <tbody>
+        <tr><th>Candidate Summary</th><td>{{ report.final_best_candidate.candidate_summary|display }}</td></tr>
+        <tr><th>Changed Files</th><td><code>{{ report.final_best_candidate.changed_files|display }}</code></td></tr>
+        <tr><th>Final Optimized Source Path</th><td><code>{{ report.final_best_candidate.final_optimized_source|display }}</code></td></tr>
+        <tr><th>Final Diff Path</th><td><code>{{ report.final_best_candidate.final_diff|display }}</code></td></tr>
       </tbody>
     </table>
   </section>
 
-  <section id="llm-usage">
-    <h2>LLM Usage</h2>
-    <div class="metric-grid">
-      <div class="metric"><strong>Total Tokens</strong>{{ report.llm_usage_summary.total_tokens|display }}</div>
-      <div class="metric"><strong>Prompt Tokens</strong>{{ report.llm_usage_summary.prompt_tokens_total|display }}</div>
-      <div class="metric"><strong>Completion Tokens</strong>{{ report.llm_usage_summary.completion_tokens_total|display }}</div>
-      <div class="metric"><strong>Total API Latency s</strong>{{ report.llm_usage_summary.api_latency_seconds_total|display }}</div>
-      <div class="metric"><strong>Average API Latency s</strong>{{ report.llm_usage_summary.api_latency_seconds_average|display }}</div>
-      <div class="metric"><strong>Iterations with Usage</strong>{{ report.llm_usage_summary.iterations_with_usage|display }}</div>
-      <div class="metric"><strong>Most Expensive Iteration</strong>{{ report.llm_usage_summary.most_expensive_iteration|display }}</div>
-      <div class="metric"><strong>Highest Latency Iteration</strong>{{ report.llm_usage_summary.highest_latency_iteration|display }}</div>
-    </div>
+  <section id="optimization-process">
+    <h2>Optimization Process</h2>
+    <p class="section-lead">Closed-loop optimization updates the current best source only when a verified candidate is accepted as an improvement.</p>
     <div class="plot-grid">
-      <figure><img src="{{ plots.llm_tokens_by_iteration }}" alt="LLM token usage by iteration plot"></figure>
-      <figure><img src="{{ plots.llm_latency_by_iteration }}" alt="LLM latency by iteration plot"></figure>
+      {% if plots.runtime_progress %}
+      <figure><img src="{{ plots.runtime_progress }}" alt="Current best runtime progress plot"><figcaption>Runtime of the current best candidate over iterations.</figcaption></figure>
+      {% endif %}
+      {% if plots.runtime_reduction_by_iteration %}
+      <figure><img src="{{ plots.runtime_reduction_by_iteration }}" alt="Runtime reduction by iteration plot"><figcaption>Runtime reduction by iteration relative to baseline.</figcaption></figure>
+      {% endif %}
     </div>
-    <table class="compact">
-      <thead>
-        <tr>
-          <th>Iteration</th>
-          <th>Model</th>
-          <th>Prompt Tokens</th>
-          <th>Completion Tokens</th>
-          <th>Total Tokens</th>
-          <th>API Latency s</th>
-          <th>Finish Reason</th>
-        </tr>
-      </thead>
-      <tbody>
-      {% for iteration in report.iterations %}
-        <tr>
-          <td>{{ iteration.iteration|display }}</td>
-          <td>{{ iteration.llm_usage.model|display }}</td>
-          <td>{{ iteration.llm_usage.prompt_tokens|display }}</td>
-          <td>{{ iteration.llm_usage.completion_tokens|display }}</td>
-          <td>{{ iteration.llm_usage.total_tokens|display }}</td>
-          <td>{{ iteration.llm_usage.api_latency_seconds|display }}</td>
-          <td>{{ iteration.llm_usage.finish_reason|display }}</td>
-        </tr>
-      {% else %}
-        <tr><td colspan="7">No iterations recorded.</td></tr>
-      {% endfor %}
-      </tbody>
-    </table>
-  </section>
 
-  <section id="diff-statistics">
-    <h2>Diff Statistics</h2>
-    {% if report.final_best_candidate.diff_stats %}
-    <div class="metric-grid">
-      <div class="metric"><strong>Final Files Changed</strong>{{ report.final_best_candidate.diff_stats.files_changed|display }}</div>
-      <div class="metric"><strong>Final Lines Added</strong>{{ report.final_best_candidate.diff_stats.lines_added|display }}</div>
-      <div class="metric"><strong>Final Lines Removed</strong>{{ report.final_best_candidate.diff_stats.lines_removed|display }}</div>
-      <div class="metric"><strong>Final Changed Blocks</strong>{{ report.final_best_candidate.diff_stats.changed_blocks|display }}</div>
-    </div>
-    {% else %}
-    <p class="muted">Final diff summary is not available.</p>
+    {% if report.closed_loop_selection_explanation %}
+    <div class="note">{{ report.closed_loop_selection_explanation }}</div>
     {% endif %}
-    <figure><img src="{{ plots.diff_stats_by_iteration }}" alt="Diff statistics by iteration plot"></figure>
-    <table class="compact">
-      <thead>
-        <tr>
-          <th>Iteration</th>
-          <th>Status</th>
-          <th>Files Changed</th>
-          <th>Lines Added</th>
-          <th>Lines Removed</th>
-          <th>Changed Blocks</th>
-          <th>Edit Count</th>
-          <th>Fallback Used</th>
-        </tr>
-      </thead>
-      <tbody>
-      {% for iteration in report.iterations %}
-        <tr>
-          <td>{{ iteration.iteration|display }}</td>
-          <td>{{ iteration.status|display }}</td>
-          <td>{{ iteration.diff_stats.files_changed|display }}</td>
-          <td>{{ iteration.diff_stats.lines_added|display }}</td>
-          <td>{{ iteration.diff_stats.lines_removed|display }}</td>
-          <td>{{ iteration.diff_stats.changed_blocks|display }}</td>
-          <td>{{ iteration.diff_stats.edit_count|display }}</td>
-          <td>{{ iteration.diff_stats.fallback_used|yes_no }}</td>
-        </tr>
-      {% else %}
-        <tr><td colspan="8">No iterations recorded.</td></tr>
-      {% endfor %}
-      </tbody>
-    </table>
-  </section>
 
-  {% if report.reason_summary %}
-  <section id="reason-summary">
-    <h2>Reason Summary</h2>
-    <table>
-      <thead><tr><th>Reason</th><th>Count</th><th>Iterations</th></tr></thead>
-      <tbody>
-      {% for item in report.reason_summary %}
-        <tr>
-          <td>{{ item.reason|display }}</td>
-          <td>{{ item.count|display }}</td>
-          <td>{{ item.iterations | join(', ') }}</td>
-        </tr>
-      {% endfor %}
-      </tbody>
-    </table>
-  </section>
-  {% endif %}
-
-  <section id="closed-loop-selection">
-    <h2>Closed-Loop Selection</h2>
-    <p class="muted">This section shows single-run selection analytics from per-iteration candidate verification. Final headline performance metrics come from the Final Comparison vs Original Baseline section.</p>
-    <table>
+    <h3>Closed-Loop Selection</h3>
+    <table class="key-value">
       <tbody>
         <tr><th>Promotion Policy</th><td>{{ report.closed_loop_selection.promotion_policy|display }}</td></tr>
         <tr><th>Final Current Best Iteration</th><td>{{ report.closed_loop_selection.final_current_best_iteration|display }}</td></tr>
         <tr><th>Final Current Best Is Baseline</th><td>{{ report.closed_loop_selection.final_current_best_is_baseline|yes_no }}</td></tr>
-        <tr><th>Final Current Best Run Dir</th><td><code>{{ report.closed_loop_selection.final_current_best_run_dir|display }}</code></td></tr>
-        <tr><th>Final Current Best Source Dir</th><td><code>{{ report.closed_loop_selection.final_current_best_source_dir|display }}</code></td></tr>
-        <tr><th>Final Current Best Metrics Path</th><td><code>{{ report.closed_loop_selection.final_current_best_metrics_path|display }}</code></td></tr>
         <tr><th>Best Verified Candidate Iteration</th><td>{{ report.closed_loop_selection.best_verified_candidate_iteration|display }}</td></tr>
-        <tr><th>Best Verified Candidate Run Dir</th><td><code>{{ report.closed_loop_selection.best_verified_candidate_run_dir|display }}</code></td></tr>
-        <tr><th>Best Verified Candidate Single-Run Speedup vs Baseline</th><td>{{ report.closed_loop_selection.best_verified_candidate_speedup_vs_baseline|display }}</td></tr>
-        <tr><th>Best Verified Candidate Single-Run Runtime Reduction %</th><td>{{ report.closed_loop_selection.best_verified_candidate_runtime_reduction_percent|display }}</td></tr>
+        <tr><th>Best Verified Candidate Speedup vs Baseline</th><td>{{ report.closed_loop_selection.best_verified_candidate_speedup_vs_baseline|speedup }}</td></tr>
         <tr><th>Matches Final Current Best</th><td>{{ report.closed_loop_selection.matches_final_current_best|yes_no }}</td></tr>
       </tbody>
     </table>
   </section>
 
-  <section id="per-iteration-table">
-    <h2>Per-Iteration Table</h2>
-    <table>
+  <section id="iteration-outcomes">
+    <h2>Iteration Outcomes</h2>
+    <div class="plot-grid">
+      {% if plots.status_breakdown %}
+      <figure><img src="{{ plots.status_breakdown }}" alt="Iteration status breakdown plot"></figure>
+      {% endif %}
+      {% if plots.candidate_funnel %}
+      <figure><img src="{{ plots.candidate_funnel }}" alt="Candidate funnel plot"></figure>
+      {% endif %}
+      {% if plots.failure_reason_breakdown %}
+      <figure><img src="{{ plots.failure_reason_breakdown }}" alt="Failure reason breakdown plot"></figure>
+      {% endif %}
+      {% if plots.correctness_metrics %}
+      <figure><img src="{{ plots.correctness_metrics }}" alt="Correctness metrics plot"></figure>
+      {% endif %}
+    </div>
+
+    <h3>Status Counts</h3>
+    {% if status_items %}
+    <table class="compact">
+      <thead><tr><th>Status</th><th>Count</th></tr></thead>
+      <tbody>
+        {% for status, count in status_items %}
+        <tr><td><span class="badge status-{{ status }}">{{ status|display }}</span></td><td>{{ count|human_int }}</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% else %}
+    <p class="muted">No status counts were recorded.</p>
+    {% endif %}
+
+    {% if report.reason_code_counts %}
+    <h3>Reason Codes</h3>
+    <table class="compact">
+      <thead><tr><th>Category</th><th>Code</th><th>Count</th><th>Iterations</th></tr></thead>
+      <tbody>
+        {% for item in report.reason_code_counts %}
+        <tr>
+          <td>{{ item.category|display }}</td>
+          <td>{{ item.code|display }}</td>
+          <td>{{ item.count|human_int }}</td>
+          <td>{{ item.iterations|display }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% endif %}
+
+    <h3>Per-Iteration Summary</h3>
+    {% if report.iterations %}
+    <div class="table-scroll">
+      <table class="compact">
+        <thead>
+          <tr>
+            <th>Iteration</th>
+            <th>Status</th>
+            <th>Runtime ns/problem</th>
+            <th>Speedup vs Current Best</th>
+            <th>Speedup vs Baseline</th>
+            <th>GT Found</th>
+            <th>Promoted</th>
+            <th>Reason Code or Reason</th>
+            <th>Summary</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for iteration in report.iterations %}
+          <tr>
+            <td>{{ iteration.iteration|display }}</td>
+            <td><span class="badge status-{{ iteration.status }}">{{ iteration.status|display }}</span></td>
+            <td>{{ iteration.runtime_ns_per_problem_median|display }}</td>
+            <td>{{ iteration.speedup_vs_current_best|speedup }}</td>
+            <td>{{ iteration.speedup_vs_baseline|speedup }}</td>
+            <td>{{ iteration.gt_found_percent|percent }}</td>
+            <td>{{ iteration.promoted|yes_no }}</td>
+            <td>{{ iteration.outcome_reason.code|default(iteration.reason, true)|display }}</td>
+            <td>{{ iteration.candidate_summary|display }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% else %}
+    <p class="muted">No iterations recorded.</p>
+    {% endif %}
+  </section>
+
+  <section id="cost-performance-profile">
+    <h2>Cost &amp; Performance Profile</h2>
+    <div class="plot-grid">
+      {% if plots.phase_timings %}
+      <figure><img src="{{ plots.phase_timings }}" alt="Phase timings plot"></figure>
+      {% endif %}
+      {% if plots.llm_tokens_by_iteration %}
+      <figure><img src="{{ plots.llm_tokens_by_iteration }}" alt="LLM tokens by iteration plot"></figure>
+      {% endif %}
+      {% if plots.llm_latency_by_iteration %}
+      <figure><img src="{{ plots.llm_latency_by_iteration }}" alt="LLM latency by iteration plot"></figure>
+      {% endif %}
+      {% if plots.diff_stats_by_iteration %}
+      <figure><img src="{{ plots.diff_stats_by_iteration }}" alt="Diff statistics by iteration plot"></figure>
+      {% endif %}
+    </div>
+
+    <h3>LLM and Runtime Cost</h3>
+    <div class="kpi-grid">
+      <div class="kpi-card"><strong>Total Tokens</strong><span class="value">{{ report.llm_usage_summary.total_tokens|human_int }}</span></div>
+      <div class="kpi-card"><strong>Prompt Tokens</strong><span class="value">{{ report.llm_usage_summary.prompt_tokens_total|human_int }}</span></div>
+      <div class="kpi-card"><strong>Completion Tokens</strong><span class="value">{{ report.llm_usage_summary.completion_tokens_total|human_int }}</span></div>
+      <div class="kpi-card"><strong>Total API Latency</strong><span class="value">{{ report.llm_usage_summary.api_latency_seconds_total|human_duration }}</span></div>
+      <div class="kpi-card"><strong>Average API Latency</strong><span class="value">{{ report.llm_usage_summary.api_latency_seconds_average|human_duration }}</span></div>
+      <div class="kpi-card"><strong>Most Expensive Iteration</strong><span class="value">{{ report.llm_usage_summary.most_expensive_iteration|display }}</span></div>
+      <div class="kpi-card"><strong>Highest Latency Iteration</strong><span class="value">{{ report.llm_usage_summary.highest_latency_iteration|display }}</span></div>
+      <div class="kpi-card"><strong>Total Experiment Duration</strong><span class="value">{{ report.experiment_metadata.total_duration_seconds|human_duration }}</span></div>
+    </div>
+
+    {% if report.final_best_candidate.diff_stats %}
+    <h3>Final Diff Statistics</h3>
+    <div class="kpi-grid">
+      <div class="kpi-card"><strong>Files Changed</strong><span class="value">{{ report.final_best_candidate.diff_stats.files_changed|human_int }}</span></div>
+      <div class="kpi-card"><strong>Lines Added</strong><span class="value">{{ report.final_best_candidate.diff_stats.lines_added|human_int }}</span></div>
+      <div class="kpi-card"><strong>Lines Removed</strong><span class="value">{{ report.final_best_candidate.diff_stats.lines_removed|human_int }}</span></div>
+      <div class="kpi-card"><strong>Changed Blocks</strong><span class="value">{{ report.final_best_candidate.diff_stats.changed_blocks|human_int }}</span></div>
+      <div class="kpi-card"><strong>Edit Count</strong><span class="value">{{ report.final_best_candidate.diff_stats.edit_count|human_int }}</span></div>
+      <div class="kpi-card"><strong>Fallback Used</strong><span class="value">{{ report.final_best_candidate.diff_stats.fallback_used|yes_no }}</span></div>
+    </div>
+    {% else %}
+    <p class="muted">Final diff statistics were not recorded.</p>
+    {% endif %}
+  </section>
+
+  <section id="reproducibility">
+    <h2>Reproducibility</h2>
+    <table class="key-value">
+      <tbody>
+        <tr><th>Started At</th><td>{{ report.experiment_metadata.started_at|display }}</td></tr>
+        <tr><th>Finished At</th><td>{{ report.experiment_metadata.finished_at|display }}</td></tr>
+        <tr><th>Total Duration</th><td>{{ report.experiment_metadata.total_duration_seconds|human_duration }}</td></tr>
+        <tr><th>Git Commit</th><td>{{ report.experiment_metadata.repository.git_commit|display }}</td></tr>
+        <tr><th>Git Branch</th><td>{{ report.experiment_metadata.repository.git_branch|display }}</td></tr>
+        <tr><th>Dirty Worktree</th><td>{{ report.experiment_metadata.repository.dirty_worktree|yes_no }}</td></tr>
+        <tr><th>OS</th><td>{{ report.experiment_metadata.environment.os|display }}</td></tr>
+        <tr><th>Platform</th><td>{{ report.experiment_metadata.environment.platform|display }}</td></tr>
+        <tr><th>Python Version</th><td>{{ report.experiment_metadata.environment.python_version|display }}</td></tr>
+        <tr><th>CMake Build Type</th><td>{{ report.experiment_metadata.environment.cmake_build_type|default(report.benchmark_config.build_type, true)|display }}</td></tr>
+        <tr><th>CMake Executable</th><td><code>{{ report.experiment_metadata.environment.cmake_exe|display }}</code></td></tr>
+        <tr><th>CMake Generator</th><td>{{ report.experiment_metadata.environment.cmake_generator|display }}</td></tr>
+        <tr><th>C++ Compiler</th><td><code>{{ report.experiment_metadata.environment.cxx_compiler|display }}</code></td></tr>
+        <tr><th>Baseline Run Directory</th><td><code>{{ report.experiment_config_details.baseline_run_dir|display }}</code></td></tr>
+        <tr><th>Optimization Scope</th><td><code>{{ report.experiment_config_details.optimization_scope_allowed_files|display }}</code></td></tr>
+        <tr><th>Reporting Formats</th><td>{{ report.experiment_config_details.reporting_formats|display }}</td></tr>
+        <tr><th>Renderer</th><td>{{ report.experiment_config_details.reporting_renderer|display }}</td></tr>
+      </tbody>
+    </table>
+  </section>
+
+  <section id="appendix">
+    <h2>Appendix</h2>
+    <article id="final-code-diff">
+      <h3>Final Code Diff</h3>
+      {% if report.final_code_diff %}
+      <details>
+        <summary>Show final optimized source diff</summary>
+        <div class="diff-container"><pre>{{ report.final_code_diff|diff_highlight }}</pre></div>
+      </details>
+      {% else %}
+      <p class="muted">Final optimized source diff was not available.</p>
+      {% endif %}
+    </article>
+
+    <h3>Selected Iteration Details</h3>
+    {% if report.iterations %}
+    {% set selected = namespace(count=0) %}
+    <table class="compact">
       <thead>
         <tr>
           <th>Iteration</th>
           <th>Status</th>
-          <th>Runtime ns/problem</th>
-          <th>GT Found %</th>
-          <th>GT Delta vs Baseline (pp)</th>
-          <th>GT Delta vs Current Best (pp)</th>
-          <th>Speedup vs Current Best</th>
-          <th>Speedup vs Baseline</th>
+          <th>Candidate Summary</th>
+          <th>Outcome</th>
+          <th>Runtime</th>
+          <th>Speedup</th>
           <th>Correctness</th>
           <th>Promoted</th>
-          <th>Reason Category</th>
-          <th>Reason Code</th>
-          <th>Expected Effect</th>
-          <th>Risk Level</th>
-          <th>Summary</th>
-          <th>Reason</th>
+          <th>Candidate Run Dir</th>
         </tr>
       </thead>
       <tbody>
-      {% for iteration in report.iterations %}
+        {% for iteration in report.iterations %}
+        {% set meaningful_failure = iteration.status in ['rejected', 'materialization_failed', 'verification_failed', 'generation_failed'] and (iteration.outcome_reason.message or iteration.reason) %}
+        {% if iteration.status == 'accepted_improvement' or meaningful_failure %}
+        {% set selected.count = selected.count + 1 %}
         <tr>
           <td>{{ iteration.iteration|display }}</td>
-          <td>{{ iteration.status|display }}</td>
+          <td><span class="badge status-{{ iteration.status }}">{{ iteration.status|display }}</span></td>
+          <td>{{ iteration.candidate_summary|display }}</td>
+          <td>{{ iteration.outcome_reason.category|display }} / {{ iteration.outcome_reason.code|default(iteration.reason, true)|display }}{% if iteration.outcome_reason.message %}<br>{{ iteration.outcome_reason.message|display }}{% endif %}</td>
           <td>{{ iteration.runtime_ns_per_problem_median|display }}</td>
-          <td>{{ iteration.gt_found_percent|display }}</td>
-          <td>{{ iteration.gt_found_delta_points_vs_original_baseline|display }}</td>
-          <td>{{ iteration.gt_found_delta_points_vs_current_best|display }}</td>
-          <td>{{ iteration.speedup_vs_current_best|display }}</td>
-          <td>{{ iteration.speedup_vs_baseline|display }}</td>
+          <td>baseline {{ iteration.speedup_vs_baseline|speedup }}; current best {{ iteration.speedup_vs_current_best|speedup }}</td>
           <td>{{ iteration.correctness_passed|yes_no }}</td>
           <td>{{ iteration.promoted|yes_no }}</td>
-          <td>{{ iteration.outcome_reason.category|display }}</td>
-          <td>{{ iteration.outcome_reason.code|display }}</td>
-          <td>{{ iteration.expected_effect|display }}</td>
-          <td>{{ iteration.risk_level|display }}</td>
-          <td>{{ iteration.candidate_summary|display }}</td>
-          <td>{{ iteration.reason|display }}</td>
+          <td><code>{{ iteration.candidate_run_dir|display }}</code></td>
         </tr>
-      {% else %}
-        <tr><td colspan="16">No iterations recorded.</td></tr>
-      {% endfor %}
+        {% endif %}
+        {% endfor %}
+        {% if selected.count == 0 %}
+        <tr><td colspan="9" class="muted">No selected iteration details met the appendix filter.</td></tr>
+        {% endif %}
       </tbody>
     </table>
-  </section>
-
-  <section id="final-best-candidate-summary">
-    <h2>Final Best Candidate Summary</h2>
-    <p class="muted">Candidate runtime fields in this section reflect the final single-run comparison against the original baseline.</p>
-    <table>
-      <tbody>
-        <tr><th>Final Best Iteration</th><td>{{ report.final_best_candidate.iteration|display }}</td></tr>
-        <tr><th>Candidate Run Dir</th><td><code>{{ report.final_best_candidate.candidate_run_dir|display }}</code></td></tr>
-        <tr><th>Runtime ns/problem</th><td>{{ report.final_best_candidate.runtime_ns_per_problem_median|display }}</td></tr>
-        <tr><th>Baseline Runtime ns/problem</th><td>{{ report.final_best_candidate.baseline_runtime_ns_per_problem_median|display }}</td></tr>
-        <tr><th>Runtime Improvement ns/problem</th><td>{{ report.final_best_candidate.absolute_runtime_difference_ns_per_problem|display }}</td></tr>
-        <tr><th>Speedup vs Baseline</th><td>{{ report.final_best_candidate.speedup_vs_baseline|display }}</td></tr>
-        <tr><th>Runtime Reduction %</th><td>{{ report.final_best_candidate.runtime_reduction_percent|display }}</td></tr>
-        <tr><th>Baseline GT Found %</th><td>{{ report.final_best_candidate.baseline_gt_found_percent|display }}</td></tr>
-        <tr><th>GT Found %</th><td>{{ report.final_best_candidate.gt_found_percent|display }}</td></tr>
-        <tr><th>GT Found Delta (pp)</th><td>{{ report.final_best_candidate.gt_found_delta_points|display }}</td></tr>
-        <tr><th>Accepted Improvements</th><td>{{ report.final_result.accepted_improvements|display }}</td></tr>
-        <tr><th>Correctness Preserved</th><td>{{ report.final_result.correctness_preserved|yes_no }}</td></tr>
-        <tr><th>Correctness Passed</th><td>{{ report.final_best_candidate.correctness_passed|yes_no }}</td></tr>
-        <tr><th>Candidate Summary</th><td>{{ report.final_best_candidate.candidate_summary|display }}</td></tr>
-        <tr><th>Expected Effect</th><td>{{ report.final_best_candidate.expected_effect|display }}</td></tr>
-        <tr><th>Risk Level</th><td>{{ report.final_best_candidate.risk_level|display }}</td></tr>
-        <tr><th>Changed Files</th><td><code>{{ report.final_best_candidate.changed_files|display }}</code></td></tr>
-        <tr><th>Final Optimized Source</th><td><code>{{ report.final_best_candidate.final_optimized_source|display }}</code></td></tr>
-        <tr><th>Final Diff</th><td><code>{{ report.final_best_candidate.final_diff|display }}</code></td></tr>
-      </tbody>
-    </table>
-  </section>
-
-  <section id="reporting-status">
-    <h2>Reporting Status</h2>
-    <table>
-      <tbody>
-        <tr><th>Enabled</th><td>{{ report.reporting_status.enabled|yes_no }}</td></tr>
-        <tr><th>Status</th><td>{{ report.reporting_status.status|display }}</td></tr>
-        <tr><th>Formats</th><td>{{ report.reporting_status.formats|display }}</td></tr>
-        <tr><th>Renderer</th><td>{{ report.reporting_status.renderer|display }}</td></tr>
-        <tr><th>Report Data</th><td><code>{{ report.reporting_status.report_data_path|display }}</code></td></tr>
-        <tr><th>Report HTML</th><td><code>{{ report.reporting_status.report_html_path|display }}</code></td></tr>
-        <tr><th>PDF Report</th><td>{{ report.reporting_status.pdf_display|display }}</td></tr>
-        <tr><th>Error</th><td>{{ report.reporting_status.error|display }}</td></tr>
-      </tbody>
-    </table>
-  </section>
-
-  <section id="artifact-map">
-    <h2>Artifact Map</h2>
-    <table>
-      <thead><tr><th>Artifact</th><th>Path</th></tr></thead>
-      <tbody>
-      {% for name, value in artifact_items %}
-        <tr><td>{{ name }}</td><td><code>{{ value|display }}</code></td></tr>
-      {% endfor %}
-      </tbody>
-    </table>
-  </section>
-
-  <section id="iteration-appendix" class="page-break-before">
-    <h2>Iteration Appendix</h2>
-    {% for iteration in report.iterations %}
-    <article class="appendix-card">
-      <h3>Iteration {{ iteration.iteration|display }} <span class="badge">{{ iteration.status|display }}</span></h3>
-      <table class="compact">
-        <tbody>
-          <tr><th>Candidate Summary</th><td>{{ iteration.candidate_summary|display }}</td></tr>
-          <tr><th>Expected Effect</th><td>{{ iteration.expected_effect|display }}</td></tr>
-          <tr><th>Risk Level</th><td>{{ iteration.risk_level|display }}</td></tr>
-          <tr><th>Outcome Category</th><td>{{ iteration.outcome_reason.category|display }}</td></tr>
-          <tr><th>Outcome Code</th><td>{{ iteration.outcome_reason.code|display }}</td></tr>
-          <tr><th>Outcome Message</th><td>{{ iteration.outcome_reason.message|display }}</td></tr>
-          <tr><th>Runtime ns/problem</th><td>{{ iteration.runtime_ns_per_problem_median|display }}</td></tr>
-          <tr><th>Speedup vs Current Best</th><td>{{ iteration.speedup_vs_current_best|display }}</td></tr>
-          <tr><th>Speedup vs Baseline</th><td>{{ iteration.speedup_vs_baseline|display }}</td></tr>
-          <tr><th>Correctness</th><td>{{ iteration.correctness_passed|yes_no }}</td></tr>
-          <tr><th>Promoted</th><td>{{ iteration.promoted|yes_no }}</td></tr>
-          <tr><th>Phase Timings</th><td>generation={{ iteration.phase_timings.generation_seconds|display }}, materialization={{ iteration.phase_timings.materialization_seconds|display }}, verification={{ iteration.phase_timings.verification_seconds|display }}, total={{ iteration.phase_timings.total_iteration_seconds|display }}</td></tr>
-          <tr><th>LLM Usage</th><td>model={{ iteration.llm_usage.model|display }}, prompt={{ iteration.llm_usage.prompt_tokens|display }}, completion={{ iteration.llm_usage.completion_tokens|display }}, total={{ iteration.llm_usage.total_tokens|display }}, latency={{ iteration.llm_usage.api_latency_seconds|display }}, finish={{ iteration.llm_usage.finish_reason|display }}</td></tr>
-          <tr><th>Diff Stats</th><td>files={{ iteration.diff_stats.files_changed|display }}, added={{ iteration.diff_stats.lines_added|display }}, removed={{ iteration.diff_stats.lines_removed|display }}, blocks={{ iteration.diff_stats.changed_blocks|display }}, edits={{ iteration.diff_stats.edit_count|display }}, fallback={{ iteration.diff_stats.fallback_used|yes_no }}</td></tr>
-          <tr><th>Candidate Run Dir</th><td><code>{{ iteration.candidate_run_dir|display }}</code></td></tr>
-        </tbody>
-      </table>
-    </article>
     {% else %}
-    <p>No iterations recorded.</p>
-    {% endfor %}
+    <p class="muted">No iterations recorded.</p>
+    {% endif %}
   </section>
 </main>
 </body>
