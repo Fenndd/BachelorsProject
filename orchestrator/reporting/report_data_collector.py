@@ -65,6 +65,9 @@ def collect_report_data(
     config_snapshot = _safe_read_json_object(
         experiment_path / "experiment_config_snapshot.json"
     ) or {}
+    config_effective = _safe_read_json_object(
+        experiment_path / "experiment_config_effective.json"
+    ) or {}
     status_payload = _safe_read_json_object(
         experiment_path / "experiment_status.json"
     ) or {}
@@ -144,7 +147,7 @@ def collect_report_data(
         llm=llm_info,
         llm_usage_summary=_build_llm_usage_summary(iterations),
         experiment_config_details=_build_experiment_config_details(
-            config_snapshot, experiment_path
+            config_snapshot, config_effective, experiment_path
         ),
         benchmark_config=_build_benchmark_config(baseline_raw, experiment_metadata),
         closed_loop_selection=_build_closed_loop_selection(
@@ -295,15 +298,12 @@ def _build_llm_info(
     if not config_snapshot and not variant_llm_config:
         return ReportLlmInfo()
 
-    variants = config_snapshot.get("variants")
-    variant = variants[0] if isinstance(variants, list) and variants and isinstance(variants[0], dict) and "llm_config" not in config_snapshot else config_snapshot
-
     thinking = variant_llm_config.get("thinking") or {}
 
     return ReportLlmInfo(
         provider=_string_or_none(variant_llm_config.get("provider")),
         model=_string_or_none(variant_llm_config.get("model")),
-        llm_config=_string_or_none(variant.get("llm_config")),
+        llm_config=_string_or_none(config_snapshot.get("llm_config")),
         thinking_enabled=_bool_or_none(thinking.get("enabled")),
         thinking_effort=_string_or_none(thinking.get("effort")),
         max_tokens=_int_or_none(variant_llm_config.get("max_tokens")),
@@ -312,19 +312,26 @@ def _build_llm_info(
 
 def _build_experiment_config_details(
     config_snapshot: dict[str, Any],
+    config_effective: dict[str, Any],
     experiment_path: Path,
 ) -> ReportExperimentConfigDetails:
-    """Build ReportExperimentConfigDetails from config snapshot."""
+    """Build ReportExperimentConfigDetails from config snapshot and effective config."""
 
     if not config_snapshot:
         return ReportExperimentConfigDetails()
 
     sel = config_snapshot.get("selection") or {}
-    scope = config_snapshot.get("optimization_scope") or {}
     rep = config_snapshot.get("reporting") or {}
-    cg = config_snapshot.get("candidate_generation") or {}
 
-    allowed_files = scope.get("allowed_files")
+    scope_snapshot = config_snapshot.get("optimization_scope")
+    scope_effective = config_effective.get("optimization_scope")
+    allowed_files = (
+        scope_effective.get("allowed_files")
+        if isinstance(scope_effective, dict) and scope_effective.get("allowed_files")
+        else scope_snapshot.get("allowed_files")
+        if isinstance(scope_snapshot, dict)
+        else None
+    )
     reporting_formats = rep.get("formats")
 
     baseline_run_dir = _string_or_none(config_snapshot.get("baseline_run_dir"))

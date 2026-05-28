@@ -416,24 +416,6 @@ def _string_value(value: Any) -> str | None:
 def _load_experiment_llm_fields(
     payload: dict[str, Any],
 ) -> tuple[str, dict[str, Any] | None, int, str | None]:
-    """Load canonical flat LLM fields, with legacy single-variant migration."""
-
-    if "variants" in payload and "llm_config" not in payload:
-        variants = payload.get("variants")
-        if not isinstance(variants, list) or len(variants) != 1:
-            raise ExperimentConfigError(
-                "Legacy field 'variants' must contain exactly one variant."
-            )
-        variant = variants[0]
-        if not isinstance(variant, dict):
-            raise ExperimentConfigError("Legacy variant at index 0 must be an object.")
-        return (
-            _required_non_empty_string(variant, "llm_config"),
-            _load_llm_overrides(variant),
-            _required_positive_int(variant, "iterations"),
-            _optional_string(variant, "additional_context"),
-        )
-
     return (
         _required_non_empty_string(payload, "llm_config"),
         _load_llm_overrides(payload),

@@ -168,8 +168,8 @@ class ConfigBuilderView(Widget):
                 yield Select(
                     [
                         ("disabled", "disabled"),
-                        ("weasyprint", "weasyprint: less accurate"),
-                        ("playwright", "playwright: Chromium-based, more accurate"),
+                        ("weasyprint: less accurate", "weasyprint"),
+                        ("playwright: Chromium-based, more accurate", "playwright"),
                     ],
                     value="disabled",
                     id="reporting_pdf_renderer",
@@ -524,7 +524,6 @@ class ConfigBuilderView(Widget):
             self._log(f"[error] {path.name} does not contain a JSON object.")
             return
 
-        legacy_variant = self._legacy_variant(payload)
         self._loading = True
         try:
             self._set_input("experiment_name", str(payload.get("experiment_name", "")))
@@ -551,7 +550,7 @@ class ConfigBuilderView(Widget):
                 gt_drop = selection.get("gt_found_max_drop_points")
                 self._set_input("gt_found_max_drop_points", "" if gt_drop is None else str(gt_drop))
 
-            source = legacy_variant if legacy_variant is not None else payload
+            source = payload
             llm_cfg = source.get("llm_config")
             if isinstance(llm_cfg, str):
                 self._set_select("llm_config", llm_cfg)
@@ -568,13 +567,6 @@ class ConfigBuilderView(Widget):
         self._apply_solver_defaults(log=False)
         self._log(f"[info] Loaded config from: {path}")
         self._update_summary()
-
-    @staticmethod
-    def _legacy_variant(payload: dict[str, Any]) -> dict[str, Any] | None:
-        variants = payload.get("variants")
-        if isinstance(variants, list) and variants and isinstance(variants[0], dict):
-            return variants[0]
-        return None
 
     def _apply_overrides(self, overrides: dict[str, Any] | None) -> None:
         self._set_input("llm_provider_override", "")

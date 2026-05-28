@@ -133,38 +133,6 @@ class TestDumpLoadRoundtrip:
         assert payload["additional_context"] is None
         assert payload["selection"]["gt_found_max_drop_points"] is None
 
-    def test_legacy_single_variant_loads_but_dumps_flat(self, tmp_path: Path) -> None:
-        path = tmp_path / "legacy.json"
-        path.write_text(
-            json.dumps(
-                {
-                    "experiment_name": "legacy",
-                    "target_file": "cpp/external/lambdatwist/p3p.cc",
-                    "baseline_run_dir": "results/runs/baseline",
-                    "variants": [
-                        {
-                            "variant_id": "ignored",
-                            "llm_config": "configs/llm_mock.json",
-                            "llm_overrides": None,
-                            "iterations": 2,
-                            "additional_context": "legacy context",
-                        }
-                    ],
-                }
-            ),
-            encoding="utf-8",
-        )
-
-        loaded = load_experiment_config(path)
-        payload = experiment_config_to_payload(loaded)
-
-        assert loaded.llm_config == "configs/llm_mock.json"
-        assert loaded.iterations == 2
-        assert loaded.additional_context == "legacy context"
-        assert "variants" not in payload
-        assert "variant_id" not in json.dumps(payload)
-
-
 class TestConfigDiscovery:
     def test_list_includes_root_configs(self, tmp_path: Path) -> None:
         root = tmp_path / "repo"
