@@ -33,12 +33,8 @@ def _write_valid_experiment(root: Path, provider: str = "mock") -> Path:
   "optimization_scope": {
     "allowed_files": ["cpp/external/lambdatwist/p3p.cc"]
   },
-  "candidate_generation": {
-    "max_source_chars": 120000
-  },
-  "variants": [
-    {"variant_id": "default", "llm_config": "configs/llm_test.json", "iterations": 1}
-  ]
+  "llm_config": "configs/llm_test.json",
+  "iterations": 1
 }
 """,
         encoding="utf-8",

@@ -23,14 +23,8 @@ def _base_config_payload() -> dict[str, Any]:
         "experiment_name": "candidate command test",
         "target_file": "cpp/external/lambdatwist/p3p.cc",
         "baseline_run_dir": "results/runs/baseline",
-        "candidate_generation": {"max_source_chars": 1000},
-        "variants": [
-            {
-                "variant_id": "default",
-                "llm_config": "configs/llm_mock_candidate.json",
-                "iterations": 1,
-            }
-        ],
+        "llm_config": "configs/llm_mock_candidate.json",
+        "iterations": 1,
     }
 
 
@@ -52,6 +46,7 @@ class RunExperimentFixedSchemaTests(unittest.TestCase):
 
         self.assertNotIn("--candidate-type", command)
         self.assertNotIn("--source-presentation", command)
+        self.assertNotIn("--max-source-chars", command)
 
     def test_generation_command_can_pass_optional_source_root(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:

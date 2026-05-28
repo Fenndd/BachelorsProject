@@ -234,13 +234,11 @@ class ReportLlmUsageSummary:
 
 @dataclass
 class ReportLlmInfo:
-    """LLM and variant configuration used in the experiment."""
+    """LLM configuration used in the experiment."""
 
     provider: str | None = None
     model: str | None = None
     llm_config: str | None = None
-    variant_id: str | None = None
-    variant_description: str | None = None
     thinking_enabled: bool | None = None
     thinking_effort: str | None = None
     max_tokens: int | None = None
@@ -251,13 +249,11 @@ class ReportExperimentConfigDetails:
     """Raw experiment config snapshot fields surfaced in the report."""
 
     description: str | None = None
-    candidate_generation_max_source_chars: int | None = None
     baseline_run_dir: str | None = None
     optimization_scope_allowed_files: list[str] = field(default_factory=list)
     reporting_enabled: bool | None = None
     reporting_formats: list[str] = field(default_factory=list)
     reporting_renderer: str | None = None
-    reporting_fail_on_error: bool | None = None
 
 
 @dataclass

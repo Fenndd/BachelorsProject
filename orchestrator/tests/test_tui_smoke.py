@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import importlib
 import inspect
+from pathlib import Path
 
 import pytest
 
@@ -15,16 +16,20 @@ pytestmark = pytest.mark.unit
 
 _SCREEN_MODULES = [
     "orchestrator.tui.screens.main_screen",
-    "orchestrator.tui.screens.baseline_screen",
-    "orchestrator.tui.screens.experiment_screen",
     "orchestrator.tui.screens.active_run_screen",
-    "orchestrator.tui.screens.results_screen",
-    "orchestrator.tui.screens.workspace_screen",
-    "orchestrator.tui.screens.help_screen",
-    "orchestrator.tui.screens.environment_screen",
-    "orchestrator.tui.screens.doctor_screen",
-    "orchestrator.tui.screens.placeholder_screen",
     "orchestrator.tui.screens.config_builder_screen",
+    "orchestrator.tui.screens._confirm_paid_run",
+    "orchestrator.tui.screens._quit_confirm",
+]
+
+_VIEW_MODULES = [
+    "orchestrator.tui.views.dashboard_view",
+    "orchestrator.tui.views.baseline_view",
+    "orchestrator.tui.views.experiments_view",
+    "orchestrator.tui.views.results_view",
+    "orchestrator.tui.views.config_builder_view",
+    "orchestrator.tui.views.system_view",
+    "orchestrator.tui.views.help_view",
 ]
 
 _OTHER_MODULES = [
@@ -55,78 +60,61 @@ def test_import_other_tui_modules(module_name: str) -> None:
     assert mod is not None
 
 
+@pytest.mark.parametrize("module_name", _VIEW_MODULES)
+def test_import_all_view_modules(module_name: str) -> None:
+    """Every view module under orchestrator.tui.views imports without error."""
+    mod = importlib.import_module(module_name)
+    assert mod is not None
+
+
 # ---------------------------------------------------------------------------
-# 2. HelpScreen safety notes
+# 2. Help view safety notes
 # ---------------------------------------------------------------------------
 
 
-def test_help_screen_safety_notes_present() -> None:
-    import orchestrator.tui.screens.help_screen as m
+def test_help_view_safety_notes_present() -> None:
+    import orchestrator.tui.views.help_view as m
 
     src = _src(m)
-    assert "read-only" in src, "HelpScreen should mention read-only results browsing"
+    assert "read-only" in src, "HelpView should mention read-only results browsing"
     assert "never results/" in src or "never results/" in src.lower(), (
-        "HelpScreen should clarify workspace cleanup never touches results/"
+        "HelpView should clarify workspace cleanup never touches results/"
     )
     assert "not automatically modify" in src, (
-        "HelpScreen should state it does not modify cpp/ automatically"
+        "HelpView should state it does not modify cpp/ automatically"
     )
     assert "API tokens" in src, (
-        "HelpScreen should warn about API token usage"
+        "HelpView should warn about API token usage"
     )
 
 
 # ---------------------------------------------------------------------------
-# 3. PlaceholderScreen
+# 3. ResultsView instantiation
 # ---------------------------------------------------------------------------
 
 
-def test_placeholder_screen_instantiation() -> None:
-    from orchestrator.tui.screens.placeholder_screen import PlaceholderScreen
+def test_results_view_placeholder_exists() -> None:
+    from orchestrator.tui.views.results_view import ResultsView
 
-    screen = PlaceholderScreen("Test Title", "Test message content")
-    assert screen.placeholder_title == "Test Title"
-    assert screen.message == "Test message content"
-
-
-# ---------------------------------------------------------------------------
-# 4. ResultsScreen empty state
-# ---------------------------------------------------------------------------
+    view = ResultsView()
+    assert view.id == "view-results"
 
 
-def test_results_screen_handles_empty_state(monkeypatch) -> None:
-    from orchestrator.tui.screens.results_screen import ResultsScreen, _format_item
-
-    monkeypatch.setattr(
-        "orchestrator.tui.screens.results_screen.list_result_items",
-        lambda: [],
-    )
-
-    screen = ResultsScreen()
-    assert screen.items == []
-    assert _format_item(None) == "No saved results found."
-
-
-def test_results_screen_compose_has_correct_labels() -> None:
-    import orchestrator.tui.screens.results_screen as m
+def test_results_view_has_placeholder_text() -> None:
+    import orchestrator.tui.views.results_view as m
 
     src = _src(m)
-    assert "Browse Results" in src, "ResultsScreen should have correct title"
-    assert "Read-only navigation for saved run and experiment artifacts." in src
-    assert "Refresh" in src
-    assert "Open Dir" in src
-    assert "Summary" in src
-    assert "Final Source" in src
-    assert "Final Diff" in src
+    assert "Results" in src, "ResultsView should mention Results"
+    assert "Read-only navigation" in src, "ResultsView should mention read-only navigation"
 
 
 # ---------------------------------------------------------------------------
-# 5. WorkspaceScreen helpers
+# 4. SystemView helpers (workspace, environment, doctor)
 # ---------------------------------------------------------------------------
 
 
-def test_workspace_format_bytes() -> None:
-    from orchestrator.tui.screens.workspace_screen import _format_bytes
+def test_system_view_format_bytes() -> None:
+    from orchestrator.tui.views.system_view import _format_bytes
 
     assert _format_bytes(0) == "0 B"
     assert _format_bytes(1024) == "1.0 KiB"
@@ -136,51 +124,303 @@ def test_workspace_format_bytes() -> None:
     assert _format_bytes(2048) == "2.0 KiB"
 
 
-def test_workspace_screen_compose_has_correct_labels() -> None:
-    import orchestrator.tui.screens.workspace_screen as m
+def test_system_view_has_workspace_labels() -> None:
+    import orchestrator.tui.views.system_view as m
 
     src = _src(m)
-    assert "Workspace" in src, "WorkspaceScreen should have correct title"
-    assert "Inspect and clean temporary workspace data." in src
+    assert "Workspace" in src, "SystemView should have Workspace section"
     assert "Clean Candidates" in src
     assert "Clean Experiments" in src
     assert "Clean All" in src
     assert "Cleanup only affects workspace/ and never deletes results/" in src
 
 
-# ---------------------------------------------------------------------------
-# 6. EnvironmentScreen secret masking
-# ---------------------------------------------------------------------------
-
-
-def test_environment_screen_secret_masking_static_text() -> None:
-    import orchestrator.tui.screens.environment_screen as m
+def test_system_view_secret_masking_static_text() -> None:
+    import orchestrator.tui.views.system_view as m
 
     src = _src(m)
     assert (
         "Secrets are masked and are never displayed in full." in src
-    ), "EnvironmentScreen should state that secrets are masked"
+    ), "SystemView should state that secrets are masked"
 
 
-def test_environment_screen_compose_has_correct_labels() -> None:
-    import orchestrator.tui.screens.environment_screen as m
+def test_system_view_has_environment_labels() -> None:
+    import orchestrator.tui.views.system_view as m
 
     src = _src(m)
     assert "Environment" in src
-    assert "Local environment diagnostics for CLI/TUI launchers." in src
-    assert "Refresh" in src
+    assert "Refresh Environment" not in src
+    assert "def refresh_view" in src
 
 
-# ---------------------------------------------------------------------------
-# 7. DoctorScreen static text
-# ---------------------------------------------------------------------------
-
-
-def test_doctor_screen_compose_has_correct_labels() -> None:
-    import orchestrator.tui.screens.doctor_screen as m
+def test_system_view_has_doctor_labels() -> None:
+    import orchestrator.tui.views.system_view as m
 
     src = _src(m)
-    assert "Doctor" in src, "DoctorScreen should have correct title"
-    assert "Project structure and local environment diagnostics." in src
+    assert "Doctor" in src, "SystemView should have Doctor section"
     assert "Full build/run checks will be added later." in src
-    assert ".env.local" in src, "DoctorScreen should mention .env.local"
+    assert ".env.local" in src, "SystemView should mention .env.local"
+
+
+# ---------------------------------------------------------------------------
+# 5. DashboardView
+# ---------------------------------------------------------------------------
+
+
+def test_dashboard_view_has_project_info() -> None:
+    import orchestrator.tui.views.dashboard_view as m
+
+    src = _src(m)
+    assert "Dashboard" in src
+    assert "Interactive control layer for LLM optimization experiments" in src
+    assert "Active runs are visible" in src
+    assert "dashboard-refresh" not in src
+    assert "Go to Baseline" not in src
+    assert "Go to Experiments" not in src
+    assert "Go to Results" not in src
+    assert "def refresh_view" in src
+
+
+def test_results_view_displays_baseline_label_for_runs() -> None:
+    import orchestrator.tui.views.results_view as m
+
+    assert m._display_kind("run") == "baseline"
+    assert m._display_kind("baseline") == "baseline"
+    assert m._display_kind("candidate") == "candidate"
+    assert m._display_kind("experiment") == "experiment"
+
+
+def test_results_view_summary_displays_baseline_label_for_runs() -> None:
+    from orchestrator.control import ResultArtifactMap, ResultItem
+    import orchestrator.tui.views.results_view as m
+
+    artifacts = ResultArtifactMap(
+        directory=Path("results/runs/run_001"),
+        summary_txt=None,
+        metadata_json=None,
+        status_json=None,
+        metrics_json=None,
+        experiment_status_json=None,
+        experiment_config_snapshot_json=None,
+        experiment_config_effective_json=None,
+        closed_loop_summary_json=None,
+        closed_loop_iterations_jsonl=None,
+        final_optimized_source_dir=None,
+        final_optimized_source_diff=None,
+        report_dir=None,
+        report_pdf=None,
+        report_html=None,
+        final_selection_dir=None,
+        final_selection_report=None,
+    )
+    item = ResultItem(
+        kind="baseline",
+        name="run_001",
+        path=Path("results/runs/run_001"),
+        modified_time=0.0,
+        status="success",
+        started_at=None,
+        finished_at=None,
+        summary_text=None,
+        final_speedup_vs_baseline=None,
+        final_runtime_reduction_percent=None,
+        final_best_iteration=None,
+        accepted_improvements=None,
+        artifacts=artifacts,
+        read_errors=[],
+    )
+
+    assert "Kind: baseline" in m._format_item(item)
+    assert "Kind: run" not in m._format_item(item)
+
+
+def test_results_view_refresh_summaries_reloads_items(monkeypatch) -> None:
+    from orchestrator.control import ResultArtifactMap, ResultItem
+    import orchestrator.tui.views.results_view as m
+    from orchestrator.tui.views.results_view import ResultsView
+
+    item = ResultItem(
+        kind="baseline",
+        name="run_001",
+        path=Path("results/runs/run_001"),
+        modified_time=0.0,
+        status="success",
+        started_at=None,
+        finished_at=None,
+        summary_text=None,
+        final_speedup_vs_baseline=None,
+        final_runtime_reduction_percent=None,
+        final_best_iteration=None,
+        accepted_improvements=None,
+        artifacts=ResultArtifactMap(Path("results/runs/run_001"), None, None, None, None, None, None, None, None, None, None, None, None, None, None, None, None),
+        read_errors=[],
+    )
+    view = ResultsView()
+    rebuilt: list[object] = []
+    statuses: list[str] = []
+    monkeypatch.setattr(view, "_selected_item", lambda: None)
+    monkeypatch.setattr(view, "_rebuild_table", lambda selected_key=None: rebuilt.append(selected_key))
+    monkeypatch.setattr(view, "_set_status", statuses.append)
+    monkeypatch.setattr(m, "list_result_items", lambda: [item])
+
+    view.refresh_summaries("updated")
+
+    assert view._all_items == [item]
+    assert rebuilt == [None]
+    assert statuses == ["updated"]
+
+
+def test_results_view_formats_details_by_kind(tmp_path: Path) -> None:
+    from orchestrator.control import ResultArtifactMap, ResultItem
+    import orchestrator.tui.views.results_view as m
+
+    def artifacts(path: Path) -> ResultArtifactMap:
+        return ResultArtifactMap(path, None, None, None, None, None, None, None, None, None, None, None, None, None, None, None, None)
+
+    baseline = ResultItem("baseline", "base", tmp_path / "base", 0, "success", None, None, None, None, None, None, None, artifacts(tmp_path / "base"), [])
+    candidate_dir = tmp_path / "cand"
+    candidate_dir.mkdir()
+    (candidate_dir / "candidate.json").write_text('{"summary": "faster"}\n', encoding="utf-8")
+    candidate = ResultItem("candidate", "cand", candidate_dir, 0, "success", None, None, None, None, None, None, None, artifacts(candidate_dir), [])
+    experiment = ResultItem("experiment", "exp", tmp_path / "exp", 0, "completed", None, None, None, 1.2, 16.7, 2, 1, artifacts(tmp_path / "exp"), [])
+
+    assert "Final selection speedup" not in m._format_item(baseline)
+    assert "Candidate artifact path" in m._format_item(candidate)
+    assert "Final selection speedup" in m._format_item(experiment)
+
+
+def test_main_screen_uses_content_switcher() -> None:
+    import orchestrator.tui.screens.main_screen as m
+
+    src = _src(m)
+    assert "ContentSwitcher" in src
+    assert "content.current" in src
+    assert "child.display" not in src
+
+
+def test_main_screen_config_builder_is_embedded() -> None:
+    import orchestrator.tui.screens.main_screen as m
+
+    src = _src(m)
+    assert "ConfigBuilderView" in src
+    assert "__config-builder" not in src
+    assert "push_screen(ConfigBuilderScreen" not in src
+
+
+def test_views_package_exports_all_embedded_views() -> None:
+    import orchestrator.tui.views as views
+
+    assert set(views.__all__) == {
+        "DashboardView",
+        "BaselineView",
+        "ExperimentsView",
+        "ResultsView",
+        "ConfigBuilderView",
+        "SystemView",
+        "HelpView",
+    }
+
+
+def test_baseline_view_does_not_render_fake_live_log() -> None:
+    import orchestrator.tui.views.baseline_view as m
+
+    src = _src(m)
+    assert "baseline-log" not in src
+    assert "Open it from the sidebar" in src
+
+
+def test_quit_confirm_mentions_active_runs_not_only_experiments() -> None:
+    import orchestrator.tui.screens._quit_confirm as m
+
+    src = _src(m)
+    assert "active run(s)" in src
+    assert "active experiment run(s)" not in src
+
+
+def test_experiments_view_uses_select_for_config_selection() -> None:
+    import orchestrator.tui.views.experiments_view as m
+
+    src = _src(m)
+    assert "Select(" in src
+    assert "id=\"experiment-config\"" in src
+    assert "ListView" not in src
+    assert "on_list_view_highlighted" not in src
+
+
+def test_experiments_view_has_all_action_buttons() -> None:
+    import orchestrator.tui.views.experiments_view as m
+
+    src = _src(m)
+    assert "id=\"experiment-actions\"" in src
+    assert "id=\"refresh-configs\"" not in src
+    assert "id=\"dry-run\"" in src
+    assert "id=\"real-run\"" in src
+    assert "def refresh_view" in src
+
+
+def test_results_view_has_outer_and_inner_scroll_regions() -> None:
+    import orchestrator.tui.views.results_view as m
+
+    src = _src(m)
+    assert "VerticalScroll(id=\"results-scroll\")" in src
+    assert "id=\"results-filter-panel\"" in src
+    assert "VerticalScroll(id=\"result-summary-panel\"" in src
+    assert "id=\"results-actions\"" in src
+
+
+def test_results_view_visible_actions_are_limited() -> None:
+    import orchestrator.tui.views.results_view as m
+
+    src = _src(m)
+    assert "Button(\"Open Dir\"" in src
+    assert "Button(\"Summary\"" in src
+    assert "Button(\"Refresh\"" not in src
+    assert "Button(\"Final Source\"" not in src
+    assert "Button(\"Final Diff\"" not in src
+
+
+def test_active_run_screen_back_button_is_not_primary() -> None:
+    import orchestrator.tui.screens.active_run_screen as m
+
+    src = _src(m)
+    back_block = src[src.index('"Back"'):src.index('classes="run-action-button"', src.index('"Back"'))]
+    assert "variant=\"primary\"" not in back_block
+    assert "with Vertical(id=\"main\")" in src
+
+
+def test_tui_css_layout_rules_present() -> None:
+    root = Path(__file__).resolve().parents[1]
+    views_css = (root / "tui" / "styles" / "views.tcss").read_text(encoding="utf-8")
+    sidebar_css = (root / "tui" / "styles" / "sidebar.tcss").read_text(encoding="utf-8")
+    app_css = (root / "tui" / "styles" / "app.tcss").read_text(encoding="utf-8")
+
+    assert "#experiment-actions" in views_css and "grid-size: 2" in views_css
+    assert "#results-actions" in views_css and "grid-size: 2" in views_css
+    assert "#results-filter-panel" in views_css
+    assert "#results-scroll" in views_css
+    assert "#results-table" in views_css and "min-height: 6" in views_css
+    assert "#result-summary-panel" in views_css and "min-height: 20" in views_css
+    assert "#main" in views_css and "#run-log" in views_css and "height: 1fr" in views_css
+    assert "#global-refresh" in sidebar_css
+    assert "#nav ListItem.-hovered" in sidebar_css
+    assert "#nav ListItem.-highlight" in sidebar_css
+    assert "#nav ListItem.--highlight" not in sidebar_css
+    assert "Button {\n    width: 100%;\n}" not in app_css
+
+
+def test_main_screen_has_global_refresh_button() -> None:
+    import orchestrator.tui.screens.main_screen as m
+
+    src = _src(m)
+    assert "id=\"global-refresh\"" in src
+    assert "tooltip = \"Refresh\"" in src
+    assert "def action_global_refresh" in src
+
+
+def test_baseline_view_start_action_without_refresh_button() -> None:
+    import orchestrator.tui.views.baseline_view as m
+
+    src = _src(m)
+    assert "id=\"start-baseline\"" in src
+    assert "id=\"refresh-solvers\"" not in src
+    assert "def refresh_view" in src

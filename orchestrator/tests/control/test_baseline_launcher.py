@@ -1,14 +1,16 @@
 ﻿from __future__ import annotations
 
 import os
-import pytest
+import threading
 from datetime import datetime
 from pathlib import Path
 
+import pytest
+
 pytestmark = pytest.mark.integration
 
-from orchestrator.control.process_runner import ProcessResult
 import orchestrator.control.baseline_launcher as baseline_launcher
+from orchestrator.control.process_runner import ProcessResult
 
 
 from orchestrator.tests.conftest import repo_root, clear_managed_env
@@ -95,7 +97,15 @@ def test_baseline_launcher_builds_expected_command_without_real_baseline(
     )
     seen: dict[str, object] = {}
 
-    def fake_run_streaming_command(command, cwd, env=None, on_stdout=None, on_stderr=None):
+    def fake_run_streaming_command(
+        command,
+        cwd,
+        env=None,
+        on_stdout=None,
+        on_stderr=None,
+        cancel_event=None,
+        on_process_started=None,
+    ):
         seen["command"] = command
         seen["cwd"] = cwd
         if on_stdout is not None:
@@ -135,7 +145,15 @@ def test_baseline_launcher_passes_solver_to_command(
     )
     seen: dict[str, object] = {}
 
-    def fake_run_streaming_command(command, cwd, env=None, on_stdout=None, on_stderr=None):
+    def fake_run_streaming_command(
+        command,
+        cwd,
+        env=None,
+        on_stdout=None,
+        on_stderr=None,
+        cancel_event=None,
+        on_process_started=None,
+    ):
         seen["command"] = command
         run_dir = root / "results" / "runs" / "fake_poselib_baseline_run"
         run_dir.mkdir()
@@ -167,7 +185,15 @@ def test_baseline_launcher_reports_failed_process_and_latest_run(
         encoding="utf-8",
     )
 
-    def fake_run_streaming_command(command, cwd, env=None, on_stdout=None, on_stderr=None):
+    def fake_run_streaming_command(
+        command,
+        cwd,
+        env=None,
+        on_stdout=None,
+        on_stderr=None,
+        cancel_event=None,
+        on_process_started=None,
+    ):
         run_dir = root / "results" / "runs" / "failed_baseline_run"
         run_dir.mkdir()
         now = datetime.now().astimezone()
@@ -184,3 +210,53 @@ def test_baseline_launcher_reports_failed_process_and_latest_run(
     assert result.status == "failed"
     assert result.exit_code == 3
     assert result.latest_run_dir == root / "results" / "runs" / "failed_baseline_run"
+
+
+def test_baseline_launcher_passes_cancellation_hooks(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    clear_managed_env(monkeypatch)
+    root = repo_root(tmp_path)
+    eigen_dir = tmp_path / "eigen"
+    eigen_dir.mkdir()
+    (root / ".env.local").write_text(
+        f"EIGEN3_INCLUDE_DIR={eigen_dir}\n",
+        encoding="utf-8",
+    )
+    cancel_event = threading.Event()
+
+    def process_started(process) -> None:
+        pass
+
+    seen: dict[str, object] = {}
+
+    def fake_run_streaming_command(
+        command,
+        cwd,
+        env=None,
+        on_stdout=None,
+        on_stderr=None,
+        cancel_event=None,
+        on_process_started=None,
+    ):
+        seen["cancel_event"] = cancel_event
+        seen["on_process_started"] = on_process_started
+        now = datetime.now().astimezone()
+        return ProcessResult(command, cwd, 0, now, now, 0.0)
+
+    monkeypatch.setattr(
+        baseline_launcher,
+        "run_streaming_command",
+        fake_run_streaming_command,
+    )
+
+    result = baseline_launcher.run_baseline(
+        root,
+        cancel_event=cancel_event,
+        on_process_started=process_started,
+    )
+
+    assert result.status == "success"
+    assert seen["cancel_event"] is cancel_event
+    assert seen["on_process_started"] is process_started

@@ -4,25 +4,16 @@ from __future__ import annotations
 
 import copy
 import json
-import re
 from dataclasses import asdict
 from pathlib import Path
 from typing import Any
 
-from .experiment_config import ExperimentConfig, ExperimentVariantConfig
+from .experiment_config import ExperimentConfig
 from . import experiment_environment as env
 
 
-def _safe_artifact_name(value: str) -> str:
-    lowered = value.lower()
-    separated = re.sub(r"[\s/\\]+", "_", lowered)
-    safe = re.sub(r"[^a-z0-9_-]+", "_", separated)
-    compacted = re.sub(r"_+", "_", safe).strip("_-")
-    return compacted or "experiment"
-
-
 def _total_iterations(config: ExperimentConfig) -> int:
-    return sum(variant.iterations for variant in config.variants)
+    return config.iterations
 
 
 def _apply_llm_overrides(
@@ -46,21 +37,21 @@ def _apply_llm_overrides(
     return resolved
 
 
-def _resolve_variant_llm_config(variant: ExperimentVariantConfig) -> dict[str, Any]:
-    base_config_path = env._resolve_path(variant.llm_config)
+def _resolve_llm_config(config: ExperimentConfig) -> dict[str, Any]:
+    base_config_path = env._resolve_path(config.llm_config)
     base_config = env._read_json_file_object(base_config_path, "LLM config")
-    return _apply_llm_overrides(base_config, variant.llm_overrides)
+    return _apply_llm_overrides(base_config, config.llm_overrides)
 
 
 def _llm_metadata(
-    variant: ExperimentVariantConfig,
+    config: ExperimentConfig,
     resolved_config: dict[str, Any],
     resolved_config_path: Path | None,
 ) -> dict[str, Any]:
     thinking = resolved_config.get("thinking")
     thinking = thinking if isinstance(thinking, dict) else {}
     return {
-        "base_config": variant.llm_config,
+        "base_config": config.llm_config,
         "resolved_config": (
             env._display_path(resolved_config_path) if resolved_config_path is not None else None
         ),
@@ -72,70 +63,50 @@ def _llm_metadata(
     }
 
 
-def _variant_llm_config_path(experiment_dir: Path, variant_id: str) -> Path:
-    return (
-        experiment_dir
-        / "variant_configs"
-        / f"{_safe_artifact_name(variant_id)}_llm_config.json"
-    )
+def _resolved_llm_config_path(experiment_dir: Path) -> Path:
+    return experiment_dir / "resolved_llm_config.json"
 
 
-def _write_resolved_variant_llm_configs(
+def _write_resolved_llm_config(
     experiment_dir: Path,
     config: ExperimentConfig,
-) -> dict[str, dict[str, Any]]:
-    variant_configs_dir = experiment_dir / "variant_configs"
-    variant_configs_dir.mkdir(parents=True, exist_ok=True)
-    metadata_by_variant: dict[str, dict[str, Any]] = {}
-    for variant in config.variants:
-        resolved_config = _resolve_variant_llm_config(variant)
-        resolved_config_path = _variant_llm_config_path(experiment_dir, variant.variant_id)
-        env._write_json(resolved_config_path, resolved_config)
-        metadata_by_variant[variant.variant_id] = _llm_metadata(
-            variant,
-            resolved_config,
-            resolved_config_path,
-        )
-    return metadata_by_variant
+) -> dict[str, Any]:
+    resolved_config = _resolve_llm_config(config)
+    resolved_config_path = _resolved_llm_config_path(experiment_dir)
+    env._write_json(resolved_config_path, resolved_config)
+    return _llm_metadata(config, resolved_config, resolved_config_path)
 
 
 def _print_plan(config: ExperimentConfig, dry_run: bool) -> None:
-    candidate_generation = config.candidate_generation
-
     print("Experiment dry run" if dry_run else "Experiment plan")
     print(f"Experiment name: {config.experiment_name}")
     print(f"Description: {config.description or 'none'}")
     print(f"Target file: {config.target_file}")
     print("Mode: closed-loop optimization")
     print(f"Baseline run dir: {config.baseline_run_dir}")
-    print(f"Max source chars: {candidate_generation.max_source_chars}")
     print(
         f"Optimization scope allowed files: "
         f"{config.optimization_scope.allowed_files}"
     )
-    print(f"Variants: {len(config.variants)}")
-    for variant in config.variants:
-        resolved_llm_config = _resolve_variant_llm_config(variant)
-        llm_metadata = _llm_metadata(variant, resolved_llm_config, None)
-        print("")
-        print(f"Variant: {variant.variant_id}")
-        print(f"- description: {variant.description or 'none'}")
-        print(f"- base llm_config: {variant.llm_config}")
-        print(
-            "- llm_overrides: "
-            + (
-                json.dumps(variant.llm_overrides, ensure_ascii=False, sort_keys=True)
-                if variant.llm_overrides is not None
-                else "none"
-            )
+    resolved_llm_config = _resolve_llm_config(config)
+    llm_metadata = _llm_metadata(config, resolved_llm_config, None)
+    print("")
+    print(f"LLM config: {config.llm_config}")
+    print(
+        "LLM overrides: "
+        + (
+            json.dumps(config.llm_overrides, ensure_ascii=False, sort_keys=True)
+            if config.llm_overrides is not None
+            else "none"
         )
-        print(f"- effective provider: {llm_metadata['provider']}")
-        print(f"- effective model: {llm_metadata['model']}")
-        print(f"- effective thinking.enabled: {llm_metadata['thinking_enabled']}")
-        print(f"- effective thinking.effort: {llm_metadata['reasoning_effort']}")
-        print(f"- effective max_tokens: {llm_metadata['max_tokens']}")
-        print(f"- iterations: {variant.iterations}")
-        print(f"- additional_context: {variant.additional_context or 'none'}")
+    )
+    print(f"Effective provider: {llm_metadata['provider']}")
+    print(f"Effective model: {llm_metadata['model']}")
+    print(f"Effective thinking.enabled: {llm_metadata['thinking_enabled']}")
+    print(f"Effective thinking.effort: {llm_metadata['reasoning_effort']}")
+    print(f"Effective max_tokens: {llm_metadata['max_tokens']}")
+    print(f"Iterations: {config.iterations}")
+    print(f"Additional context: {config.additional_context or 'none'}")
     print("")
     print(f"Total planned iterations: {_total_iterations(config)}")
     if dry_run:

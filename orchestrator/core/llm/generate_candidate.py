@@ -36,9 +36,6 @@ from orchestrator.storage import RunStorage
 
 LOGGER = get_logger(__name__)
 
-DEFAULT_MAX_SOURCE_CHARS = 120000
-
-
 def _configure_text_streams() -> None:
     """Make console output tolerant of Unicode on Windows consoles."""
 
@@ -80,12 +77,6 @@ def _parse_args(argv: list[str]) -> argparse.Namespace:
         "--context",
         default=None,
         help="Optional extra context to include in the optimization prompt.",
-    )
-    parser.add_argument(
-        "--max-source-chars",
-        type=int,
-        default=DEFAULT_MAX_SOURCE_CHARS,
-        help="Maximum source file size in characters.",
     )
     parser.add_argument(
         "--allowed-file",
@@ -199,21 +190,13 @@ def _write_json(path: Path, payload: dict[str, Any]) -> Path:
     return path
 
 
-def _read_source(source_path: Path, max_source_chars: int) -> str:
-    if max_source_chars <= 0:
-        raise ValueError("--max-source-chars must be greater than zero.")
+def _read_source(source_path: Path) -> str:
     if not source_path.exists():
         raise FileNotFoundError(f"Target source file not found: {source_path}")
     if not source_path.is_file():
         raise ValueError(f"Target source path is not a file: {source_path}")
 
-    source_code = source_path.read_text(encoding="utf-8")
-    if len(source_code) > max_source_chars:
-        raise ValueError(
-            f"Target source file has {len(source_code)} characters, "
-            f"which exceeds --max-source-chars={max_source_chars}."
-        )
-    return source_code
+    return source_path.read_text(encoding="utf-8")
 
 
 def _build_metadata(
@@ -611,7 +594,7 @@ def main(argv: list[str] | None = None) -> int:
         LOGGER.info("Provider/model: %s/%s", client.config.provider, client.config.model)
 
         try:
-            source_code = _read_source(source_path, args.max_source_chars)
+            source_code = _read_source(source_path)
         except (OSError, UnicodeDecodeError, ValueError) as exc:
             raise CandidateGenerationFailure("read_source", str(exc)) from exc
 

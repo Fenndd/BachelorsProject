@@ -188,10 +188,6 @@
         <tr><th>Thinking Enabled</th><td>{{ report.llm.thinking_enabled|yes_no }}</td></tr>
         <tr><th>Thinking Effort</th><td>{{ report.llm.thinking_effort|display }}</td></tr>
         <tr><th>Max Tokens</th><td>{{ report.llm.max_tokens|display }}</td></tr>
-        <tr><th>Variant ID</th><td>{{ report.llm.variant_id|display }}</td></tr>
-        <tr><th>Variant Description</th><td>{{ report.llm.variant_description|display }}</td></tr>
-
-        <tr><th>Max Source Chars</th><td>{{ report.experiment_config_details.candidate_generation_max_source_chars|display }}</td></tr>
         <tr><th>Total Iterations</th><td>{{ report.experiment.total_iterations|display }}</td></tr>
         <tr><th>Completed Iterations</th><td>{{ report.experiment.completed_iterations|display }}</td></tr>
         <tr><th>Experiment Mode</th><td>Closed-loop optimization</td></tr>

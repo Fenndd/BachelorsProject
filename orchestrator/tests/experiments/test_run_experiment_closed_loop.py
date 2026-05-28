@@ -61,15 +61,10 @@ def _config_payload(root: Path, *, iterations: int = 1) -> dict[str, Any]:
         "experiment_name": "closed loop test",
         "target_file": TARGET_FILE,
         "baseline_run_dir": str(root / "results" / "runs" / "baseline"),
-        "candidate_generation": {"max_source_chars": 1000},
-        "variants": [
-            {
-                "variant_id": "default",
-                "llm_config": "configs/llm_mock_candidate.json",
-                "iterations": iterations,
-                "additional_context": "static additional context",
-            }
-        ],
+
+        "llm_config": "configs/llm_mock_candidate.json",
+        "iterations": iterations,
+        "additional_context": "static additional context",
     }
 
 
@@ -113,31 +108,29 @@ class _ClosedLoopHarness:
         self,
         experiment_dir: Path,
         global_iteration: int,
-        variant_id: str,
-        variant_iteration: int,
         stage_name: str,
         command: list[str],
     ) -> dict[str, Any]:
         self.stage_calls.append(stage_name)
-        status = self.statuses[variant_iteration - 1]
+        status = self.statuses[global_iteration - 1]
         if stage_name == "generate_candidate":
             self.generated_commands.append(command)
-            candidate_dir = self.root / "results" / "runs" / f"candidate_{variant_iteration}"
+            candidate_dir = self.root / "results" / "runs" / f"candidate_{global_iteration}"
             candidate_dir.mkdir(parents=True, exist_ok=True)
             self.candidate_dirs.append(candidate_dir)
             if status == "generation_failed":
                 return {"exit_code": 1, "stdout": f"CANDIDATE_RUN_DIR={candidate_dir}\n", "stderr": "", "duration_seconds": 0.1}
             write_json(candidate_dir / "status.json", {"overall_status": "success"})
             candidate = _candidate_payload(expected_effect="none" if status == "no_op" else "runtime")
-            candidate["summary"] = f"candidate summary {variant_iteration}"
+            candidate["summary"] = f"candidate summary {global_iteration}"
             if status != "no_op":
                 candidate["edits"] = [
-                    {"file": TARGET_FILE, "start_line": 1, "end_line": 1, "original": "baseline", "replace": f"candidate {variant_iteration}"}
+                    {"file": TARGET_FILE, "start_line": 1, "end_line": 1, "original": "baseline", "replace": f"candidate {global_iteration}"}
                 ]
             write_json(candidate_dir / "candidate.json", candidate)
             return {"exit_code": 0, "stdout": f"CANDIDATE_RUN_DIR={candidate_dir}\n", "stderr": "", "duration_seconds": 0.1}
 
-        candidate_dir = self.root / "results" / "runs" / f"candidate_{variant_iteration}"
+        candidate_dir = self.root / "results" / "runs" / f"candidate_{global_iteration}"
         if stage_name == "materialize_candidate":
             self.materialization_commands.append(command)
             if status == "materialization_failed":
@@ -156,9 +149,9 @@ class _ClosedLoopHarness:
                     ],
                 })
                 return {"exit_code": 1, "stdout": "", "stderr": "", "duration_seconds": 0.1}
-            workspace = self.root / "workspace" / "candidates" / f"candidate_{variant_iteration}"
+            workspace = self.root / "workspace" / "candidates" / f"candidate_{global_iteration}"
             (workspace / TARGET_FILE).parent.mkdir(parents=True, exist_ok=True)
-            (workspace / TARGET_FILE).write_text(f"candidate {variant_iteration}\n", encoding="utf-8")
+            (workspace / TARGET_FILE).write_text(f"candidate {global_iteration}\n", encoding="utf-8")
             write_json(candidate_dir / "materialization.json", {
                 "overall_status": "success",
                 "workspace_path": str(workspace),
@@ -215,7 +208,7 @@ class RunExperimentClosedLoopTests(unittest.TestCase):
         original_workspace_root = env.WORKSPACE_ROOT
         original_run_stage = iteration_runner._run_stage
         original_decision = iteration_runner.evaluate_candidate_against_reference
-        original_resolve_variant_llm_config = planner._resolve_variant_llm_config
+        original_resolve_llm_config = planner._resolve_llm_config
         original_run_final_selection_report = artifacts.run_final_selection_report
         self.addCleanup(setattr, env, "REPO_ROOT", original_repo_root)
         self.addCleanup(setattr, env, "RESULTS_ROOT", original_results_root)
@@ -223,7 +216,7 @@ class RunExperimentClosedLoopTests(unittest.TestCase):
         self.addCleanup(setattr, env, "WORKSPACE_ROOT", original_workspace_root)
         self.addCleanup(setattr, iteration_runner, "_run_stage", original_run_stage)
         self.addCleanup(setattr, iteration_runner, "evaluate_candidate_against_reference", original_decision)
-        self.addCleanup(setattr, planner, "_resolve_variant_llm_config", original_resolve_variant_llm_config)
+        self.addCleanup(setattr, planner, "_resolve_llm_config", original_resolve_llm_config)
         self.addCleanup(setattr, artifacts, "run_final_selection_report", original_run_final_selection_report)
 
         env.REPO_ROOT = root
@@ -232,7 +225,7 @@ class RunExperimentClosedLoopTests(unittest.TestCase):
         env.WORKSPACE_ROOT = root / "workspace"
         iteration_runner._run_stage = harness.fake_run_stage  # type: ignore[method-assign]
         iteration_runner.evaluate_candidate_against_reference = harness.fake_decision  # type: ignore[assignment]
-        planner._resolve_variant_llm_config = lambda variant: {"provider": "mock", "model": "mock"}  # type: ignore[assignment]
+        planner._resolve_llm_config = lambda config: {"provider": "mock", "model": "mock"}  # type: ignore[assignment]
         artifacts.run_final_selection_report = _fake_final_selection_report  # type: ignore[assignment]
 
         exit_code = runner._run_experiment(config, _config_payload(root, iterations=len(statuses)))
@@ -518,23 +511,21 @@ class RunExperimentClosedLoopTests(unittest.TestCase):
         def fake_run_stage(
             experiment_dir: Path,
             global_iteration: int,
-            variant_id: str,
-            variant_iteration: int,
             stage_name: str,
             command: list[str],
         ) -> dict[str, Any]:
-            stage_calls.append((stage_name, variant_iteration))
-            candidate_dir = root / "results" / "runs" / f"candidate_{variant_iteration}"
+            stage_calls.append((stage_name, global_iteration))
+            candidate_dir = root / "results" / "runs" / f"candidate_{global_iteration}"
             if stage_name == "generate_candidate":
                 generated_commands.append(command)
                 candidate_dir.mkdir(parents=True, exist_ok=True)
                 write_json(candidate_dir / "status.json", {"overall_status": "success"})
-                if variant_iteration == 3:
+                if global_iteration == 3:
                     candidate = _candidate_payload(expected_effect="none", edits=[])
                     candidate["summary"] = "No useful change"
                 else:
-                    replacement = "ACCEPTED_VALUE" if variant_iteration == 1 else "SLOWER_VALUE"
-                    original = "BASELINE_VALUE" if variant_iteration == 1 else "ACCEPTED_VALUE"
+                    replacement = "ACCEPTED_VALUE" if global_iteration == 1 else "SLOWER_VALUE"
+                    original = "BASELINE_VALUE" if global_iteration == 1 else "ACCEPTED_VALUE"
                     candidate = _candidate_payload(
                         edits=[
                             {
@@ -551,15 +542,15 @@ class RunExperimentClosedLoopTests(unittest.TestCase):
                 return {"exit_code": 0, "stdout": f"CANDIDATE_RUN_DIR={candidate_dir}\n", "stderr": "", "duration_seconds": 0.1}
 
             if stage_name == "materialize_candidate":
-                replacement = "ACCEPTED_VALUE" if variant_iteration == 1 else "SLOWER_VALUE"
-                workspace = root / "workspace" / "candidates" / f"candidate_{variant_iteration}"
+                replacement = "ACCEPTED_VALUE" if global_iteration == 1 else "SLOWER_VALUE"
+                workspace = root / "workspace" / "candidates" / f"candidate_{global_iteration}"
                 (workspace / TARGET_FILE).parent.mkdir(parents=True, exist_ok=True)
                 (workspace / TARGET_FILE).write_text(f"{replacement}\n", encoding="utf-8")
                 write_json(candidate_dir / "materialization.json", {"overall_status": "success", "workspace_path": str(workspace), "changed_files": [TARGET_FILE]})
                 return {"exit_code": 0, "stdout": "", "stderr": "", "duration_seconds": 0.1}
 
             if stage_name == "verify_candidate":
-                runtime = 800.0 if variant_iteration == 1 else 900.0
+                runtime = 800.0 if global_iteration == 1 else 900.0
                 write_json(candidate_dir / "verification.json", {"overall_status": "success", **make_benchmark_payload(runtime)})
                 return {"exit_code": 0, "stdout": "", "stderr": "", "duration_seconds": 0.1}
 
@@ -586,13 +577,13 @@ class RunExperimentClosedLoopTests(unittest.TestCase):
             "WORKSPACE_ROOT": env.WORKSPACE_ROOT,
             "_run_stage": iteration_runner._run_stage,
             "evaluate_candidate_against_reference": iteration_runner.evaluate_candidate_against_reference,
-            "_resolve_variant_llm_config": planner._resolve_variant_llm_config,
+            "_resolve_llm_config": planner._resolve_llm_config,
             "run_final_selection_report": artifacts.run_final_selection_report,
         }
         for name, value in originals.items():
             target_mod = env if name in ("REPO_ROOT", "RESULTS_ROOT", "EXPERIMENTS_ROOT", "WORKSPACE_ROOT") else (
                 iteration_runner if name in ("_run_stage", "evaluate_candidate_against_reference") else (
-                    planner if name == "_resolve_variant_llm_config" else artifacts
+                    planner if name == "_resolve_llm_config" else artifacts
                 )
             )
             self.addCleanup(setattr, target_mod, name, value)
@@ -602,7 +593,7 @@ class RunExperimentClosedLoopTests(unittest.TestCase):
         env.WORKSPACE_ROOT = root / "workspace"
         iteration_runner._run_stage = fake_run_stage  # type: ignore[assignment]
         iteration_runner.evaluate_candidate_against_reference = fake_decision  # type: ignore[assignment]
-        planner._resolve_variant_llm_config = lambda variant: {"provider": "mock", "model": "mock"}  # type: ignore[assignment]
+        planner._resolve_llm_config = lambda config: {"provider": "mock", "model": "mock"}  # type: ignore[assignment]
         artifacts.run_final_selection_report = _fake_final_selection_report  # type: ignore[assignment]
 
         exit_code = runner._run_experiment(config, _config_payload(root, iterations=3))

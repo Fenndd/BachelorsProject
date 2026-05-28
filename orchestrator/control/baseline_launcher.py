@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import os
+import subprocess
 import sys
+import threading
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
@@ -88,6 +90,8 @@ def run_baseline(
     on_stdout: Callable[[str], None] | None = None,
     on_stderr: Callable[[str], None] | None = None,
     solver_id: str | None = None,
+    cancel_event: threading.Event | None = None,
+    on_process_started: Callable[[subprocess.Popen], None] | None = None,
 ) -> BaselineRunResult:
     paths = get_project_paths(repo_root)
     command = build_baseline_command(solver_id)
@@ -112,6 +116,8 @@ def run_baseline(
             env=env,
             on_stdout=on_stdout,
             on_stderr=on_stderr,
+            cancel_event=cancel_event,
+            on_process_started=on_process_started,
         )
     except ProcessLaunchError as exc:
         return BaselineRunResult(

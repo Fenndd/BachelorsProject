@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from textual.app import ComposeResult
-from textual.containers import Horizontal, VerticalScroll
+from textual.containers import Horizontal, Vertical
 from textual.screen import Screen
 from textual.widgets import Button, Footer, Header, RichLog, Static
 
@@ -14,10 +14,10 @@ from orchestrator.tui.debug_log import write_tui_debug
 def _status_display(status: ActiveRunStatus) -> str:
     display: dict[ActiveRunStatus, str] = {
         "starting": "[yellow]starting[/yellow]",
-        "running": "[bold green]running[/bold green]",
-        "succeeded": "[bold #22c55e]succeeded[/bold #22c55e]",
-        "failed": "[bold red]failed[/bold red]",
-        "cancelled": "[bold #f59e0b]cancelled[/bold #f59e0b]",
+        "running": "[bold #2563eb]running[/bold #2563eb]",
+        "succeeded": "[bold #15803d]succeeded[/bold #15803d]",
+        "failed": "[bold #b91c1c]failed[/bold #b91c1c]",
+        "cancelled": "[bold #6b7280]cancelled[/bold #6b7280]",
     }
     return display.get(status, status)
 
@@ -25,15 +25,26 @@ def _status_display(status: ActiveRunStatus) -> str:
 def _format_status(run: ActiveRun) -> str:
     items: list[str] = [
         f"Run: {run.run_id}",
-        f"Config: {run.config_path.name}",
-        f"Mode: {'dry-run' if run.dry_run else 'real run'}",
-        f"Status: {_status_display(run.status)}",
-        f"Started: {run.started_at.strftime('%Y-%m-%d %H:%M:%S') if run.started_at else '-'}",
+        f"Kind: {run.kind}",
     ]
+    if run.kind == "baseline":
+        items.append("Config: baseline")
+        items.append("Mode: baseline")
+    else:
+        items.append(f"Config: {run.config_path.name}")
+        items.append(f"Mode: {'dry-run' if run.dry_run else 'real run'}")
+    items.append(f"Status: {_status_display(run.status)}")
+    items.append(
+        f"Started: {run.started_at.strftime('%Y-%m-%d %H:%M:%S') if run.started_at else '-'}"
+    )
     if run.finished_at is not None:
-        items.append(f"Finished: {run.finished_at.strftime('%Y-%m-%d %H:%M:%S')}")
+        items.append(
+            f"Finished: {run.finished_at.strftime('%Y-%m-%d %H:%M:%S')}"
+        )
     if run.exit_code is not None:
         items.append(f"Exit code: {run.exit_code}")
+    if run.latest_result_dir is not None:
+        items.append(f"Result dir: {run.latest_result_dir}")
     if run.latest_experiment_dir is not None:
         items.append(f"Experiment dir: {run.latest_experiment_dir}")
     if run.message:
@@ -42,31 +53,6 @@ def _format_status(run: ActiveRun) -> str:
 
 
 class ActiveRunScreen(Screen[None]):
-    DEFAULT_CSS = """
-    #run-status {
-        height: 10;
-        min-height: 10;
-        margin-bottom: 1;
-    }
-
-    #run-log {
-        height: 1fr;
-        min-height: 8;
-        margin-bottom: 1;
-    }
-
-    .run-action-row {
-        layout: grid;
-        grid-size: 2;
-        grid-gutter: 1;
-        margin-top: 1;
-    }
-
-    .run-action-button {
-        width: 100%;
-        height: 3;
-    }
-    """
     BINDINGS = [("escape", "request_back", "Back")]
 
     def __init__(self, run_id: str) -> None:
@@ -81,7 +67,7 @@ class ActiveRunScreen(Screen[None]):
 
     def compose(self) -> ComposeResult:
         yield Header()
-        with VerticalScroll(id="main"):
+        with Vertical(id="main"):
             yield Static(f"Run: {self._run_id}", classes="title")
             yield Static("", id="run-status", classes="panel")
             yield RichLog(
@@ -101,7 +87,6 @@ class ActiveRunScreen(Screen[None]):
                 yield Button(
                     "Back",
                     id="back",
-                    variant="primary",
                     classes="run-action-button",
                 )
         yield Footer()

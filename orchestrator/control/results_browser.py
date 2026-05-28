@@ -11,7 +11,7 @@ from typing import Any, Literal
 from .project_paths import get_project_paths, resolve_project_path
 
 
-ResultKind = Literal["run", "experiment"]
+ResultKind = Literal["baseline", "candidate", "experiment"]
 
 _ITERATION_DIR_RE = re.compile(r"^it_\d+$")
 
@@ -182,14 +182,18 @@ def _experiment_artifacts(path: Path) -> ResultArtifactMap:
     )
 
 
-def _read_run_item(path: Path) -> ResultItem:
+def _is_candidate_run_dir(path: Path) -> bool:
+    return (path / "candidate.json").exists()
+
+
+def _read_run_item(path: Path, kind: Literal["baseline", "candidate"] | None = None) -> ResultItem:
     read_errors: list[str] = []
     artifacts = _run_artifacts(path)
     metadata = _read_json(path / "metadata.json", read_errors)
     status_payload = _read_json(path / "status.json", read_errors)
     _read_json(path / "metrics.json", read_errors)
     return ResultItem(
-        kind="run",
+        kind=kind or ("candidate" if _is_candidate_run_dir(path) else "baseline"),
         name=path.name,
         path=path,
         modified_time=path.stat().st_mtime,
@@ -271,7 +275,7 @@ def _looks_like_experiment_group(path: Path) -> bool:
 
 def _read_nested_run_item(raw: ResultItem, group_name: str) -> ResultItem:
     return ResultItem(
-        kind=raw.kind,
+        kind="candidate",
         name=f"{group_name}/{raw.name}",
         path=raw.path,
         modified_time=raw.modified_time,
@@ -302,7 +306,7 @@ def list_run_items(repo_root: Path | None = None) -> list[ResultItem]:
                 if not subentry.is_dir() or not _looks_like_run_dir(subentry):
                     continue
                 try:
-                    raw = _read_run_item(subentry)
+                    raw = _read_run_item(subentry, kind="candidate")
                 except (OSError, json.JSONDecodeError):
                     continue
                 items.append(_read_nested_run_item(raw, group_name))
@@ -349,7 +353,14 @@ def _item_for_path(path: Path, repo_root: Path | None = None) -> ResultItem | No
             if _looks_like_experiment_group(resolved):
                 return None
             if _looks_like_run_dir(resolved):
-                return _read_run_item(resolved)
+                try:
+                    relative = resolved.relative_to(paths.result_runs.resolve())
+                except ValueError:
+                    relative = Path()
+                kind: Literal["baseline", "candidate"] | None = None
+                if len(relative.parts) >= 2 and _ITERATION_DIR_RE.match(relative.name):
+                    kind = "candidate"
+                return _read_run_item(resolved, kind=kind)
     except ValueError:
         pass
     try:

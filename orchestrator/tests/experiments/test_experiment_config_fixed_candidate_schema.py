@@ -22,14 +22,9 @@ def _base_config_payload() -> dict[str, Any]:
         "experiment_name": "candidate config test",
         "target_file": "cpp/external/lambdatwist/p3p.cc",
         "baseline_run_dir": "results/runs/baseline",
-        "candidate_generation": {"max_source_chars": 1000},
-        "variants": [
-            {
-                "variant_id": "default",
-                "llm_config": "configs/llm_mock_candidate.json",
-                "iterations": 1,
-            }
-        ],
+
+        "llm_config": "configs/llm_mock_candidate.json",
+        "iterations": 1,
     }
 
 
@@ -71,19 +66,6 @@ class ExperimentConfigFixedCandidateSchemaTests(unittest.TestCase):
                 load_experiment_config(_write_config(Path(tmpdir), payload))
 
         self.assertIn("baseline_run_dir", str(ctx.exception))
-
-    def test_closed_loop_with_multiple_variants_fails_clearly(self) -> None:
-        with tempfile.TemporaryDirectory() as tmpdir:
-            payload = _base_config_payload()
-            payload["variants"] = [
-                {"variant_id": "a", "llm_config": "configs/llm_mock_candidate.json", "iterations": 1},
-                {"variant_id": "b", "llm_config": "configs/llm_mock_candidate.json", "iterations": 1},
-            ]
-
-            with self.assertRaises(ExperimentConfigError) as ctx:
-                load_experiment_config(_write_config(Path(tmpdir), payload))
-
-        self.assertIn("exactly one variant", str(ctx.exception))
 
     def test_missing_selection_defaults_gt_found_gate_disabled(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:

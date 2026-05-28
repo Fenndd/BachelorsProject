@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import json
-import re
 from pathlib import Path
 from typing import Any
 
@@ -66,6 +65,9 @@ def collect_report_data(
     config_snapshot = _safe_read_json_object(
         experiment_path / "experiment_config_snapshot.json"
     ) or {}
+    config_effective = _safe_read_json_object(
+        experiment_path / "experiment_config_effective.json"
+    ) or {}
     status_payload = _safe_read_json_object(
         experiment_path / "experiment_status.json"
     ) or {}
@@ -80,8 +82,8 @@ def collect_report_data(
     ) or {}
     final_selection = _build_final_selection(experiment_path)
 
-    # Resolve variant LLM config
-    variant_llm_config = _load_variant_llm_config(experiment_path, config_snapshot)
+    # Resolve LLM config
+    variant_llm_config = _load_resolved_llm_config(experiment_path, config_snapshot)
 
     # Load baseline metrics (dict form for benchmark config extraction too)
     baseline_metrics, baseline_raw = _load_baseline_metrics_with_raw(
@@ -145,7 +147,7 @@ def collect_report_data(
         llm=llm_info,
         llm_usage_summary=_build_llm_usage_summary(iterations),
         experiment_config_details=_build_experiment_config_details(
-            config_snapshot, experiment_path
+            config_snapshot, config_effective, experiment_path
         ),
         benchmark_config=_build_benchmark_config(baseline_raw, experiment_metadata),
         closed_loop_selection=_build_closed_loop_selection(
@@ -262,34 +264,22 @@ def _display_path(path: Any, experiment_dir: Path | None = None) -> str | None:
 # Artifact loaders
 # ---------------------------------------------------------------------------
 
-def _load_variant_llm_config(
+def _load_resolved_llm_config(
     experiment_path: Path,
     config_snapshot: dict[str, Any],
 ) -> dict[str, Any]:
-    """Load the resolved variant LLM config JSON from variant_configs/."""
+    """Load the resolved LLM config JSON."""
 
     if not config_snapshot:
         return {}
 
-    # Determine variant_id
-    variants = config_snapshot.get("variants")
-    if isinstance(variants, list) and variants:
-        variant = variants[0]
-    else:
-        variant = config_snapshot
-    variant_id = _string_or_none(variant.get("variant_id")) or "default"
-
-    # Sanitize variant_id the same way the runner does
-    sanitized = re.sub(r"[^A-Za-z0-9._-]+", "_", variant_id)
-    variant_configs_dir = experiment_path / "variant_configs"
-
-    # Try exact match first
-    exact_path = variant_configs_dir / f"{sanitized}_llm_config.json"
+    exact_path = experiment_path / "resolved_llm_config.json"
     result = _safe_read_json_object(exact_path)
     if result is not None:
         return result
 
-    # Fall back to first JSON in the directory
+    # Compatibility for older experiment artifacts that wrote a variant_configs directory.
+    variant_configs_dir = experiment_path / "variant_configs"
     if variant_configs_dir.is_dir():
         for json_file in sorted(variant_configs_dir.glob("*.json")):
             result = _safe_read_json_object(json_file)
@@ -303,25 +293,17 @@ def _build_llm_info(
     config_snapshot: dict[str, Any],
     variant_llm_config: dict[str, Any],
 ) -> ReportLlmInfo:
-    """Build ReportLlmInfo from config snapshot and variant LLM config."""
+    """Build ReportLlmInfo from config snapshot and resolved LLM config."""
 
     if not config_snapshot and not variant_llm_config:
         return ReportLlmInfo()
-
-    variants = config_snapshot.get("variants")
-    if isinstance(variants, list) and variants:
-        variant = variants[0]
-    else:
-        variant = config_snapshot
 
     thinking = variant_llm_config.get("thinking") or {}
 
     return ReportLlmInfo(
         provider=_string_or_none(variant_llm_config.get("provider")),
         model=_string_or_none(variant_llm_config.get("model")),
-        llm_config=_string_or_none(variant.get("llm_config")),
-        variant_id=_string_or_none(variant.get("variant_id")),
-        variant_description=_string_or_none(variant.get("description")),
+        llm_config=_string_or_none(config_snapshot.get("llm_config")),
         thinking_enabled=_bool_or_none(thinking.get("enabled")),
         thinking_effort=_string_or_none(thinking.get("effort")),
         max_tokens=_int_or_none(variant_llm_config.get("max_tokens")),
@@ -330,19 +312,26 @@ def _build_llm_info(
 
 def _build_experiment_config_details(
     config_snapshot: dict[str, Any],
+    config_effective: dict[str, Any],
     experiment_path: Path,
 ) -> ReportExperimentConfigDetails:
-    """Build ReportExperimentConfigDetails from config snapshot."""
+    """Build ReportExperimentConfigDetails from config snapshot and effective config."""
 
     if not config_snapshot:
         return ReportExperimentConfigDetails()
 
     sel = config_snapshot.get("selection") or {}
-    scope = config_snapshot.get("optimization_scope") or {}
     rep = config_snapshot.get("reporting") or {}
-    cg = config_snapshot.get("candidate_generation") or {}
 
-    allowed_files = scope.get("allowed_files")
+    scope_snapshot = config_snapshot.get("optimization_scope")
+    scope_effective = config_effective.get("optimization_scope")
+    allowed_files = (
+        scope_effective.get("allowed_files")
+        if isinstance(scope_effective, dict) and scope_effective.get("allowed_files")
+        else scope_snapshot.get("allowed_files")
+        if isinstance(scope_snapshot, dict)
+        else None
+    )
     reporting_formats = rep.get("formats")
 
     baseline_run_dir = _string_or_none(config_snapshot.get("baseline_run_dir"))
@@ -352,7 +341,6 @@ def _build_experiment_config_details(
 
     return ReportExperimentConfigDetails(
         description=_string_or_none(config_snapshot.get("description")),
-        candidate_generation_max_source_chars=_int_or_none(cg.get("max_source_chars")),
         baseline_run_dir=_display_path(baseline_run_dir, experiment_path)
         if baseline_run_dir
         else None,
@@ -364,7 +352,6 @@ def _build_experiment_config_details(
         if isinstance(reporting_formats, list)
         else [],
         reporting_renderer=_string_or_none(rep.get("renderer")),
-        reporting_fail_on_error=_bool_or_none(rep.get("fail_on_error")),
     )
 
 

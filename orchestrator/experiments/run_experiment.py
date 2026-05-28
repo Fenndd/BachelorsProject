@@ -53,10 +53,9 @@ def _run_closed_loop_experiment(
     config: ExperimentConfig,
     experiment_id: str,
     experiment_dir: Any,
-    llm_metadata_by_variant: dict[str, dict[str, Any]],
+    llm_metadata: dict[str, Any],
     started_at: datetime,
 ) -> dict[str, Any]:
-    variant = config.variants[0]
     baseline_run_dir = env._resolve_path(config.baseline_run_dir)
     baseline_metrics_path = baseline_run_dir / "metrics.json"
     if not baseline_metrics_path.exists():
@@ -77,7 +76,7 @@ def _run_closed_loop_experiment(
         config,
         experiment_id,
         experiment_dir,
-        llm_metadata_by_variant,
+        llm_metadata,
     )
     summary, results_state_path = artifacts.finalize_closed_loop_artifacts(
         paths=closed_loop_paths,
@@ -124,7 +123,7 @@ def _run_closed_loop_experiment(
         ),
         "started_at": started_at.isoformat(timespec="seconds"),
         "finished_at": finished_at,
-        "planned_iterations": variant.iterations,
+        "planned_iterations": config.iterations,
         "completed_iterations": len(records),
         "target_file": config.target_file,
         "baseline_run_dir": config.baseline_run_dir,
@@ -167,7 +166,7 @@ def _run_experiment(
     planner._write_effective_experiment_config(experiment_dir, config)
     env._write_experiment_metadata(experiment_dir, started_at)
     try:
-        llm_metadata_by_variant = planner._write_resolved_variant_llm_configs(
+        llm_metadata = planner._write_resolved_llm_config(
             experiment_dir,
             config,
         )
@@ -177,7 +176,7 @@ def _run_experiment(
             experiment_id,
             config,
             started_at,
-            "prepare_variant_llm_configs",
+            "prepare_llm_config",
             str(exc),
         )
         print(f"ERROR: {exc}", file=sys.stderr)
@@ -189,7 +188,6 @@ def _run_experiment(
     print(f"Experiment id: {experiment_id}")
     print(f"Experiment directory: {env._display_path(experiment_dir)}")
     print("Mode: closed-loop optimization")
-    print(f"Variant: {config.variants[0].variant_id}")
     print(f"Baseline run dir: {config.baseline_run_dir}")
     print(f"Planned iterations: {planner._total_iterations(config)}")
 
@@ -198,7 +196,7 @@ def _run_experiment(
             config,
             experiment_id,
             experiment_dir,
-            llm_metadata_by_variant,
+            llm_metadata,
             started_at,
         )
     except (ExperimentConfigError, OSError, ValueError) as exc:

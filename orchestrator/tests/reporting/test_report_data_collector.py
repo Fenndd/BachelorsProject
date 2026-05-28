@@ -823,7 +823,7 @@ def test_missing_closed_loop_iterations_raises_file_not_found(tmp_path: Path) ->
 
 
 def test_a_collector_fills_config_and_llm_fields(tmp_path: Path) -> None:
-    """Collector reads experiment_config_snapshot.json and variant LLM config."""
+    """Collector reads experiment_config_snapshot.json and resolved LLM config."""
 
     experiment_dir = _experiment_dir(tmp_path)
     write_json(experiment_dir / "closed_loop_summary.json", _summary())
@@ -835,22 +835,15 @@ def test_a_collector_fills_config_and_llm_fields(tmp_path: Path) -> None:
             "experiment_name": "My Experiment",
             "target_file": TARGET_FILE,
             "baseline_run_dir": "results/runs/baseline",
-            "variants": [
-                {
-                    "variant_id": "deepseek_pro_max",
-                    "description": "DeepSeek Pro Max variant",
-                    "llm_config": "configs/llm_deepseek_pro_max.json",
-                    "iterations": 5,
-                }
-            ],
+            "llm_config": "configs/llm_deepseek_pro_max.json",
+            "iterations": 5,
             "optimization_scope": {"allowed_files": [TARGET_FILE]},
             "reporting": {"enabled": True, "formats": ["html"], "renderer": "auto"},
-            "candidate_generation": {"max_source_chars": 32000},
         },
     )
 
     write_json(
-        experiment_dir / "variant_configs" / "deepseek_pro_max_llm_config.json",
+        experiment_dir / "resolved_llm_config.json",
         {
             "provider": "deepseek",
             "model": "deepseek-v4-pro",
@@ -868,7 +861,6 @@ def test_a_collector_fills_config_and_llm_fields(tmp_path: Path) -> None:
     assert report_data.llm.thinking_enabled is True
     assert report_data.llm.thinking_effort == "high"
     assert report_data.llm.max_tokens == 8192
-    assert report_data.llm.variant_id == "deepseek_pro_max"
 
 
 def test_b_collector_fills_benchmark_config(tmp_path: Path) -> None:

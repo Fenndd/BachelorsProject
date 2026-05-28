@@ -25,31 +25,15 @@ class ExperimentConfigError(ValueError):
 
 
 @dataclass(frozen=True)
-class CandidateGenerationConfig:
-    max_source_chars: int
-
-
-@dataclass(frozen=True)
 class ReportingConfig:
     enabled: bool = False
     formats: list[str] = field(default_factory=lambda: ["html", "pdf"])
     renderer: str = "auto"
-    fail_on_error: bool = False
 
 
 @dataclass(frozen=True)
 class SelectionPolicyConfig:
     gt_found_max_drop_points: float | None = None
-
-
-@dataclass(frozen=True)
-class ExperimentVariantConfig:
-    variant_id: str
-    description: str | None
-    llm_config: str
-    llm_overrides: dict[str, Any] | None
-    iterations: int
-    additional_context: str | None
 
 
 @dataclass(frozen=True)
@@ -71,9 +55,11 @@ class ExperimentConfig:
     description: str | None
     target_file: str
     baseline_run_dir: str
-    candidate_generation: CandidateGenerationConfig
     optimization_scope: OptimizationScopeConfig
-    variants: list[ExperimentVariantConfig]
+    llm_config: str
+    llm_overrides: dict[str, Any] | None
+    iterations: int
+    additional_context: str | None
     reporting: ReportingConfig = field(default_factory=ReportingConfig)
     selection: SelectionPolicyConfig = field(default_factory=SelectionPolicyConfig)
     solver_id: str = "lambdatwist_p3p"
@@ -148,7 +134,7 @@ def _build_experiment_config(
     )
     reporting = _load_reporting(payload)
     selection = _load_selection(payload)
-    variants = _load_variants(payload)
+    llm_config, llm_overrides, iterations, additional_context = _load_experiment_llm_fields(payload)
     baseline_run_dir = _required_non_empty_string(payload, "baseline_run_dir")
     _validate_baseline_solver_match(
         baseline_run_dir,
@@ -156,19 +142,19 @@ def _build_experiment_config(
         solver_descriptor.solver_id,
     )
 
-    _validate_single_variant(variants)
-
     return ExperimentConfig(
         experiment_name=_required_non_empty_string(payload, "experiment_name"),
         description=_optional_string(payload, "description"),
         solver_id=solver_descriptor.solver_id,
         target_file=target_file,
         baseline_run_dir=baseline_run_dir,
-        candidate_generation=_load_candidate_generation(payload),
         reporting=reporting,
         selection=selection,
         optimization_scope=optimization_scope,
-        variants=variants,
+        llm_config=llm_config,
+        llm_overrides=llm_overrides,
+        iterations=iterations,
+        additional_context=additional_context,
     )
 
 
@@ -295,18 +281,6 @@ def _load_llm_overrides(
     return parsed
 
 
-def _load_candidate_generation(payload: dict[str, Any]) -> CandidateGenerationConfig:
-    candidate_generation = payload.get("candidate_generation")
-    if not isinstance(candidate_generation, dict):
-        raise ExperimentConfigError("Field 'candidate_generation' must be an object.")
-
-    return CandidateGenerationConfig(
-        max_source_chars=_required_positive_int(
-            candidate_generation, "max_source_chars"
-        )
-    )
-
-
 def _load_reporting(payload: dict[str, Any]) -> ReportingConfig:
     reporting = payload.get("reporting")
     if reporting is None:
@@ -316,7 +290,6 @@ def _load_reporting(payload: dict[str, Any]) -> ReportingConfig:
         raise ExperimentConfigError("Field 'reporting' must be an object if present.")
 
     enabled = _required_bool(reporting, "enabled")
-    fail_on_error = _required_bool(reporting, "fail_on_error")
 
     formats_raw = reporting.get("formats")
     if not isinstance(formats_raw, list) or not formats_raw:
@@ -348,7 +321,6 @@ def _load_reporting(payload: dict[str, Any]) -> ReportingConfig:
         enabled=enabled,
         formats=formats,
         renderer=renderer,
-        fail_on_error=fail_on_error,
     )
 
 
@@ -441,48 +413,15 @@ def _string_value(value: Any) -> str | None:
     return value if isinstance(value, str) and value else None
 
 
-def _validate_single_variant(variants: list[ExperimentVariantConfig]) -> None:
-    if len(variants) != 1:
-        raise ExperimentConfigError(
-            "Closed-loop experiments currently support exactly one variant."
-        )
-
-
-def _load_variants(payload: dict[str, Any]) -> list[ExperimentVariantConfig]:
-    variants = payload.get("variants")
-    if variants is None:
-        raise ExperimentConfigError("Field 'variants' is required and must contain exactly one variant.")
-
-    if not isinstance(variants, list) or not variants:
-        raise ExperimentConfigError("Field 'variants' must be a non-empty list.")
-
-    parsed_variants: list[ExperimentVariantConfig] = []
-    seen_ids: set[str] = set()
-    for index, variant in enumerate(variants):
-        if not isinstance(variant, dict):
-            raise ExperimentConfigError(
-                f"Variant at index {index} must be an object."
-            )
-
-        variant_id = _required_non_empty_string(variant, "variant_id")
-        if variant_id in seen_ids:
-            raise ExperimentConfigError(
-                f"Variant id must be unique; duplicate variant_id: {variant_id}"
-            )
-        seen_ids.add(variant_id)
-
-        parsed_variants.append(
-            ExperimentVariantConfig(
-                variant_id=variant_id,
-                description=_optional_string(variant, "description"),
-                llm_config=_required_non_empty_string(variant, "llm_config"),
-                llm_overrides=_load_llm_overrides(variant),
-                iterations=_required_positive_int(variant, "iterations"),
-                additional_context=_optional_string(variant, "additional_context"),
-            )
-        )
-
-    return parsed_variants
+def _load_experiment_llm_fields(
+    payload: dict[str, Any],
+) -> tuple[str, dict[str, Any] | None, int, str | None]:
+    return (
+        _required_non_empty_string(payload, "llm_config"),
+        _load_llm_overrides(payload),
+        _required_positive_int(payload, "iterations"),
+        _optional_string(payload, "additional_context"),
+    )
 
 
 def _load_optimization_scope(
@@ -492,8 +431,8 @@ def _load_optimization_scope(
 ) -> OptimizationScopeConfig:
     """Load and validate the optional optimization_scope block.
 
-    If the key is absent, create a default scope containing only target_file
-    for backward compatibility.
+    If the key is absent, derive scope from solver default_allowed_files,
+    falling back to target_file.
     """
     scope_raw = payload.get("optimization_scope")
     if scope_raw is None:
@@ -536,7 +475,6 @@ def _load_optimization_scope(
 def experiment_config_to_payload(config: ExperimentConfig) -> dict[str, Any]:
     """Convert an :class:`ExperimentConfig` to a JSON-serializable dict."""
     reporting = config.reporting
-    variant = config.variants[0]
 
     payload: dict[str, Any] = {
         "experiment_name": config.experiment_name,
@@ -544,31 +482,18 @@ def experiment_config_to_payload(config: ExperimentConfig) -> dict[str, Any]:
         "solver_id": config.solver_id,
         "target_file": config.target_file,
         "baseline_run_dir": config.baseline_run_dir,
-        "candidate_generation": {
-            "max_source_chars": config.candidate_generation.max_source_chars,
-        },
-        "optimization_scope": {
-            "allowed_files": list(config.optimization_scope.allowed_files),
-        },
         "reporting": {
             "enabled": reporting.enabled,
             "formats": list(reporting.formats),
             "renderer": reporting.renderer,
-            "fail_on_error": reporting.fail_on_error,
         },
         "selection": {
             "gt_found_max_drop_points": config.selection.gt_found_max_drop_points,
         },
-        "variants": [
-            {
-                "variant_id": variant.variant_id,
-                "description": variant.description,
-                "llm_config": variant.llm_config,
-                "llm_overrides": variant.llm_overrides,
-                "iterations": variant.iterations,
-                "additional_context": variant.additional_context,
-            }
-        ],
+        "llm_config": config.llm_config,
+        "llm_overrides": config.llm_overrides,
+        "iterations": config.iterations,
+        "additional_context": config.additional_context,
     }
     return payload
 
