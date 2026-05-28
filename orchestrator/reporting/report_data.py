@@ -234,13 +234,11 @@ class ReportLlmUsageSummary:
 
 @dataclass
 class ReportLlmInfo:
-    """LLM and variant configuration used in the experiment."""
+    """LLM configuration used in the experiment."""
 
     provider: str | None = None
     model: str | None = None
     llm_config: str | None = None
-    variant_id: str | None = None
-    variant_description: str | None = None
     thinking_enabled: bool | None = None
     thinking_effort: str | None = None
     max_tokens: int | None = None

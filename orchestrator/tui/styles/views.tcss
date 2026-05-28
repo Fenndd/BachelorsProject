@@ -81,6 +81,10 @@
 
 #results-filter-panel {
     height: auto;
+    margin-bottom: 1;
+    padding: 0;
+    border: none;
+    background: #ffffff;
 }
 
 #filter-row Input {
@@ -99,9 +103,13 @@ DataTable {
     color: #1f2937;
 }
 
-#results-table {
-    height: 9fr;
-    min-height: 6;
+#results-table-panel {
+    height: 15;
+    min-height: 12;
+    padding: 0 1;
+    margin-bottom: 1;
+    background: #ffffff;
+    border: solid #d6d8de;
 }
 
 DataTable > .datatable--header {
@@ -117,7 +125,7 @@ DataTable > .datatable--cursor {
 /* ---- Results view: summary and status ---- */
 
 #result-summary-panel {
-    height: 13fr;
+    height: 50;
     min-height: 20;
     padding: 1 2;
 }
@@ -182,9 +190,24 @@ DataTable > .datatable--cursor {
     padding: 0 1;
 }
 
-#build-errors {
+#config-builder-status {
     height: 6;
     min-height: 4;
+}
+
+#config-builder-summary {
+    height: auto;
+    min-height: 8;
+    padding: 1 2;
+    margin-bottom: 1;
+}
+
+.builder-section-title {
+    margin-top: 1;
+}
+
+.helper-text {
+    margin-bottom: 1;
 }
 
 #builder-buttons,
@@ -196,6 +219,10 @@ DataTable > .datatable--cursor {
 
 .builder-button {
     width: 1fr;
+}
+
+#builder-form TextArea {
+    height: 8;
 }
 
 /* ---- Active run live log screen ---- */

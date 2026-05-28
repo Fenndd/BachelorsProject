@@ -33,7 +33,6 @@ def _write_early_failure_artifacts(
     failed_step: str,
     error_message: str,
 ) -> None:
-    variant = config.variants[0]
     status = {
         "experiment_id": experiment_id,
         "experiment_name": config.experiment_name,
@@ -50,19 +49,16 @@ def _write_early_failure_artifacts(
         "verification_successes": 0,
         "target_file": config.target_file,
         "baseline_run_dir": config.baseline_run_dir,
-        "variants": [
-            {
-                "variant_id": variant.variant_id,
-                "planned_iterations": variant.iterations,
-                "base_llm_config": variant.llm_config,
-                "resolved_llm_config": None,
-                "provider": None,
-                "model": None,
-                "thinking_enabled": None,
-                "reasoning_effort": None,
-                "max_tokens": None,
-            }
-        ],
+        "llm": {
+            "planned_iterations": config.iterations,
+            "base_llm_config": config.llm_config,
+            "resolved_llm_config": None,
+            "provider": None,
+            "model": None,
+            "thinking_enabled": None,
+            "reasoning_effort": None,
+            "max_tokens": None,
+        },
     }
     status_finished_at = status.get("finished_at")
     env._write_experiment_metadata(

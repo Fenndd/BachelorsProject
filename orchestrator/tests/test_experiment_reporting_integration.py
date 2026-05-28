@@ -34,13 +34,8 @@ def _base_config_payload(
         "target_file": TARGET_FILE,
         "baseline_run_dir": str(root / "results" / "runs" / "baseline"),
         "candidate_generation": {"max_source_chars": 1000},
-        "variants": [
-            {
-                "variant_id": "default",
-                "llm_config": "configs/llm_mock_candidate.json",
-                "iterations": 1,
-            }
-        ],
+        "llm_config": "configs/llm_mock_candidate.json",
+        "iterations": 1,
     }
     if reporting is not None:
         payload["reporting"] = reporting
@@ -71,8 +66,8 @@ def _patch_runner_roots(monkeypatch: pytest.MonkeyPatch, root: Path) -> None:
     monkeypatch.setattr(env, "WORKSPACE_ROOT", root / "workspace")
     monkeypatch.setattr(
         planner,
-        "_resolve_variant_llm_config",
-        lambda variant: {"provider": "mock", "model": "mock"},
+        "_resolve_llm_config",
+        lambda config: {"provider": "mock", "model": "mock"},
     )
     monkeypatch.setattr(artifacts, "run_final_selection_report", _fake_final_selection_report)
 
@@ -104,14 +99,12 @@ def _patch_noop_closed_loop_stage(monkeypatch: pytest.MonkeyPatch, root: Path) -
     def fake_run_stage(
         experiment_dir: Path,
         global_iteration: int,
-        variant_id: str,
-        variant_iteration: int,
         stage_name: str,
         command: list[str],
     ) -> dict[str, Any]:
         if stage_name != "generate_candidate":
             raise AssertionError(f"Unexpected stage for no-op candidate: {stage_name}")
-        candidate_dir = root / "results" / "runs" / f"candidate_{variant_iteration}"
+        candidate_dir = root / "results" / "runs" / f"candidate_{global_iteration}"
         candidate_dir.mkdir(parents=True, exist_ok=True)
         write_json(candidate_dir / "status.json", {"overall_status": "success"})
         write_json(

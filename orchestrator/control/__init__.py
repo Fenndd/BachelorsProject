@@ -21,6 +21,15 @@ from .experiment_configs import (
     list_experiment_config_summaries,
     read_experiment_config_summary,
 )
+from .config_builder_options import (
+    ConfigBuilderSolverOption,
+    discover_baseline_runs,
+    discover_llm_configs,
+    discover_local_configs,
+    discover_template_configs,
+    list_config_builder_solver_options,
+    safe_config_stem,
+)
 from .experiment_launcher import (
     ExperimentRunResult,
     build_experiment_command,
@@ -52,6 +61,7 @@ from .workspace_manager import (
 
 __all__ = [
     "BaselineRunResult",
+    "ConfigBuilderSolverOption",
     "CleanupResult",
     "EnvironmentSummary",
     "EnvVarSpec",
@@ -80,12 +90,17 @@ __all__ = [
     "get_project_paths",
     "get_workspace_status",
     "list_experiment_items",
+    "discover_baseline_runs",
+    "discover_llm_configs",
+    "discover_local_configs",
+    "discover_template_configs",
     "load_environment",
     "mask_secret",
     "list_experiment_config_paths",
     "list_experiment_config_summaries",
     "list_result_items",
     "list_run_items",
+    "list_config_builder_solver_options",
     "list_solver_manifest_options",
     "open_path",
     "read_project_status",
@@ -96,4 +111,5 @@ __all__ = [
     "run_experiment_control",
     "run_streaming_command",
     "summarize_environment",
+    "safe_config_stem",
 ]

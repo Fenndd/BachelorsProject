@@ -206,7 +206,7 @@ class ResultsView(Widget):
                     "Read-only navigation for saved run and experiment artifacts.",
                     classes="subtitle",
                 )
-                with Vertical(id="results-filter-panel", classes="panel"):
+                with Vertical(id="results-filter-panel"):
                     with Horizontal(id="filter-row"):
                         yield Input(placeholder="Filter by name...", id="name-filter")
                         yield Select(
@@ -216,7 +216,8 @@ class ResultsView(Widget):
                             id="kind-filter",
                             allow_blank=False,
                         )
-                yield DataTable(id="results-table", cursor_type="row")
+                with Vertical(id="results-table-panel", classes="panel"):
+                    yield DataTable(id="results-table", cursor_type="row")
                 with VerticalScroll(id="result-summary-panel", classes="panel"):
                     yield Static("No item selected.", id="result-summary-text")
                 yield Static("Status: idle", id="results-status", classes="panel")

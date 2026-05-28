@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import json
-import re
 from pathlib import Path
 from typing import Any
 
@@ -80,8 +79,8 @@ def collect_report_data(
     ) or {}
     final_selection = _build_final_selection(experiment_path)
 
-    # Resolve variant LLM config
-    variant_llm_config = _load_variant_llm_config(experiment_path, config_snapshot)
+    # Resolve LLM config
+    variant_llm_config = _load_resolved_llm_config(experiment_path, config_snapshot)
 
     # Load baseline metrics (dict form for benchmark config extraction too)
     baseline_metrics, baseline_raw = _load_baseline_metrics_with_raw(
@@ -262,34 +261,22 @@ def _display_path(path: Any, experiment_dir: Path | None = None) -> str | None:
 # Artifact loaders
 # ---------------------------------------------------------------------------
 
-def _load_variant_llm_config(
+def _load_resolved_llm_config(
     experiment_path: Path,
     config_snapshot: dict[str, Any],
 ) -> dict[str, Any]:
-    """Load the resolved variant LLM config JSON from variant_configs/."""
+    """Load the resolved LLM config JSON."""
 
     if not config_snapshot:
         return {}
 
-    # Determine variant_id
-    variants = config_snapshot.get("variants")
-    if isinstance(variants, list) and variants:
-        variant = variants[0]
-    else:
-        variant = config_snapshot
-    variant_id = _string_or_none(variant.get("variant_id")) or "default"
-
-    # Sanitize variant_id the same way the runner does
-    sanitized = re.sub(r"[^A-Za-z0-9._-]+", "_", variant_id)
-    variant_configs_dir = experiment_path / "variant_configs"
-
-    # Try exact match first
-    exact_path = variant_configs_dir / f"{sanitized}_llm_config.json"
+    exact_path = experiment_path / "resolved_llm_config.json"
     result = _safe_read_json_object(exact_path)
     if result is not None:
         return result
 
-    # Fall back to first JSON in the directory
+    # Compatibility for older experiment artifacts that wrote a variant_configs directory.
+    variant_configs_dir = experiment_path / "variant_configs"
     if variant_configs_dir.is_dir():
         for json_file in sorted(variant_configs_dir.glob("*.json")):
             result = _safe_read_json_object(json_file)
@@ -303,16 +290,13 @@ def _build_llm_info(
     config_snapshot: dict[str, Any],
     variant_llm_config: dict[str, Any],
 ) -> ReportLlmInfo:
-    """Build ReportLlmInfo from config snapshot and variant LLM config."""
+    """Build ReportLlmInfo from config snapshot and resolved LLM config."""
 
     if not config_snapshot and not variant_llm_config:
         return ReportLlmInfo()
 
     variants = config_snapshot.get("variants")
-    if isinstance(variants, list) and variants:
-        variant = variants[0]
-    else:
-        variant = config_snapshot
+    variant = variants[0] if isinstance(variants, list) and variants and isinstance(variants[0], dict) and "llm_config" not in config_snapshot else config_snapshot
 
     thinking = variant_llm_config.get("thinking") or {}
 
@@ -320,8 +304,6 @@ def _build_llm_info(
         provider=_string_or_none(variant_llm_config.get("provider")),
         model=_string_or_none(variant_llm_config.get("model")),
         llm_config=_string_or_none(variant.get("llm_config")),
-        variant_id=_string_or_none(variant.get("variant_id")),
-        variant_description=_string_or_none(variant.get("description")),
         thinking_enabled=_bool_or_none(thinking.get("enabled")),
         thinking_effort=_string_or_none(thinking.get("effort")),
         max_tokens=_int_or_none(variant_llm_config.get("max_tokens")),

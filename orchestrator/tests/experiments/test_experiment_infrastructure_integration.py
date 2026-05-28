@@ -32,8 +32,6 @@ def test_run_stage_preserves_return_shape_and_stage_log(tmp_path: Path) -> None:
     result = iteration_runner._run_stage(
         experiment_dir,
         7,
-        "variant_a",
-        3,
         "generate_candidate",
         command,
     )
@@ -48,8 +46,6 @@ def test_run_stage_preserves_return_shape_and_stage_log(tmp_path: Path) -> None:
     assert log_path.exists()
     log_text = log_path.read_text(encoding="utf-8")
     assert "GLOBAL_ITERATION: 7" in log_text
-    assert "VARIANT_ID: variant_a" in log_text
-    assert "VARIANT_ITERATION: 3" in log_text
     assert "STAGE: generate_candidate" in log_text
     assert "EXIT_CODE: 0" in log_text
     assert "stage stdout" in log_text

@@ -107,8 +107,6 @@ def _build_verification_command(candidate_run_dir: str, config: ExperimentConfig
 def _write_stage_log(
     log_path: Path,
     global_iteration: int,
-    variant_id: str,
-    variant_iteration: int,
     stage_name: str,
     command: Sequence[str],
     cwd: Path,
@@ -119,8 +117,6 @@ def _write_stage_log(
 ) -> None:
     lines = [
         f"GLOBAL_ITERATION: {global_iteration}",
-        f"VARIANT_ID: {variant_id}",
-        f"VARIANT_ITERATION: {variant_iteration}",
         f"STAGE: {stage_name}",
         f"COMMAND: {format_command(command)}",
         f"CWD: {cwd}",
@@ -141,8 +137,6 @@ def _write_stage_log(
 def _run_stage(
     experiment_dir: Path,
     global_iteration: int,
-    variant_id: str,
-    variant_iteration: int,
     stage_name: str,
     command: Sequence[str],
 ) -> dict[str, Any]:
@@ -161,8 +155,6 @@ def _run_stage(
     _write_stage_log(
         log_path,
         global_iteration,
-        variant_id,
-        variant_iteration,
         stage_name,
         command,
         env.REPO_ROOT,
@@ -659,10 +651,8 @@ def run_closed_loop_iterations(
     config: ExperimentConfig,
     experiment_id: str,
     experiment_dir: Path,
-    llm_metadata_by_variant: dict[str, dict[str, Any]],
+    llm_metadata: dict[str, Any],
 ) -> tuple[ClosedLoopPaths, CurrentBestState, list[ClosedLoopIterationRecord], str]:
-    variant = config.variants[0]
-    llm_metadata = llm_metadata_by_variant[variant.variant_id]
     baseline_run_dir = env._resolve_path(config.baseline_run_dir)
     decision_thresholds = CandidateDecisionThresholds(
         gt_found_max_drop_points=config.selection.gt_found_max_drop_points,
@@ -677,9 +667,9 @@ def run_closed_loop_iterations(
     print("Closed-loop mode: enabled")
     print(f"Current best source: {env._display_path(closed_loop_paths.current_best_source_dir)}")
 
-    for iteration in range(1, variant.iterations + 1):
+    for iteration in range(1, config.iterations + 1):
         iteration_started = time.perf_counter()
-        print(f"\nClosed-loop iteration {iteration}/{variant.iterations}")
+        print(f"\nClosed-loop iteration {iteration}/{config.iterations}")
         reference_best_iteration_before = state.current_best_iteration
         reference_run_dir_before = state.current_best_run_dir
         reference_kind = "baseline" if state.current_best_is_baseline else "verified_candidate"
@@ -700,14 +690,12 @@ def run_closed_loop_iterations(
             closed_loop_history_context,
         )
         generation_context = _combine_closed_loop_context(
-            variant.additional_context,
+            config.additional_context,
             closed_loop_history_context,
         )
 
         generation_result = _run_stage(
             experiment_dir,
-            iteration,
-            variant.variant_id,
             iteration,
             "generate_candidate",
             _build_generation_command(
@@ -810,8 +798,6 @@ def run_closed_loop_iterations(
         materialization_result = _run_stage(
             experiment_dir,
             iteration,
-            variant.variant_id,
-            iteration,
             "materialize_candidate",
             _build_materialization_command(
                 str(candidate_run_dir),
@@ -857,8 +843,6 @@ def run_closed_loop_iterations(
 
         verification_result = _run_stage(
             experiment_dir,
-            iteration,
-            variant.variant_id,
             iteration,
             "verify_candidate",
             _build_verification_command(str(candidate_run_dir), config),

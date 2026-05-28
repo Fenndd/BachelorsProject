@@ -26,7 +26,6 @@ class ExperimentConfigSummary:
     description: str | None
     target_file: str | None
     solver_id: str | None
-    variants_count: int | None
     total_iterations: int | None
     baseline_run_dir: str | None
     reporting_enabled: bool | None
@@ -76,24 +75,22 @@ def _append_unique(values: list[str], value: object) -> None:
 def _provider_models_from_payload(payload: dict[str, Any], config_path: Path) -> tuple[list[str], list[str]]:
     providers: list[str] = []
     models: list[str] = []
+    source = payload
     variants = payload.get("variants")
-    if not isinstance(variants, list) or not variants:
-        return [], []
-    variant_payloads = [variant for variant in variants if isinstance(variant, dict)]
-
-    for variant in variant_payloads:
-        llm_config = _read_llm_config(
-            variant.get("llm_config") if isinstance(variant.get("llm_config"), str) else None,
-            config_path,
-        )
-        overrides = variant.get("llm_overrides")
-        provider = llm_config.get("provider")
-        model = llm_config.get("model")
-        if isinstance(overrides, dict):
-            provider = overrides.get("provider", provider)
-            model = overrides.get("model", model)
-        _append_unique(providers, provider)
-        _append_unique(models, model)
+    if "llm_config" not in payload and isinstance(variants, list) and variants and isinstance(variants[0], dict):
+        source = variants[0]
+    llm_config = _read_llm_config(
+        source.get("llm_config") if isinstance(source.get("llm_config"), str) else None,
+        config_path,
+    )
+    overrides = source.get("llm_overrides")
+    provider = llm_config.get("provider")
+    model = llm_config.get("model")
+    if isinstance(overrides, dict):
+        provider = overrides.get("provider", provider)
+        model = overrides.get("model", model)
+    _append_unique(providers, provider)
+    _append_unique(models, model)
     return providers, models
 
 
@@ -103,31 +100,28 @@ def _summary_from_payload(
     status: ConfigStatus,
     message: str | None,
 ) -> ExperimentConfigSummary:
-    variants = payload.get("variants")
-    variant_payloads = variants if isinstance(variants, list) else None
-    if variant_payloads is not None:
-        variants_count = len(variant_payloads)
-        iterations = [
-            variant.get("iterations")
-            for variant in variant_payloads
-            if isinstance(variant, dict) and isinstance(variant.get("iterations"), int)
-        ]
-        total_iterations = sum(iterations) if len(iterations) == len(variant_payloads) else None
+    iterations_raw = payload.get("iterations")
+    if isinstance(iterations_raw, int) and not isinstance(iterations_raw, bool):
+        total_iterations = iterations_raw
     else:
-        variants_count = None
-        total_iterations = None
+        variants = payload.get("variants")
+        if isinstance(variants, list) and len(variants) == 1 and isinstance(variants[0], dict):
+            legacy_iterations = variants[0].get("iterations")
+            total_iterations = legacy_iterations if isinstance(legacy_iterations, int) else None
+        else:
+            total_iterations = None
 
     reporting = payload.get("reporting")
     solver_id_raw = payload.get("solver_id")
     solver_id = solver_id_raw if isinstance(solver_id_raw, str) and solver_id_raw else None
+    name_raw = payload.get("experiment_name")
     providers, models = _provider_models_from_payload(payload, path)
     return ExperimentConfigSummary(
         path=path,
-        name=payload.get("experiment_name") if isinstance(payload.get("experiment_name"), str) else path.stem,
+        name=name_raw if isinstance(name_raw, str) else path.stem,
         description=payload.get("description") if isinstance(payload.get("description"), str) else None,
         target_file=payload.get("target_file") if isinstance(payload.get("target_file"), str) else None,
         solver_id=solver_id,
-        variants_count=variants_count,
         total_iterations=total_iterations,
         baseline_run_dir=payload.get("baseline_run_dir") if isinstance(payload.get("baseline_run_dir"), str) else None,
         reporting_enabled=reporting.get("enabled") if isinstance(reporting, dict) and isinstance(reporting.get("enabled"), bool) else False,
@@ -150,8 +144,7 @@ def read_experiment_config_summary(path: Path) -> ExperimentConfigSummary:
             description=config.description,
             target_file=config.target_file,
             solver_id=config.solver_id,
-            variants_count=len(config.variants),
-            total_iterations=sum(variant.iterations for variant in config.variants),
+            total_iterations=config.iterations,
             baseline_run_dir=config.baseline_run_dir,
             reporting_enabled=config.reporting.enabled,
             providers=providers,
@@ -169,7 +162,6 @@ def read_experiment_config_summary(path: Path) -> ExperimentConfigSummary:
                 description=None,
                 target_file=None,
                 solver_id=None,
-                variants_count=None,
                 total_iterations=None,
                 baseline_run_dir=None,
                 reporting_enabled=None,

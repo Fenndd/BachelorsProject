@@ -1,10 +1,14 @@
 {
   "experiment_name": "basic_deepseek_flash_10iter",
   "description": "10-iteration closed-loop P3P optimization experiment using DeepSeek Flash with line-range edits and HTML report generation.",
+  "solver_id": "lambdatwist_p3p",
   "target_file": "cpp/external/lambdatwist/p3p.cc",
   "baseline_run_dir": "results/runs/2026-05-26_06-45-15_baseline",
   "candidate_generation": {"max_source_chars": 120000},
   "reporting": {"enabled": true, "formats": ["html"], "renderer": "auto", "fail_on_error": false},
-  "optimization_scope": {"allowed_files": ["cpp/external/lambdatwist/p3p.cc"]},
-  "variants": [{"variant_id": "deepseek_flash", "description": "DeepSeek Flash closed-loop P3P optimization, 10 iterations.", "llm_config": "configs/llm_deepseek_flash.json", "llm_overrides": null, "iterations": 10, "additional_context": "Optimize only cpp/external/lambdatwist/p3p.cc. The source shown to you is the current best accepted version for this closed-loop experiment, not necessarily the original baseline. Prefer one small, local, low-risk C++ performance improvement per iteration. Preserve numerical behavior, solver API, output semantics, includes, benchmark compatibility, root-selection logic, degeneracy handling, and Eigen aliasing safety. Do not change tests, benchmark code, adapters, CMake files, configs, docs, or orchestrator code. The original field in each edit must exactly match the numbered source lines without line-number prefixes. If no safe new improvement is available, return a no-op candidate with expected_effect=\"none\" and edits=[]."}]
+  "selection": {"gt_found_max_drop_points": null},
+  "llm_config": "configs/llm_deepseek_flash.json",
+  "llm_overrides": null,
+  "iterations": 10,
+  "additional_context": "Optimize only cpp/external/lambdatwist/p3p.cc. The source shown to you is the current best accepted version for this closed-loop experiment, not necessarily the original baseline. Prefer one small, local, low-risk C++ performance improvement per iteration. Preserve numerical behavior, solver API, output semantics, includes, benchmark compatibility, root-selection logic, degeneracy handling, and Eigen aliasing safety. Do not change tests, benchmark code, adapters, CMake files, configs, docs, or orchestrator code. The original field in each edit must exactly match the numbered source lines without line-number prefixes. If no safe new improvement is available, return a no-op candidate with expected_effect=\"none\" and edits=[]."
 }
