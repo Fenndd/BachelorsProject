@@ -249,13 +249,11 @@ class ReportExperimentConfigDetails:
     """Raw experiment config snapshot fields surfaced in the report."""
 
     description: str | None = None
-    candidate_generation_max_source_chars: int | None = None
     baseline_run_dir: str | None = None
     optimization_scope_allowed_files: list[str] = field(default_factory=list)
     reporting_enabled: bool | None = None
     reporting_formats: list[str] = field(default_factory=list)
     reporting_renderer: str | None = None
-    reporting_fail_on_error: bool | None = None
 
 
 @dataclass

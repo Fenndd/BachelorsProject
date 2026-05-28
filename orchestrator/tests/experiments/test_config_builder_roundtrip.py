@@ -10,7 +10,6 @@ import pytest
 pytestmark = pytest.mark.unit
 
 from orchestrator.experiments.experiment_config import (
-    CandidateGenerationConfig,
     ExperimentConfig,
     OptimizationScopeConfig,
     ReportingConfig,
@@ -31,9 +30,8 @@ def _make_poselib_config(
         solver_id="poselib_p3p",
         target_file="cpp/external/poselib/PoseLib/solvers/p3p.cc",
         baseline_run_dir="results/runs/test_baseline",
-        candidate_generation=CandidateGenerationConfig(max_source_chars=120000),
         optimization_scope=OptimizationScopeConfig(allowed_files=["cpp/external/poselib/PoseLib/solvers/p3p.cc"]),
-        reporting=ReportingConfig(enabled=True, formats=["html"], renderer="auto", fail_on_error=False),
+        reporting=ReportingConfig(enabled=True, formats=["html"], renderer="auto"),
         selection=SelectionPolicyConfig(gt_found_max_drop_points=gt_found_max_drop_points),
         llm_config="configs/llm_deepseek_flash.json",
         llm_overrides=llm_overrides,
@@ -109,7 +107,6 @@ class TestPayloadTopLevelKeys:
             "solver_id",
             "target_file",
             "baseline_run_dir",
-            "candidate_generation",
             "reporting",
             "selection",
             "llm_config",
@@ -139,7 +136,6 @@ class TestFullRoundtripStrictEquivalence:
         assert loaded.solver_id == "poselib_p3p"
         assert loaded.target_file == "cpp/external/poselib/PoseLib/solvers/p3p.cc"
         assert loaded.baseline_run_dir == "results/runs/test_baseline"
-        assert loaded.candidate_generation.max_source_chars == 120000
         assert loaded.optimization_scope.allowed_files == ["cpp/external/poselib/PoseLib/solvers/p3p.cc"]
         assert loaded.reporting.formats == ["html"]
         assert loaded.selection.gt_found_max_drop_points == 1.0

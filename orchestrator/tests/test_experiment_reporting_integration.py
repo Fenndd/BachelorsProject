@@ -33,7 +33,7 @@ def _base_config_payload(
         "experiment_name": "reporting integration test",
         "target_file": TARGET_FILE,
         "baseline_run_dir": str(root / "results" / "runs" / "baseline"),
-        "candidate_generation": {"max_source_chars": 1000},
+
         "llm_config": "configs/llm_mock_candidate.json",
         "iterations": 1,
     }
@@ -154,7 +154,6 @@ def test_reporting_config_defaults_when_block_absent(tmp_path: Path) -> None:
     assert config.reporting.enabled is False
     assert config.reporting.formats == ["html", "pdf"]
     assert config.reporting.renderer == "auto"
-    assert config.reporting.fail_on_error is False
 
 
 def test_final_selection_report_runs_after_finalization_before_reporting(
@@ -273,7 +272,6 @@ def test_valid_reporting_config_loads_and_deduplicates_formats(tmp_path: Path) -
                 "enabled": True,
                 "formats": ["html", "pdf", "html"],
                 "renderer": "playwright",
-                "fail_on_error": True,
             },
         ),
     )
@@ -281,7 +279,6 @@ def test_valid_reporting_config_loads_and_deduplicates_formats(tmp_path: Path) -
     assert config.reporting.enabled is True
     assert config.reporting.formats == ["html", "pdf"]
     assert config.reporting.renderer == "playwright"
-    assert config.reporting.fail_on_error is True
 
 
 @pytest.mark.parametrize(
@@ -292,7 +289,6 @@ def test_valid_reporting_config_loads_and_deduplicates_formats(tmp_path: Path) -
                 "enabled": True,
                 "formats": ["docx"],
                 "renderer": "auto",
-                "fail_on_error": False,
             },
             "formats",
         ),
@@ -301,7 +297,6 @@ def test_valid_reporting_config_loads_and_deduplicates_formats(tmp_path: Path) -
                 "enabled": True,
                 "formats": ["html"],
                 "renderer": "wkhtmltopdf",
-                "fail_on_error": False,
             },
             "renderer",
         ),
@@ -310,18 +305,8 @@ def test_valid_reporting_config_loads_and_deduplicates_formats(tmp_path: Path) -
                 "enabled": "true",
                 "formats": ["html"],
                 "renderer": "auto",
-                "fail_on_error": False,
             },
             "enabled",
-        ),
-        (
-            {
-                "enabled": True,
-                "formats": ["html"],
-                "renderer": "auto",
-                "fail_on_error": "false",
-            },
-            "fail_on_error",
         ),
     ],
 )
@@ -371,7 +356,6 @@ def test_enabled_reporting_runs_after_final_closed_loop_artifacts_exist(
             "enabled": True,
             "formats": ["html"],
             "renderer": "auto",
-            "fail_on_error": False,
         },
     )
 
@@ -399,7 +383,6 @@ def test_final_report_includes_final_experiment_metadata(
             "enabled": True,
             "formats": ["html"],
             "renderer": "auto",
-            "fail_on_error": False,
         },
     )
 
@@ -470,7 +453,6 @@ def test_reporting_failure_is_recorded_when_not_fail_on_error(
             "enabled": True,
             "formats": ["html", "pdf"],
             "renderer": "auto",
-            "fail_on_error": False,
         },
     )
 
@@ -481,29 +463,6 @@ def test_reporting_failure_is_recorded_when_not_fail_on_error(
         encoding="utf-8"
     )
 
-
-def test_reporting_failure_propagates_when_fail_on_error(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    def fail_generate_basic_report(*args: object, **kwargs: object) -> dict[str, Path]:
-        raise RuntimeError("hard reporting failure")
-
-    monkeypatch.setattr(artifacts, "generate_basic_report",
-        fail_generate_basic_report,
-    )
-
-    with pytest.raises(RuntimeError, match="hard reporting failure"):
-        _run_noop_closed_loop_experiment(
-            tmp_path,
-            monkeypatch,
-            reporting={
-                "enabled": True,
-                "formats": ["html"],
-                "renderer": "auto",
-                "fail_on_error": True,
-            },
-        )
 
 
 def test_reporting_integration_preserves_closed_loop_inputs_and_writes_under_report(
@@ -538,7 +497,6 @@ def test_reporting_integration_preserves_closed_loop_inputs_and_writes_under_rep
             "enabled": True,
             "formats": ["html"],
             "renderer": "auto",
-            "fail_on_error": False,
         },
     )
     summary_path = experiment_dir / "closed_loop_summary.json"
@@ -556,7 +514,6 @@ def test_reporting_integration_preserves_closed_loop_inputs_and_writes_under_rep
                 "enabled": True,
                 "formats": ["html"],
                 "renderer": "auto",
-                "fail_on_error": False,
             },
         ),
     ))

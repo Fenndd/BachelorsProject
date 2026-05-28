@@ -61,7 +61,7 @@ def _config_payload(root: Path, *, iterations: int = 1) -> dict[str, Any]:
         "experiment_name": "closed loop test",
         "target_file": TARGET_FILE,
         "baseline_run_dir": str(root / "results" / "runs" / "baseline"),
-        "candidate_generation": {"max_source_chars": 1000},
+
         "llm_config": "configs/llm_mock_candidate.json",
         "iterations": iterations,
         "additional_context": "static additional context",

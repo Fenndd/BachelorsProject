@@ -55,8 +55,6 @@ def _build_generation_command(
         llm_config_path,
         "--source",
         config.target_file,
-        "--max-source-chars",
-        str(config.candidate_generation.max_source_chars),
     ]
     if source_root is not None:
         command.extend(["--source-root", source_root])

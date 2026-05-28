@@ -78,15 +78,12 @@ def _write_resolved_llm_config(
 
 
 def _print_plan(config: ExperimentConfig, dry_run: bool) -> None:
-    candidate_generation = config.candidate_generation
-
     print("Experiment dry run" if dry_run else "Experiment plan")
     print(f"Experiment name: {config.experiment_name}")
     print(f"Description: {config.description or 'none'}")
     print(f"Target file: {config.target_file}")
     print("Mode: closed-loop optimization")
     print(f"Baseline run dir: {config.baseline_run_dir}")
-    print(f"Max source chars: {candidate_generation.max_source_chars}")
     print(
         f"Optimization scope allowed files: "
         f"{config.optimization_scope.allowed_files}"

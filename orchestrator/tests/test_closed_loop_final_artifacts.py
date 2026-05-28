@@ -20,7 +20,6 @@ from orchestrator.experiments.closed_loop_state import (
     write_current_best_state,
 )
 from orchestrator.experiments.experiment_config import (
-    CandidateGenerationConfig,
     ExperimentConfig,
     OptimizationScopeConfig,
 )
@@ -33,7 +32,7 @@ def _config(iterations: int = 2) -> ExperimentConfig:
         description=None,
         target_file=TARGET_FILE,
         baseline_run_dir="results/runs/baseline",
-        candidate_generation=CandidateGenerationConfig(max_source_chars=1000),
+
         optimization_scope=OptimizationScopeConfig(allowed_files=[TARGET_FILE]),
         llm_config="configs/llm_mock_candidate.json",
         llm_overrides=None,

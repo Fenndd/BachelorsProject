@@ -11,7 +11,6 @@ pytestmark = pytest.mark.integration
 
 from orchestrator.control.experiment_configs import list_experiment_config_paths
 from orchestrator.experiments.experiment_config import (
-    CandidateGenerationConfig,
     ExperimentConfig,
     OptimizationScopeConfig,
     ReportingConfig,
@@ -29,9 +28,8 @@ def _make_full_config() -> ExperimentConfig:
         solver_id="lambdatwist_p3p",
         target_file="cpp/external/lambdatwist/p3p.cc",
         baseline_run_dir="results/runs/test_baseline",
-        candidate_generation=CandidateGenerationConfig(max_source_chars=50000),
         optimization_scope=OptimizationScopeConfig(allowed_files=["cpp/external/lambdatwist/p3p.cc"]),
-        reporting=ReportingConfig(enabled=True, formats=["html", "pdf"], renderer="auto", fail_on_error=False),
+        reporting=ReportingConfig(enabled=True, formats=["html", "pdf"], renderer="auto"),
         selection=SelectionPolicyConfig(gt_found_max_drop_points=2.5),
         llm_config="configs/llm_deepseek.json",
         llm_overrides={
@@ -51,7 +49,6 @@ def _make_minimal_config() -> ExperimentConfig:
         solver_id="lambdatwist_p3p",
         target_file="cpp/external/lambdatwist/p3p.cc",
         baseline_run_dir="results/runs/test_baseline",
-        candidate_generation=CandidateGenerationConfig(max_source_chars=10000),
         optimization_scope=OptimizationScopeConfig(allowed_files=["cpp/external/lambdatwist/p3p.cc"]),
         reporting=ReportingConfig(),
         llm_config="configs/llm_mock.json",
@@ -72,7 +69,6 @@ class TestDumpLoadRoundtrip:
         assert loaded.description == "A full test experiment"
         assert loaded.target_file == "cpp/external/lambdatwist/p3p.cc"
         assert loaded.baseline_run_dir == "results/runs/test_baseline"
-        assert loaded.candidate_generation.max_source_chars == 50000
         assert loaded.optimization_scope.allowed_files == ["cpp/external/lambdatwist/p3p.cc"]
         assert loaded.reporting.formats == ["html", "pdf"]
         assert loaded.selection.gt_found_max_drop_points == 2.5
@@ -113,7 +109,6 @@ class TestDumpLoadRoundtrip:
             "experiment_name",
             "target_file",
             "baseline_run_dir",
-            "candidate_generation",
             "reporting",
             "selection",
             "llm_config",
@@ -146,7 +141,6 @@ class TestDumpLoadRoundtrip:
                     "experiment_name": "legacy",
                     "target_file": "cpp/external/lambdatwist/p3p.cc",
                     "baseline_run_dir": "results/runs/baseline",
-                    "candidate_generation": {"max_source_chars": 120000},
                     "variants": [
                         {
                             "variant_id": "ignored",
@@ -181,16 +175,6 @@ class TestConfigDiscovery:
 
         names = {p.name for p in list_experiment_config_paths(root)}
         assert "test_a.json" in names
-
-    def test_list_includes_templates(self, tmp_path: Path) -> None:
-        root = tmp_path / "repo"
-        (root / ".git").mkdir(parents=True, exist_ok=True)
-        tmpl_dir = root / "configs" / "experiments" / "templates"
-        tmpl_dir.mkdir(parents=True, exist_ok=True)
-        (tmpl_dir / "sample.template.json").write_text("{}", encoding="utf-8")
-
-        names = {p.name for p in list_experiment_config_paths(root)}
-        assert "sample.template.json" in names
 
     def test_list_includes_local(self, tmp_path: Path) -> None:
         root = tmp_path / "repo"

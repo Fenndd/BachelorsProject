@@ -11,7 +11,7 @@ from textual.app import ComposeResult
 from textual.containers import Horizontal, VerticalScroll
 from textual.screen import ModalScreen
 from textual.widget import Widget
-from textual.widgets import Button, Input, ListItem, ListView, RichLog, Select, Static, Switch, TextArea
+from textual.widgets import Button, Checkbox, Input, ListItem, ListView, RichLog, Select, Static, Switch, TextArea
 
 from orchestrator.control import (
     ConfigBuilderSolverOption,
@@ -59,6 +59,23 @@ class ConfigFilePickerScreen(ModalScreen[Path | None]):
     #config-file-list {
         height: 1fr;
         margin-bottom: 1;
+        background: #374151;
+    }
+    #config-file-list ListItem {
+        background: #374151;
+        color: #f1f5f9;
+    }
+    #config-file-list ListItem > Static {
+        background: #374151;
+        color: #f1f5f9;
+    }
+    #config-file-list ListItem.-highlight {
+        background: #2563eb;
+        color: #ffffff;
+    }
+    #config-file-list ListItem.-highlight > Static {
+        background: #2563eb;
+        color: #ffffff;
     }
     """
 
@@ -121,7 +138,7 @@ class ConfigBuilderView(Widget):
             yield Static("Create one LLM optimization config and save it to configs/experiments/local/.", classes="subtitle")
 
             with VerticalScroll(id="builder-form"):
-                yield Static("Basic experiment", classes="title builder-section-title")
+                yield Static("1. Basic", classes="title builder-section-title")
                 yield Static("Experiment name", classes="field-label")
                 yield Input(placeholder="experiment_name", id="experiment_name", classes="field-widget")
                 yield Static("Description", classes="field-label")
@@ -134,37 +151,33 @@ class ConfigBuilderView(Widget):
                 yield Static("Baseline run", classes="field-label")
                 yield Static("Baseline runs are filtered by selected algorithm.", classes="subtitle helper-text")
                 yield Select(self._baseline_select_options(), id="baseline_run_sel", classes="field-widget")
-                yield Input(placeholder="results/runs/... (custom path)", id="baseline_run_dir", classes="field-widget")
                 yield Static("Iterations", classes="field-label")
                 yield Input(value="3", placeholder="iterations", id="iterations", classes="field-widget")
-                yield Static("Max source chars", classes="field-label")
-                yield Input(value="120000", placeholder="max_source_chars", id="max_source_chars", classes="field-widget")
 
-                yield Static("LLM", classes="title builder-section-title")
+                yield Static("2. LLM", classes="title builder-section-title")
                 yield Static("LLM config", classes="field-label")
                 yield Select(self._llm_select_options(), id="llm_config", classes="field-widget")
                 yield Static("Additional context", classes="field-label")
                 yield TextArea(DEFAULT_ADDITIONAL_CONTEXT, id="additional_context", classes="field-widget")
 
-                yield Static("Advanced", classes="title builder-section-title")
+                yield Static("3. Advanced", classes="title builder-section-title")
                 yield Static("Reporting", classes="field-label")
-                with Horizontal(id="reporting-format-row", classes="field-widget"):
-                    yield Static("HTML:")
-                    yield Switch(id="reporting_html", value=True)
-                    yield Static(" PDF:")
-                    yield Switch(id="reporting_pdf", value=False)
+                yield Static("HTML:", classes="field-label")
+                yield Checkbox("", value=True, id="reporting_html", classes="field-widget")
+                yield Static("PDF:", classes="field-label")
                 yield Select(
-                    [("auto", "auto"), ("weasyprint", "weasyprint"), ("playwright", "playwright")],
-                    value="auto",
-                    id="reporting_renderer",
+                    [
+                        ("disabled", "disabled"),
+                        ("weasyprint", "weasyprint: less accurate"),
+                        ("playwright", "playwright: Chromium-based, more accurate"),
+                    ],
+                    value="disabled",
+                    id="reporting_pdf_renderer",
                     classes="field-widget",
                 )
-                with Horizontal(id="reporting-fail-row", classes="field-widget"):
-                    yield Static("fail_on_error:")
-                    yield Switch(id="reporting_fail_on_error", value=False)
 
                 yield Static("Selection parameters", classes="field-label")
-                yield Static("gt_found_max_drop_points is currently the only supported selection parameter.", classes="subtitle helper-text")
+                yield Static("gt_found_max_drop_points: optional maximum allowed drop in ground-truth pose found percentage. Empty means no extra drop limit.", classes="subtitle helper-text")
                 yield Input(placeholder="empty = null, e.g. 0.5", id="gt_found_max_drop_points", classes="field-widget")
 
                 yield Static("LLM overrides", classes="field-label")
@@ -235,7 +248,7 @@ class ConfigBuilderView(Widget):
         if event.select.id == "algorithm":
             self._apply_solver_defaults(log=True)
             return
-        if event.select.id in {"baseline_run_sel", "llm_config", "reporting_renderer", "thinking_effort"}:
+        if event.select.id in {"baseline_run_sel", "llm_config", "reporting_pdf_renderer", "thinking_effort"}:
             self._update_summary()
 
     def on_input_changed(self, event: Input.Changed) -> None:
@@ -273,10 +286,7 @@ class ConfigBuilderView(Widget):
         return [("-- select LLM config --", ""), *self._llm_configs]
 
     def _baseline_select_options(self) -> list[tuple[str, str]]:
-        options = self._baseline_runs[:]
-        if options and options[-1][1] != "":
-            options.append(("-- custom path --", "__custom__"))
-        return options
+        return self._baseline_runs[:]
 
     def _selected_solver_option(self) -> ConfigBuilderSolverOption | None:
         solver_id = self._select_value("algorithm")
@@ -333,10 +343,7 @@ class ConfigBuilderView(Widget):
         return self.query_one(f"#{widget_id}", TextArea).text
 
     def _get_baseline_run_dir(self) -> str:
-        selected = self._select_value("baseline_run_sel")
-        if selected and selected != "__custom__":
-            return selected
-        return self._input_value("baseline_run_dir")
+        return self._select_value("baseline_run_sel")
 
     def _parse_selection_gt_drop(self) -> float | None:
         raw = self._input_value("gt_found_max_drop_points")
@@ -369,18 +376,26 @@ class ConfigBuilderView(Widget):
         return value
 
     def _build_payload(self) -> dict[str, Any]:
-        formats: list[str] = []
-        if self.query_one("#reporting_html", Switch).value:
-            formats.append("html")
-        if self.query_one("#reporting_pdf", Switch).value:
-            formats.append("pdf")
-        reporting_enabled = bool(formats)
-        if not reporting_enabled:
-            formats = ["html"]
+        html_enabled = bool(self.query_one("#reporting_html", Checkbox).value)
+        pdf_renderer = self._select_value("reporting_pdf_renderer")
+        pdf_enabled = pdf_renderer not in ("", "disabled")
 
-        renderer = self._select_value("reporting_renderer")
-        if renderer not in {"auto", "weasyprint", "playwright"}:
+        if html_enabled and pdf_enabled:
+            formats = ["html", "pdf"]
+            renderer = pdf_renderer
+            reporting_enabled = True
+        elif html_enabled:
+            formats = ["html"]
             renderer = "auto"
+            reporting_enabled = True
+        elif pdf_enabled:
+            formats = ["pdf"]
+            renderer = pdf_renderer
+            reporting_enabled = True
+        else:
+            formats = ["html"]
+            renderer = "auto"
+            reporting_enabled = False
 
         llm_overrides: dict[str, Any] = {}
         provider = self._input_value("llm_provider_override")
@@ -404,9 +419,6 @@ class ConfigBuilderView(Widget):
         iterations = self._parse_optional_positive_int(self._input_value("iterations"), "iterations")
         if iterations is None:
             raise ExperimentConfigError("Field 'iterations' is required and must be a positive integer.")
-        max_source_chars = self._parse_optional_positive_int(self._input_value("max_source_chars"), "max_source_chars")
-        if max_source_chars is None:
-            raise ExperimentConfigError("Field 'max_source_chars' is required and must be a positive integer.")
 
         return {
             "experiment_name": self._input_value("experiment_name"),
@@ -414,12 +426,10 @@ class ConfigBuilderView(Widget):
             "solver_id": self._select_value("algorithm") or None,
             "target_file": self._input_value("target_file"),
             "baseline_run_dir": self._get_baseline_run_dir(),
-            "candidate_generation": {"max_source_chars": max_source_chars},
             "reporting": {
                 "enabled": reporting_enabled,
                 "formats": formats,
                 "renderer": renderer,
-                "fail_on_error": bool(self.query_one("#reporting_fail_on_error", Switch).value),
             },
             "selection": {"gt_found_max_drop_points": self._parse_selection_gt_drop()},
             "llm_config": self._select_value("llm_config"),
@@ -468,15 +478,11 @@ class ConfigBuilderView(Widget):
         self._set_input("experiment_name", "")
         self._set_input("description", "")
         self._set_select("algorithm", self._default_solver_id() or "")
-        self._set_input("baseline_run_dir", "")
         self._set_input("iterations", "3")
-        self._set_input("max_source_chars", "120000")
         self._set_select("llm_config", "")
         self._set_textarea("additional_context", DEFAULT_ADDITIONAL_CONTEXT)
-        self.query_one("#reporting_html", Switch).value = True
-        self.query_one("#reporting_pdf", Switch).value = False
-        self._set_select("reporting_renderer", "auto")
-        self.query_one("#reporting_fail_on_error", Switch).value = False
+        self.query_one("#reporting_html", Checkbox).value = True
+        self._set_select("reporting_pdf_renderer", "disabled")
         self._set_input("gt_found_max_drop_points", "")
         self._set_input("llm_provider_override", "")
         self._set_input("llm_model_override", "")
@@ -527,24 +533,19 @@ class ConfigBuilderView(Widget):
             if isinstance(solver_id, str) and solver_id:
                 self._set_select("algorithm", solver_id)
             self._set_input("target_file", str(payload.get("target_file", "")))
-            self._set_input("baseline_run_dir", str(payload.get("baseline_run_dir", "")))
-            cg = payload.get("candidate_generation")
-            if isinstance(cg, dict):
-                self._set_input("max_source_chars", str(cg.get("max_source_chars", "120000")))
             reporting = payload.get("reporting")
             if isinstance(reporting, dict):
-                formats = reporting.get("formats")
-                if reporting.get("enabled") is False:
-                    self.query_one("#reporting_html", Switch).value = False
-                    self.query_one("#reporting_pdf", Switch).value = False
-                elif isinstance(formats, list):
-                    self.query_one("#reporting_html", Switch).value = "html" in formats
-                    self.query_one("#reporting_pdf", Switch).value = "pdf" in formats
-                renderer = reporting.get("renderer")
-                if isinstance(renderer, str):
-                    self._set_select("reporting_renderer", renderer)
-                if isinstance(reporting.get("fail_on_error"), bool):
-                    self.query_one("#reporting_fail_on_error", Switch).value = reporting["fail_on_error"]
+                fmt_list = reporting.get("formats")
+                if isinstance(fmt_list, list):
+                    self.query_one("#reporting_html", Checkbox).value = "html" in fmt_list
+                    if "pdf" in fmt_list:
+                        renderer = reporting.get("renderer")
+                        self._set_select("reporting_pdf_renderer", renderer if isinstance(renderer, str) and renderer in ("weasyprint", "playwright") else "disabled")
+                    else:
+                        self._set_select("reporting_pdf_renderer", "disabled")
+                elif reporting.get("enabled") is False:
+                    self.query_one("#reporting_html", Checkbox).value = False
+                    self._set_select("reporting_pdf_renderer", "disabled")
             selection = payload.get("selection")
             if isinstance(selection, dict):
                 gt_drop = selection.get("gt_found_max_drop_points")

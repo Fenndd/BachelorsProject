@@ -22,7 +22,7 @@ def _base_config_payload() -> dict[str, Any]:
         "experiment_name": "candidate config test",
         "target_file": "cpp/external/lambdatwist/p3p.cc",
         "baseline_run_dir": "results/runs/baseline",
-        "candidate_generation": {"max_source_chars": 1000},
+
         "llm_config": "configs/llm_mock_candidate.json",
         "iterations": 1,
     }

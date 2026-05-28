@@ -25,16 +25,10 @@ class ExperimentConfigError(ValueError):
 
 
 @dataclass(frozen=True)
-class CandidateGenerationConfig:
-    max_source_chars: int
-
-
-@dataclass(frozen=True)
 class ReportingConfig:
     enabled: bool = False
     formats: list[str] = field(default_factory=lambda: ["html", "pdf"])
     renderer: str = "auto"
-    fail_on_error: bool = False
 
 
 @dataclass(frozen=True)
@@ -61,7 +55,6 @@ class ExperimentConfig:
     description: str | None
     target_file: str
     baseline_run_dir: str
-    candidate_generation: CandidateGenerationConfig
     optimization_scope: OptimizationScopeConfig
     llm_config: str
     llm_overrides: dict[str, Any] | None
@@ -155,7 +148,6 @@ def _build_experiment_config(
         solver_id=solver_descriptor.solver_id,
         target_file=target_file,
         baseline_run_dir=baseline_run_dir,
-        candidate_generation=_load_candidate_generation(payload),
         reporting=reporting,
         selection=selection,
         optimization_scope=optimization_scope,
@@ -289,18 +281,6 @@ def _load_llm_overrides(
     return parsed
 
 
-def _load_candidate_generation(payload: dict[str, Any]) -> CandidateGenerationConfig:
-    candidate_generation = payload.get("candidate_generation")
-    if not isinstance(candidate_generation, dict):
-        raise ExperimentConfigError("Field 'candidate_generation' must be an object.")
-
-    return CandidateGenerationConfig(
-        max_source_chars=_required_positive_int(
-            candidate_generation, "max_source_chars"
-        )
-    )
-
-
 def _load_reporting(payload: dict[str, Any]) -> ReportingConfig:
     reporting = payload.get("reporting")
     if reporting is None:
@@ -310,7 +290,6 @@ def _load_reporting(payload: dict[str, Any]) -> ReportingConfig:
         raise ExperimentConfigError("Field 'reporting' must be an object if present.")
 
     enabled = _required_bool(reporting, "enabled")
-    fail_on_error = _required_bool(reporting, "fail_on_error")
 
     formats_raw = reporting.get("formats")
     if not isinstance(formats_raw, list) or not formats_raw:
@@ -342,7 +321,6 @@ def _load_reporting(payload: dict[str, Any]) -> ReportingConfig:
         enabled=enabled,
         formats=formats,
         renderer=renderer,
-        fail_on_error=fail_on_error,
     )
 
 
@@ -522,14 +500,10 @@ def experiment_config_to_payload(config: ExperimentConfig) -> dict[str, Any]:
         "solver_id": config.solver_id,
         "target_file": config.target_file,
         "baseline_run_dir": config.baseline_run_dir,
-        "candidate_generation": {
-            "max_source_chars": config.candidate_generation.max_source_chars,
-        },
         "reporting": {
             "enabled": reporting.enabled,
             "formats": list(reporting.formats),
             "renderer": reporting.renderer,
-            "fail_on_error": reporting.fail_on_error,
         },
         "selection": {
             "gt_found_max_drop_points": config.selection.gt_found_max_drop_points,

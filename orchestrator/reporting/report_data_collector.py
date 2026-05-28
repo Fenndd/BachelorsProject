@@ -334,7 +334,6 @@ def _build_experiment_config_details(
 
     return ReportExperimentConfigDetails(
         description=_string_or_none(config_snapshot.get("description")),
-        candidate_generation_max_source_chars=_int_or_none(cg.get("max_source_chars")),
         baseline_run_dir=_display_path(baseline_run_dir, experiment_path)
         if baseline_run_dir
         else None,
@@ -346,7 +345,6 @@ def _build_experiment_config_details(
         if isinstance(reporting_formats, list)
         else [],
         reporting_renderer=_string_or_none(rep.get("renderer")),
-        reporting_fail_on_error=_bool_or_none(rep.get("fail_on_error")),
     )
 
 

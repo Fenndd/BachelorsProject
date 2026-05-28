@@ -1,7 +1,6 @@
 """Experiment configuration helpers."""
 
 from .experiment_config import (
-    CandidateGenerationConfig,
     ExperimentConfig,
     ExperimentConfigError,
     dump_experiment_config,
@@ -10,7 +9,6 @@ from .experiment_config import (
 )
 
 __all__ = [
-    "CandidateGenerationConfig",
     "ExperimentConfig",
     "ExperimentConfigError",
     "dump_experiment_config",

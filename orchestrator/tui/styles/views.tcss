@@ -33,7 +33,7 @@
 
 #results-actions {
     layout: grid;
-    grid-size: 2;
+    grid-size: 3;
     grid-gutter: 1;
 }
 
@@ -204,6 +204,9 @@ DataTable > .datatable--cursor {
 
 .builder-section-title {
     margin-top: 1;
+    height: 3;
+    padding-top: 1;
+    text-style: bold;
 }
 
 .helper-text {
@@ -223,6 +226,10 @@ DataTable > .datatable--cursor {
 
 #builder-form TextArea {
     height: 8;
+}
+
+#reporting_html {
+    width: 10;
 }
 
 /* ---- Active run live log screen ---- */

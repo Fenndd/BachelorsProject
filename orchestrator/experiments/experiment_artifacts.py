@@ -478,8 +478,6 @@ def _run_final_reporting(
             renderer=config.reporting.renderer,
         )
     except Exception as exc:
-        if config.reporting.fail_on_error:
-            raise
         return _reporting_status_failed(config, exc)
 
     return _reporting_status_completed(config, artifacts)

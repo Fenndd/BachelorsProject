@@ -30,12 +30,9 @@ configs/experiments/
 | Algorithm (`solver_id`) | Select | Solver to optimize, populated from manifests. |
 | `target_file` | Input | Repo-relative path of the source file the LLM will edit. |
 | `optimization_scope.allowed_files` | TextArea | One file path per line; the LLM may only touch these files. |
-| `baseline_run_dir` | Select / Input | Select a completed baseline run or type a custom path. |
-| `candidate_generation.max_source_chars` | Input | Maximum source characters sent to the LLM (default 120000). |
-| `reporting.enabled` | Switch | Enable/disable reporting (controls HTML + PDF switches). |
-| `reporting.formats` | Switches | HTML and PDF toggles. |
-| `reporting.renderer` | Select | PDF renderer: `auto`, `weasyprint`, or `playwright`. |
-| `reporting.fail_on_error` | Switch | Whether report generation errors should fail the experiment. |
+| `baseline_run_dir` | Select | Select a completed baseline run. |
+| `reporting.enabled` | Switch | Enable/disable reporting (controls HTML switch + PDF select). |
+| `reporting.formats` | HTML Switch + PDF Select | Toggle HTML report generation and select PDF renderer (`auto`, `weasyprint`, or `playwright`). |
 | `selection.gt_found_max_drop_points` | Input | Optional correctness gate (see below). |
 | `variant_id` | Input | Variant identifier (auto-generated if empty). |
 | `llm_config` | Select | LLM config file under `configs/`. |
@@ -93,15 +90,13 @@ default.
   "solver_id": "poselib_p3p",
   "target_file": "cpp/external/poselib/PoseLib/solvers/p3p.cc",
   "baseline_run_dir": "results/runs/2026-01-01_12-00-00_baseline",
-  "candidate_generation": {"max_source_chars": 120000},
   "optimization_scope": {
     "allowed_files": ["cpp/external/poselib/PoseLib/solvers/p3p.cc"]
   },
   "reporting": {
     "enabled": true,
     "formats": ["html"],
-    "renderer": "auto",
-    "fail_on_error": false
+    "renderer": "auto"
   },
   "selection": {"gt_found_max_drop_points": null},
   "variants": [

@@ -224,6 +224,7 @@ class ResultsView(Widget):
                 with Horizontal(classes="actions", id="results-actions"):
                     yield Button("Open Dir", id="open-directory", variant="primary")
                     yield Button("Summary", id="open-summary")
+                    yield Button("Open Report", id="open-report")
 
     def on_mount(self) -> None:
         self._all_items = list_result_items()
@@ -319,6 +320,8 @@ class ResultsView(Widget):
         if selected is not None:
             self._selected_key = (selected.path, selected.name)
         self.query_one("#result-summary-text", Static).update(_format_item(selected))
+        report_button = self.query_one("#open-report", Button)
+        report_button.disabled = selected is None or selected.kind != "experiment"
 
     def _set_status(self, message: str) -> None:
         self.query_one("#results-status", Static).update(f"Status: {message}")
@@ -343,6 +346,25 @@ class ResultsView(Widget):
             self._set_status(str(exc))
             return
         self._set_status(f"opened {path}")
+
+    def _open_report(self) -> None:
+        item = self._selected_item()
+        if item is None:
+            self._set_status("no result selected")
+            return
+        if item.kind != "experiment":
+            self._set_status("report available only for experiments")
+            return
+        report_html = item.artifacts.report_html
+        if report_html is None:
+            self._set_status("report.html does not exist for this experiment.")
+            return
+        try:
+            open_path(report_html)
+        except OpenArtifactError as exc:
+            self._set_status(str(exc))
+            return
+        self._set_status(f"opened {report_html}")
 
     # ------------------------------------------------------------------
     # Event handlers
@@ -369,4 +391,7 @@ class ResultsView(Widget):
             return
         if button_id == "open-summary":
             self._open_artifact("summary")
+            return
+        if button_id == "open-report":
+            self._open_report()
             return

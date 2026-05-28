@@ -51,16 +51,12 @@ def _make_screen(monkeypatch, tmp_path: Path, overrides: dict[str, object] | Non
         "description": SimpleNamespace(value=""),
         "algorithm": SimpleNamespace(value="lambdatwist_p3p"),
         "target_file": SimpleNamespace(value="cpp/external/lambdatwist/p3p.cc"),
-        "baseline_run_sel": SimpleNamespace(value="__custom__"),
-        "baseline_run_dir": SimpleNamespace(value="results/runs/baseline"),
+        "baseline_run_sel": SimpleNamespace(value="results/runs/baseline"),
         "iterations": SimpleNamespace(value="1"),
-        "max_source_chars": SimpleNamespace(value="120000"),
         "llm_config": SimpleNamespace(value="configs/llm_mock.json"),
         "additional_context": _FakeTextArea(""),
         "reporting_html": SimpleNamespace(value=True),
-        "reporting_pdf": SimpleNamespace(value=False),
-        "reporting_renderer": SimpleNamespace(value="auto"),
-        "reporting_fail_on_error": SimpleNamespace(value=False),
+        "reporting_pdf_renderer": SimpleNamespace(value="disabled"),
         "gt_found_max_drop_points": SimpleNamespace(value=""),
         "llm_provider_override": SimpleNamespace(value=""),
         "llm_model_override": SimpleNamespace(value=""),
@@ -99,7 +95,7 @@ def test_view_lives_in_views_package_and_screen_is_thin() -> None:
 def test_builder_visible_structure_and_removed_controls() -> None:
     source = Path(config_builder.__file__).read_text(encoding="utf-8")
 
-    for label in ("Basic experiment", "LLM", "Advanced"):
+    for label in ("1. Basic", "2. LLM", "3. Advanced"):
         assert label in source
     for label in ("Clear Form", "Validate", "Save to local/", "Load Template", "Load Local"):
         assert label in source
@@ -131,10 +127,12 @@ def test_generated_payload_uses_flat_schema(monkeypatch, tmp_path: Path) -> None
     assert "variants" not in payload
     assert "variant_id" not in json.dumps(payload)
     assert "optimization_scope" not in payload
+    assert "candidate_generation" not in payload
+    assert "fail_on_error" not in payload["reporting"]
 
 
 def test_reporting_disabled_writes_enabled_false(monkeypatch, tmp_path: Path) -> None:
-    screen, _log = _make_screen(monkeypatch, tmp_path, {"reporting_html": False, "reporting_pdf": False})
+    screen, _log = _make_screen(monkeypatch, tmp_path, {"reporting_html": False, "reporting_pdf_renderer": "disabled"})
 
     payload = screen._build_payload()
 

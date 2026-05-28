@@ -839,7 +839,6 @@ def test_a_collector_fills_config_and_llm_fields(tmp_path: Path) -> None:
             "iterations": 5,
             "optimization_scope": {"allowed_files": [TARGET_FILE]},
             "reporting": {"enabled": True, "formats": ["html"], "renderer": "auto"},
-            "candidate_generation": {"max_source_chars": 32000},
         },
     )
 

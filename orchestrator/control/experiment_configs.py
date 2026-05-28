@@ -40,9 +40,6 @@ def list_experiment_config_paths(repo_root: Path | None = None) -> list[Path]:
     if not paths.experiments_config.is_dir():
         return []
     results: list[Path] = sorted(paths.experiments_config.glob("*.json"))
-    templates_dir = paths.experiments_config / "templates"
-    if templates_dir.is_dir():
-        results.extend(sorted(templates_dir.glob("*.template.json")))
     local_dir = paths.experiments_config / "local"
     if local_dir.is_dir():
         results.extend(sorted(local_dir.glob("*.json")))
