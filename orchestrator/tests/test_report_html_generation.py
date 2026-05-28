@@ -35,21 +35,12 @@ from orchestrator.reporting import (
     make_empty_report_data,
     render_report_html,
 )
+from orchestrator.reporting.figure_builder import PLOT_FILENAMES
 
 
 from orchestrator.tests.conftest import TARGET_FILE
-EXPECTED_PLOTS = {
-    "runtime_progress": "runtime_progress.svg",
-    "runtime_reduction_by_iteration": "runtime_reduction_by_iteration.svg",
-    "correctness_metrics": "correctness_metrics.svg",
-    "status_breakdown": "status_breakdown.svg",
-    "candidate_funnel": "candidate_funnel.svg",
-    "phase_timings": "phase_timings.svg",
-    "llm_tokens_by_iteration": "llm_tokens_by_iteration.svg",
-    "llm_latency_by_iteration": "llm_latency_by_iteration.svg",
-    "failure_reason_breakdown": "failure_reason_breakdown.svg",
-    "diff_stats_by_iteration": "diff_stats_by_iteration.svg",
-}
+
+EXPECTED_PLOTS = PLOT_FILENAMES
 
 NEW_SECTION_IDS = (
     "executive-summary",
@@ -810,6 +801,51 @@ def test_appendix_contains_final_diff_area_after_iteration_outcomes(tmp_path: Pa
     assert 'id="final-code-diff"' in html
     assert 'id="artifact-map"' not in html
     assert 'id="iteration-appendix"' not in html
+
+
+def test_final_code_diff_is_visible_for_print_output(tmp_path: Path) -> None:
+    report_data = _enriched_report_data()
+    report_data.final_code_diff = "--- a/file.cc\n+++ b/file.cc\n@@ -1 +1 @@\n-old\n+new\n"
+
+    plot_paths = build_report_figures(report_data, tmp_path / "plots")
+    html_path = render_report_html(report_data, plot_paths, tmp_path / "report.html")
+    html = html_path.read_text(encoding="utf-8")
+
+    assert 'id="final-code-diff"' in html
+    assert "<details open>" in html
+    assert "Show final optimized source diff" in html
+    assert "old" in html
+    assert "new" in html
+    assert "Final optimized source diff was not available" not in html
+    assert "Not available" not in html
+
+
+def test_optional_empty_report_rows_are_hidden(tmp_path: Path) -> None:
+    report_data = _report_data()
+    report_data.benchmark_config = ReportBenchmarkConfig(
+        family="absolute_pose_solvers",
+        solver="lambdatwist_p3p",
+        build_type="Release",
+    )
+    report_data.experiment_metadata = ReportExperimentMetadata(
+        repository={"git_commit": "abc123"},
+        environment={"python_version": "3.12"},
+    )
+
+    plot_paths = build_report_figures(report_data, tmp_path / "plots")
+    html_path = render_report_html(report_data, plot_paths, tmp_path / "report.html")
+    html = html_path.read_text(encoding="utf-8")
+
+    assert "Experiment ID" in html
+    assert "Target File" in html
+    assert "Seed" not in html
+    assert "Tolerance" not in html
+    assert "Camera FOV" not in html
+    assert "Started At" not in html
+    assert "Finished At" not in html
+    assert "CMake Executable" not in html
+    assert "CMake Generator" not in html
+    assert "C++ Compiler" not in html
 
 
 def test_report_template_packaging_renders_real_template(tmp_path: Path) -> None:

@@ -11,22 +11,12 @@ import pytest
 
 from orchestrator.reporting import generate_basic_report
 from orchestrator.reporting import generate_report
+from orchestrator.reporting.figure_builder import PLOT_FILENAMES
 
 
 from orchestrator.tests.conftest import TARGET_FILE, write_json, write_jsonl
 
-EXPECTED_PLOTS = (
-    "runtime_progress.svg",
-    "runtime_reduction_by_iteration.svg",
-    "correctness_metrics.svg",
-    "status_breakdown.svg",
-    "candidate_funnel.svg",
-    "phase_timings.svg",
-    "llm_tokens_by_iteration.svg",
-    "llm_latency_by_iteration.svg",
-    "failure_reason_breakdown.svg",
-    "diff_stats_by_iteration.svg",
-)
+EXPECTED_PLOTS = tuple(PLOT_FILENAMES.values())
 
 EXPECTED_SECTIONS = (
     "executive-summary",

@@ -165,9 +165,7 @@ def collect_report_data(
         experiment_metadata=_build_experiment_metadata(experiment_metadata),
     )
 
-    report_data.final_code_diff = _read_file_text(
-        experiment_path / "final_optimized_source.diff"
-    )
+    report_data.final_code_diff = _load_final_code_diff(summary, experiment_path)
     report_data.executive_narrative = _build_executive_narrative(report_data)
     report_data.closed_loop_selection_explanation = _build_closed_loop_selection_explanation(
         report_data
@@ -1566,6 +1564,17 @@ def _read_file_text(path: Path) -> str | None:
         return path.read_text(encoding="utf-8")
     except OSError:
         return None
+
+
+def _load_final_code_diff(summary: dict[str, Any], experiment_path: Path) -> str | None:
+    path_text = _path_text_or_none(summary.get("final_optimized_source_diff_path"))
+    if path_text is not None:
+        diff_path = _resolve_existing_or_display_path(path_text, experiment_path)
+        text = _read_file_text(diff_path)
+        if text is not None:
+            return text
+
+    return _read_file_text(experiment_path / "final_optimized_source.diff")
 
 
 def _get_sc(

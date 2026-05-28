@@ -272,6 +272,32 @@ def test_diff_highlight_returns_markup() -> None:
     )
     result = _diff_highlight(diff_text)
     assert isinstance(result, Markup)
+    html_str = str(result)
+    assert "added" in html_str
+    assert "removed" in html_str
+
+
+def test_diff_highlight_uses_self_contained_inline_styles() -> None:
+    result = _diff_highlight("--- a/file\n+++ b/file\n@@ -1 +1 @@\n-old\n+new\n")
+    html_str = str(result)
+
+    assert "style=" in html_str
+    assert "class=" not in html_str
+
+
+def test_diff_highlight_escapes_raw_html() -> None:
+    result = _diff_highlight("+<script>alert(1)</script>\n")
+    html_str = str(result)
+
+    assert "<script>" not in html_str
+    assert "&lt;script&gt;" in html_str
+
+
+def test_diff_highlight_unusual_text_does_not_crash() -> None:
+    result = _diff_highlight("\x00\nnot really a diff\n@@\n")
+
+    assert isinstance(result, Markup)
+    assert "not really a diff" in str(result)
 
 
 def test_diff_highlight_empty_returns_empty_markup() -> None:

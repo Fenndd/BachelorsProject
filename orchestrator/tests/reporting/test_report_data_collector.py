@@ -1306,6 +1306,49 @@ def test_final_code_diff_loaded_when_exists(tmp_path: Path) -> None:
     assert "+new" in report_data.final_code_diff
 
 
+def test_final_code_diff_loaded_from_summary_path(tmp_path: Path) -> None:
+    experiment_dir = _experiment_dir(tmp_path)
+    diff_path = tmp_path / "custom" / "final.diff"
+    diff_path.parent.mkdir(parents=True, exist_ok=True)
+    diff_path.write_text(
+        "--- a/summary\n+++ b/summary\n-old\n+summary path\n",
+        encoding="utf-8",
+    )
+    fallback_path = experiment_dir / "final_optimized_source.diff"
+    fallback_path.parent.mkdir(parents=True, exist_ok=True)
+    fallback_path.write_text("fallback diff\n", encoding="utf-8")
+    write_json(
+        experiment_dir / "closed_loop_summary.json",
+        _summary(final_optimized_source_diff_path=str(diff_path)),
+    )
+    write_jsonl(experiment_dir / "closed_loop_iterations.jsonl", [])
+
+    report_data = collect_report_data(experiment_dir)
+
+    assert report_data.final_code_diff is not None
+    assert "summary path" in report_data.final_code_diff
+    assert "fallback diff" not in report_data.final_code_diff
+
+
+def test_final_code_diff_falls_back_when_summary_path_missing(tmp_path: Path) -> None:
+    experiment_dir = _experiment_dir(tmp_path)
+    write_json(
+        experiment_dir / "closed_loop_summary.json",
+        _summary(final_optimized_source_diff_path="missing/final.diff"),
+    )
+    write_jsonl(experiment_dir / "closed_loop_iterations.jsonl", [])
+    diff_path = experiment_dir / "final_optimized_source.diff"
+    diff_path.write_text(
+        "--- a/fallback\n+++ b/fallback\n-old\n+fallback\n",
+        encoding="utf-8",
+    )
+
+    report_data = collect_report_data(experiment_dir)
+
+    assert report_data.final_code_diff is not None
+    assert "fallback" in report_data.final_code_diff
+
+
 def test_final_code_diff_none_when_missing(tmp_path: Path) -> None:
     experiment_dir = _experiment_dir(tmp_path)
     write_json(experiment_dir / "closed_loop_summary.json", _summary())

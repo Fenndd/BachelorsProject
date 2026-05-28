@@ -471,9 +471,15 @@
             <tr><th>Timed Iterations</th><td>{{ report.benchmark_config.timed_iterations|human_int }}</td></tr>
             <tr><th>Runtime Unit</th><td>{{ report.benchmark_config.runtime_unit|display }}</td></tr>
             <tr><th>Build Type</th><td>{{ report.benchmark_config.build_type|display }}</td></tr>
+            {% if report.benchmark_config.seed is defined and report.benchmark_config.seed is not none %}
             <tr><th>Seed</th><td>{{ report.benchmark_config.seed|display }}</td></tr>
+            {% endif %}
+            {% if report.benchmark_config.tolerance is defined and report.benchmark_config.tolerance is not none %}
             <tr><th>Tolerance</th><td>{{ report.benchmark_config.tolerance|display }}</td></tr>
+            {% endif %}
+            {% if report.benchmark_config.camera_fov is defined and report.benchmark_config.camera_fov is not none %}
             <tr><th>Camera FOV</th><td>{{ report.benchmark_config.camera_fov|display }}</td></tr>
+            {% endif %}
             {% if report.benchmark_config.n_point_point is not none %}
             <tr><th>n_point_point</th><td>{{ report.benchmark_config.n_point_point|human_int }}</td></tr>
             {% endif %}
@@ -727,8 +733,12 @@
     <h2>Reproducibility</h2>
     <table class="key-value">
       <tbody>
+        {% if report.experiment_metadata.started_at %}
         <tr><th>Started At</th><td>{{ report.experiment_metadata.started_at|display }}</td></tr>
+        {% endif %}
+        {% if report.experiment_metadata.finished_at %}
         <tr><th>Finished At</th><td>{{ report.experiment_metadata.finished_at|display }}</td></tr>
+        {% endif %}
         <tr><th>Total Duration</th><td>{{ report.experiment_metadata.total_duration_seconds|human_duration }}</td></tr>
         <tr><th>Git Commit</th><td>{{ report.experiment_metadata.repository.git_commit|display }}</td></tr>
         <tr><th>Git Branch</th><td>{{ report.experiment_metadata.repository.git_branch|display }}</td></tr>
@@ -737,9 +747,15 @@
         <tr><th>Platform</th><td>{{ report.experiment_metadata.environment.platform|display }}</td></tr>
         <tr><th>Python Version</th><td>{{ report.experiment_metadata.environment.python_version|display }}</td></tr>
         <tr><th>CMake Build Type</th><td>{{ report.experiment_metadata.environment.cmake_build_type|default(report.benchmark_config.build_type, true)|display }}</td></tr>
+        {% if report.experiment_metadata.environment.cmake_exe %}
         <tr><th>CMake Executable</th><td><code>{{ report.experiment_metadata.environment.cmake_exe|display }}</code></td></tr>
+        {% endif %}
+        {% if report.experiment_metadata.environment.cmake_generator %}
         <tr><th>CMake Generator</th><td>{{ report.experiment_metadata.environment.cmake_generator|display }}</td></tr>
+        {% endif %}
+        {% if report.experiment_metadata.environment.cxx_compiler %}
         <tr><th>C++ Compiler</th><td><code>{{ report.experiment_metadata.environment.cxx_compiler|display }}</code></td></tr>
+        {% endif %}
         <tr><th>Baseline Run Directory</th><td><code>{{ report.experiment_config_details.baseline_run_dir|display }}</code></td></tr>
         <tr><th>Optimization Scope</th><td><code>{{ report.experiment_config_details.optimization_scope_allowed_files|display }}</code></td></tr>
         <tr><th>Reporting Formats</th><td>{{ report.experiment_config_details.reporting_formats|display }}</td></tr>
@@ -753,7 +769,7 @@
     <article id="final-code-diff">
       <h3>Final Code Diff</h3>
       {% if report.final_code_diff %}
-      <details>
+      <details open>
         <summary>Show final optimized source diff</summary>
         <div class="diff-container"><pre>{{ report.final_code_diff|diff_highlight }}</pre></div>
       </details>

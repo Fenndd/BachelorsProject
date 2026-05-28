@@ -199,7 +199,7 @@ def _diff_highlight(value: Any) -> Markup:
         from pygments.formatters import HtmlFormatter
         from pygments.lexers import DiffLexer
 
-        formatter = HtmlFormatter(nowrap=True)
+        formatter = HtmlFormatter(nowrap=True, noclasses=True)
         result = highlight(text, DiffLexer(), formatter)
         return Markup(result)
     except Exception:
