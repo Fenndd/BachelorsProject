@@ -153,6 +153,10 @@
       border-radius: 8px;
       margin: 18px 0 30px;
       padding: 14px 16px;
+      position: sticky;
+      top: 8px;
+      z-index: 50;
+      box-shadow: 0 1px 4px rgba(0, 0, 0, 0.08);
     }
 
     .toc h2 {
@@ -231,6 +235,28 @@
       font-size: 12px;
     }
 
+    table.iter-summary-table col.iter-col { width: 5%; }
+    table.iter-summary-table col.status-col { width: 13%; }
+    table.iter-summary-table col.runtime-col { width: 11%; }
+    table.iter-summary-table col.runs-col { width: 5%; }
+    table.iter-summary-table col.min-runtime-col { width: 9%; }
+    table.iter-summary-table col.speedup-cb-col { width: 9%; }
+    table.iter-summary-table col.speedup-bl-col { width: 9%; }
+    table.iter-summary-table col.gt-found-col { width: 7%; }
+    table.iter-summary-table col.promoted-col { width: 6%; }
+    table.iter-summary-table col.reason-col { width: 12%; }
+    table.iter-summary-table col.summary-col { width: 14%; }
+
+    table.iter-detail-table col.i-iter-col { width: 5%; }
+    table.iter-detail-table col.i-status-col { width: 13%; }
+    table.iter-detail-table col.i-summary-col { width: 16%; }
+    table.iter-detail-table col.i-outcome-col { width: 18%; }
+    table.iter-detail-table col.i-runtime-col { width: 10%; }
+    table.iter-detail-table col.i-speedup-col { width: 11%; }
+    table.iter-detail-table col.i-correctness-col { width: 7%; }
+    table.iter-detail-table col.i-promoted-col { width: 6%; }
+    table.iter-detail-table col.i-rundir-col { width: 14%; }
+
     .table-scroll {
       overflow-x: auto;
       width: 100%;
@@ -263,6 +289,18 @@
       grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
     }
 
+    .plot-grid-two-column {
+      display: grid;
+      gap: 14px;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    @media (max-width: 640px) {
+      .plot-grid-two-column {
+        grid-template-columns: 1fr;
+      }
+    }
+
     .badge {
       background: var(--neutral-bg);
       border: 1px solid var(--line-strong);
@@ -282,11 +320,16 @@
       color: var(--success);
     }
 
-    .status-valid_not_improved,
+    .status-valid_not_improved {
+      background: var(--warning-bg);
+      border-color: #fed7aa;
+      color: var(--warning);
+    }
+
     .status-no_op {
-      background: #eff6ff;
-      border-color: #bfdbfe;
-      color: #1e40af;
+      background: var(--neutral-bg);
+      border-color: var(--line-strong);
+      color: var(--muted);
     }
 
     .status-rejected,
@@ -366,6 +409,15 @@
         page-break-inside: avoid;
       }
 
+      .toc {
+        position: static;
+        box-shadow: none;
+      }
+
+      .plot-grid-two-column {
+        grid-template-columns: 1fr;
+      }
+
       .table-scroll,
       .diff-container {
         overflow: visible;
@@ -421,7 +473,11 @@
       <div class="kpi-card"><strong>Runtime Reduction</strong><span class="value">{{ report.final_result.final_runtime_reduction_percent|percent }}</span></div>
       <div class="kpi-card"><strong>Accepted Improvements</strong><span class="value">{{ report.final_result.accepted_improvements|human_int }}</span></div>
       <div class="kpi-card"><strong>Correctness Preserved</strong><span class="value">{{ report.final_result.correctness_preserved|yes_no }}</span></div>
-      <div class="kpi-card"><strong>Total / Completed Iterations</strong><span class="value">{{ report.experiment.total_iterations|human_int }} / {{ report.experiment.completed_iterations|human_int }}</span></div>
+      <div class="kpi-card"><strong>Total Iterations</strong><span class="value">{{ report.experiment.total_iterations|human_int }}</span></div>
+      {% set gt_delta = report.final_selection.final_gt_found_delta_points|default(report.final_best_candidate.gt_found_delta_points, true) %}
+      {% if gt_delta is not none %}
+      <div class="kpi-card"><strong>GT Found Δ</strong><span class="value">{{ gt_delta|delta_pp }}</span></div>
+      {% endif %}
       <div class="kpi-card"><strong>Model</strong><span class="value">{{ report.llm.model|default(report.experiment.model, true)|display }}</span></div>
       <div class="kpi-card"><strong>Total Tokens</strong><span class="value">{{ report.llm_usage_summary.total_tokens|human_int }}</span></div>
     </div>
@@ -473,8 +529,8 @@
             <tr><th>Build Type</th><td>{{ report.benchmark_config.build_type|display }}</td></tr>
             <tr><th>Benchmark Runs</th><td>{{ report.baseline_metrics.benchmark_run_count|human_int }}</td></tr>
             <tr><th>Decision Metric</th><td>{{ report.baseline_metrics.decision_metric|display }}</td></tr>
-            <tr><th>Baseline Median Runtime</th><td>{{ report.baseline_metrics.runtime_ns_per_problem_median|display }}</td></tr>
-            <tr><th>Baseline Min Runtime</th><td>{{ report.baseline_metrics.min_runtime_ns_per_problem_median|display }}</td></tr>
+            <tr><th>Baseline Median Runtime</th><td>{{ report.baseline_metrics.runtime_ns_per_problem_median|runtime_ns }}</td></tr>
+            <tr><th>Baseline Min Runtime</th><td>{{ report.baseline_metrics.min_runtime_ns_per_problem_median|runtime_ns }}</td></tr>
             <tr><th>Benchmark Wall Time</th><td>{{ report.baseline_metrics.total_benchmark_wall_seconds|human_duration }}</td></tr>
             {% if report.benchmark_config.seed is defined and report.benchmark_config.seed is not none %}
             <tr><th>Seed</th><td>{{ report.benchmark_config.seed|display }}</td></tr>
@@ -500,7 +556,9 @@
         <table class="key-value compact">
           <tbody>
             <tr><th>GT Found Gate Enabled</th><td>{{ report.selection_policy.gt_found_gate_enabled|yes_no }}</td></tr>
+            {% if report.selection_policy.gt_found_gate_enabled %}
             <tr><th>GT Found Max Drop Points</th><td>{{ report.selection_policy.gt_found_max_drop_points|display }}</td></tr>
+            {% endif %}
           </tbody>
         </table>
       </div>
@@ -525,7 +583,7 @@
       <div class="kpi-card"><strong>Final Best Is Baseline</strong><span class="value">{{ report.final_selection.final_best_is_baseline|yes_no }}</span></div>
       <div class="kpi-card"><strong>Speedup vs Original Baseline</strong><span class="value">{{ report.final_selection.speedup_vs_original_baseline|default(report.final_best_candidate.speedup_vs_baseline, true)|speedup }}</span></div>
       <div class="kpi-card"><strong>Runtime Reduction</strong><span class="value">{{ report.final_selection.runtime_reduction_percent|default(report.final_best_candidate.runtime_reduction_percent, true)|percent }}</span></div>
-      <div class="kpi-card"><strong>Runtime Improvement ns/problem</strong><span class="value">{{ report.final_best_candidate.absolute_runtime_difference_ns_per_problem|display }}</span></div>
+      <div class="kpi-card"><strong>Runtime Improvement ns/problem</strong><span class="value">{{ report.final_best_candidate.absolute_runtime_difference_ns_per_problem|runtime_ns }}</span></div>
       <div class="kpi-card"><strong>Final Best Iteration</strong><span class="value">{{ report.final_best_candidate.iteration|default(report.final_result.final_best_iteration, true)|display }}</span></div>
       <div class="kpi-card"><strong>Correctness Passed</strong><span class="value">{{ report.final_selection.final_correctness_passed|default(report.final_best_candidate.correctness_passed, true)|yes_no }}</span></div>
       <div class="kpi-card"><strong>Benchmark Runs</strong><span class="value">{{ report.final_selection.final_benchmark_run_count|default(report.final_best_candidate.benchmark_run_count, true)|human_int }}</span></div>
@@ -541,14 +599,14 @@
       <tbody>
         <tr>
           <th>Median runtime ns/problem</th>
-          <td>{{ report.final_selection.baseline_runtime_ns_per_problem_median|default(report.final_best_candidate.baseline_runtime_ns_per_problem_median, true)|display }}</td>
-          <td>{{ report.final_selection.final_runtime_ns_per_problem_median|default(report.final_best_candidate.runtime_ns_per_problem_median, true)|display }}</td>
-          <td>{{ report.final_best_candidate.absolute_runtime_difference_ns_per_problem|display }}</td>
+          <td>{{ report.final_selection.baseline_runtime_ns_per_problem_median|default(report.final_best_candidate.baseline_runtime_ns_per_problem_median, true)|runtime_ns }}</td>
+          <td>{{ report.final_selection.final_runtime_ns_per_problem_median|default(report.final_best_candidate.runtime_ns_per_problem_median, true)|runtime_ns }}</td>
+          <td>{{ report.final_best_candidate.absolute_runtime_difference_ns_per_problem|runtime_ns }}</td>
         </tr>
         <tr>
           <th>Min runtime ns/problem</th>
-          <td>{{ report.baseline_metrics.min_runtime_ns_per_problem_median|display }}</td>
-          <td>{{ report.final_best_candidate.min_runtime_ns_per_problem_median|display }}</td>
+          <td>{{ report.baseline_metrics.min_runtime_ns_per_problem_median|runtime_ns }}</td>
+          <td>{{ report.final_best_candidate.min_runtime_ns_per_problem_median|runtime_ns }}</td>
           <td>{{ report.final_selection.runtime_reduction_percent|default(report.final_best_candidate.runtime_reduction_percent, true)|percent }}</td>
         </tr>
         <tr>
@@ -620,7 +678,7 @@
 
   <section id="iteration-outcomes">
     <h2>Iteration Outcomes</h2>
-    <div class="plot-grid">
+    <div class="plot-grid-two-column">
       {% if plots.status_breakdown %}
       <figure><img src="{{ plots.status_breakdown }}" alt="Iteration status breakdown plot"></figure>
       {% endif %}
@@ -650,7 +708,7 @@
     {% endif %}
 
     {% if report.reason_code_counts %}
-    <h3>Reason Codes</h3>
+    <h3>Iteration Outcome Codes</h3>
     <table class="compact">
       <thead><tr><th>Category</th><th>Code</th><th>Count</th><th>Iterations</th></tr></thead>
       <tbody>
@@ -669,12 +727,25 @@
     <h3>Per-Iteration Summary</h3>
     {% if report.iterations %}
     <div class="table-scroll">
-      <table class="compact">
+      <table class="compact iter-summary-table">
+        <colgroup>
+          <col class="iter-col">
+          <col class="status-col">
+          <col class="runtime-col">
+          <col class="runs-col">
+          <col class="min-runtime-col">
+          <col class="speedup-cb-col">
+          <col class="speedup-bl-col">
+          <col class="gt-found-col">
+          <col class="promoted-col">
+          <col class="reason-col">
+          <col class="summary-col">
+        </colgroup>
         <thead>
           <tr>
             <th>Iteration</th>
             <th>Status</th>
-            <th>Runtime ns/problem</th>
+            <th>Runtime, ns/problem</th>
             <th>Runs</th>
             <th>Min Runtime</th>
             <th>Speedup vs Current Best</th>
@@ -690,9 +761,9 @@
           <tr>
             <td>{{ iteration.iteration|display }}</td>
             <td><span class="badge status-{{ iteration.status }}">{{ iteration.status|display }}</span></td>
-            <td>{{ iteration.runtime_ns_per_problem_median|display }}</td>
+            <td>{{ iteration.runtime_ns_per_problem_median|runtime_ns }}</td>
             <td>{{ iteration.benchmark_run_count|human_int }}</td>
-            <td>{{ iteration.min_runtime_ns_per_problem_median|display }}</td>
+            <td>{{ iteration.min_runtime_ns_per_problem_median|runtime_ns }}</td>
             <td>{{ iteration.speedup_vs_current_best|speedup }}</td>
             <td>{{ iteration.speedup_vs_baseline|speedup }}</td>
             <td>{{ iteration.gt_found_percent|percent }}</td>
@@ -745,8 +816,12 @@
       <div class="kpi-card"><strong>Lines Added</strong><span class="value">{{ report.final_best_candidate.diff_stats.lines_added|human_int }}</span></div>
       <div class="kpi-card"><strong>Lines Removed</strong><span class="value">{{ report.final_best_candidate.diff_stats.lines_removed|human_int }}</span></div>
       <div class="kpi-card"><strong>Changed Blocks</strong><span class="value">{{ report.final_best_candidate.diff_stats.changed_blocks|human_int }}</span></div>
+      {% if report.final_best_candidate.diff_stats.edit_count is not none %}
       <div class="kpi-card"><strong>Edit Count</strong><span class="value">{{ report.final_best_candidate.diff_stats.edit_count|human_int }}</span></div>
+      {% endif %}
+      {% if report.final_best_candidate.diff_stats.fallback_used is not none %}
       <div class="kpi-card"><strong>Fallback Used</strong><span class="value">{{ report.final_best_candidate.diff_stats.fallback_used|yes_no }}</span></div>
+      {% endif %}
     </div>
     {% else %}
     <p class="muted">Final diff statistics were not recorded.</p>
@@ -758,10 +833,10 @@
     <table class="key-value">
       <tbody>
         {% if report.experiment_metadata.started_at %}
-        <tr><th>Started At</th><td>{{ report.experiment_metadata.started_at|display }}</td></tr>
+        <tr><th>Started At</th><td>{{ report.experiment_metadata.started_at|human_datetime }}</td></tr>
         {% endif %}
         {% if report.experiment_metadata.finished_at %}
-        <tr><th>Finished At</th><td>{{ report.experiment_metadata.finished_at|display }}</td></tr>
+        <tr><th>Finished At</th><td>{{ report.experiment_metadata.finished_at|human_datetime }}</td></tr>
         {% endif %}
         <tr><th>Total Duration</th><td>{{ report.experiment_metadata.total_duration_seconds|human_duration }}</td></tr>
         <tr><th>Git Commit</th><td>{{ report.experiment_metadata.repository.git_commit|display }}</td></tr>
@@ -803,47 +878,52 @@
     </article>
 
     <h3>Selected Iteration Details</h3>
-    {% if report.iterations %}
-    {% set selected = namespace(count=0) %}
-    <table class="compact">
-      <thead>
-        <tr>
-          <th>Iteration</th>
-          <th>Status</th>
-          <th>Candidate Summary</th>
-          <th>Outcome</th>
-          <th>Runtime</th>
-          <th>Speedup</th>
-          <th>Correctness</th>
-          <th>Promoted</th>
-          <th>Candidate Run Dir</th>
-        </tr>
-      </thead>
-      <tbody>
-        {% for iteration in report.iterations %}
-        {% set meaningful_failure = iteration.status in ['rejected', 'materialization_failed', 'verification_failed', 'generation_failed'] and (iteration.outcome_reason.message or iteration.reason) %}
-        {% if iteration.status == 'accepted_improvement' or meaningful_failure %}
-        {% set selected.count = selected.count + 1 %}
-        <tr>
-          <td>{{ iteration.iteration|display }}</td>
-          <td><span class="badge status-{{ iteration.status }}">{{ iteration.status|display }}</span></td>
-          <td>{{ iteration.candidate_summary|display }}</td>
-          <td>{{ iteration.outcome_reason.category|display }} / {{ iteration.outcome_reason.code|default(iteration.reason, true)|display }}{% if iteration.outcome_reason.message %}<br>{{ iteration.outcome_reason.message|display }}{% endif %}</td>
-          <td>{{ iteration.runtime_ns_per_problem_median|display }}</td>
-          <td>baseline {{ iteration.speedup_vs_baseline|speedup }}; current best {{ iteration.speedup_vs_current_best|speedup }}</td>
-          <td>{{ iteration.correctness_passed|yes_no }}</td>
-          <td>{{ iteration.promoted|yes_no }}</td>
-          <td><code>{{ iteration.candidate_run_dir|display }}</code></td>
-        </tr>
-        {% endif %}
-        {% endfor %}
-        {% if selected.count == 0 %}
-        <tr><td colspan="9" class="muted">No selected iteration details met the appendix filter.</td></tr>
-        {% endif %}
-      </tbody>
-    </table>
+    {% if selected_iterations %}
+    <div class="table-scroll">
+      <table class="compact iter-detail-table">
+        <colgroup>
+          <col class="i-iter-col">
+          <col class="i-status-col">
+          <col class="i-summary-col">
+          <col class="i-outcome-col">
+          <col class="i-runtime-col">
+          <col class="i-speedup-col">
+          <col class="i-correctness-col">
+          <col class="i-promoted-col">
+          <col class="i-rundir-col">
+        </colgroup>
+        <thead>
+          <tr>
+            <th>Iteration</th>
+            <th>Status</th>
+            <th>Candidate Summary</th>
+            <th>Outcome</th>
+            <th>Runtime, ns/problem</th>
+            <th>Speedup</th>
+            <th>Correctness</th>
+            <th>Promoted</th>
+            <th>Candidate Run Dir</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for iteration in selected_iterations %}
+          <tr>
+            <td>{{ iteration.iteration|display }}</td>
+            <td><span class="badge status-{{ iteration.status }}">{{ iteration.status|display }}</span></td>
+            <td>{{ iteration.candidate_summary|display }}</td>
+            <td>{{ iteration.outcome_reason.category|display }} / {{ iteration.outcome_reason.code|default(iteration.reason, true)|display }}{% if iteration.outcome_reason.message %}<br>{{ iteration.outcome_reason.message|display }}{% endif %}</td>
+            <td>{{ iteration.runtime_ns_per_problem_median|runtime_ns }}</td>
+            <td>baseline {{ iteration.speedup_vs_baseline|speedup }}; current best {{ iteration.speedup_vs_current_best|speedup }}</td>
+            <td>{{ iteration.correctness_passed|yes_no }}</td>
+            <td>{{ iteration.promoted|yes_no }}</td>
+            <td><code>{{ iteration.candidate_run_dir|display }}</code></td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
     {% else %}
-    <p class="muted">No iterations recorded.</p>
+    <p class="muted">No accepted, failed, or rejected iterations required appendix-level details.</p>
     {% endif %}
   </section>
 </main>

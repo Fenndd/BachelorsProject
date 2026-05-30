@@ -221,17 +221,88 @@ def _plot_runtime_reduction(data: dict[str, Any], output_path: Path) -> None:
 
 
 def _plot_correctness_metrics(data: dict[str, Any], output_path: Path) -> None:
-    points = [
-        (it.get("iteration"), 1 if it.get("correctness_passed") else 0)
-        for it in _iterations(data)
-        if _is_number(it.get("iteration"))
-        and isinstance(it.get("correctness_passed"), bool)
-    ]
-    if not points:
-        _save_placeholder(output_path, "Correctness data unavailable")
+    baseline_gt = _number_or_none(
+        _dict_value(data.get("baseline_metrics")).get("gt_found_percent")
+    )
+
+    gt_points: list[tuple[int, float, bool | None]] = []
+    correctness_points: list[tuple[int, bool]] = []
+
+    for it in _iterations(data):
+        if not _is_number(it.get("iteration")):
+            continue
+        iteration_num = int(it["iteration"])
+        gt_val = _number_or_none(it.get("gt_found_percent"))
+        cp_val = isinstance(it.get("correctness_passed"), bool)
+        if gt_val is not None:
+            gt_points.append((iteration_num, gt_val, it.get("correctness_passed") if cp_val else None))
+        elif cp_val:
+            correctness_points.append((iteration_num, it["correctness_passed"]))
+
+    if gt_points:
+        _plot_gt_found_progress(
+            gt_points,
+            baseline_gt,
+            output_path,
+        )
         return
 
-    x_values, y_values = zip(*points)
+    if correctness_points:
+        _plot_correctness_pass_fail(correctness_points, output_path)
+        return
+
+    _save_placeholder(output_path, "Correctness data unavailable")
+
+
+def _plot_gt_found_progress(
+    points: list[tuple[int, float, bool | None]],
+    baseline_gt: float | None,
+    output_path: Path,
+) -> None:
+    points.sort(key=lambda p: p[0])
+    x_values = [p[0] for p in points]
+    y_values = [p[1] for p in points]
+
+    fig, ax = _new_figure()
+    ax.step(x_values, y_values, where="mid", color="#6d5a9c", linewidth=2, label="GT Found %")
+    ax.scatter(
+        x_values,
+        y_values,
+        c=[_COLOR_ACCEPTED if p[2] is True else (_COLOR_FAILED if p[2] is False else "#6d5a9c") for p in points],
+        zorder=3,
+        s=36,
+    )
+
+    if baseline_gt is not None:
+        ax.axhline(
+            baseline_gt,
+            color=_COLOR_BASELINE,
+            linewidth=1.2,
+            linestyle="--",
+            label=f"baseline ({baseline_gt:.1f}%)",
+        )
+
+    ax.set_title("Correctness and Accuracy Safety")
+    ax.set_xlabel("Iteration")
+    ax.set_ylabel("GT Found %")
+
+    y_min = min(min(y_values) if y_values else 0, baseline_gt or 100)
+    y_max = max(max(y_values) if y_values else 100, baseline_gt or 0)
+    y_pad = max((y_max - y_min) * 0.1, 1.0)
+    ax.set_ylim(max(0, y_min - y_pad), min(100, y_max + y_pad))
+
+    ax.grid(True, alpha=0.3)
+    ax.legend(fontsize=9)
+    _save(fig, output_path)
+
+
+def _plot_correctness_pass_fail(
+    points: list[tuple[int, bool]],
+    output_path: Path,
+) -> None:
+    x_values = [p[0] for p in points]
+    y_values = [1 if p[1] else 0 for p in points]
+
     fig, ax = _new_figure()
     ax.step(x_values, y_values, where="mid", color="#6d5a9c", linewidth=2)
     ax.scatter(x_values, y_values, color="#6d5a9c")

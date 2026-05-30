@@ -47,6 +47,8 @@ def render_report_html(
     env.filters["speedup"] = _speedup
     env.filters["human_datetime"] = _human_datetime
     env.filters["diff_highlight"] = _diff_highlight
+    env.filters["runtime_ns"] = _runtime_ns
+    env.filters["delta_pp"] = _delta_pp
 
     template = env.get_template("report.html.j2")
     html = template.render(
@@ -54,6 +56,7 @@ def render_report_html(
         plots=plot_paths,
         artifact_items=_artifact_items(data),
         status_items=_status_items(data),
+        selected_iterations=_selected_iterations(data),
     )
     destination.write_text(html, encoding="utf-8")
     return destination
@@ -204,6 +207,48 @@ def _diff_highlight(value: Any) -> Markup:
         return Markup(result)
     except Exception:
         return Markup(_html.escape(text))
+
+
+def _runtime_ns(value: Any) -> str:
+    if value is None or isinstance(value, Undefined):
+        return _EM_DASH
+    try:
+        num = float(value)
+        return f"{num:,.2f}".replace(",", "\u202f")
+    except (ValueError, TypeError):
+        return str(value)
+
+
+def _delta_pp(value: Any) -> str:
+    if value is None or isinstance(value, Undefined):
+        return _EM_DASH
+    try:
+        num = float(value)
+        formatted = f"{num:,.2f}".replace(",", "\u202f")
+        return f"{formatted}\u202fpp"
+    except (ValueError, TypeError):
+        return str(value)
+
+
+def _selected_iterations(data: dict[str, Any]) -> list[dict[str, Any]]:
+    iterations = data.get("iterations")
+    if not isinstance(iterations, list):
+        return []
+    result: list[dict[str, Any]] = []
+    for it in iterations:
+        if not isinstance(it, dict):
+            continue
+        status = str(it.get("status", ""))
+        if status == "accepted_improvement":
+            result.append(it)
+        elif status in ("rejected", "materialization_failed", "verification_failed", "generation_failed"):
+            outcome = it.get("outcome_reason") or {}
+            if isinstance(outcome, dict):
+                if outcome.get("message") or outcome.get("code"):
+                    result.append(it)
+            elif it.get("reason"):
+                result.append(it)
+    return result
 
 
 __all__ = ["render_report_html"]

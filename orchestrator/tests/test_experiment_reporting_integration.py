@@ -16,11 +16,10 @@ from orchestrator.experiments import experiment_artifacts as artifacts
 from orchestrator.experiments import experiment_planner as planner
 from orchestrator.experiments import iteration_runner
 from orchestrator.experiments.experiment_config import (
-    ExperimentConfigError,
-    load_experiment_config,
+    ExperimentConfig,
+    LlmConfig,
+    ReportingConfig,
 )
-
-
 from orchestrator.tests.conftest import TARGET_FILE, write_json, make_benchmark_payload
 
 
@@ -399,7 +398,9 @@ def test_final_report_includes_final_experiment_metadata(
     assert report_data["experiment"]["experiment_name"] == "reporting integration test"
     assert report_data["experiment_metadata"]["finished_at"] == status["finished_at"]
     assert report_data["experiment_metadata"]["total_duration_seconds"] is not None
-    assert status["finished_at"] in html
+    # finished_at is rendered with human_datetime filter (YYYY-MM-DD HH:MM), not raw ISO
+    finished_date = status["finished_at"][:10]
+    assert finished_date in html
 
 
 def test_disabled_reporting_does_not_call_generator(

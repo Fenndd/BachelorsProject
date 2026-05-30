@@ -352,6 +352,42 @@ def _save_repeated_benchmark_log(
     )
 
 
+def _finalize_append_verification(
+    candidate_run_dir: Path,
+    logs_dir: Path,
+    existing_verification: dict[str, Any],
+    appended_steps: list[dict[str, Any]],
+    failed_step: str | None,
+    error_message: str | None,
+    benchmark: dict[str, Any],
+) -> int:
+    """Save append-mode verification without losing original build/adapter metadata."""
+
+    original_steps = existing_verification.get("steps")
+    if not isinstance(original_steps, list):
+        original_steps = []
+    verification = dict(existing_verification)
+    verification["overall_status"] = "failed" if failed_step else "success"
+    verification["failed_step"] = failed_step
+    verification["error_message"] = error_message
+    verification["steps"] = [*original_steps, *appended_steps]
+    verification["benchmark"] = benchmark
+
+    _save_artifacts(candidate_run_dir, verification, logs_dir)
+
+    overall_status = verification["overall_status"]
+    print(f"\nFinal status: {overall_status}")
+    print(f"Artifacts saved to: {candidate_run_dir}")
+    if failed_step:
+        print(f"Failed step: {failed_step}")
+        print(f"ERROR: {error_message}", file=sys.stderr)
+        print(f"Logs saved to: {logs_dir}")
+        return 1
+
+    print("Candidate benchmark verification completed successfully.")
+    return 0
+
+
 def _finalize(
     candidate_run_dir: Path,
     candidate_run_id: str,
@@ -695,18 +731,23 @@ def main(argv: list[str] | None = None) -> int:
         ),
     )
 
+    existing_verification: dict[str, Any] | None = None
     existing_benchmark: dict[str, Any] | None = None
     if args.append_benchmark_runs is not None:
         try:
             verification = json.loads((candidate_run_dir / "verification.json").read_text(encoding="utf-8-sig"))
+            if not isinstance(verification, dict):
+                raise ValueError("verification.json must contain a JSON object")
             existing = verification.get("benchmark") if isinstance(verification, dict) else None
             if not isinstance(existing, dict):
                 raise ValueError("verification.json does not contain a benchmark section")
+            existing_verification = verification
             existing_benchmark = existing
         except (OSError, ValueError, json.JSONDecodeError) as exc:
-            failed_step = "read_existing_verification"
-            error_message = str(exc)
-            step_statuses.append(_step_status(failed_step, "failed", None, None))
+            print("Final status: failed")
+            print("Failed step: read_existing_verification")
+            print(f"ERROR: {exc}", file=sys.stderr)
+            return 1
 
     if failed_step is None:
         for step_name, title, executable_name, log_path, is_benchmark in run_targets:
@@ -786,6 +827,17 @@ def main(argv: list[str] | None = None) -> int:
                     break
 
     try:
+        if args.append_benchmark_runs is not None:
+            assert existing_verification is not None
+            return _finalize_append_verification(
+                candidate_run_dir,
+                logs_dir,
+                existing_verification,
+                step_statuses,
+                failed_step,
+                error_message,
+                benchmark,
+            )
         return _finalize(
             candidate_run_dir,
             candidate_run_id,

@@ -8,12 +8,14 @@ from jinja2 import ChainableUndefined, Undefined
 from markupsafe import Markup
 
 from orchestrator.reporting.html_renderer import (
+    _delta_pp,
     _diff_highlight,
     _display_value,
     _human_datetime,
     _human_duration,
     _human_int,
     _percent,
+    _runtime_ns,
     _speedup,
     _yes_no,
 )
@@ -334,3 +336,62 @@ def test_diff_highlight_without_pygments_safe_escapes(monkeypatch) -> None:
     assert isinstance(result, Markup)
     html_str = str(result)
     assert "<script>" not in html_str or "&lt;script&gt;" in html_str
+
+
+# ---------------------------------------------------------------------------
+# runtime_ns
+# ---------------------------------------------------------------------------
+
+
+def test_runtime_ns_formats_two_decimals() -> None:
+    assert _runtime_ns(485.988) == "485.99"
+
+
+def test_runtime_ns_uses_thousands_separators() -> None:
+    result = _runtime_ns(16193.123456)
+    assert "\u202f" in result
+    assert result == "16\u202f193.12"
+
+
+def test_runtime_ns_none_returns_dash() -> None:
+    assert _runtime_ns(None) == _EM_DASH
+
+
+def test_runtime_ns_undefined_returns_dash() -> None:
+    assert _runtime_ns(Undefined()) == _EM_DASH
+
+
+def test_runtime_ns_integer_values() -> None:
+    assert _runtime_ns(500) == "500.00"
+
+
+def test_runtime_ns_zero() -> None:
+    assert _runtime_ns(0) == "0.00"
+
+
+# ---------------------------------------------------------------------------
+# delta_pp
+# ---------------------------------------------------------------------------
+
+
+def test_delta_pp_formats_with_pp_suffix() -> None:
+    result = _delta_pp(-1.25)
+    assert result == "-1.25\u202fpp"
+
+
+def test_delta_pp_formats_positive() -> None:
+    result = _delta_pp(2.5)
+    assert result == "2.50\u202fpp"
+
+
+def test_delta_pp_formats_zero() -> None:
+    result = _delta_pp(0.0)
+    assert result == "0.00\u202fpp"
+
+
+def test_delta_pp_none_returns_dash() -> None:
+    assert _delta_pp(None) == _EM_DASH
+
+
+def test_delta_pp_undefined_returns_dash() -> None:
+    assert _delta_pp(Undefined()) == _EM_DASH
