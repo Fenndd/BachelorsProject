@@ -1008,12 +1008,12 @@ def test_final_validation_runtime_distribution_plot_not_generated(tmp_path: Path
 
 
 # ---------------------------------------------------------------------------
-# Fix 4: Runtime Improvement label in HTML
+# Fix 4: Runtime Delta label in HTML
 # ---------------------------------------------------------------------------
 
 
 def test_html_contains_runtime_improvement_label(tmp_path: Path) -> None:
-    """HTML renders 'Runtime Improvement ns/problem' label with positive value."""
+    """HTML renders 'Runtime Delta, ns/problem' label with positive value."""
 
     report_data = _report_data()
     report_data.final_best_candidate = ReportFinalBestCandidate(
@@ -1027,7 +1027,7 @@ def test_html_contains_runtime_improvement_label(tmp_path: Path) -> None:
     html_path = render_report_html(report_data, plot_paths, tmp_path / "report.html")
     html = html_path.read_text(encoding="utf-8")
 
-    assert "Runtime Improvement ns/problem" in html
+    assert "Runtime Delta, ns/problem" in html
     assert "20" in html
 
 
@@ -1502,3 +1502,288 @@ def test_timestamps_use_human_datetime(tmp_path: Path) -> None:
     assert "2026-05-30 14:22" in html
     assert "2026-05-30 15:10" in html
     assert "123456" not in html
+
+
+# ---------------------------------------------------------------------------
+# Issue 1: Status badge overflow CSS
+# ---------------------------------------------------------------------------
+
+
+def test_status_badge_wrap_css_in_iteration_tables(tmp_path: Path) -> None:
+    report_data = _report_data()
+
+    plot_paths = build_report_figures(report_data, tmp_path / "plots")
+    html_path = render_report_html(report_data, plot_paths, tmp_path / "report.html")
+    html = html_path.read_text(encoding="utf-8")
+
+    assert "white-space: normal" in html
+    assert "overflow-wrap: anywhere" in html
+    assert "word-break: break-word" in html
+    assert "max-width: 100%" in html
+
+
+# ---------------------------------------------------------------------------
+# Issue 2: Scroll margin for sticky TOC
+# ---------------------------------------------------------------------------
+
+
+def test_scroll_margin_top_in_section_css(tmp_path: Path) -> None:
+    report_data = _report_data()
+
+    plot_paths = build_report_figures(report_data, tmp_path / "plots")
+    html_path = render_report_html(report_data, plot_paths, tmp_path / "report.html")
+    html = html_path.read_text(encoding="utf-8")
+
+    assert "scroll-margin-top: 140px" in html
+    assert "scroll-margin-top: 0" in html
+
+
+# ---------------------------------------------------------------------------
+# Issue 3: Decision Metric uses data not hardcoded
+# ---------------------------------------------------------------------------
+
+
+def test_decision_metric_not_hardcoded(tmp_path: Path) -> None:
+    report_data = _report_data()
+    report_data.final_selection = ReportFinalSelection(
+        status="completed",
+        decision_metric="median_runtime",
+        speedup_vs_original_baseline=1.25,
+        runtime_reduction_percent=20.0,
+        final_correctness_passed=True,
+    )
+
+    plot_paths = build_report_figures(report_data, tmp_path / "plots")
+    html_path = render_report_html(report_data, plot_paths, tmp_path / "report.html")
+    html = html_path.read_text(encoding="utf-8")
+
+    # "Decision Metric" KPI card uses the actual data field value
+    assert "median_runtime" in html
+
+
+def test_decision_metric_fallbacks_to_baseline(tmp_path: Path) -> None:
+    report_data = _report_data()
+    report_data.baseline_metrics.decision_metric = "minimum_runtime"
+
+    plot_paths = build_report_figures(report_data, tmp_path / "plots")
+    html_path = render_report_html(report_data, plot_paths, tmp_path / "report.html")
+    html = html_path.read_text(encoding="utf-8")
+
+    assert "minimum_runtime" in html
+
+
+# ---------------------------------------------------------------------------
+# Issue 4: delta_pp applied to percentage-point deltas in comparison table
+# ---------------------------------------------------------------------------
+
+
+def test_valid_solutions_delta_uses_delta_pp(tmp_path: Path) -> None:
+    report_data = _report_data()
+    report_data.final_selection = ReportFinalSelection(
+        status="completed",
+        speedup_vs_original_baseline=1.25,
+        runtime_reduction_percent=20.0,
+        final_valid_solutions_delta_points=-1.50,
+        final_correctness_passed=True,
+    )
+
+    plot_paths = build_report_figures(report_data, tmp_path / "plots")
+    html_path = render_report_html(report_data, plot_paths, tmp_path / "report.html")
+    html = html_path.read_text(encoding="utf-8")
+
+    assert "-1.50\u202fpp" in html
+
+
+def test_gt_found_delta_uses_delta_pp_in_comparison(tmp_path: Path) -> None:
+    report_data = _report_data()
+    report_data.final_selection = ReportFinalSelection(
+        status="completed",
+        speedup_vs_original_baseline=1.25,
+        runtime_reduction_percent=20.0,
+        final_gt_found_delta_points=0.00,
+        final_correctness_passed=True,
+    )
+
+    plot_paths = build_report_figures(report_data, tmp_path / "plots")
+    html_path = render_report_html(report_data, plot_paths, tmp_path / "report.html")
+    html = html_path.read_text(encoding="utf-8")
+
+    assert "0.00\u202fpp" in html
+
+
+# ---------------------------------------------------------------------------
+# Issue 5: final_valid_solutions_percent uses percent filter
+# ---------------------------------------------------------------------------
+
+
+def test_final_valid_solutions_percent_uses_percent_filter(tmp_path: Path) -> None:
+    report_data = _report_data()
+    report_data.final_selection = ReportFinalSelection(
+        status="completed",
+        speedup_vs_original_baseline=1.25,
+        runtime_reduction_percent=20.0,
+        final_valid_solutions_percent=95.00,
+        final_correctness_passed=True,
+    )
+
+    plot_paths = build_report_figures(report_data, tmp_path / "plots")
+    html_path = render_report_html(report_data, plot_paths, tmp_path / "report.html")
+    html = html_path.read_text(encoding="utf-8")
+
+    assert "95.00%" in html
+
+
+# ---------------------------------------------------------------------------
+# Issue 6: Missing final diff message distinguishes two cases
+# ---------------------------------------------------------------------------
+
+
+def test_missing_diff_message_when_baseline_is_final_best(tmp_path: Path) -> None:
+    report_data = _report_data()
+    report_data.final_selection = ReportFinalSelection(
+        status="completed",
+        final_best_is_baseline=True,
+        speedup_vs_original_baseline=1.0,
+        runtime_reduction_percent=0.0,
+        final_correctness_passed=True,
+    )
+    report_data.final_code_diff = None
+
+    plot_paths = build_report_figures(report_data, tmp_path / "plots")
+    html_path = render_report_html(report_data, plot_paths, tmp_path / "report.html")
+    html = html_path.read_text(encoding="utf-8")
+
+    assert "final selected source is the original baseline" in html
+    assert "artifact is missing" not in html
+
+
+def test_missing_diff_message_when_artifact_missing(tmp_path: Path) -> None:
+    report_data = _report_data()
+    report_data.final_selection = ReportFinalSelection(
+        status="completed",
+        final_best_is_baseline=False,
+        speedup_vs_original_baseline=1.25,
+        runtime_reduction_percent=20.0,
+        final_correctness_passed=True,
+    )
+    report_data.final_code_diff = None
+
+    plot_paths = build_report_figures(report_data, tmp_path / "plots")
+    html_path = render_report_html(report_data, plot_paths, tmp_path / "report.html")
+    html = html_path.read_text(encoding="utf-8")
+
+    assert "artifact is missing" in html
+    assert "final selected source is the original baseline" not in html
+
+
+# ---------------------------------------------------------------------------
+# Issue 8: Speedup cell in Selected Iteration Details uses <br>
+# ---------------------------------------------------------------------------
+
+
+def test_speedup_cell_two_line_format(tmp_path: Path) -> None:
+    report_data = _report_data()
+    report_data.iterations[0].outcome_reason = ReportOutcomeReason(
+        category="decision",
+        code="accepted_improvement",
+        message="Accepted.",
+    )
+
+    plot_paths = build_report_figures(report_data, tmp_path / "plots")
+    html_path = render_report_html(report_data, plot_paths, tmp_path / "report.html")
+    html = html_path.read_text(encoding="utf-8")
+
+    appendix_section = html.split('id="appendix"', 1)[1]
+    assert "<br>" in appendix_section
+    assert "; current best" not in appendix_section
+
+
+# ---------------------------------------------------------------------------
+# Issue 9: Diff stats zero vs None distinction
+# ---------------------------------------------------------------------------
+
+
+def test_diff_stats_explicit_zero_is_shown(tmp_path: Path) -> None:
+    report_data = _enriched_report_data()
+    report_data.final_best_candidate.diff_stats = ReportDiffStats(
+        files_changed=0,
+        lines_added=0,
+        lines_removed=0,
+        changed_blocks=0,
+        edit_count=0,
+    )
+
+    plot_paths = build_report_figures(report_data, tmp_path / "plots")
+    html_path = render_report_html(report_data, plot_paths, tmp_path / "report.html")
+    html = html_path.read_text(encoding="utf-8")
+
+    cost_section = html.split('id="cost-performance-profile"', 1)[1].split(
+        'id="reproducibility"', 1
+    )[0]
+    assert "Files Changed" in cost_section
+    assert "0" in cost_section
+
+
+def test_diff_stats_missing_fields_are_hidden(tmp_path: Path) -> None:
+    report_data = _enriched_report_data()
+    report_data.final_best_candidate.diff_stats = ReportDiffStats(
+        files_changed=1,
+        lines_added=None,
+        lines_removed=None,
+        changed_blocks=1,
+    )
+
+    plot_paths = build_report_figures(report_data, tmp_path / "plots")
+    html_path = render_report_html(report_data, plot_paths, tmp_path / "report.html")
+    html = html_path.read_text(encoding="utf-8")
+
+    cost_section = html.split('id="cost-performance-profile"', 1)[1].split(
+        'id="reproducibility"', 1
+    )[0]
+    assert "Files Changed" in cost_section
+    assert "Changed Blocks" in cost_section
+    assert "Lines Added" not in cost_section
+    assert "Lines Removed" not in cost_section
+
+
+def test_diff_stats_all_none_shows_fallback(tmp_path: Path) -> None:
+    report_data = _enriched_report_data()
+    report_data.final_best_candidate.diff_stats = ReportDiffStats()
+
+    plot_paths = build_report_figures(report_data, tmp_path / "plots")
+    html_path = render_report_html(report_data, plot_paths, tmp_path / "report.html")
+    html = html_path.read_text(encoding="utf-8")
+
+    cost_section = html.split('id="cost-performance-profile"', 1)[1].split(
+        'id="reproducibility"', 1
+    )[0]
+    assert "Final Diff Statistics" not in cost_section
+    assert "Final diff statistics were not recorded" in cost_section
+
+
+# ---------------------------------------------------------------------------
+# Issue 11: GT Found Δ fallback from iteration data
+# ---------------------------------------------------------------------------
+
+
+def test_gt_found_delta_fallback_from_iteration_data(tmp_path: Path) -> None:
+    report_data = _report_data()
+    report_data.final_result.final_best_iteration = 1
+    report_data.iterations = [
+        ReportIterationSummary(
+            iteration=1,
+            status="accepted_improvement",
+            runtime_ns_per_problem_median=800.0,
+            speedup_vs_baseline=1.25,
+            correctness_passed=True,
+            promoted=True,
+            gt_found_delta_points_vs_original_baseline=-0.50,
+        ),
+    ]
+
+    plot_paths = build_report_figures(report_data, tmp_path / "plots")
+    html_path = render_report_html(report_data, plot_paths, tmp_path / "report.html")
+    html = html_path.read_text(encoding="utf-8")
+
+    assert "GT Found Δ" in html
+    assert "-0.50" in html

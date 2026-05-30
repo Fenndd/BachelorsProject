@@ -1131,10 +1131,10 @@ def _build_diff_stats(value: Any) -> ReportDiffStats | None:
     if not isinstance(value, dict):
         return None
     return ReportDiffStats(
-        files_changed=_int_or_default(value.get("files_changed")),
-        lines_added=_int_or_default(value.get("lines_added")),
-        lines_removed=_int_or_default(value.get("lines_removed")),
-        changed_blocks=_int_or_default(value.get("changed_blocks")),
+        files_changed=_int_or_none(value.get("files_changed")),
+        lines_added=_int_or_none(value.get("lines_added")),
+        lines_removed=_int_or_none(value.get("lines_removed")),
+        changed_blocks=_int_or_none(value.get("changed_blocks")),
         edit_count=_int_or_none(value.get("edit_count")),
         fallback_used=_bool_or_none(value.get("fallback_used")),
     )

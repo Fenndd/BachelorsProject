@@ -375,6 +375,16 @@
 
     section {
       break-inside: auto;
+      scroll-margin-top: 140px;
+    }
+
+    table.iter-summary-table .badge,
+    table.iter-detail-table .badge {
+      font-size: 10px;
+      max-width: 100%;
+      white-space: normal;
+      overflow-wrap: anywhere;
+      word-break: break-word;
     }
 
     @media print {
@@ -412,6 +422,10 @@
       .toc {
         position: static;
         box-shadow: none;
+      }
+
+      section {
+        scroll-margin-top: 0;
       }
 
       .plot-grid-two-column {
@@ -474,9 +488,20 @@
       <div class="kpi-card"><strong>Accepted Improvements</strong><span class="value">{{ report.final_result.accepted_improvements|human_int }}</span></div>
       <div class="kpi-card"><strong>Correctness Preserved</strong><span class="value">{{ report.final_result.correctness_preserved|yes_no }}</span></div>
       <div class="kpi-card"><strong>Total Iterations</strong><span class="value">{{ report.experiment.total_iterations|human_int }}</span></div>
-      {% set gt_delta = report.final_selection.final_gt_found_delta_points|default(report.final_best_candidate.gt_found_delta_points, true) %}
-      {% if gt_delta is not none %}
-      <div class="kpi-card"><strong>GT Found Δ</strong><span class="value">{{ gt_delta|delta_pp }}</span></div>
+      {% set ns = namespace(gt_delta=None) %}
+      {% if report.final_selection.final_gt_found_delta_points is not none %}
+        {% set ns.gt_delta = report.final_selection.final_gt_found_delta_points %}
+      {% elif report.final_best_candidate.gt_found_delta_points is not none %}
+        {% set ns.gt_delta = report.final_best_candidate.gt_found_delta_points %}
+      {% else %}
+        {% for it in report.iterations %}
+          {% if it.iteration == report.final_result.final_best_iteration and it.gt_found_delta_points_vs_original_baseline is not none %}
+            {% set ns.gt_delta = it.gt_found_delta_points_vs_original_baseline %}
+          {% endif %}
+        {% endfor %}
+      {% endif %}
+      {% if ns.gt_delta is not none %}
+      <div class="kpi-card"><strong>GT Found Δ</strong><span class="value">{{ ns.gt_delta|delta_pp }}</span></div>
       {% endif %}
       <div class="kpi-card"><strong>Model</strong><span class="value">{{ report.llm.model|default(report.experiment.model, true)|display }}</span></div>
       <div class="kpi-card"><strong>Total Tokens</strong><span class="value">{{ report.llm_usage_summary.total_tokens|human_int }}</span></div>
@@ -583,11 +608,12 @@
       <div class="kpi-card"><strong>Final Best Is Baseline</strong><span class="value">{{ report.final_selection.final_best_is_baseline|yes_no }}</span></div>
       <div class="kpi-card"><strong>Speedup vs Original Baseline</strong><span class="value">{{ report.final_selection.speedup_vs_original_baseline|default(report.final_best_candidate.speedup_vs_baseline, true)|speedup }}</span></div>
       <div class="kpi-card"><strong>Runtime Reduction</strong><span class="value">{{ report.final_selection.runtime_reduction_percent|default(report.final_best_candidate.runtime_reduction_percent, true)|percent }}</span></div>
-      <div class="kpi-card"><strong>Runtime Improvement ns/problem</strong><span class="value">{{ report.final_best_candidate.absolute_runtime_difference_ns_per_problem|runtime_ns }}</span></div>
+      <div class="kpi-card"><strong>Runtime Delta, ns/problem</strong><span class="value">{{ report.final_best_candidate.absolute_runtime_difference_ns_per_problem|runtime_ns }}</span></div>
       <div class="kpi-card"><strong>Final Best Iteration</strong><span class="value">{{ report.final_best_candidate.iteration|default(report.final_result.final_best_iteration, true)|display }}</span></div>
       <div class="kpi-card"><strong>Correctness Passed</strong><span class="value">{{ report.final_selection.final_correctness_passed|default(report.final_best_candidate.correctness_passed, true)|yes_no }}</span></div>
       <div class="kpi-card"><strong>Benchmark Runs</strong><span class="value">{{ report.final_selection.final_benchmark_run_count|default(report.final_best_candidate.benchmark_run_count, true)|human_int }}</span></div>
-      <div class="kpi-card"><strong>Decision Metric</strong><span class="value">Median runtime</span></div>
+      {% set decision_metric = report.final_selection.decision_metric|default(report.final_best_candidate.decision_metric, true)|default(report.baseline_metrics.decision_metric, true) %}
+      <div class="kpi-card"><strong>Decision Metric</strong><span class="value">{{ decision_metric|display }}</span></div>
       <div class="kpi-card"><strong>Total Benchmark Wall Time</strong><span class="value">{{ report.final_best_candidate.total_benchmark_wall_seconds|human_duration }}</span></div>
     </div>
 
@@ -612,14 +638,14 @@
         <tr>
           <th>Valid Solutions</th>
           <td>{{ report.final_selection.baseline_valid_solutions_percent|default(report.baseline_metrics.valid_solutions_percent, true)|percent }}</td>
-          <td>{{ report.final_selection.final_valid_solutions_percent|display }}</td>
-          <td>{{ report.final_selection.final_valid_solutions_delta_points|display }}</td>
+          <td>{{ report.final_selection.final_valid_solutions_percent|percent }}</td>
+          <td>{{ report.final_selection.final_valid_solutions_delta_points|delta_pp }}</td>
         </tr>
         <tr>
           <th>GT Found</th>
           <td>{{ report.final_selection.baseline_gt_found_percent|default(report.final_best_candidate.baseline_gt_found_percent, true)|percent }}</td>
           <td>{{ report.final_selection.final_gt_found_percent|default(report.final_best_candidate.gt_found_percent, true)|percent }}</td>
-          <td>{{ report.final_selection.final_gt_found_delta_points|default(report.final_best_candidate.gt_found_delta_points, true)|display }}</td>
+          <td>{{ report.final_selection.final_gt_found_delta_points|default(report.final_best_candidate.gt_found_delta_points)|delta_pp }}</td>
         </tr>
         <tr>
           <th>Correctness</th>
@@ -809,13 +835,29 @@
       <div class="kpi-card"><strong>Total Experiment Duration</strong><span class="value">{{ report.experiment_metadata.total_duration_seconds|human_duration }}</span></div>
     </div>
 
-    {% if report.final_best_candidate.diff_stats %}
+    {% set has_diff_stats = report.final_best_candidate.diff_stats and (
+      report.final_best_candidate.diff_stats.files_changed is not none
+      or report.final_best_candidate.diff_stats.lines_added is not none
+      or report.final_best_candidate.diff_stats.lines_removed is not none
+      or report.final_best_candidate.diff_stats.changed_blocks is not none
+      or report.final_best_candidate.diff_stats.edit_count is not none
+      or report.final_best_candidate.diff_stats.fallback_used is not none
+    ) %}
+    {% if has_diff_stats %}
     <h3>Final Diff Statistics</h3>
     <div class="kpi-grid">
+      {% if report.final_best_candidate.diff_stats.files_changed is not none %}
       <div class="kpi-card"><strong>Files Changed</strong><span class="value">{{ report.final_best_candidate.diff_stats.files_changed|human_int }}</span></div>
+      {% endif %}
+      {% if report.final_best_candidate.diff_stats.lines_added is not none %}
       <div class="kpi-card"><strong>Lines Added</strong><span class="value">{{ report.final_best_candidate.diff_stats.lines_added|human_int }}</span></div>
+      {% endif %}
+      {% if report.final_best_candidate.diff_stats.lines_removed is not none %}
       <div class="kpi-card"><strong>Lines Removed</strong><span class="value">{{ report.final_best_candidate.diff_stats.lines_removed|human_int }}</span></div>
+      {% endif %}
+      {% if report.final_best_candidate.diff_stats.changed_blocks is not none %}
       <div class="kpi-card"><strong>Changed Blocks</strong><span class="value">{{ report.final_best_candidate.diff_stats.changed_blocks|human_int }}</span></div>
+      {% endif %}
       {% if report.final_best_candidate.diff_stats.edit_count is not none %}
       <div class="kpi-card"><strong>Edit Count</strong><span class="value">{{ report.final_best_candidate.diff_stats.edit_count|human_int }}</span></div>
       {% endif %}
@@ -867,13 +909,16 @@
     <h2>Appendix</h2>
     <article id="final-code-diff">
       <h3>Final Code Diff</h3>
+      {% set final_best_is_baseline = report.final_selection.final_best_is_baseline|default(report.closed_loop_selection.final_current_best_is_baseline, true) %}
       {% if report.final_code_diff %}
       <details open>
         <summary>Show final optimized source diff</summary>
         <div class="diff-container"><pre>{{ report.final_code_diff|diff_highlight }}</pre></div>
       </details>
+      {% elif final_best_is_baseline is true %}
+      <p class="muted">No final diff is shown because the final selected source is the original baseline.</p>
       {% else %}
-      <p class="muted">Final optimized source diff was not available.</p>
+      <p class="muted">Final optimized source diff artifact is missing.</p>
       {% endif %}
     </article>
 
@@ -913,7 +958,7 @@
             <td>{{ iteration.candidate_summary|display }}</td>
             <td>{{ iteration.outcome_reason.category|display }} / {{ iteration.outcome_reason.code|default(iteration.reason, true)|display }}{% if iteration.outcome_reason.message %}<br>{{ iteration.outcome_reason.message|display }}{% endif %}</td>
             <td>{{ iteration.runtime_ns_per_problem_median|runtime_ns }}</td>
-            <td>baseline {{ iteration.speedup_vs_baseline|speedup }}; current best {{ iteration.speedup_vs_current_best|speedup }}</td>
+            <td>baseline {{ iteration.speedup_vs_baseline|speedup }}<br>current best {{ iteration.speedup_vs_current_best|speedup }}</td>
             <td>{{ iteration.correctness_passed|yes_no }}</td>
             <td>{{ iteration.promoted|yes_no }}</td>
             <td><code>{{ iteration.candidate_run_dir|display }}</code></td>

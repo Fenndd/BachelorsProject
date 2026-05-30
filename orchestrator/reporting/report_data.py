@@ -127,10 +127,10 @@ class ReportLlmUsage:
 class ReportDiffStats:
     """Compact unified-diff size summary."""
 
-    files_changed: int = 0
-    lines_added: int = 0
-    lines_removed: int = 0
-    changed_blocks: int = 0
+    files_changed: int | None = None
+    lines_added: int | None = None
+    lines_removed: int | None = None
+    changed_blocks: int | None = None
     edit_count: int | None = None
     fallback_used: bool | None = None
 
@@ -316,7 +316,7 @@ class ReportReportingStatus:
 
 @dataclass
 class ReportFinalSelection:
-    """Single-run final benchmark comparison against original baseline."""
+    """Final repeated-benchmark comparison against original baseline."""
 
     status: str | None = None
     final_best_is_baseline: bool | None = None
