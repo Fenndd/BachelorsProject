@@ -967,7 +967,7 @@ def test_executive_summary_not_available_when_final_selection_metrics_null(tmp_p
     assert "Speedup vs Baseline" in executive
     assert "Runtime Reduction" in executive
     assert "Correctness Preserved" in executive
-    assert "Final single-run comparison metrics are unavailable" in final_result
+    assert "Final repeated-median comparison metrics are unavailable" in final_result
     assert "Not available" not in html
 
 
@@ -981,7 +981,7 @@ def test_final_result_html_missing_metrics_message(tmp_path: Path) -> None:
         'id="optimization-process"', 1
     )[0]
 
-    assert "Final single-run comparison metrics are unavailable" in final_result
+    assert "Final repeated-median comparison metrics are unavailable" in final_result
 
 
 def test_final_result_html_failed_message(tmp_path: Path) -> None:
@@ -995,7 +995,7 @@ def test_final_result_html_failed_message(tmp_path: Path) -> None:
         'id="optimization-process"', 1
     )[0]
 
-    assert "because the final selection step failed" in final_result
+    assert "because the final selection report failed" in final_result
 
 
 def test_final_validation_runtime_distribution_plot_not_generated(tmp_path: Path) -> None:

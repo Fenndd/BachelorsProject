@@ -37,8 +37,8 @@ def _fake_final_selection_report(**kwargs: Any) -> Path:
     write_json(
         report_path,
         {
-            "report_type": "single_run_final_selection_report",
-            "metric_source": "single_run_final_best_vs_original_baseline",
+            "report_type": "repeated_median_final_selection_report",
+            "metric_source": "existing_repeated_median_final_best_vs_original_baseline",
             "final_best_is_baseline": final_best_is_baseline,
             "status": "skipped" if final_best_is_baseline else "completed",
             "comparison": {
@@ -617,8 +617,8 @@ class RunExperimentClosedLoopTests(unittest.TestCase):
         selection_report = json.loads((experiment_dir / "closed_loop_selection_report.json").read_text(encoding="utf-8"))
         self.assertEqual(selection_report["control_decision"]["promotion_policy"], "decision_vs_current_best.accepted_improvement_only")
         self.assertEqual(selection_report["control_decision"]["final_best_iteration"], 1)
-        self.assertEqual(selection_report["single_run_selection_analytics"]["metric_source"], "single_run_closed_loop_selection_analytics")
-        self.assertEqual(selection_report["single_run_selection_analytics"]["status_counts"]["valid_not_improved"], 1)
+        self.assertEqual(selection_report["repeated_median_selection_analytics"]["metric_source"], "existing_repeated_median_closed_loop_selection_analytics")
+        self.assertEqual(selection_report["repeated_median_selection_analytics"]["status_counts"]["valid_not_improved"], 1)
         self.assertFalse(selection_report["safety"]["report_promotes_candidates"])
         self.assertFalse(selection_report["safety"]["report_updates_current_best_source"])
         self.assertFalse(selection_report["safety"]["report_updates_final_optimized_source"])

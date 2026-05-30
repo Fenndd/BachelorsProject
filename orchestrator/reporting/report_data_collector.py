@@ -524,6 +524,10 @@ def _build_final_selection(experiment_path: Path) -> ReportFinalSelection:
         return ReportFinalSelection()
     comparison_raw = payload.get("comparison")
     comparison: dict[str, Any] = comparison_raw if isinstance(comparison_raw, dict) else {}
+    final_benchmark = payload.get("final_benchmark")
+    final_benchmark = final_benchmark if isinstance(final_benchmark, dict) else {}
+    final_aggregate = final_benchmark.get("repeated_benchmark_aggregate")
+    final_aggregate = final_aggregate if isinstance(final_aggregate, dict) else {}
     return ReportFinalSelection(
         status=_string_or_none(payload.get("status")),
         final_best_is_baseline=_bool_or_none(payload.get("final_best_is_baseline")),
@@ -549,6 +553,24 @@ def _build_final_selection(experiment_path: Path) -> ReportFinalSelection:
             (payload.get("final_benchmark") or {}).get("parsed_correctness_passed")
             if isinstance(payload.get("final_benchmark"), dict)
             else None
+        ),
+        baseline_benchmark_run_count=_int_or_none(comparison.get("baseline_benchmark_run_count")),
+        final_benchmark_run_count=_int_or_none(comparison.get("final_benchmark_run_count")),
+        decision_metric=_string_or_none(comparison.get("decision_metric")),
+        baseline_valid_solutions_percent=_number_or_none(
+            comparison.get("baseline_valid_solutions_percent")
+        ),
+        final_valid_solutions_percent=_number_or_none(
+            comparison.get("final_valid_solutions_percent")
+        ),
+        final_valid_solutions_delta_points=_number_or_none(
+            comparison.get("final_valid_solutions_delta_points")
+        ),
+        final_min_runtime_ns_per_problem_median=_number_or_none(
+            final_aggregate.get("min_runtime_ns_per_problem_median")
+        ),
+        final_total_benchmark_wall_seconds=_number_or_none(
+            final_aggregate.get("total_benchmark_wall_seconds")
         ),
     )
 
@@ -584,6 +606,10 @@ def _apply_final_selection_overrides(
     final_best_candidate.baseline_gt_found_percent = final_selection.baseline_gt_found_percent
     final_best_candidate.gt_found_percent = final_selection.final_gt_found_percent
     final_best_candidate.gt_found_delta_points = final_selection.final_gt_found_delta_points
+    final_best_candidate.benchmark_run_count = final_selection.final_benchmark_run_count
+    final_best_candidate.decision_metric = final_selection.decision_metric
+    final_best_candidate.min_runtime_ns_per_problem_median = final_selection.final_min_runtime_ns_per_problem_median
+    final_best_candidate.total_benchmark_wall_seconds = final_selection.final_total_benchmark_wall_seconds
 
 
 def _build_experiment_metadata(
@@ -907,6 +933,22 @@ def _iteration_summary(
             record.get("correctness_passed"),
             _verification_correctness(verification),
         ),
+        benchmark_run_count=_first_available_int(
+            record.get("benchmark_run_count"),
+            _verification_benchmark_run_count(verification),
+        ),
+        decision_metric=_first_string(
+            record.get("decision_metric"),
+            _verification_decision_metric(verification),
+        ),
+        min_runtime_ns_per_problem_median=_first_available_number(
+            record.get("min_runtime_ns_per_problem_median"),
+            _verification_aggregate_number(verification, "min_runtime_ns_per_problem_median"),
+        ),
+        total_benchmark_wall_seconds=_first_available_number(
+            record.get("total_benchmark_wall_seconds"),
+            _verification_aggregate_number(verification, "total_benchmark_wall_seconds"),
+        ),
         promoted=record.get("current_best_updated") is True,
         reason=_extract_reason(
             record,
@@ -1150,6 +1192,26 @@ def _verification_gt_found(verification: dict[str, Any]) -> float | None:
     )
 
 
+def _verification_benchmark(verification: dict[str, Any]) -> dict[str, Any]:
+    benchmark = verification.get("benchmark")
+    return benchmark if isinstance(benchmark, dict) else {}
+
+
+def _verification_benchmark_run_count(verification: dict[str, Any]) -> int | None:
+    return _int_or_none(_verification_benchmark(verification).get("benchmark_run_count"))
+
+
+def _verification_decision_metric(verification: dict[str, Any]) -> str | None:
+    return _string_or_none(_verification_benchmark(verification).get("decision_metric"))
+
+
+def _verification_aggregate_number(verification: dict[str, Any], key: str) -> float | None:
+    aggregate = _verification_benchmark(verification).get("repeated_benchmark_aggregate")
+    if not isinstance(aggregate, dict):
+        return None
+    return _number_or_none(aggregate.get(key))
+
+
 def _decision_comparison_number(
     decision: dict[str, Any] | None,
     key: str,
@@ -1310,6 +1372,16 @@ def _load_baseline_metrics_with_raw(
             candidates,
             ("correctness_passed", "parsed_correctness_passed"),
         ),
+        benchmark_run_count=_first_int(candidates, ("benchmark_run_count",)),
+        decision_metric=_first_string(*(candidate.get("decision_metric") for candidate in candidates if isinstance(candidate, dict))),
+        min_runtime_ns_per_problem_median=_aggregate_first_number(
+            candidates,
+            "min_runtime_ns_per_problem_median",
+        ),
+        total_benchmark_wall_seconds=_aggregate_first_number(
+            candidates,
+            "total_benchmark_wall_seconds",
+        ),
     )
     return metrics, payload
 
@@ -1435,6 +1507,20 @@ def _first_int(
             value = _int_or_none(payload.get(key))
             if value is not None:
                 return value
+    return None
+
+
+def _aggregate_first_number(
+    payloads: list[dict[str, Any]],
+    key: str,
+) -> float | None:
+    for payload in payloads:
+        aggregate = payload.get("repeated_benchmark_aggregate")
+        if not isinstance(aggregate, dict):
+            continue
+        value = _number_or_none(aggregate.get(key))
+        if value is not None:
+            return value
     return None
 
 
@@ -1715,12 +1801,12 @@ def _build_closed_loop_selection_explanation(report_data: ReportData) -> str | N
 
     if iter_reason:
         return (
-            f"Iteration {best_iter} was faster on its single-run measurement, "
+            f"Iteration {best_iter} was faster on its repeated-median measurement, "
             f"but it was not promoted because the current-best promotion policy "
             f"did not accept it. Recorded reason: {iter_reason}."
         )
     return (
-        f"Iteration {best_iter} was faster on its single-run measurement, "
+        f"Iteration {best_iter} was faster on its repeated-median measurement, "
         f"but it was not promoted because the current-best promotion policy "
         f"did not accept it."
     )

@@ -19,11 +19,12 @@ Implemented:
 - A single line-range edit schema for LLM-generated candidates.
 - Candidate materialization and verification in isolated workspaces.
 - Pairwise candidate decision for closed-loop promotion and reporting, with optional `gt_found_max_drop_points` correctness gate.
+- Repeated median benchmark decisions: baseline and candidate verification each run 100 sequential benchmark executions.
 - Closed-loop iterative optimization in the experiment runner with experiment-local `current_best_source`.
 - Compact benchmark-aware closed-loop history for later generations.
 - Final closed-loop artifacts and analysis-only selector/reporting.
-- Automatic final repeated benchmark validation after closed-loop completion and before report generation.
-- Single unified HTML/PDF report with runtime, correctness, final repeated validation, failure analysis, phase timing, LLM usage, reproducibility metadata, diff statistics, iteration appendix sections, and a read-only report inspector.
+- Final best is the last accepted candidate; there is no separate final validation benchmark phase.
+- Single unified HTML/PDF report with repeated-median runtime, correctness, failure analysis, phase timing, LLM usage, reproducibility metadata, diff statistics, iteration appendix sections, and a read-only report inspector.
 - TUI Config Builder for interactive experiment config creation with validation.
 - Parallel non-blocking TUI experiment runs with `ActiveRunsManager`, cancellation, and quit guard.
 
@@ -68,7 +69,7 @@ $env:EIGEN3_INCLUDE_DIR="C:\path\to\eigen"
 py orchestrator/cli/main.py
 ```
 
-The flow configures CMake, builds/runs the appropriate targets for the selected solver, parses metrics, and checks `correctness_passed`. Benchmark and evaluation builds default to **Release**.
+The flow configures CMake, builds/runs the appropriate targets for the selected solver, runs the benchmark executable 100 times sequentially, aggregates by median of `runtime_ns_per_problem_median`, and checks `correctness_passed`. Benchmark and evaluation builds default to **Release**.
 
 Run a specific solver:
 
@@ -109,11 +110,13 @@ See `docs/candidate_edit_formats.md` for details.
 
 ## Candidate Materialization and Verification
 
-Materialization runs only inside `workspace/candidates/<candidate_run_id>/` using the `optimization_scope.allowed_files` allowlist from the experiment config. Verification configures/builds/runs inside the isolated candidate workspace and writes `verification.json`.
+Materialization runs only inside `workspace/candidates/<candidate_run_id>/` using the `optimization_scope.allowed_files` allowlist from the experiment config. Verification configures/builds inside the isolated candidate workspace, runs 100 sequential benchmark executions, aggregates by median, and writes `verification.json`.
 
 ## Selection and Reporting
 
 Pairwise candidate decisions consume verified benchmark artifacts and explicit references. The closed-loop runner uses the `decision_vs_current_best` outcome on each iteration record to control promotion into the experiment-local current best. `decision_vs_original_baseline.json` is retained for reporting and traceability only.
+
+Candidates with a 1.0% to under-2.0% runtime reduction are remeasured with another 100 candidate-only benchmark executions and decided from the merged 200-sample median. Mean and max are not decision or main-report metrics.
 
 Completed reports can be checked without regenerating anything:
 

@@ -2,8 +2,7 @@
 
 This module evaluates exactly one candidate run against exactly one explicit
 reference run. The reference may be the original baseline or a previously
-verified candidate. Baseline-vs-candidate helpers remain available for backward
-compatibility with the original selection path.
+verified candidate.
 """
 
 from __future__ import annotations
@@ -37,7 +36,8 @@ ALLOWED_REFERENCE_KINDS = {
 class CandidateDecisionThresholds:
     """Conservative correctness-tolerance thresholds for pairwise decision."""
 
-    min_runtime_reduction_percent: float = 0.5
+    min_runtime_reduction_percent: float = 1.0
+    immediate_accept_runtime_reduction_percent: float = 2.0
     gt_found_max_drop_points: float | None = None
 
 
@@ -140,6 +140,11 @@ def evaluate_candidate_against_reference(
         "speedup": None,
         "runtime_reduction_percent": None,
         "candidate_runtime_lower": False,
+        "reference_runtime_ns_per_problem_median": reference_runtime_num,
+        "candidate_runtime_ns_per_problem_median": candidate_runtime_num,
+        "reference_benchmark_run_count": reference.get("benchmark_run_count"),
+        "candidate_benchmark_run_count": candidate.get("benchmark_run_count"),
+        "decision_metric": candidate.get("decision_metric") or reference.get("decision_metric"),
         "reference_gt_found_percent": reference_gt_found_num,
         "candidate_gt_found_percent": candidate_gt_found_num,
         "gt_found_delta_points": gt_found_delta_points,
@@ -164,6 +169,11 @@ def evaluate_candidate_against_reference(
                 "speedup": speedup,
                 "runtime_reduction_percent": runtime_reduction_percent,
                 "candidate_runtime_lower": candidate_runtime_lower,
+                "reference_runtime_ns_per_problem_median": reference_runtime_num,
+                "candidate_runtime_ns_per_problem_median": candidate_runtime_num,
+                "reference_benchmark_run_count": reference.get("benchmark_run_count"),
+                "candidate_benchmark_run_count": candidate.get("benchmark_run_count"),
+                "decision_metric": candidate.get("decision_metric") or reference.get("decision_metric"),
                 "reference_gt_found_percent": reference_gt_found_num,
                 "candidate_gt_found_percent": candidate_gt_found_num,
                 "gt_found_delta_points": gt_found_delta_points,
@@ -171,18 +181,18 @@ def evaluate_candidate_against_reference(
                 "gt_found_gate_enabled": gt_found_gate_enabled,
                 "gt_found_max_drop_points": effective_thresholds.gt_found_max_drop_points,
             }
-            if (
-                candidate_runtime_lower
-                and runtime_reduction_percent
-                >= effective_thresholds.min_runtime_reduction_percent
-            ):
-                status = "accepted_improvement"
-            else:
+            if not candidate_runtime_lower:
                 status = "valid_not_improved"
-                if candidate_runtime_lower:
-                    non_acceptance_reasons.append(
-                        "runtime_improvement_below_minimum_threshold"
-                    )
+            elif runtime_reduction_percent < effective_thresholds.min_runtime_reduction_percent:
+                status = "valid_not_improved"
+                non_acceptance_reasons.append(
+                    "runtime_improvement_below_minimum_threshold"
+                )
+            elif _confirmation_required(candidate, effective_thresholds, runtime_reduction_percent):
+                status = "confirmation_required"
+                non_acceptance_reasons.append("borderline_runtime_improvement_requires_confirmation")
+            else:
+                status = "accepted_improvement"
 
     return {
         "status": status,
@@ -277,6 +287,8 @@ def _metrics_summary(normalized_artifact: dict[str, Any]) -> dict[str, Any]:
         "runtime_ns_per_problem_median": normalized_artifact.get(
             "parsed_runtime_ns_per_problem_median"
         ),
+        "benchmark_run_count": normalized_artifact.get("benchmark_run_count"),
+        "decision_metric": normalized_artifact.get("decision_metric"),
         "valid_solutions_percent": normalized_artifact.get("parsed_valid_solutions_percent"),
         "gt_found_percent": normalized_artifact.get("parsed_gt_found_percent"),
         "correctness_passed": normalized_artifact.get("parsed_correctness_passed"),
@@ -284,6 +296,22 @@ def _metrics_summary(normalized_artifact: dict[str, Any]) -> dict[str, Any]:
 
 
 def _validate_thresholds(thresholds: CandidateDecisionThresholds) -> None:
+    for field_name in (
+        "min_runtime_reduction_percent",
+        "immediate_accept_runtime_reduction_percent",
+    ):
+        value = getattr(thresholds, field_name)
+        if (
+            not isinstance(value, (int, float))
+            or isinstance(value, bool)
+            or not math.isfinite(float(value))
+            or float(value) < 0.0
+        ):
+            raise ValueError(f"{field_name} must be a finite non-negative number")
+    if thresholds.immediate_accept_runtime_reduction_percent < thresholds.min_runtime_reduction_percent:
+        raise ValueError(
+            "immediate_accept_runtime_reduction_percent must be greater than or equal to min_runtime_reduction_percent"
+        )
     gt_found_max_drop_points = thresholds.gt_found_max_drop_points
     if gt_found_max_drop_points is None:
         return
@@ -308,6 +336,18 @@ def _to_finite_number(value: object) -> float | None:
 def _is_positive_finite_number(value: object) -> bool:
     numeric = _to_finite_number(value)
     return numeric is not None and numeric > 0.0
+
+
+def _confirmation_required(
+    candidate: dict[str, Any],
+    thresholds: CandidateDecisionThresholds,
+    runtime_reduction_percent: float,
+) -> bool:
+    candidate_run_count = candidate.get("benchmark_run_count")
+    if isinstance(candidate_run_count, (int, float)) and not isinstance(candidate_run_count, bool):
+        if int(candidate_run_count) >= 200:
+            return False
+    return runtime_reduction_percent < thresholds.immediate_accept_runtime_reduction_percent
 
 
 def _unique_preserving_order(values: list[str]) -> list[str]:
@@ -414,7 +454,7 @@ def main(argv: list[str] | None = None) -> int:
         status = decision.get("status")
         if status == "rejected":
             return 1
-        if status in {"valid_not_improved", "accepted_improvement"}:
+        if status in {"valid_not_improved", "accepted_improvement", "confirmation_required"}:
             return 0
         return 2
     except SystemExit as exc:

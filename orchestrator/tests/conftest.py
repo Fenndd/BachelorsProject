@@ -81,6 +81,26 @@ def make_benchmark_payload(runtime: float | None = None, **overrides: Any) -> di
     if runtime is not None:
         benchmark["parsed_runtime_ns_per_problem_median"] = runtime
         benchmark["parsed_runtime_ns_total_median"] = runtime * 10
+    runtime_value = benchmark["parsed_runtime_ns_per_problem_median"]
+    benchmark["benchmark_run_count"] = 100
+    benchmark["decision_metric"] = "median_runtime_ns_per_problem_median"
+    benchmark["repeated_benchmark_samples"] = [
+        {
+            "run_index": index,
+            "runtime_ns_per_problem_median": runtime_value,
+            "gt_found_percent": benchmark["parsed_gt_found_percent"],
+            "valid_solutions_percent": benchmark["parsed_valid_solutions_percent"],
+            "wall_seconds": 0.001,
+        }
+        for index in range(1, 101)
+    ]
+    benchmark["repeated_benchmark_aggregate"] = {
+        "benchmark_run_count": 100,
+        "decision_metric": "median_runtime_ns_per_problem_median",
+        "median_runtime_ns_per_problem_median": runtime_value,
+        "min_runtime_ns_per_problem_median": runtime_value,
+        "total_benchmark_wall_seconds": 0.1,
+    }
     benchmark.update(overrides)
     return {"benchmark": benchmark}
 

@@ -74,7 +74,7 @@ def test_collect_report_data_does_not_apply_overrides_when_final_selection_faile
     write_json(
         experiment_dir / "final_selection_report.json",
         {
-            "report_type": "single_run_final_selection_report",
+            "report_type": "repeated_median_final_selection_report",
             "status": "failed",
             "failed_step": "benchmark",
             "comparison": {
@@ -100,8 +100,8 @@ def test_collect_report_data_uses_final_selection_metrics_when_available(tmp_pat
     write_json(
         experiment_dir / "final_selection_report.json",
         {
-            "report_type": "single_run_final_selection_report",
-            "metric_source": "single_run_final_best_vs_original_baseline",
+            "report_type": "repeated_median_final_selection_report",
+            "metric_source": "existing_repeated_median_final_best_vs_original_baseline",
             "final_best_is_baseline": False,
             "status": "completed",
             "final_benchmark": {
@@ -170,7 +170,7 @@ def test_report_data_includes_gt_found_deltas_and_selection_policy(tmp_path: Pat
     write_json(
         experiment_dir / "final_selection_report.json",
         {
-            "report_type": "single_run_final_selection_report",
+            "report_type": "repeated_median_final_selection_report",
             "final_best_is_baseline": False,
             "status": "completed",
             "final_benchmark": {"parsed_correctness_passed": True},

@@ -102,6 +102,12 @@ def _build_verification_command(candidate_run_dir: str, config: ExperimentConfig
     ]
 
 
+def _build_confirmation_command(candidate_run_dir: str, config: ExperimentConfig) -> list[str]:
+    command = _build_verification_command(candidate_run_dir, config)
+    command.extend(["--append-benchmark-runs", "100"])
+    return command
+
+
 def _write_stage_log(
     log_path: Path,
     global_iteration: int,
@@ -507,12 +513,13 @@ def _closed_loop_phase_timings(
     generation_result: dict[str, Any] | None = None,
     materialization_result: dict[str, Any] | None = None,
     verification_result: dict[str, Any] | None = None,
+    confirmation_result: dict[str, Any] | None = None,
 ) -> dict[str, float | None]:
     return {
         "generation_seconds": _stage_duration_or_none(generation_result),
         "materialization_seconds": _stage_duration_or_none(materialization_result),
         "verification_seconds": _stage_duration_or_none(verification_result),
-        "benchmark_seconds": None,
+        "benchmark_seconds": _stage_duration_or_none(confirmation_result),
         "total_iteration_seconds": round(time.perf_counter() - iteration_started, 3),
     }
 
@@ -887,6 +894,59 @@ def run_closed_loop_iterations(
             candidate_run_dir=candidate_run_dir,
             thresholds=decision_thresholds,
         )
+        confirmation_result: dict[str, Any] | None = None
+        if decision_vs_current_best.get("status") == "confirmation_required":
+            confirmation_result = _run_stage(
+                experiment_dir,
+                iteration,
+                "confirm_candidate_benchmark",
+                _build_confirmation_command(str(candidate_run_dir), config),
+            )
+            verification_record = _verification_stage_record(
+                confirmation_result,
+                str(candidate_run_dir),
+            )
+            if verification_record["status"] != "success":
+                record = _build_closed_loop_iteration_record(
+                    experiment_id=experiment_id,
+                    iteration=iteration,
+                    status=IterationStatus.VERIFICATION_FAILED,
+                    base_source_kind=base_source_kind,
+                    reference_best_iteration_before=reference_best_iteration_before,
+                    reference_best_run_dir=reference_run_dir_before,
+                    candidate_run_dir=candidate_run_dir,
+                    candidate=candidate,
+                    decision_vs_current_best=decision_vs_current_best,
+                    decision_vs_original_baseline=None,
+                    current_best_updated=False,
+                    current_best_iteration_after=state.current_best_iteration,
+                    failure_stage="confirmation_benchmark",
+                    failure_reason=verification_record.get("error_message") or verification_record.get("failed_step"),
+                    materialization_match_summary=materialization_record.get("materialization_match_summary"),
+                    phase_timings=_closed_loop_phase_timings(
+                        iteration_started,
+                        generation_result,
+                        materialization_result,
+                        confirmation_result,
+                    ),
+                    outcome_reason=_closed_loop_outcome_reason(
+                        status=IterationStatus.VERIFICATION_FAILED,
+                        record_fields=verification_record,
+                        candidate_run_dir=candidate_run_dir,
+                        candidate=candidate,
+                    ),
+                )
+                records.append(record)
+                _append_closed_loop_record_and_state(closed_loop_paths, state, record)
+                write_candidate_decision(candidate_run_dir, decision_vs_current_best, "decision_vs_current_best.json")
+                print("- iteration: verification_failed")
+                continue
+            decision_vs_current_best = _evaluate_candidate_with_thresholds(
+                reference_run_dir=state.current_best_run_dir,
+                reference_kind=reference_kind,
+                candidate_run_dir=candidate_run_dir,
+                thresholds=decision_thresholds,
+            )
         decision_vs_original_baseline = _evaluate_candidate_with_thresholds(
             reference_run_dir=baseline_run_dir,
             reference_kind="baseline",
@@ -932,6 +992,7 @@ def run_closed_loop_iterations(
                 generation_result,
                 materialization_result,
                 verification_result,
+                confirmation_result,
             ),
             outcome_reason=_closed_loop_outcome_reason(
                 status=iteration_status,

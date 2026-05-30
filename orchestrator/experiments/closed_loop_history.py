@@ -367,7 +367,7 @@ def _below_threshold_result_text(record: dict[str, Any]) -> str | None:
     if isinstance(thresholds, dict):
         threshold = _float_or_none(thresholds.get("min_runtime_reduction_percent"))
     if threshold is None:
-        threshold = 0.5
+        threshold = 1.0
     return (
         f"{runtime_reduction:.1f}% faster than current best, below the "
         f"{threshold:.1f}% acceptance threshold"

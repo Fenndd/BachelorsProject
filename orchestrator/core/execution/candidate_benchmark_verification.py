@@ -23,6 +23,11 @@ from orchestrator.core.benchmarking.benchmark_artifacts import (
     build_benchmark_correctness_error_message,
     empty_benchmark_artifact,
 )
+from orchestrator.core.benchmarking.repeated_benchmark import (
+    DEFAULT_REPEATED_BENCHMARK_RUN_COUNT,
+    merge_repeated_benchmark_artifacts,
+    run_repeated_benchmark,
+)
 from orchestrator.core.benchmarking.benchmark_runner import (
     build_benchmark_run_command,
     build_cmake_build_command,
@@ -132,6 +137,12 @@ def _parse_args(argv: list[str]) -> argparse.Namespace:
             os.environ.get("CMAKE_BUILD_TYPE", "Release"),
         ),
         help="CMake build type (Release, Debug, RelWithDebInfo, MinSizeRel).",
+    )
+    parser.add_argument(
+        "--append-benchmark-runs",
+        type=int,
+        default=None,
+        help="Append this many benchmark executions to an existing verification artifact.",
     )
     return parser.parse_args(argv)
 
@@ -275,6 +286,8 @@ def _build_summary(verification: dict[str, Any], logs_dir: Path) -> str:
             f"Benchmark parse status: {_format_value(benchmark['parse_success'])}",
             "",
             "Family benchmark:",
+            f"- benchmark runs: {_format_value(benchmark.get('benchmark_run_count'))}",
+            f"- decision metric: {_format_value(benchmark.get('decision_metric'))}",
             f"- solver: {_format_value(benchmark['parsed_solver_name'])}",
             f"- problems: {_format_value(benchmark['parsed_num_problems'])}",
             f"- solutions/problem: {_format_value(benchmark['parsed_solutions_per_problem'])}",
@@ -285,6 +298,10 @@ def _build_summary(verification: dict[str, Any], logs_dir: Path) -> str:
             f"{_format_value(benchmark['parsed_runtime_ns_total_median'])} ns",
             "- median runtime per problem: "
             f"{_format_value(benchmark['parsed_runtime_ns_per_problem_median'])} ns",
+            "- min runtime per problem: "
+            f"{_format_value((benchmark.get('repeated_benchmark_aggregate') or {}).get('min_runtime_ns_per_problem_median'))} ns",
+            "- total benchmark wall seconds: "
+            f"{_format_value((benchmark.get('repeated_benchmark_aggregate') or {}).get('total_benchmark_wall_seconds'))}",
         ]
     )
     if benchmark["missing_fields"]:
@@ -311,6 +328,27 @@ def _save_artifacts(
     (candidate_run_dir / "verification_summary.txt").write_text(
         _build_summary(verification, logs_dir),
         encoding="utf-8",
+    )
+
+
+def _save_repeated_benchmark_log(
+    logs_dir: Path,
+    run_index: int,
+    step_name: str,
+    command: Sequence[str],
+    cwd: Path,
+    exit_code: int | None,
+    stdout: str,
+    stderr: str,
+) -> None:
+    write_step_log(
+        logs_dir / f"{step_name}.log",
+        step_name,
+        command,
+        cwd,
+        exit_code,
+        stdout,
+        stderr,
     )
 
 
@@ -559,7 +597,7 @@ def main(argv: list[str] | None = None) -> int:
 
     try:
         logs_dir.mkdir(parents=True, exist_ok=True)
-        if build_dir.exists():
+        if build_dir.exists() and args.append_benchmark_runs is None:
             if build_dir.parent != source_dir:
                 raise ValueError(f"Refusing to remove unexpected build directory: {build_dir}")
             shutil.rmtree(build_dir)
@@ -596,23 +634,25 @@ def main(argv: list[str] | None = None) -> int:
 
     assert DESCRIPTOR.benchmark_target is not None
 
-    command_steps: list[tuple[str, str, Sequence[str], Path, Path]] = [
-        (
-            "configure_cmake",
-            "Configure candidate CMake project",
-            configure_command,
-            workspace_path,
-            logs_dir / "configure_cmake.log",
-        ),
-        (
-            f"build_{DESCRIPTOR.benchmark_target}",
-            f"Build {DESCRIPTOR.benchmark_target} target",
-            build_cmake_build_command(args.cmake_exe, build_dir, DESCRIPTOR.benchmark_target, args.cmake_build_type),
-            workspace_path,
-            logs_dir / f"build_{DESCRIPTOR.benchmark_target}.log",
-        ),
-    ]
-    if DESCRIPTOR.adapter_validator_target is not None:
+    command_steps: list[tuple[str, str, Sequence[str], Path, Path]] = []
+    if args.append_benchmark_runs is None:
+        command_steps = [
+            (
+                "configure_cmake",
+                "Configure candidate CMake project",
+                configure_command,
+                workspace_path,
+                logs_dir / "configure_cmake.log",
+            ),
+            (
+                f"build_{DESCRIPTOR.benchmark_target}",
+                f"Build {DESCRIPTOR.benchmark_target} target",
+                build_cmake_build_command(args.cmake_exe, build_dir, DESCRIPTOR.benchmark_target, args.cmake_build_type),
+                workspace_path,
+                logs_dir / f"build_{DESCRIPTOR.benchmark_target}.log",
+            ),
+        ]
+    if args.append_benchmark_runs is None and DESCRIPTOR.adapter_validator_target is not None:
         command_steps.insert(
             1,
             (
@@ -635,7 +675,7 @@ def main(argv: list[str] | None = None) -> int:
             break
 
     run_targets = []
-    if DESCRIPTOR.adapter_validator_target is not None:
+    if args.append_benchmark_runs is None and DESCRIPTOR.adapter_validator_target is not None:
         run_targets.append(
             (
                 f"run_{DESCRIPTOR.adapter_validator_target}",
@@ -655,7 +695,19 @@ def main(argv: list[str] | None = None) -> int:
         ),
     )
 
-    benchmark_stdout = ""
+    existing_benchmark: dict[str, Any] | None = None
+    if args.append_benchmark_runs is not None:
+        try:
+            verification = json.loads((candidate_run_dir / "verification.json").read_text(encoding="utf-8-sig"))
+            existing = verification.get("benchmark") if isinstance(verification, dict) else None
+            if not isinstance(existing, dict):
+                raise ValueError("verification.json does not contain a benchmark section")
+            existing_benchmark = existing
+        except (OSError, ValueError, json.JSONDecodeError) as exc:
+            failed_step = "read_existing_verification"
+            error_message = str(exc)
+            step_statuses.append(_step_status(failed_step, "failed", None, None))
+
     if failed_step is None:
         for step_name, title, executable_name, log_path, is_benchmark in run_targets:
             try:
@@ -678,75 +730,60 @@ def main(argv: list[str] | None = None) -> int:
                 break
 
             command = build_benchmark_run_command(executable, DESCRIPTOR) if is_benchmark else [str(executable)]
-            step_status, step_error, stdout = run_command(
-                step_name,
-                title,
-                command,
-                workspace_path,
-                log_path,
-            )
-            step_statuses.append(step_status)
-            if step_name == f"run_{DESCRIPTOR.benchmark_target}":
-                benchmark_stdout = stdout
-                benchmark = empty_benchmark_artifact(DESCRIPTOR, True, build_type=args.cmake_build_type)
-            if step_error:
-                failed_step = step_name
-                error_message = step_error
-                break
-
-    if failed_step is None:
-        parse_started = time.perf_counter()
-        parse_result = DESCRIPTOR.parser(benchmark_stdout)
-        parse_duration = round(time.perf_counter() - parse_started, 3)
-        benchmark = benchmark_artifact_from_parse(parse_result, DESCRIPTOR, args.cmake_build_type)
-        if parse_result["parse_success"]:
-            step_statuses.append(
-                _step_status(
-                    PARSE_FAMILY_BENCHMARK_STEP,
-                    "success",
-                    None,
-                    parse_duration,
+            if is_benchmark:
+                existing_count = 0
+                if existing_benchmark is not None:
+                    existing_count_raw = existing_benchmark.get("benchmark_run_count")
+                    existing_count = int(existing_count_raw) if isinstance(existing_count_raw, (int, float)) and not isinstance(existing_count_raw, bool) else 0
+                repeated_result = run_repeated_benchmark(
+                    command=command,
+                    cwd=workspace_path,
+                    descriptor=DESCRIPTOR,
+                    build_type=args.cmake_build_type,
+                    step_name=step_name,
+                    title=title,
+                    run_count=args.append_benchmark_runs or DEFAULT_REPEATED_BENCHMARK_RUN_COUNT,
+                    run_index_start=existing_count + 1,
+                    log_callback=lambda run_index, label, cmd, cwd, exit_code, stdout, stderr: _save_repeated_benchmark_log(
+                        logs_dir,
+                        run_index,
+                        label,
+                        cmd,
+                        cwd,
+                        exit_code,
+                        stdout,
+                        stderr,
+                    ),
+                    echo_progress=True,
                 )
-            )
-        else:
-            failed_step = PARSE_FAMILY_BENCHMARK_STEP
-            error_message = (
-                "Could not parse family benchmark output. "
-                f"Missing fields: {parse_result['missing_fields']}; "
-                f"parse errors: {parse_result['parse_errors']}"
-            )
-            step_statuses.append(
-                _step_status(
-                    PARSE_FAMILY_BENCHMARK_STEP,
-                    "failed",
-                    None,
-                    parse_duration,
-                )
-            )
-        if parse_result["parse_success"]:
-            correctness_started = time.perf_counter()
-            correctness_passed = benchmark.get("parsed_correctness_passed") is True
-            correctness_duration = round(time.perf_counter() - correctness_started, 3)
-            if correctness_passed:
-                step_statuses.append(
-                    _step_status(
-                        BENCHMARK_CORRECTNESS_CHECK_STEP,
-                        "success",
-                        None,
-                        correctness_duration,
+                benchmark = repeated_result["benchmark"]
+                if existing_benchmark is not None and repeated_result.get("success") is True:
+                    benchmark = merge_repeated_benchmark_artifacts(
+                        existing_benchmark,
+                        benchmark,
+                        DESCRIPTOR,
+                        args.cmake_build_type,
                     )
-                )
+                step_statuses.append(repeated_result["run_step_status"])
+                step_statuses.append(repeated_result["parse_step_status"])
+                step_statuses.append(repeated_result["correctness_step_status"])
+                if repeated_result.get("success") is not True:
+                    failed_step = repeated_result.get("failed_step") or step_name
+                    error_message = repeated_result.get("error_message")
+                    break
             else:
-                failed_step = BENCHMARK_CORRECTNESS_CHECK_STEP
-                error_message = build_benchmark_correctness_error_message(benchmark)
-                step_statuses.append(
-                    _step_status(
-                        BENCHMARK_CORRECTNESS_CHECK_STEP,
-                        "failed",
-                        None,
-                        correctness_duration,
-                    )
+                step_status, step_error, _stdout = run_command(
+                    step_name,
+                    title,
+                    command,
+                    workspace_path,
+                    log_path,
                 )
+                step_statuses.append(step_status)
+                if step_error:
+                    failed_step = step_name
+                    error_message = step_error
+                    break
 
     try:
         return _finalize(

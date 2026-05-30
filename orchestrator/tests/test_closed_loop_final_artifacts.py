@@ -330,7 +330,7 @@ def test_final_diff_and_summary_use_accepted_candidate_decision(
         accepted_improvements=1,
     )
     assert "Closed-loop mode: enabled" in text
-    assert "Final single-run comparison: not run" in text
+    assert "Final repeated-median comparison: not run" in text
     assert "Final repeated validation" not in text
     assert "final optimized source:" in text
     assert "final diff:" in text
@@ -457,8 +457,8 @@ def test_closed_loop_selection_report_is_reporting_only(
     assert report["status_counts"] == summary.status_counts
     assert report["control_decision"]["final_best_iteration"] == 1
     assert report["control_decision"]["final_best_run_dir"] == "results/runs/candidate_001"
-    analytics = report["single_run_selection_analytics"]
-    assert analytics["metric_source"] == "single_run_closed_loop_selection_analytics"
+    analytics = report["repeated_median_selection_analytics"]
+    assert analytics["metric_source"] == "existing_repeated_median_closed_loop_selection_analytics"
     assert analytics["performance_reference"] == "original_baseline"
     assert analytics["final_speedup_vs_original_baseline"] == 1.25
     assert "final_analysis" not in report

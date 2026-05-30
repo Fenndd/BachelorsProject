@@ -93,6 +93,10 @@ class ReportBaselineMetrics:
     gt_found: int | None = None
     valid_solutions: int | None = None
     correctness_passed: bool | None = None
+    benchmark_run_count: int | None = None
+    decision_metric: str | None = None
+    min_runtime_ns_per_problem_median: float | None = None
+    total_benchmark_wall_seconds: float | None = None
 
 
 @dataclass
@@ -170,6 +174,10 @@ class ReportIterationSummary:
     speedup_vs_current_best: float | None = None
     speedup_vs_baseline: float | None = None
     correctness_passed: bool | None = None
+    benchmark_run_count: int | None = None
+    decision_metric: str | None = None
+    min_runtime_ns_per_problem_median: float | None = None
+    total_benchmark_wall_seconds: float | None = None
     promoted: bool = False
     reason: str | None = None
     candidate_run_dir: Path | str | None = None
@@ -321,6 +329,14 @@ class ReportFinalSelection:
     final_gt_found_percent: float | None = None
     final_gt_found_delta_points: float | None = None
     final_correctness_passed: bool | None = None
+    baseline_benchmark_run_count: int | None = None
+    final_benchmark_run_count: int | None = None
+    decision_metric: str | None = None
+    baseline_valid_solutions_percent: float | None = None
+    final_valid_solutions_percent: float | None = None
+    final_valid_solutions_delta_points: float | None = None
+    final_min_runtime_ns_per_problem_median: float | None = None
+    final_total_benchmark_wall_seconds: float | None = None
 
 
 @dataclass
@@ -345,6 +361,10 @@ class ReportFinalBestCandidate:
     final_optimized_source: str | None = None
     final_diff: str | None = None
     diff_stats: ReportDiffStats | None = None
+    benchmark_run_count: int | None = None
+    decision_metric: str | None = None
+    min_runtime_ns_per_problem_median: float | None = None
+    total_benchmark_wall_seconds: float | None = None
 
 
 @dataclass

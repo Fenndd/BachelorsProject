@@ -79,8 +79,8 @@ def _fake_final_selection_report(**kwargs: Any) -> Path:
     write_json(
         report_path,
         {
-            "report_type": "single_run_final_selection_report",
-            "metric_source": "single_run_final_best_vs_original_baseline",
+            "report_type": "repeated_median_final_selection_report",
+            "metric_source": "existing_repeated_median_final_best_vs_original_baseline",
             "final_best_is_baseline": final_best_is_baseline,
             "status": "skipped" if final_best_is_baseline else "completed",
             "comparison": {
@@ -239,7 +239,7 @@ def test_closed_loop_status_warns_when_final_selection_failed(
         write_json(
             report_path,
             {
-                "report_type": "single_run_final_selection_report",
+                "report_type": "repeated_median_final_selection_report",
                 "status": "failed",
                 "failed_step": "benchmark",
                 "error_message": "benchmark binary not found",

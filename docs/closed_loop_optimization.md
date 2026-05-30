@@ -77,12 +77,20 @@ Closed-loop iteration records can use these statuses:
 
 Only `accepted_improvement` updates `current_best_source`. A verified candidate
 must pass correctness/comparability gates and reduce runtime by at least the
-default `min_runtime_reduction_percent = 0.5` to be accepted. Faster candidates
-below that threshold are `valid_not_improved` and are not promoted. Such
+default `min_runtime_reduction_percent = 1.0` to be accepted. Baseline and
+candidate verification each use 100 sequential benchmark executions aggregated
+by median. Faster candidates below 1.0% are `valid_not_improved` and are not promoted. Such
 candidates are valid rather than rejected; their decision artifacts use
 `non_acceptance_reasons`, for example
 `runtime_improvement_below_minimum_threshold`, while `rejection_reasons` stays
 reserved for hard rejection/correctness/audit failures.
+
+Candidates with an initial repeated-median runtime reduction from 1.0% inclusive
+to below 2.0% are borderline. The runner executes another 100 candidate-only
+benchmark runs, merges all 200 candidate samples, recomputes the candidate
+median, and decides from that merged median. Candidates at or above 2.0% are
+accepted immediately after the first 100 candidate executions. Mean and max are
+not decision or main-report metrics.
 
 ## Decision Artifacts
 
@@ -143,10 +151,10 @@ Key artifacts are:
 - `final_optimized_source/`: copy of the final `current_best_source/` tree.
 - `final_optimized_source.diff`: unified diff from the original clean baseline to the final optimized source.
 - `closed_loop_iterations.jsonl`: compact per-iteration JSONL records.
-- `closed_loop_summary.json`: summary of final best iteration, accepted improvements, status counts, final repeated-validation metrics when available, and final artifact paths.
+- `closed_loop_summary.json`: summary of final best iteration, accepted improvements, status counts, and final artifact paths.
 - `closed_loop_selection_report.json`: analysis-only final report that separates promotion decisions from final analysis.
 - `summary.txt`: human-readable experiment summary with a closed-loop section.
-- `experiment_status.json`: includes a `closed_loop` block with final artifact paths, final best metadata, accepted improvement count, final repeated-validation metrics, and status counts.
+- `experiment_status.json`: includes a `closed_loop` block with final artifact paths, final best metadata, accepted improvement count, and status counts.
 
 `candidate.generated.diff` and `final_optimized_source.diff` have different meanings:
 
@@ -158,7 +166,7 @@ Key artifacts are:
 - The main `cpp/` source tree is never modified automatically.
 - `current_best_source` is updated only after `accepted_improvement`.
 - `decision_vs_original_baseline.json` is reporting/control only and does not promote candidates.
-- The final selector/report never promotes candidates or modifies source.
+- The final selector/report never reruns benchmarks, promotes candidates, or modifies source.
 - All planned iterations are attempted; there is no early stopping.
 
 ## Current Limitations
@@ -166,8 +174,7 @@ Key artifacts are:
 - Exactly one variant is supported in closed-loop mode.
 - Automatic promotion into the main `cpp/` source tree is not implemented.
 - Multi-variant closed-loop strategy is not implemented.
-- Additional solver families beyond the current minimal Lambda Twist P3P path are not implemented.
-- Candidate acceptance uses lower median runtime plus a default 0.5% minimum runtime-reduction threshold after correctness and comparability gates. Repeated-benchmark confidence policies are not implemented.
+- Candidate acceptance uses repeated median runtime plus a default 1.0% minimum runtime-reduction threshold after correctness and comparability gates.
 - Pairwise correctness is benchmark-defined and absolute: both artifacts must have `parsed_correctness_passed == true`.
 - Line-number mismatch diagnosis is not implemented as a special repair mechanism.
 - The current minimal P3P prototype focuses on runtime and PoseLib-style calibrated-pose correctness metrics. Memory measurement is not implemented yet and remains future optional work.

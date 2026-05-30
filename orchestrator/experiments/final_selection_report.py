@@ -1,40 +1,12 @@
-"""Single-run final benchmark comparison against original baseline for closed-loop experiments.
-
-After all closed-loop iterations finish, this module runs the benchmark once on the
-final optimized source and compares it against the original baseline metrics. It uses the
-same benchmark protocol (absolute_pose_lambdatwist_benchmark) and the same
-parser/audit/decision helpers as candidate verification, but runs only once with no
-repetitions.
-
-Build artifacts are written under workspace/ (mutable, git-ignored). The normalized
-benchmark artifact (verification.json) is written under
-results/experiments/<id>/final_selection/final_benchmark_run/. The final comparison
-report (final_selection_report.json) is written at the experiment directory root.
-"""
+"""Read-only final repeated-median comparison for closed-loop experiments."""
 
 from __future__ import annotations
 
 import json
-import os
-import sys
 from pathlib import Path
-from typing import Any, Sequence
+from typing import Any
 
-from orchestrator.core.benchmarking.benchmark_artifacts import (
-    benchmark_artifact_from_parse,
-    empty_benchmark_artifact,
-)
-from orchestrator.core.benchmarking.benchmark_runner import (
-    build_benchmark_run_command,
-    build_cmake_build_command,
-    configure_cmake_command,
-    find_executable,
-    run_command,
-)
-from orchestrator.core.benchmarking.candidate_decision import (
-    CandidateDecisionThresholds,
-    evaluate_candidate_against_baseline,
-)
+from orchestrator.core.benchmarking.benchmark_artifacts import empty_benchmark_artifact
 from orchestrator.core.benchmarking.solver_registry import (
     SolverBenchmarkDescriptor,
     default_solver_descriptor,
@@ -66,26 +38,21 @@ def run_final_selection_report(
     build_type: str = "Release",
     gt_found_max_drop_points: float | None = None,
 ) -> Path:
-    """Run a single final benchmark on the optimized source and compare against baseline.
-
-    Returns the path to the written final_selection_report.json.
-    """
+    """Write final_selection_report.json from existing repeated benchmark artifacts."""
     output_dir = experiment_dir / FINAL_SELECTION_DIR_NAME
     benchmark_descriptor = descriptor or _DESCRIPTOR
-    final_benchmark_run_dir = output_dir / FINAL_BENCHMARK_RUN_DIR_NAME
-    logs_dir = output_dir / "logs"
     report_path = experiment_dir / FINAL_SELECTION_REPORT_FILENAME
     output_dir.mkdir(parents=True, exist_ok=True)
 
     baseline_benchmark = _load_baseline_benchmark(baseline_run_dir, benchmark_descriptor)
     baseline_runtime = _runtime_ns(baseline_benchmark)
     baseline_gt_found = _gt_found_percent(baseline_benchmark)
+    baseline_valid = _valid_solutions_percent(baseline_benchmark)
 
     if final_best_is_baseline:
-        logs_dir.mkdir(parents=True, exist_ok=True)
         marker = {
             "reused_baseline": True,
-            "note": "Final best is original baseline; no separate benchmark was run.",
+            "note": "Final best is original baseline; existing repeated benchmark artifact was reused.",
             "baseline_run_dir": _display_path(baseline_run_dir, repo_root),
         }
         _write_json(output_dir / "reused_baseline.json", marker)
@@ -98,6 +65,12 @@ def run_final_selection_report(
             "baseline_gt_found_percent": baseline_gt_found,
             "final_gt_found_percent": baseline_gt_found,
             "final_gt_found_delta_points": 0.0 if baseline_gt_found is not None else None,
+            "baseline_valid_solutions_percent": baseline_valid,
+            "final_valid_solutions_percent": baseline_valid,
+            "final_valid_solutions_delta_points": 0.0 if baseline_valid is not None else None,
+            "baseline_benchmark_run_count": baseline_benchmark.get("benchmark_run_count"),
+            "final_benchmark_run_count": baseline_benchmark.get("benchmark_run_count"),
+            "decision_metric": baseline_benchmark.get("decision_metric"),
         }
         report = _build_report(
             experiment_id=experiment_id,
@@ -116,263 +89,46 @@ def run_final_selection_report(
             artifacts={
                 "final_benchmark_run_dir": None,
                 "final_benchmark_log": None,
-                "final_benchmark_verification": None,
+                "final_benchmark_verification": _display_path(baseline_run_dir / "metrics.json", repo_root),
             },
             repo_root=repo_root,
         )
         _write_json(report_path, report)
         return report_path
 
-    cmake_exe = os.environ.get("CMAKE_EXE", "cmake")
-    cmake_generator = os.environ.get("CMAKE_GENERATOR")
-    cmake_cxx_compiler = os.environ.get("CMAKE_CXX_COMPILER")
-    cmake_make_program = os.environ.get("CMAKE_MAKE_PROGRAM")
-    eigen_include_dir = os.environ.get("EIGEN3_INCLUDE_DIR")
-    effective_build_type = os.environ.get(
-        "BENCHMARK_CMAKE_BUILD_TYPE",
-        os.environ.get("CMAKE_BUILD_TYPE", build_type),
-    )
-
-    if not eigen_include_dir:
-        report = _build_report(
-            experiment_id=experiment_id,
-            target_file=target_file,
-            baseline_run_dir=baseline_run_dir,
-            final_source_dir=final_source_dir,
-            final_best_run_dir=final_best_run_dir,
-            final_best_is_baseline=False,
-            baseline_benchmark=baseline_benchmark,
-            final_benchmark=empty_benchmark_artifact(benchmark_descriptor, build_type=effective_build_type),
-            decision_vs_original_baseline=None,
-            comparison=_null_comparison(baseline_runtime, baseline_gt_found),
-            status="failed",
-            failed_step="environment",
-            error_message="EIGEN3_INCLUDE_DIR is not set.",
-            artifacts={
-                "final_benchmark_run_dir": None,
-                "final_benchmark_log": None,
-                "final_benchmark_verification": None,
-            },
-            repo_root=repo_root,
-        )
-        _write_json(report_path, report)
-        return report_path
-
-    source_cpp = final_source_dir / "cpp"
-    build_dir = WORKSPACE_ROOT / "experiments" / experiment_id / _BUILD_DIR_NAME
-    logs_dir.mkdir(parents=True, exist_ok=True)
-    final_benchmark_run_dir.mkdir(parents=True, exist_ok=True)
-    build_dir.mkdir(parents=True, exist_ok=True)
-
-    configure_command: list[str] = configure_cmake_command(
-        source_dir=source_cpp,
-        build_dir=build_dir,
-        eigen_include_dir=eigen_include_dir,
-        cmake_generator=cmake_generator,
-        cmake_cxx_compiler=cmake_cxx_compiler,
-        cmake_make_program=cmake_make_program,
-        cmake_build_type=effective_build_type,
-        cmake_exe=cmake_exe,
-    )
-
-    configure_log = logs_dir / "configure_cmake.log"
-    _, configure_error, _ = run_command(
-        "configure_cmake",
-        "Configure final source CMake project",
-        configure_command,
-        final_source_dir,
-        configure_log,
-    )
-    if configure_error:
-        report = _build_report(
-            experiment_id=experiment_id,
-            target_file=target_file,
-            baseline_run_dir=baseline_run_dir,
-            final_source_dir=final_source_dir,
-            final_best_run_dir=final_best_run_dir,
-            final_best_is_baseline=False,
-            baseline_benchmark=baseline_benchmark,
-            final_benchmark=empty_benchmark_artifact(benchmark_descriptor, build_type=effective_build_type),
-            decision_vs_original_baseline=None,
-            comparison=_null_comparison(baseline_runtime, baseline_gt_found),
-            status="failed",
-            failed_step="configure_cmake",
-            error_message=configure_error,
-            artifacts={
-                "final_benchmark_run_dir": _display_path(final_benchmark_run_dir, repo_root),
-                "final_benchmark_log": None,
-                "final_benchmark_verification": None,
-            },
-            repo_root=repo_root,
-        )
-        _write_json(report_path, report)
-        return report_path
-
-    build_log = logs_dir / f"build_{benchmark_descriptor.benchmark_target}.log"
-    build_cmd = build_cmake_build_command(cmake_exe, build_dir, benchmark_descriptor.benchmark_target, effective_build_type)
-    _, build_error, _ = run_command(
-        f"build_{benchmark_descriptor.benchmark_target}",
-        f"Build {benchmark_descriptor.benchmark_target}",
-        build_cmd,
-        build_dir.parent,
-        build_log,
-    )
-    if build_error:
-        report = _build_report(
-            experiment_id=experiment_id,
-            target_file=target_file,
-            baseline_run_dir=baseline_run_dir,
-            final_source_dir=final_source_dir,
-            final_best_run_dir=final_best_run_dir,
-            final_best_is_baseline=False,
-            baseline_benchmark=baseline_benchmark,
-            final_benchmark=empty_benchmark_artifact(benchmark_descriptor, build_type=effective_build_type),
-            decision_vs_original_baseline=None,
-            comparison=_null_comparison(baseline_runtime, baseline_gt_found),
-            status="failed",
-            failed_step=f"build_{benchmark_descriptor.benchmark_target}",
-            error_message=build_error,
-            artifacts={
-                "final_benchmark_run_dir": _display_path(final_benchmark_run_dir, repo_root),
-                "final_benchmark_log": None,
-                "final_benchmark_verification": None,
-            },
-            repo_root=repo_root,
-        )
-        _write_json(report_path, report)
-        return report_path
-
-    try:
-        benchmark_exe = find_executable(build_dir, benchmark_descriptor.benchmark_target)
-    except FileNotFoundError as exc:
-        report = _build_report(
-            experiment_id=experiment_id,
-            target_file=target_file,
-            baseline_run_dir=baseline_run_dir,
-            final_source_dir=final_source_dir,
-            final_best_run_dir=final_best_run_dir,
-            final_best_is_baseline=False,
-            baseline_benchmark=baseline_benchmark,
-            final_benchmark=empty_benchmark_artifact(benchmark_descriptor, build_type=effective_build_type),
-            decision_vs_original_baseline=None,
-            comparison=_null_comparison(baseline_runtime, baseline_gt_found),
-            status="failed",
-            failed_step="find_executable",
-            error_message=str(exc),
-            artifacts={
-                "final_benchmark_run_dir": _display_path(final_benchmark_run_dir, repo_root),
-                "final_benchmark_log": None,
-                "final_benchmark_verification": None,
-            },
-            repo_root=repo_root,
-        )
-        _write_json(report_path, report)
-        return report_path
-
-    benchmark_log_path = output_dir / "final_benchmark.log"
-    run_log = logs_dir / f"run_{benchmark_descriptor.benchmark_target}.log"
-    benchmark_command = build_benchmark_run_command(benchmark_exe, benchmark_descriptor)
-    _, run_error, stdout = run_command(
-        f"run_{benchmark_descriptor.benchmark_target}",
-        f"Run {benchmark_descriptor.benchmark_target}",
-        benchmark_command,
-        build_dir,
-        run_log,
-    )
-    benchmark_log_path.write_text(stdout or "", encoding="utf-8")
-
-    if run_error:
-        report = _build_report(
-            experiment_id=experiment_id,
-            target_file=target_file,
-            baseline_run_dir=baseline_run_dir,
-            final_source_dir=final_source_dir,
-            final_best_run_dir=final_best_run_dir,
-            final_best_is_baseline=False,
-            baseline_benchmark=baseline_benchmark,
-            final_benchmark=empty_benchmark_artifact(benchmark_descriptor, raw_output_available=False, build_type=effective_build_type),
-            decision_vs_original_baseline=None,
-            comparison=_null_comparison(baseline_runtime, baseline_gt_found),
-            status="failed",
-            failed_step=f"run_{benchmark_descriptor.benchmark_target}",
-            error_message=run_error,
-            artifacts={
-                "final_benchmark_run_dir": _display_path(final_benchmark_run_dir, repo_root),
-                "final_benchmark_log": _display_path(benchmark_log_path, repo_root),
-                "final_benchmark_verification": None,
-            },
-            repo_root=repo_root,
-        )
-        _write_json(report_path, report)
-        return report_path
-
-    parse_result = benchmark_descriptor.parser(stdout)
-    final_benchmark = benchmark_artifact_from_parse(parse_result, benchmark_descriptor, effective_build_type)
-
-    verification = {
-        "overall_status": "success" if parse_result["parse_success"] else "failed",
-        "failed_step": None if parse_result["parse_success"] else "parse_benchmark_output",
-        "error_message": (
-            None if parse_result["parse_success"]
-            else f"Benchmark output parse failed: missing={parse_result['missing_fields']}"
-        ),
-        "candidate_run_id": f"final_selection_{experiment_id}",
-        "source_dir": _display_path(source_cpp, repo_root),
-        "build_dir": _display_path(build_dir, repo_root),
-        "benchmark": final_benchmark,
-    }
-    verification_path = final_benchmark_run_dir / "verification.json"
-    _write_json(verification_path, verification)
-
-    decision: dict[str, Any] | None = None
-    failed_step: str | None = None
-    error_message: str | None = None
-    status = "completed"
-
-    if not parse_result["parse_success"]:
-        failed_step = "parse_benchmark_output"
-        error_message = f"Benchmark output parse failed: missing={parse_result['missing_fields']}"
-        status = "failed"
-    else:
-        try:
-            thresholds = CandidateDecisionThresholds(
-                gt_found_max_drop_points=gt_found_max_drop_points,
-            )
-            decision = evaluate_candidate_against_baseline(
-                baseline_run_dir, final_benchmark_run_dir, thresholds=thresholds,
-            )
-        except Exception as exc:
-            failed_step = "decision_vs_original_baseline"
-            error_message = str(exc)
-            status = "failed"
-        else:
-            if decision and decision.get("status") == "rejected":
-                status = "failed"
-                failed_step = "decision_vs_original_baseline"
-                error_message = (
-                    "Final benchmark artifact was rejected by comparison policy "
-                    "against original baseline."
-                )
-                verification["overall_status"] = "failed"
-                verification["failed_step"] = "decision_vs_original_baseline"
-                verification["error_message"] = error_message
-                _write_json(verification_path, verification)
-
-    comp_raw = (decision or {}).get("comparison", {})
-    comp: dict[str, Any] = comp_raw if isinstance(comp_raw, dict) else {}
+    final_benchmark = _load_candidate_benchmark(final_best_run_dir, benchmark_descriptor)
     final_runtime = _runtime_ns(final_benchmark)
     final_gt_found = _gt_found_percent(final_benchmark)
+    final_valid = _valid_solutions_percent(final_benchmark)
+    speedup = (
+        baseline_runtime / final_runtime
+        if baseline_runtime is not None and final_runtime is not None and final_runtime > 0
+        else None
+    )
+    runtime_reduction = (
+        ((baseline_runtime - final_runtime) / baseline_runtime) * 100.0
+        if baseline_runtime is not None and final_runtime is not None and baseline_runtime > 0
+        else None
+    )
     comparison = {
-        "speedup": comp.get("speedup"),
-        "runtime_reduction_percent": comp.get("runtime_reduction_percent"),
+        "speedup": speedup,
+        "runtime_reduction_percent": runtime_reduction,
         "baseline_runtime_ns_per_problem_median": baseline_runtime,
         "final_runtime_ns_per_problem_median": final_runtime,
-        "candidate_runtime_lower": comp.get("candidate_runtime_lower", False),
+        "candidate_runtime_lower": final_runtime is not None and baseline_runtime is not None and final_runtime < baseline_runtime,
         "baseline_gt_found_percent": baseline_gt_found,
         "final_gt_found_percent": final_gt_found,
-        "final_gt_found_delta_points": comp.get("gt_found_delta_points"),
+        "final_gt_found_delta_points": final_gt_found - baseline_gt_found if final_gt_found is not None and baseline_gt_found is not None else None,
+        "baseline_valid_solutions_percent": baseline_valid,
+        "final_valid_solutions_percent": final_valid,
+        "final_valid_solutions_delta_points": final_valid - baseline_valid if final_valid is not None and baseline_valid is not None else None,
+        "baseline_benchmark_run_count": baseline_benchmark.get("benchmark_run_count"),
+        "final_benchmark_run_count": final_benchmark.get("benchmark_run_count"),
+        "decision_metric": final_benchmark.get("decision_metric") or baseline_benchmark.get("decision_metric"),
     }
-
+    status = "completed" if final_benchmark.get("parse_success") is True else "failed"
+    failed_step = None if status == "completed" else "load_final_best_benchmark"
+    error_message = None if status == "completed" else "Final best benchmark artifact is missing or invalid."
     report = _build_report(
         experiment_id=experiment_id,
         target_file=target_file,
@@ -382,15 +138,15 @@ def run_final_selection_report(
         final_best_is_baseline=False,
         baseline_benchmark=baseline_benchmark,
         final_benchmark=final_benchmark,
-        decision_vs_original_baseline=decision,
+        decision_vs_original_baseline=None,
         comparison=comparison,
         status=status,
         failed_step=failed_step,
         error_message=error_message,
         artifacts={
-            "final_benchmark_run_dir": _display_path(final_benchmark_run_dir, repo_root),
-            "final_benchmark_log": _display_path(benchmark_log_path, repo_root),
-            "final_benchmark_verification": _display_path(verification_path, repo_root),
+            "final_benchmark_run_dir": _display_path(final_best_run_dir, repo_root) if final_best_run_dir else None,
+            "final_benchmark_log": None,
+            "final_benchmark_verification": _display_path(final_best_run_dir / "verification.json", repo_root) if final_best_run_dir else None,
         },
         repo_root=repo_root,
     )
@@ -413,6 +169,23 @@ def _load_baseline_benchmark(
     return benchmark if isinstance(benchmark, dict) else empty_benchmark_artifact(descriptor)
 
 
+def _load_candidate_benchmark(
+    candidate_run_dir: Path | None,
+    descriptor: SolverBenchmarkDescriptor,
+) -> dict[str, Any]:
+    if candidate_run_dir is None:
+        return empty_benchmark_artifact(descriptor)
+    verification_path = candidate_run_dir / "verification.json"
+    try:
+        payload = json.loads(verification_path.read_text(encoding="utf-8-sig"))
+    except (OSError, json.JSONDecodeError):
+        return empty_benchmark_artifact(descriptor)
+    if not isinstance(payload, dict):
+        return empty_benchmark_artifact(descriptor)
+    benchmark = payload.get("benchmark")
+    return benchmark if isinstance(benchmark, dict) else empty_benchmark_artifact(descriptor)
+
+
 def _runtime_ns(benchmark: dict[str, Any]) -> float | None:
     value = benchmark.get("parsed_runtime_ns_per_problem_median")
     if isinstance(value, (int, float)) and not isinstance(value, bool):
@@ -422,6 +195,13 @@ def _runtime_ns(benchmark: dict[str, Any]) -> float | None:
 
 def _gt_found_percent(benchmark: dict[str, Any]) -> float | None:
     value = benchmark.get("parsed_gt_found_percent")
+    if isinstance(value, (int, float)) and not isinstance(value, bool):
+        return float(value)
+    return None
+
+
+def _valid_solutions_percent(benchmark: dict[str, Any]) -> float | None:
+    value = benchmark.get("parsed_valid_solutions_percent")
     if isinstance(value, (int, float)) and not isinstance(value, bool):
         return float(value)
     return None
@@ -462,11 +242,11 @@ def _build_report(
     repo_root: Path,
 ) -> dict[str, Any]:
     return {
-        "report_type": "single_run_final_selection_report",
+        "report_type": "repeated_median_final_selection_report",
         "experiment_id": experiment_id,
         "target_file": target_file,
         "mode": "closed_loop",
-        "metric_source": "single_run_final_best_vs_original_baseline",
+        "metric_source": "existing_repeated_median_final_best_vs_original_baseline",
         "baseline_run_dir": _display_path(baseline_run_dir, repo_root),
         "final_source_dir": _display_path(final_source_dir, repo_root),
         "final_best_run_dir": _display_path(final_best_run_dir, repo_root) if final_best_run_dir else None,

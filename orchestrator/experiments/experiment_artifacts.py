@@ -297,8 +297,8 @@ def write_closed_loop_selection_report(
             "final_best_run_dir": final_current_best_run_dir,
             "accepted_improvements": state.accepted_improvements,
         },
-        "single_run_selection_analytics": {
-            "metric_source": "single_run_closed_loop_selection_analytics",
+        "repeated_median_selection_analytics": {
+            "metric_source": "existing_repeated_median_closed_loop_selection_analytics",
             "target_file": summary.target_file,
             "final_optimized_source_dir": env._display_path(summary.final_optimized_source_dir),
             "final_optimized_source_diff_path": env._display_path(summary.final_optimized_source_diff_path),
@@ -544,7 +544,7 @@ def _build_closed_loop_summary_text(
                 lines.append(f"  error: {reporting_status.get('error') or 'none'}")
         lines.append("")
     if final_selection_status is not None:
-        lines.append("Final single-run comparison vs original baseline:")
+        lines.append("Final repeated-median comparison vs original baseline:")
         lines.append(f"  status: {final_selection_status.get('status') or 'none'}")
         lines.append(f"  final best is baseline: {str(final_selection_status.get('final_best_is_baseline')).lower()}")
         lines.append(f"  report: {final_selection_status.get('report_path') or 'none'}")
@@ -570,9 +570,9 @@ def _build_closed_loop_summary_text(
                 f"{final_selection_status.get('final_correctness_passed')}"
             )
         else:
-            lines.append("  Final single-run comparison metrics: unavailable")
+                lines.append("  Final repeated-median comparison metrics: unavailable")
         lines.append("")
     else:
-        lines.append("Final single-run comparison: not run")
+        lines.append("Final repeated-median comparison: not run")
         lines.append("")
     return "\n".join(lines)
