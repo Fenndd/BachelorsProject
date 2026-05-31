@@ -653,15 +653,11 @@ def _build_final_best_candidate(
         final_rt = baseline_rt
         correctness = baseline_metrics.correctness_passed
         candidate_summary = None
-        expected_effect = None
-        risk_level = None
         candidate_run_dir_display = None
     else:
         final_rt = best_iter_summary.runtime_ns_per_problem_median if best_iter_summary else None
         correctness = best_iter_summary.correctness_passed if best_iter_summary else None
         candidate_summary = best_iter_summary.candidate_summary if best_iter_summary else None
-        expected_effect = best_iter_summary.expected_effect if best_iter_summary else None
-        risk_level = best_iter_summary.risk_level if best_iter_summary else None
         candidate_run_dir_display = _display_path(
             summary.get("final_best_candidate_run_dir"), experiment_path
         )
@@ -701,8 +697,6 @@ def _build_final_best_candidate(
         runtime_reduction_percent=None,
         correctness_passed=None,
         candidate_summary=candidate_summary,
-        expected_effect=expected_effect,
-        risk_level=risk_level,
         changed_files=changed_files,
         final_optimized_source=_display_path(
             summary.get("final_optimized_source_dir"), experiment_path
@@ -894,14 +888,6 @@ def _iteration_summary(
         candidate_summary=_first_summary_text(
             record.get("candidate_summary"),
             candidate.get("summary"),
-        ),
-        expected_effect=_first_string(
-            record.get("candidate_expected_effect"),
-            candidate.get("expected_effect"),
-        ),
-        risk_level=_first_string(
-            record.get("candidate_risk_level"),
-            candidate.get("risk_level"),
         ),
         runtime_ns_per_problem_median=_first_available_number(
             record.get("runtime_ns_per_problem_median"),

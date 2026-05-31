@@ -165,8 +165,6 @@ class ReportIterationSummary:
     iteration: int
     status: str
     candidate_summary: str | None = None
-    expected_effect: str | None = None
-    risk_level: str | None = None
     runtime_ns_per_problem_median: float | None = None
     gt_found_percent: float | None = None
     gt_found_delta_points_vs_original_baseline: float | None = None
@@ -355,8 +353,6 @@ class ReportFinalBestCandidate:
     gt_found_percent: float | None = None
     gt_found_delta_points: float | None = None
     candidate_summary: str | None = None
-    expected_effect: str | None = None
-    risk_level: str | None = None
     changed_files: list[str] = field(default_factory=list)
     final_optimized_source: str | None = None
     final_diff: str | None = None

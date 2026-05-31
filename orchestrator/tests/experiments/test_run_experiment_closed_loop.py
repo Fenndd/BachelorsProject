@@ -82,15 +82,12 @@ def _create_repo_layout(root: Path, source_text: str = "baseline\n") -> None:
     write_json(baseline / "metrics.json", make_benchmark_payload(1000.0))
 
 
-def _candidate_payload(*, expected_effect: str = "runtime", edits: list[dict[str, Any]] | None = None) -> dict[str, Any]:
+def _candidate_payload(*, edits: list[dict[str, Any]] | None = None) -> dict[str, Any]:
     return {
         "summary": "candidate summary",
         "rationale": "candidate rationale",
-        "risk_level": "low",
-        "expected_effect": expected_effect,
-        "target_files": [TARGET_FILE],
+        "correctness_notes": "no issues",
         "edits": [] if edits is None else edits,
-        "requires_manual_review": False,
     }
 
 
@@ -121,11 +118,11 @@ class _ClosedLoopHarness:
             if status == "generation_failed":
                 return {"exit_code": 1, "stdout": f"CANDIDATE_RUN_DIR={candidate_dir}\n", "stderr": "", "duration_seconds": 0.1}
             write_json(candidate_dir / "status.json", {"overall_status": "success"})
-            candidate = _candidate_payload(expected_effect="none" if status == "no_op" else "runtime")
+            candidate = _candidate_payload()
             candidate["summary"] = f"candidate summary {global_iteration}"
             if status != "no_op":
                 candidate["edits"] = [
-                    {"file": TARGET_FILE, "start_line": 1, "end_line": 1, "original": "baseline", "replace": f"candidate {global_iteration}"}
+                    {"start_line": 1, "end_line": 1, "original": "baseline", "replace": f"candidate {global_iteration}"}
                 ]
             write_json(candidate_dir / "candidate.json", candidate)
             return {"exit_code": 0, "stdout": f"CANDIDATE_RUN_DIR={candidate_dir}\n", "stderr": "", "duration_seconds": 0.1}
@@ -521,7 +518,7 @@ class RunExperimentClosedLoopTests(unittest.TestCase):
                 candidate_dir.mkdir(parents=True, exist_ok=True)
                 write_json(candidate_dir / "status.json", {"overall_status": "success"})
                 if global_iteration == 3:
-                    candidate = _candidate_payload(expected_effect="none", edits=[])
+                    candidate = _candidate_payload(edits=[])
                     candidate["summary"] = "No useful change"
                 else:
                     replacement = "ACCEPTED_VALUE" if global_iteration == 1 else "SLOWER_VALUE"
@@ -529,7 +526,6 @@ class RunExperimentClosedLoopTests(unittest.TestCase):
                     candidate = _candidate_payload(
                         edits=[
                             {
-                                "file": TARGET_FILE,
                                 "start_line": 1,
                                 "end_line": 1,
                                 "original": original,

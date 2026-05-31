@@ -518,8 +518,6 @@ def test_f_html_contains_enriched_fields(tmp_path: Path) -> None:
             candidate_summary="Optimized hot loop.",
             speedup_vs_current_best=1.30,
             speedup_vs_baseline=1.30,
-            expected_effect="decrease",
-            risk_level="low",
             correctness_passed=True,
             promoted=True,
         )

@@ -66,15 +66,35 @@ def _line_candidate(
     *,
     edits: list[dict[str, Any]],
     target_files: list[str] | None = None,
-    expected_effect: str = "runtime",
+    expected_effect: str | None = "runtime",
 ) -> None:
+    run_dir.mkdir(parents=True, exist_ok=True)
+    payload: dict[str, Any] = {
+        "summary": "test line range candidate",
+        "target_files": target_files or [TARGET_FILE],
+        "edits": edits,
+    }
+    if expected_effect is not None:
+        payload["expected_effect"] = expected_effect
+    (run_dir / "candidate.json").write_text(
+        json.dumps(payload),
+        encoding="utf-8",
+    )
+
+
+def _line_candidate_new_schema(
+    run_dir: Path,
+    *,
+    edits: list[dict[str, Any]],
+) -> None:
+    """Create a candidate.json in the new minimal schema (no target_files, no file in edits)."""
     run_dir.mkdir(parents=True, exist_ok=True)
     (run_dir / "candidate.json").write_text(
         json.dumps(
             {
-                "summary": "test line range candidate",
-                "target_files": target_files or [TARGET_FILE],
-                "expected_effect": expected_effect,
+                "summary": "test line range candidate (new schema)",
+                "rationale": "test rationale",
+                "correctness_notes": "no issues",
                 "edits": edits,
             }
         ),
@@ -88,6 +108,7 @@ def _materialize(
     base_source_root: Path,
     *,
     allow_exact_search_fallback: bool = True,
+    target_file: str | None = None,
 ) -> int:
     args = [
             "--candidate-run",
@@ -98,8 +119,10 @@ def _materialize(
             str(base_source_root),
             "--overwrite",
             "--allowed-file",
-            TARGET_FILE,
+            target_file or TARGET_FILE,
         ]
+    if target_file is not None:
+        args.extend(["--target-file", target_file])
     return materialize_main(args)
 
 
@@ -952,6 +975,117 @@ class MaterializeCandidateLineRangeEditsTests(unittest.TestCase):
             self.assertFalse(Path(materialization["source_root"]).is_absolute())
             self.assertFalse(Path(materialization["base_source_root"]).is_absolute())
             self.assertNotIn(str(base_source_root.resolve()), json.dumps(materialization))
+
+    # --- New schema tests (--target-file, edits without file) ---
+
+    def test_new_schema_exact_line_range_edit_succeeds(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmp_path = Path(tmpdir)
+            base_source_root = _source_dir(tmp_path)
+            _write_source(base_source_root, "int value = 1;\n")
+            run_dir = tmp_path / "candidate_new_exact"
+            _line_candidate_new_schema(
+                run_dir,
+                edits=[
+                    {
+                        "start_line": 1,
+                        "end_line": 1,
+                        "original": "int value = 1;",
+                        "replace": "int value = 2;",
+                    }
+                ],
+            )
+
+            exit_code = _materialize(tmp_path, run_dir, base_source_root, target_file=TARGET_FILE)
+
+            self.assertEqual(exit_code, 0)
+            materialization = _read_materialization(run_dir)
+            self.assertEqual(materialization["overall_status"], "success")
+            self.assertEqual(materialization["target_files"], [TARGET_FILE])
+            self.assertEqual(materialization["edit_files"], [TARGET_FILE])
+            self.assertEqual(materialization["changed_files"], [TARGET_FILE])
+            file_path = Path(materialization["workspace_path"]) / TARGET_FILE
+            self.assertEqual(file_path.read_text(encoding="utf-8"), "int value = 2;\n")
+
+    def test_new_schema_noop_skipped(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmp_path = Path(tmpdir)
+            base_source_root = _source_dir(tmp_path)
+            _write_source(base_source_root, "int value = 1;\n")
+            run_dir = tmp_path / "candidate_new_noop"
+            _line_candidate_new_schema(run_dir, edits=[])
+
+            exit_code = _materialize(tmp_path, run_dir, base_source_root, target_file=TARGET_FILE)
+
+            self.assertEqual(exit_code, 0)
+            materialization = _read_materialization(run_dir)
+            self.assertEqual(materialization["overall_status"], "skipped")
+            self.assertEqual(materialization["target_files"], [TARGET_FILE])
+            self.assertEqual(materialization["edit_files"], [])
+            self.assertEqual(materialization["changed_files"], [])
+
+    def test_new_schema_line_range_mismatch_fails(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmp_path = Path(tmpdir)
+            base_source_root = _source_dir(tmp_path)
+            _write_source(base_source_root, "int value = 1;\n")
+            run_dir = tmp_path / "candidate_new_mismatch"
+            _line_candidate_new_schema(
+                run_dir,
+                edits=[
+                    {
+                        "start_line": 1,
+                        "end_line": 1,
+                        "original": "THIS DOES NOT MATCH",
+                        "replace": "int value = 2;",
+                    }
+                ],
+            )
+
+            exit_code = _materialize(tmp_path, run_dir, base_source_root, target_file=TARGET_FILE)
+
+            self.assertEqual(exit_code, 1)
+            materialization = _read_materialization(run_dir)
+            self.assertEqual(materialization["overall_status"], "failed")
+
+    def test_new_schema_target_file_validated_against_allowed_files(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmp_path = Path(tmpdir)
+            base_source_root = _source_dir(tmp_path)
+            _write_source(base_source_root, "int value = 1;\n")
+            run_dir = tmp_path / "candidate_new_scope"
+            _line_candidate_new_schema(
+                run_dir,
+                edits=[
+                    {
+                        "start_line": 1,
+                        "end_line": 1,
+                        "original": "int value = 1;",
+                        "replace": "int value = 2;",
+                    }
+                ],
+            )
+
+            exit_code = materialize_main(
+                [
+                    "--candidate-run",
+                    str(run_dir),
+                    "--candidate-workspace-dir",
+                    str(tmp_path / "workspaces" / run_dir.name),
+                    "--base-source-root",
+                    str(base_source_root),
+                    "--overwrite",
+                    "--allowed-file",
+                    "cpp/external/lambdatwist/p3p.cc",  # different from TARGET_FILE
+                    "--target-file",
+                    TARGET_FILE,
+                ]
+            )
+
+            self.assertEqual(exit_code, 1)
+            materialization = _read_materialization(run_dir)
+            self.assertEqual(materialization["overall_status"], "failed")
+            self.assertIn("outside allowed optimization scope", materialization["error_message"])
 
 if __name__ == "__main__":
     unittest.main()

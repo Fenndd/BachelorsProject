@@ -209,8 +209,6 @@ def test_collect_report_data_maps_iteration_records(tmp_path: Path) -> None:
                 "iteration": 1,
                 "status": "accepted_improvement",
                 "candidate_summary": "Simplify arithmetic.",
-                "candidate_expected_effect": "faster",
-                "candidate_risk_level": "low",
                 "speedup_vs_current_best": 1.1,
                 "speedup_vs_original_baseline": 1.25,
                 "current_best_updated": True,
@@ -231,8 +229,6 @@ def test_collect_report_data_maps_iteration_records(tmp_path: Path) -> None:
     accepted = report_data.iterations[0]
     assert accepted.status == "accepted_improvement"
     assert accepted.promoted is True
-    assert accepted.expected_effect == "faster"
-    assert accepted.risk_level == "low"
     assert accepted.speedup_vs_baseline == 1.25
     failed = report_data.iterations[1]
     assert failed.status == "materialization_failed"
@@ -432,8 +428,6 @@ def test_candidate_summary_fields_fall_back_to_candidate_json(tmp_path: Path) ->
         candidate_dir / "candidate.json",
         {
             "summary": "Hoist invariant expression.",
-            "expected_effect": "runtime",
-            "risk_level": "low",
             "extra": {"not": "copied"},
         },
     )
@@ -442,8 +436,6 @@ def test_candidate_summary_fields_fall_back_to_candidate_json(tmp_path: Path) ->
 
     iteration = report_data.iterations[0]
     assert iteration.candidate_summary == "Hoist invariant expression."
-    assert iteration.expected_effect == "runtime"
-    assert iteration.risk_level == "low"
 
 
 def test_collect_report_data_includes_process_metadata(tmp_path: Path) -> None:

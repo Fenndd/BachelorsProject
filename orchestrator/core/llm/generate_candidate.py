@@ -20,7 +20,11 @@ from typing import Any
 
 from orchestrator.core.llm.deepseek_client import DeepSeekClient, DeepSeekClientError
 from orchestrator.core.llm.mock_client import MockLLMClient, MockLLMClientError
-from orchestrator.core.llm.prompt_builder import build_optimization_prompt
+from orchestrator.core.llm.prompt_builder import (
+    CANDIDATE_SCHEMA_VERSION,
+    PROMPT_VERSION,
+    build_optimization_prompt,
+)
 from orchestrator.core.llm.response_parser import (
     OptimizationCandidate,
     parse_optimization_candidate,
@@ -263,9 +267,6 @@ def _build_summary(
         lines.extend(
             [
                 f"Candidate summary: {candidate.summary}",
-                f"Risk level: {candidate.risk_level}",
-                f"Expected effect: {candidate.expected_effect}",
-                f"Target files: {', '.join(candidate.target_files)}",
                 f"Edit count: {field_summary['edit_count']}",
                 f"No-op: {field_summary['is_noop']}",
             ]
@@ -281,7 +282,7 @@ def _candidate_field_summary(candidate: OptimizationCandidate) -> dict[str, Any]
     edit_count = len(candidate.edits)
     return {
         "edit_count": edit_count,
-        "is_noop": candidate.expected_effect == "none" and edit_count == 0,
+        "is_noop": edit_count == 0,
     }
 
 
@@ -306,13 +307,8 @@ def _build_index_record(
         "provider": metadata["provider"],
         "model": metadata["model"],
         "target_file": metadata["target_file"],
-        "risk_level": candidate.risk_level if candidate is not None else None,
-        "expected_effect": candidate.expected_effect if candidate is not None else None,
         "edit_count": candidate_fields["edit_count"],
         "is_noop": candidate_fields["is_noop"],
-        "requires_manual_review": (
-            candidate.requires_manual_review if candidate is not None else None
-        ),
         "run_dir": _display_path(run_dir),
     }
 
@@ -392,8 +388,6 @@ def _print_final_summary(
     if status["overall_status"] == "success" and candidate is not None:
         field_summary = _candidate_field_summary(candidate)
         LOGGER.info("Candidate summary: %s", candidate.summary)
-        LOGGER.info("Risk level: %s", candidate.risk_level)
-        LOGGER.info("Expected effect: %s", candidate.expected_effect)
         LOGGER.info("Edit count: %s", field_summary["edit_count"])
         LOGGER.info("No-op: %s", field_summary["is_noop"])
     else:
@@ -599,16 +593,16 @@ def main(argv: list[str] | None = None) -> int:
             raise CandidateGenerationFailure("read_source", str(exc)) from exc
 
         system_prompt, user_prompt = build_optimization_prompt(
-            source_file_path=target_file,
             source_code=source_code,
             additional_context=args.context,
-            allowed_files=allowed_files,
         )
 
         try:
             _write_json(
                 run_dir / "llm_request.json",
                 {
+                    "prompt_version": PROMPT_VERSION,
+                    "candidate_schema_version": CANDIDATE_SCHEMA_VERSION,
                     "target_file": target_file,
                     "source_root": source_root_display,
                     "physical_source_path": physical_source_path_display,

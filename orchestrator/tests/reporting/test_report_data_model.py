@@ -159,8 +159,6 @@ def test_materialization_failed_iteration_with_no_runtime_serializes() -> None:
         iteration=2,
         status="materialization_failed",
         candidate_summary=None,
-        expected_effect=None,
-        risk_level=None,
         runtime_ns_per_problem_median=None,
         correctness_passed=None,
         promoted=False,

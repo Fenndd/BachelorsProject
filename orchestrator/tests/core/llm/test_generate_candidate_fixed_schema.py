@@ -40,20 +40,15 @@ def _candidate() -> OptimizationCandidate:
     return OptimizationCandidate(
         summary="summary",
         rationale="rationale",
-        risk_level="low",
-        expected_effect="runtime",
-        target_files=[TARGET_FILE],
         correctness_notes="correctness",
         edits=[
             LineRangeEdit(
-                file=TARGET_FILE,
                 start_line=1,
                 end_line=1,
                 original="double value = make_value();",
                 replace="const double value = make_value();",
             )
         ],
-        requires_manual_review=True,
     )
 
 
@@ -64,7 +59,7 @@ class GenerateCandidateFixedSchemaTests(unittest.TestCase):
         self.assertFalse(hasattr(args, "candidate" + "_type"))
         self.assertFalse(hasattr(args, "source" + "_presentation"))
 
-    def test_artifacts_write_candidate_edits_json_only(self) -> None:
+    def test_artifacts_write_candidate_edits_json_without_file_field(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             run_dir = Path(tmpdir)
             _save_candidate_artifacts(run_dir, _candidate())
@@ -72,9 +67,23 @@ class GenerateCandidateFixedSchemaTests(unittest.TestCase):
             edits_payload = json.loads((run_dir / "candidate.edits.json").read_text(encoding="utf-8"))
             self.assertTrue((run_dir / "candidate.json").exists())
             self.assertFalse((run_dir / ("candidate" + ".diff")).exists())
-            self.assertEqual(edits_payload["edits"][0]["file"], TARGET_FILE)
+            self.assertNotIn("file", edits_payload["edits"][0])
+            self.assertEqual(edits_payload["edits"][0]["start_line"], 1)
+            self.assertEqual(edits_payload["edits"][0]["end_line"], 1)
 
-    def test_metadata_status_and_summary_do_not_include_removed_format_field(self) -> None:
+    def test_candidate_json_excludes_removed_fields(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            run_dir = Path(tmpdir)
+            _save_candidate_artifacts(run_dir, _candidate())
+
+            candidate_payload = json.loads((run_dir / "candidate.json").read_text(encoding="utf-8"))
+
+            self.assertNotIn("risk_level", candidate_payload)
+            self.assertNotIn("expected_effect", candidate_payload)
+            self.assertNotIn("target_files", candidate_payload)
+            self.assertNotIn("requires_manual_review", candidate_payload)
+
+    def test_metadata_status_and_summary_do_not_include_removed_fields(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             run_dir = Path(tmpdir)
             metadata = _build_metadata(
@@ -94,8 +103,11 @@ class GenerateCandidateFixedSchemaTests(unittest.TestCase):
         self.assertIn("Edit count: 1", summary)
         self.assertNotIn("Candidate format", summary)
         self.assertNotIn("Candidate type", summary)
+        self.assertNotIn("Risk level", summary)
+        self.assertNotIn("Expected effect", summary)
+        self.assertNotIn("Target files", summary)
 
-    def test_index_record_uses_edit_count(self) -> None:
+    def test_index_record_uses_edit_count_and_excludes_removed_fields(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             run_dir = Path(tmpdir)
             metadata = _build_metadata(
@@ -112,6 +124,9 @@ class GenerateCandidateFixedSchemaTests(unittest.TestCase):
 
         self.assertEqual(record["edit_count"], 1)
         self.assertFalse(record["is_noop"])
+        self.assertNotIn("risk_level", record)
+        self.assertNotIn("expected_effect", record)
+        self.assertNotIn("requires_manual_review", record)
         self.assertNotIn("candidate" + "_type", record)
 
     def test_final_summary_prints_run_dir_first(self) -> None:
@@ -146,12 +161,8 @@ class GenerateCandidateFixedSchemaTests(unittest.TestCase):
                 OptimizationCandidate(
                     summary="well-optimized no-op candidate",
                     rationale="rationale",
-                    risk_level="low",
-                    expected_effect="none",
-                    target_files=[TARGET_FILE],
                     correctness_notes="correctness",
                     edits=[],
-                    requires_manual_review=False,
                 ),
             )
         finally:
@@ -205,12 +216,8 @@ class GenerateCandidateFixedSchemaTests(unittest.TestCase):
                     {
                         "summary": "no-op",
                         "rationale": "safe",
-                        "risk_level": "low",
-                        "expected_effect": "none",
-                        "target_files": [TARGET_FILE],
                         "correctness_notes": "none",
                         "edits": [],
-                        "requires_manual_review": False,
                     }
                 ),
                 encoding="utf-8",

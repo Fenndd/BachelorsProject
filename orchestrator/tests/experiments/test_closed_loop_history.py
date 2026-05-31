@@ -17,8 +17,6 @@ def _record(status: str, **overrides: object) -> dict[str, object]:
         "status": status,
         "candidate_run_dir": "results/runs/candidate_1",
         "candidate_summary": "Use Eigen noalias for pose.R assignment",
-        "candidate_expected_effect": "runtime reduction",
-        "candidate_risk_level": "low",
         "speedup_vs_current_best": 1.03,
         "speedup_vs_original_baseline": 1.03,
         "decision_vs_current_best": {
@@ -70,7 +68,6 @@ def test_valid_not_improved_requires_useful_pattern_information() -> None:
             "valid_not_improved",
             candidate_run_dir=None,
             candidate_summary="Try cached arithmetic",
-            candidate_expected_effect=None,
             speedup_vs_current_best=None,
         )
     )
@@ -79,7 +76,6 @@ def test_valid_not_improved_requires_useful_pattern_information() -> None:
             "valid_not_improved",
             candidate_run_dir=None,
             candidate_summary=None,
-            candidate_expected_effect=None,
             speedup_vs_current_best=0.99,
         )
     )
@@ -88,7 +84,6 @@ def test_valid_not_improved_requires_useful_pattern_information() -> None:
             "valid_not_improved",
             candidate_run_dir=None,
             candidate_summary=None,
-            candidate_expected_effect=None,
             speedup_vs_current_best=None,
         )
     )

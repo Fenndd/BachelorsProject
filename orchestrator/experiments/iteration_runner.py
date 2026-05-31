@@ -87,6 +87,7 @@ def _build_materialization_command(
         command.extend(["--candidate-workspace-dir", candidate_workspace_dir])
     for allowed_file in config.optimization_scope.allowed_files:
         command.extend(["--allowed-file", allowed_file])
+    command.extend(["--target-file", config.target_file])
     return command
 
 
@@ -249,22 +250,16 @@ def _candidate_field_summary(candidate_path: Path) -> dict[str, Any]:
     edit_count = len(edits) if isinstance(edits, list) else None
     return {
         "candidate_summary": candidate.get("summary"),
-        "risk_level": candidate.get("risk_level"),
-        "expected_effect": candidate.get("expected_effect"),
-        "target_files": candidate.get("target_files"),
-        "requires_manual_review": candidate.get("requires_manual_review"),
+        "rationale": candidate.get("rationale"),
         "edit_count": edit_count,
-        "is_noop": candidate.get("expected_effect") == "none" and edit_count == 0,
+        "is_noop": edit_count == 0 if edit_count is not None else None,
     }
 
 
 def _empty_generation_fields() -> dict[str, Any]:
     return {
         "candidate_summary": None,
-        "risk_level": None,
-        "expected_effect": None,
-        "target_files": None,
-        "requires_manual_review": None,
+        "rationale": None,
         "edit_count": None,
         "is_noop": None,
     }
@@ -445,8 +440,6 @@ def _candidate_summary_for_record(candidate: dict[str, Any] | None) -> str | Non
 
 
 def is_noop_candidate(candidate: dict[str, Any]) -> bool:
-    if candidate.get("expected_effect") != "none":
-        return False
     edits = candidate.get("edits")
     return isinstance(edits, list) and len(edits) == 0
 
@@ -614,8 +607,6 @@ def _build_closed_loop_iteration_record(
         candidate_run_dir=candidate_run_dir,
         candidate_summary=_candidate_summary_for_record(candidate),
         candidate_rationale=(candidate or {}).get("rationale") if isinstance((candidate or {}).get("rationale"), str) else None,
-        candidate_expected_effect=(candidate or {}).get("expected_effect") if isinstance((candidate or {}).get("expected_effect"), str) else None,
-        candidate_risk_level=(candidate or {}).get("risk_level") if isinstance((candidate or {}).get("risk_level"), str) else None,
         decision_vs_current_best=_compact_decision_summary(decision_vs_current_best),
         decision_vs_original_baseline=_compact_decision_summary(decision_vs_original_baseline),
         speedup_vs_current_best=_decision_speedup(decision_vs_current_best),

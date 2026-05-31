@@ -23,18 +23,18 @@ def _write_candidate(
     *,
     target_files: list[str],
     edits: list[dict[str, Any]] | None = None,
-    expected_effect: str = "none",
+    expected_effect: str | None = None,
 ) -> None:
     run_dir.mkdir(parents=True, exist_ok=True)
+    payload: dict[str, Any] = {
+        "summary": "test candidate",
+        "target_files": target_files,
+        "edits": [] if edits is None else edits,
+    }
+    if expected_effect is not None:
+        payload["expected_effect"] = expected_effect
     (run_dir / "candidate.json").write_text(
-        json.dumps(
-            {
-                "summary": "test candidate",
-                "target_files": target_files,
-                "expected_effect": expected_effect,
-                "edits": [] if edits is None else edits,
-            }
-        ),
+        json.dumps(payload),
         encoding="utf-8",
     )
 

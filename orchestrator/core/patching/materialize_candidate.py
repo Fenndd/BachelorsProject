@@ -75,6 +75,15 @@ def _parse_args(argv: list[str]) -> argparse.Namespace:
         help="Keep the candidate workspace if materialization fails.",
     )
     parser.add_argument(
+        "--target-file",
+        default=None,
+        help=(
+            "Repo-relative target file path (new schema: all edits apply to this file). "
+            "Required when candidate.json has no target_files. "
+            "When omitted, target_files are read from candidate.json (legacy)."
+        ),
+    )
+    parser.add_argument(
         "--allowed-file",
         action="append",
         default=None,
@@ -172,7 +181,8 @@ def _is_positive_int(value: Any) -> bool:
 
 
 def _validate_line_range_edits(
-    candidate_data: dict[str, Any], target_files: list[str]
+    candidate_data: dict[str, Any], target_files: list[str],
+    default_file: str | None = None,
 ) -> list[dict[str, Any]]:
     if "edits" not in candidate_data:
         raise ValueError("line_range_edits candidate.json is missing required field 'edits'.")
@@ -182,7 +192,7 @@ def _validate_line_range_edits(
         raise ValueError("line_range_edits candidate.json field 'edits' must be a list.")
 
     expected_effect = candidate_data.get("expected_effect")
-    if expected_effect != "none" and not raw_edits:
+    if expected_effect is not None and expected_effect != "none" and not raw_edits:
         raise ValueError(
             "line_range_edits candidate has no edits, but expected_effect is not 'none'."
         )
@@ -195,13 +205,18 @@ def _validate_line_range_edits(
             raise ValueError(f"{label} must be a JSON object.")
 
         raw_file = edit.get("file")
-        if not isinstance(raw_file, str) or not raw_file.strip():
+        if isinstance(raw_file, str) and raw_file.strip():
+            use_default_file = False
+        elif default_file is not None:
+            raw_file = default_file
+            use_default_file = True
+        else:
             raise ValueError(f"{label} field 'file' must be a non-empty string.")
         try:
             edit_file = _normalize_candidate_path(raw_file)
         except ValueError as exc:
             raise ValueError(f"{label} field 'file' is invalid: {exc}") from exc
-        if edit_file not in target_set:
+        if not use_default_file and edit_file not in target_set:
             raise ValueError(
                 f"{label} modifies file not listed in candidate.json['target_files']: "
                 f"{edit_file}"
@@ -1104,7 +1119,7 @@ def _skip_noop_candidate(
     LOGGER.info("Candidate run id: %s", candidate_run_id)
     LOGGER.info("Workspace path: %s", workspace_path)
     LOGGER.info("Changed files: none")
-    LOGGER.info("No patch to materialize: candidate expected_effect is 'none'.")
+    LOGGER.info("No patch to materialize: candidate has no edits.")
     LOGGER.info("Main source tree was not modified: %s", base_source_root_text)
     LOGGER.info("Logs saved to: %s", candidate_run_dir / "apply_candidate.log")
     return 0
@@ -1171,12 +1186,18 @@ def main(argv: list[str] | None = None) -> int:
 
         generated_diff_path = patch_path
 
-        target_files = _validate_target_files(candidate_data)
+        if args.target_file:
+            target_files = [_normalize_candidate_path(args.target_file)]
+        else:
+            target_files = _validate_target_files(candidate_data)
         scope_enforcement, allowed_files = (
             _resolve_scope_metadata(args.allowed_files, target_files)
         )
 
-        line_range_edits = _validate_line_range_edits(candidate_data, target_files)
+        line_range_edits = _validate_line_range_edits(
+            candidate_data, target_files,
+            default_file=args.target_file,
+        )
         edit_files = _unique_files_from_edits(line_range_edits)
         validate_candidate_scope(target_files, edit_files, allowed_files)
         patch_apply_metadata.update(
@@ -1193,7 +1214,7 @@ def main(argv: list[str] | None = None) -> int:
                 "line_range_edit_results": [],
             }
         )
-        if candidate_data.get("expected_effect") == "none" and not line_range_edits:
+        if not line_range_edits:
             validation_duration = round(time.perf_counter() - validation_started, 3)
             steps.append(
                 _step_status(
