@@ -17,8 +17,8 @@ from orchestrator.core.benchmarking.benchmark_artifact_audit import (
 
 def _loaded_artifact(**benchmark_overrides: object) -> dict[str, object]:
     benchmark = {
-        "family": "absolute_pose_solvers",
-        "solver": "lambdatwist_p3p",
+        "family": "poselib_native",
+        "solver": "poselib_p3p_lambdatwist",
         "runtime_unit": "ns",
         "parse_success": True,
         "parsed_num_problems": 1000,

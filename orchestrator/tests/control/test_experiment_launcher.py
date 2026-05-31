@@ -1,4 +1,4 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 from datetime import datetime
 from pathlib import Path
@@ -28,10 +28,10 @@ def _write_valid_experiment(root: Path, provider: str = "mock") -> Path:
         """{
   "experiment_name": "test_exp",
   "description": "Test experiment",
-  "target_file": "cpp/external/lambdatwist/p3p.cc",
+  "target_file": "cpp/external/poselib/PoseLib/solvers/p3p_lambdatwist.cc",
   "baseline_run_dir": "results/runs/baseline",
   "optimization_scope": {
-    "allowed_files": ["cpp/external/lambdatwist/p3p.cc"]
+    "allowed_files": ["cpp/external/poselib/PoseLib/solvers/p3p_lambdatwist.cc"]
   },
   "llm_config": "configs/llm_test.json",
   "iterations": 1

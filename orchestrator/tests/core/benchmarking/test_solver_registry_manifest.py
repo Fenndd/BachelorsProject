@@ -2,8 +2,7 @@
 
 Verifies that every manifest under cpp/bench/*/solvers/*.json is valid,
 has a unique solver_id, and produces a working descriptor. Also checks
-that poselib_native and generated_absolute_pose manifests carry the
-expected fields.
+    that poselib_native manifests carry the expected fields.
 """
 
 from __future__ import annotations
@@ -43,10 +42,14 @@ class TestManifestDiscovery:
         manifests = _all_manifest_paths()
         assert len(manifests) >= 1, "No solver manifests found"
 
-    def test_lambdatwist_manifest_exists(self) -> None:
+    def test_poselib_lambdatwist_manifest_exists(self) -> None:
         paths = _all_manifest_paths()
         names = {p.stem for p in paths}
-        assert "lambdatwist_p3p" in names, "lambdatwist_p3p manifest missing"
+        assert "poselib_p3p_lambdatwist" in names, "poselib_p3p_lambdatwist manifest missing"
+
+    def test_no_absolute_pose_manifests_are_loaded(self) -> None:
+        for path in _all_manifest_paths():
+            assert "absolute_pose" not in path.as_posix()
 
     def test_poselib_p3p_manifest_exists(self) -> None:
         paths = _all_manifest_paths()
@@ -158,28 +161,25 @@ class TestPoselibNativeManifests:
                 )
 
 
-class TestGeneratedAbsolutePoseManifest:
-    def test_lambdatwist_has_runner_mode(self) -> None:
-        path = _repo_root() / "cpp/bench/absolute_pose/solvers/lambdatwist_p3p.json"
-        data = _load_manifest(path)
-        assert data.get("runner_mode") == "generated_absolute_pose"
+class TestRemovedAbsolutePoseBackend:
+    def test_lambdatwist_p3p_is_not_registered(self) -> None:
+        with pytest.raises(KeyError):
+            get_solver_descriptor("lambdatwist_p3p")
 
-    def test_lambdatwist_descriptor_has_adapter_validator(self) -> None:
-        desc = get_solver_descriptor("lambdatwist_p3p")
-        assert desc.adapter_validator_target is not None, (
-            "lambdatwist_p3p descriptor missing adapter_validator_target"
-        )
-        assert desc.adapter_validator_target == "absolute_pose_lambdatwist_adapter_validator"
-
-    def test_lambdatwist_runtime_unit_is_ns(self) -> None:
-        desc = get_solver_descriptor("lambdatwist_p3p")
+    def test_poselib_lambdatwist_runtime_unit_is_ns(self) -> None:
+        desc = get_solver_descriptor("poselib_p3p_lambdatwist")
         assert desc.runtime_unit == "ns"
+
+    def test_every_descriptor_is_poselib_native(self) -> None:
+        for desc in list_solver_descriptors():
+            assert desc.family == "poselib_native"
+            assert desc.benchmark_backend == "poselib_native"
 
 
 class TestListIncludesKeySolvers:
-    def test_list_includes_lambdatwist_p3p(self) -> None:
+    def test_list_includes_poselib_p3p_lambdatwist(self) -> None:
         ids = {d.solver_id for d in list_solver_descriptors()}
-        assert "lambdatwist_p3p" in ids
+        assert "poselib_p3p_lambdatwist" in ids
 
     def test_list_includes_poselib_p3p(self) -> None:
         ids = {d.solver_id for d in list_solver_descriptors()}
@@ -196,3 +196,20 @@ class TestListIncludesKeySolvers:
     def test_list_includes_poselib_gp3p(self) -> None:
         ids = {d.solver_id for d in list_solver_descriptors()}
         assert "poselib_gp3p" in ids
+
+
+class TestRemovedBackendFiles:
+    def test_cmake_no_longer_references_old_backend_targets(self) -> None:
+        cmake = (_repo_root() / "cpp" / "CMakeLists.txt").read_text(encoding="utf-8")
+        for legacy in (
+            "lambdatwist_baseline",
+            "absolute_pose_core",
+            "generated_absolute_pose",
+            "bench/absolute_pose",
+        ):
+            assert legacy not in cmake
+
+    def test_old_backend_directories_are_absent(self) -> None:
+        root = _repo_root()
+        assert not (root / "cpp" / "bench" / "absolute_pose").exists()
+        assert not (root / "cpp" / "external" / "lambdatwist").exists()

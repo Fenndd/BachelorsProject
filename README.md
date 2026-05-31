@@ -128,8 +128,8 @@ See `docs/best_result_selection_policy.md` for the full decision policy and impr
 
 ## External Baseline Code
 
-- `cpp/external/lambdatwist/` contains imported third-party baseline P3P solver code.
-- This code is not original project source code.
+- `cpp/external/poselib/` contains imported third-party PoseLib source code.
+- LambdaTwist remains available through PoseLib as `poselib_p3p_lambdatwist`.
 - Clean baseline files are expected to remain unchanged in repository baseline state.
 - Candidate changes are materialized only in isolated workspace copies.
 
@@ -144,5 +144,4 @@ See `docs/best_result_selection_policy.md` for the full decision policy and impr
 - `docs/candidate_edit_formats.md` — LLM edit schema
 - `docs/result_storage_format.md` — artifact paths and storage layout
 - `docs/best_result_selection_policy.md` — pairwise decision rules, thresholds, statuses
-- `docs/absolute_pose_benchmark.md` — benchmark protocol, output keys, baseline CLI steps
 - `docs/interactive_terminal_control_layer.md` — Typer CLI and TUI reference

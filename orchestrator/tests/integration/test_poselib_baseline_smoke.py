@@ -1,7 +1,7 @@
 """Slow integration smoke test: baseline run for a PoseLib solver.
 
 Verifies that the baseline CLI can build and run a second PoseLib solver
-(not the default lambdatwist_p3p). The test is marked as slow and
+(not the default poselib_p3p_lambdatwist). The test is marked as slow and
 integration; it skips cleanly when the required build environment is
 not available.
 

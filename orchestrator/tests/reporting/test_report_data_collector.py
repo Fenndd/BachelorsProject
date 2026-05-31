@@ -1,4 +1,4 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 import pytest
 
@@ -864,8 +864,8 @@ def test_b_collector_fills_benchmark_config(tmp_path: Path) -> None:
         metrics_path,
         {
             "benchmark": {
-                "family": "absolute_pose_solvers",
-                "solver": "lambdatwist_p3p",
+                "family": "poselib_native",
+                "solver": "poselib_p3p_lambdatwist",
                 "runtime_unit": "ns",
                 "build_type": "Release",
                 "benchmark_options": {
@@ -891,8 +891,8 @@ def test_b_collector_fills_benchmark_config(tmp_path: Path) -> None:
 
     report_data = collect_report_data(experiment_dir)
 
-    assert report_data.benchmark_config.family == "absolute_pose_solvers"
-    assert report_data.benchmark_config.solver == "lambdatwist_p3p"
+    assert report_data.benchmark_config.family == "poselib_native"
+    assert report_data.benchmark_config.solver == "poselib_p3p_lambdatwist"
     assert report_data.benchmark_config.num_problems == 1024
     assert report_data.benchmark_config.timed_iterations == 50
     assert report_data.benchmark_config.seed == 42
@@ -1269,9 +1269,9 @@ def test_display_path_known_relative_prefixes(tmp_path: Path) -> None:
     assert result is not None
     assert "configs/llm.json" in result
 
-    result = rdc._display_path("cpp/external/lambdatwist/p3p.cc")
+    result = rdc._display_path("cpp/external/poselib/PoseLib/solvers/p3p_lambdatwist.cc")
     assert result is not None
-    assert "cpp/external/lambdatwist/p3p.cc" in result
+    assert "cpp/external/poselib/PoseLib/solvers/p3p_lambdatwist.cc" in result
 
     result = rdc._display_path("workspace/experiments/x")
     assert result is not None

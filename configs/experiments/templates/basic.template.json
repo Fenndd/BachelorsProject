@@ -1,8 +1,8 @@
 {
   "experiment_name": "<your-experiment-name>",
   "description": null,
-  "solver_id": "lambdatwist_p3p",
-  "target_file": "cpp/external/lambdatwist/p3p.cc",
+  "solver_id": "poselib_p3p_lambdatwist",
+  "target_file": "cpp/external/poselib/PoseLib/solvers/p3p_lambdatwist.cc",
   "baseline_run_dir": "<path-to-baseline-run>",
   "reporting": {"enabled": true, "formats": ["html"], "renderer": "auto"},
   "selection": {"gt_found_max_drop_points": null},

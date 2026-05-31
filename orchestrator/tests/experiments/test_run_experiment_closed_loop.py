@@ -9,6 +9,8 @@ pytestmark = pytest.mark.integration
 import json
 import tempfile
 import unittest
+from collections.abc import Iterator
+from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
 
@@ -99,7 +101,29 @@ class _ClosedLoopHarness:
         self.generated_commands: list[list[str]] = []
         self.materialization_commands: list[list[str]] = []
         self.stage_calls: list[str] = []
+        self.stage_lock_states: list[tuple[str, bool]] = []
+        self.decision_lock_states: list[tuple[str, bool]] = []
+        self.lock_events: list[tuple[str, int]] = []
+        self.lock_active = False
         self.candidate_dirs: list[Path] = []
+        self._confirmation_decision_counts: dict[Path, int] = {}
+
+    @contextmanager
+    def fake_lock(
+        self,
+        *,
+        experiment_id: str,
+        iteration: int,
+        workspace_root: Path | str | None = None,
+    ) -> Iterator[None]:
+        del experiment_id, workspace_root
+        self.lock_events.append(("enter", iteration))
+        self.lock_active = True
+        try:
+            yield
+        finally:
+            self.lock_active = False
+            self.lock_events.append(("exit", iteration))
 
     def fake_run_stage(
         self,
@@ -109,6 +133,7 @@ class _ClosedLoopHarness:
         command: list[str],
     ) -> dict[str, Any]:
         self.stage_calls.append(stage_name)
+        self.stage_lock_states.append((stage_name, self.lock_active))
         status = self.statuses[global_iteration - 1]
         if stage_name == "generate_candidate":
             self.generated_commands.append(command)
@@ -172,12 +197,21 @@ class _ClosedLoopHarness:
             write_json(candidate_dir / "verification.json", {"overall_status": "success", **make_benchmark_payload(900.0)})
             return {"exit_code": 0, "stdout": "", "stderr": "", "duration_seconds": 0.1}
 
+        if stage_name == "confirm_candidate_benchmark":
+            write_json(candidate_dir / "verification.json", {"overall_status": "success", **make_benchmark_payload(850.0)})
+            return {"exit_code": 0, "stdout": "", "stderr": "", "duration_seconds": 0.1}
+
         raise AssertionError(f"Unexpected stage {stage_name}")
 
     def fake_decision(self, reference_run_dir: Path, reference_kind: str, candidate_run_dir: Path) -> dict[str, Any]:
+        self.decision_lock_states.append((reference_kind, self.lock_active))
         index = int(candidate_run_dir.name.rsplit("_", 1)[1]) - 1
         status = self.statuses[index]
-        decision_status = status if status in {"accepted_improvement", "valid_not_improved", "rejected"} else "rejected"
+        if status == "confirmation_required":
+            decision_count = self._confirmation_decision_counts.get(candidate_run_dir, 0)
+            self._confirmation_decision_counts[candidate_run_dir] = decision_count + 1
+            status = "confirmation_required" if decision_count == 0 else "accepted_improvement"
+        decision_status = status if status in {"accepted_improvement", "valid_not_improved", "rejected", "confirmation_required"} else "rejected"
         return {
             "status": decision_status,
             "reference_kind": reference_kind,
@@ -205,6 +239,7 @@ class RunExperimentClosedLoopTests(unittest.TestCase):
         original_workspace_root = env.WORKSPACE_ROOT
         original_run_stage = iteration_runner._run_stage
         original_decision = iteration_runner.evaluate_candidate_against_reference
+        original_candidate_evaluation_lock = iteration_runner.candidate_evaluation_lock
         original_resolve_llm_config = planner._resolve_llm_config
         original_run_final_selection_report = artifacts.run_final_selection_report
         self.addCleanup(setattr, env, "REPO_ROOT", original_repo_root)
@@ -213,6 +248,7 @@ class RunExperimentClosedLoopTests(unittest.TestCase):
         self.addCleanup(setattr, env, "WORKSPACE_ROOT", original_workspace_root)
         self.addCleanup(setattr, iteration_runner, "_run_stage", original_run_stage)
         self.addCleanup(setattr, iteration_runner, "evaluate_candidate_against_reference", original_decision)
+        self.addCleanup(setattr, iteration_runner, "candidate_evaluation_lock", original_candidate_evaluation_lock)
         self.addCleanup(setattr, planner, "_resolve_llm_config", original_resolve_llm_config)
         self.addCleanup(setattr, artifacts, "run_final_selection_report", original_run_final_selection_report)
 
@@ -222,6 +258,7 @@ class RunExperimentClosedLoopTests(unittest.TestCase):
         env.WORKSPACE_ROOT = root / "workspace"
         iteration_runner._run_stage = harness.fake_run_stage  # type: ignore[method-assign]
         iteration_runner.evaluate_candidate_against_reference = harness.fake_decision  # type: ignore[assignment]
+        iteration_runner.candidate_evaluation_lock = harness.fake_lock  # type: ignore[assignment]
         planner._resolve_llm_config = lambda config: {"provider": "mock", "model": "mock"}  # type: ignore[assignment]
         artifacts.run_final_selection_report = _fake_final_selection_report  # type: ignore[assignment]
 
@@ -324,6 +361,36 @@ class RunExperimentClosedLoopTests(unittest.TestCase):
         self.assertFalse(records[3]["history_included"])
         self.assertIsNone(records[3]["history_guidance"])
         self.assertTrue(records[4]["history_included"])
+
+    def test_candidate_evaluation_lock_starts_after_generation_and_wraps_evaluation(self) -> None:
+        _root, harness = self._run_with_statuses(["valid_not_improved"])
+
+        self.assertEqual(harness.stage_lock_states[0], ("generate_candidate", False))
+        self.assertEqual(harness.lock_events, [("enter", 1), ("exit", 1)])
+        self.assertIn(("materialize_candidate", True), harness.stage_lock_states)
+        self.assertIn(("verify_candidate", True), harness.stage_lock_states)
+        self.assertTrue(harness.decision_lock_states)
+        self.assertTrue(all(locked for _reference_kind, locked in harness.decision_lock_states))
+
+    def test_no_op_candidate_does_not_acquire_candidate_evaluation_lock(self) -> None:
+        _root, harness = self._run_with_statuses(["no_op"])
+
+        self.assertEqual(harness.stage_calls, ["generate_candidate"])
+        self.assertEqual(harness.lock_events, [])
+
+    def test_generation_failure_does_not_acquire_candidate_evaluation_lock(self) -> None:
+        _root, harness = self._run_with_statuses(["generation_failed"])
+
+        self.assertEqual(harness.stage_calls, ["generate_candidate"])
+        self.assertEqual(harness.lock_events, [])
+
+    def test_confirmation_benchmark_remains_inside_candidate_evaluation_lock(self) -> None:
+        _root, harness = self._run_with_statuses(["confirmation_required"])
+
+        self.assertIn(("confirm_candidate_benchmark", True), harness.stage_lock_states)
+        self.assertEqual(harness.lock_events, [("enter", 1), ("exit", 1)])
+        self.assertTrue(harness.decision_lock_states)
+        self.assertTrue(all(locked for _reference_kind, locked in harness.decision_lock_states))
 
     def test_materialization_command_does_not_include_exact_search_fallback_flags(self) -> None:
         temp = tempfile.TemporaryDirectory()
@@ -585,12 +652,13 @@ class RunExperimentClosedLoopTests(unittest.TestCase):
             "WORKSPACE_ROOT": env.WORKSPACE_ROOT,
             "_run_stage": iteration_runner._run_stage,
             "evaluate_candidate_against_reference": iteration_runner.evaluate_candidate_against_reference,
+            "candidate_evaluation_lock": iteration_runner.candidate_evaluation_lock,
             "_resolve_llm_config": planner._resolve_llm_config,
             "run_final_selection_report": artifacts.run_final_selection_report,
         }
         for name, value in originals.items():
             target_mod = env if name in ("REPO_ROOT", "RESULTS_ROOT", "EXPERIMENTS_ROOT", "WORKSPACE_ROOT") else (
-                iteration_runner if name in ("_run_stage", "evaluate_candidate_against_reference") else (
+                iteration_runner if name in ("_run_stage", "evaluate_candidate_against_reference", "candidate_evaluation_lock") else (
                     planner if name == "_resolve_llm_config" else artifacts
                 )
             )
@@ -601,6 +669,13 @@ class RunExperimentClosedLoopTests(unittest.TestCase):
         env.WORKSPACE_ROOT = root / "workspace"
         iteration_runner._run_stage = fake_run_stage  # type: ignore[assignment]
         iteration_runner.evaluate_candidate_against_reference = fake_decision  # type: ignore[assignment]
+
+        @contextmanager
+        def fake_lock(**kwargs: Any) -> Iterator[None]:
+            del kwargs
+            yield
+
+        iteration_runner.candidate_evaluation_lock = fake_lock  # type: ignore[assignment]
         planner._resolve_llm_config = lambda config: {"provider": "mock", "model": "mock"}  # type: ignore[assignment]
         artifacts.run_final_selection_report = _fake_final_selection_report  # type: ignore[assignment]
 

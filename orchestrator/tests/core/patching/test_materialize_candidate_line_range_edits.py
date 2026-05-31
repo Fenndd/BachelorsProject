@@ -22,7 +22,7 @@ REPO_ROOT = paths.repo_root
 
 
 TARGET_FILE = "cpp/example.cpp"
-P3P_TARGET_FILE = "cpp/external/lambdatwist/p3p.cc"
+P3P_TARGET_FILE = "cpp/external/poselib/PoseLib/solvers/p3p_lambdatwist.cc"
 
 
 def _write_source(base_source_root: Path, text: str) -> None:
@@ -436,8 +436,8 @@ class MaterializeCandidateLineRangeEditsTests(unittest.TestCase):
             self.assertIn(P3P_TARGET_FILE, materialization["changed_files"])
 
             generated_diff = (run_dir / "candidate.generated.diff").read_text(encoding="utf-8")
-            self.assertIn("--- a/cpp/external/lambdatwist/p3p.cc", generated_diff)
-            self.assertIn("+++ b/cpp/external/lambdatwist/p3p.cc", generated_diff)
+            self.assertIn("--- a/cpp/external/poselib/PoseLib/solvers/p3p_lambdatwist.cc", generated_diff)
+            self.assertIn("+++ b/cpp/external/poselib/PoseLib/solvers/p3p_lambdatwist.cc", generated_diff)
             self.assertIn("-int current_best_value = 42;", generated_diff)
             self.assertIn("+int current_best_value = 43;", generated_diff)
 
@@ -940,7 +940,7 @@ class MaterializeCandidateLineRangeEditsTests(unittest.TestCase):
                     str(base_source_root),
                     "--overwrite",
                     "--allowed-file",
-                    "cpp/external/lambdatwist/p3p.cc",  # different from TARGET_FILE
+                    "cpp/external/poselib/PoseLib/solvers/p3p_lambdatwist.cc",  # different from TARGET_FILE
                     "--target-file",
                     TARGET_FILE,
                 ]

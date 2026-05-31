@@ -9,7 +9,7 @@ pytestmark = pytest.mark.unit
 import unittest
 from pathlib import Path
 
-from orchestrator.core.benchmarking import parse_absolute_pose_benchmark_output
+from orchestrator.core.benchmarking import parse_poselib_native_benchmark_output
 from orchestrator.core.benchmarking.benchmark_artifacts import (
     benchmark_artifact_from_parse,
     build_benchmark_correctness_error_message,
@@ -28,36 +28,25 @@ _DESCRIPTOR = default_solver_descriptor()
 
 
 def _incorrect_benchmark_output() -> str:
-    return "\n".join(
-        [
-            "solver_name: lambdatwist_p3p",
-            "num_problems: 1000",
-            "total_solutions: 3000",
-            "solutions_per_problem: 3.0",
-            "valid_solutions: 3000",
-            "valid_solutions_percent: 100.0",
-            "gt_found: 500",
-            "gt_found_percent: 50.0",
-            "runtime_ns_total_median: 1000000",
-            "runtime_ns_per_problem_median: 1000",
-            "tolerance: 1e-6",
-            "camera_fov: 75",
-            "n_point_point: 3",
-            "n_point_line: 0",
-            "timed_iterations: 10",
-            "runtime_unit: ns",
-            "correctness_passed: false",
-        ]
+    return (
+        'POSELIB_BENCHMARK_JSON={"solver_key":"p3p_lambdatwist",'
+        '"benchmark_kind":"absolute_pose","instances":1000,'
+        '"solutions_total":3000,"solutions_per_problem":3.0,'
+        '"valid_solutions":3000,"valid_solutions_percent":100.0,'
+        '"gt_found":500,"gt_found_percent":50.0,'
+        '"runtime_ns_total_median":1000000,'
+        '"runtime_ns_per_problem_median":1000,'
+        '"tolerance":1e-6,"correctness_passed":false}'
     )
 
 
 class CandidateBenchmarkCorrectnessPolicyTests(unittest.TestCase):
     def test_parse_success_correctness_false_fails_but_preserves_metrics(self) -> None:
-        parse_result = parse_absolute_pose_benchmark_output(_incorrect_benchmark_output())
+        parse_result = parse_poselib_native_benchmark_output(_incorrect_benchmark_output())
         benchmark = benchmark_artifact_from_parse(parse_result, _DESCRIPTOR, "Release")
         steps = [
-            _step_status("run_absolute_pose_lambdatwist_benchmark", "success", 0, 0.1),
-            _step_status("parse_absolute_pose_lambdatwist_benchmark", "success", None, 0.1),
+            _step_status("run_poselib_solver_benchmark", "success", 0, 0.1),
+            _step_status("parse_poselib_solver_benchmark", "success", None, 0.1),
             _step_status(BENCHMARK_CORRECTNESS_CHECK_STEP, "failed", None, 0.1),
         ]
 
@@ -71,7 +60,7 @@ class CandidateBenchmarkCorrectnessPolicyTests(unittest.TestCase):
         self.assertEqual(step_by_name[BENCHMARK_CORRECTNESS_CHECK_STEP]["status"], "failed")
 
     def test_finalize_preserves_metrics_when_correctness_check_fails(self) -> None:
-        parse_result = parse_absolute_pose_benchmark_output(_incorrect_benchmark_output())
+        parse_result = parse_poselib_native_benchmark_output(_incorrect_benchmark_output())
         benchmark = benchmark_artifact_from_parse(parse_result, _DESCRIPTOR, "Release")
         error_message = build_benchmark_correctness_error_message(benchmark)
 
@@ -92,7 +81,7 @@ class CandidateBenchmarkCorrectnessPolicyTests(unittest.TestCase):
                 logs_dir,
                 [
                     _step_status(
-                        "parse_absolute_pose_lambdatwist_benchmark", "success", None, 0.1
+                        "parse_poselib_solver_benchmark", "success", None, 0.1
                     ),
                     _step_status(BENCHMARK_CORRECTNESS_CHECK_STEP, "failed", None, 0.1),
                 ],

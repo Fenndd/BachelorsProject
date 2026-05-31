@@ -3,8 +3,7 @@
 This script automates the current baseline flow:
 1. CMake configure
 2. CMake build (adapter validator and family benchmark targets)
-3. Run the Lambda Twist P3P adapter validator executable
-4. Run the Lambda Twist P3P family benchmark executable
+3. Run the PoseLib-native solver benchmark executable
 5. Parse the family benchmark output into structured metrics
 
 Each execution also writes persistent run artifacts under results/runs/<run_id>/.
@@ -53,9 +52,7 @@ _REQUIRED_FIELDS: list[str] = benchmark_required_fields()
 
 EXPECTED_STEPS = [
     "configure_cmake",
-    f"build_{DESCRIPTOR.adapter_validator_target}",
     f"build_{DESCRIPTOR.benchmark_target}",
-    f"run_{DESCRIPTOR.adapter_validator_target}",
     f"run_{DESCRIPTOR.benchmark_target}",
     f"parse_{DESCRIPTOR.benchmark_target}",
     "benchmark_correctness_check",
@@ -70,7 +67,7 @@ def _parse_args(argv: list[str]) -> argparse.Namespace:
     parser.add_argument(
         "--solver",
         default=None,
-        help="Optional solver_id from the solver registry. Defaults to lambdatwist_p3p.",
+        help="Optional solver_id from the solver registry. Defaults to poselib_p3p_lambdatwist.",
     )
     return parser.parse_args(argv)
 

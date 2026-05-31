@@ -19,18 +19,18 @@ class GenerateCandidateAllowedFilesTests(unittest.TestCase):
         self.assertEqual(
             _resolve_allowed_files(
                 [
-                    r"cpp\external\lambdatwist\p3p.cc",
-                    "cpp/external/lambdatwist/p3p.cc",
+                    r"cpp\external\poselib\PoseLib\solvers\p3p_lambdatwist.cc",
+                    "cpp/external/poselib/PoseLib/solvers/p3p_lambdatwist.cc",
                 ],
-                "cpp/external/lambdatwist/p3p.cc",
+                "cpp/external/poselib/PoseLib/solvers/p3p_lambdatwist.cc",
             ),
-            ["cpp/external/lambdatwist/p3p.cc"],
+            ["cpp/external/poselib/PoseLib/solvers/p3p_lambdatwist.cc"],
         )
 
     def test_missing_allowed_files_defaults_to_target_file(self) -> None:
         self.assertEqual(
-            _resolve_allowed_files(None, "cpp/external/lambdatwist/p3p.cc"),
-            ["cpp/external/lambdatwist/p3p.cc"],
+            _resolve_allowed_files(None, "cpp/external/poselib/PoseLib/solvers/p3p_lambdatwist.cc"),
+            ["cpp/external/poselib/PoseLib/solvers/p3p_lambdatwist.cc"],
         )
 
     def test_invalid_allowed_file_raises_generation_failure(self) -> None:

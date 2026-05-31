@@ -26,14 +26,14 @@ from orchestrator.experiments.experiment_config import (
 class NormalizeRepoPathTests(unittest.TestCase):
     def test_normal_linux_path(self) -> None:
         self.assertEqual(
-            normalize_repo_path("cpp/external/lambdatwist/p3p.cc"),
-            "cpp/external/lambdatwist/p3p.cc",
+            normalize_repo_path("cpp/external/poselib/PoseLib/solvers/p3p_lambdatwist.cc"),
+            "cpp/external/poselib/PoseLib/solvers/p3p_lambdatwist.cc",
         )
 
     def test_backslash_normalized_to_forward_slash(self) -> None:
         self.assertEqual(
-            normalize_repo_path(r"cpp\external\lambdatwist\p3p.cc"),
-            "cpp/external/lambdatwist/p3p.cc",
+            normalize_repo_path(r"cpp\external\poselib\PoseLib\solvers\p3p_lambdatwist.cc"),
+            "cpp/external/poselib/PoseLib/solvers/p3p_lambdatwist.cc",
         )
 
     def test_absolute_path_rejected(self) -> None:
@@ -64,19 +64,19 @@ class NormalizeRepoPathTests(unittest.TestCase):
 class ValidateAllowedFilesListTests(unittest.TestCase):
     def test_non_empty_list_passes(self) -> None:
         result = validate_allowed_files_list(
-            ["cpp/external/lambdatwist/p3p.cc"]
+            ["cpp/external/poselib/PoseLib/solvers/p3p_lambdatwist.cc"]
         )
-        self.assertEqual(result, ["cpp/external/lambdatwist/p3p.cc"])
+        self.assertEqual(result, ["cpp/external/poselib/PoseLib/solvers/p3p_lambdatwist.cc"])
 
     def test_multiple_files(self) -> None:
         result = validate_allowed_files_list(
             [
-                "cpp/external/lambdatwist/p3p.cc",
-                "cpp/external/lambdatwist/p3p.h",
+                "cpp/external/poselib/PoseLib/solvers/p3p_lambdatwist.cc",
+                "cpp/external/poselib/PoseLib/solvers/p3p_lambdatwist.h",
             ]
         )
-        self.assertIn("cpp/external/lambdatwist/p3p.cc", result)
-        self.assertIn("cpp/external/lambdatwist/p3p.h", result)
+        self.assertIn("cpp/external/poselib/PoseLib/solvers/p3p_lambdatwist.cc", result)
+        self.assertIn("cpp/external/poselib/PoseLib/solvers/p3p_lambdatwist.h", result)
 
     def test_empty_list_rejected(self) -> None:
         with self.assertRaises(ValueError):
@@ -101,9 +101,9 @@ class ValidateCandidateScopeTests(unittest.TestCase):
     """Tests for candidate edit scope validation."""
 
     def setUp(self) -> None:
-        self.allowed = ["cpp/external/lambdatwist/p3p.cc"]
-        self.target = ["cpp/external/lambdatwist/p3p.cc"]
-        self.changed = ["cpp/external/lambdatwist/p3p.cc"]
+        self.allowed = ["cpp/external/poselib/PoseLib/solvers/p3p_lambdatwist.cc"]
+        self.target = ["cpp/external/poselib/PoseLib/solvers/p3p_lambdatwist.cc"]
+        self.changed = ["cpp/external/poselib/PoseLib/solvers/p3p_lambdatwist.cc"]
 
     def test_scope_pass(self) -> None:
         validate_candidate_scope(self.target, self.changed, self.allowed)
@@ -121,18 +121,18 @@ class ValidateCandidateScopeTests(unittest.TestCase):
         """patched file is in target_files but not in allowed_files."""
         with self.assertRaises(ValueError) as ctx:
             validate_candidate_scope(
-                target_files=["cpp/external/lambdatwist/p3p.cc", "cpp/bench/bench.cpp"],
+                target_files=["cpp/external/poselib/PoseLib/solvers/p3p_lambdatwist.cc", "cpp/bench/bench.cpp"],
                 changed_files=["cpp/bench/bench.cpp"],
-                allowed_files=["cpp/external/lambdatwist/p3p.cc"],
+                allowed_files=["cpp/external/poselib/PoseLib/solvers/p3p_lambdatwist.cc"],
             )
         self.assertIn("outside allowed optimization scope", str(ctx.exception))
 
     def test_patched_outside_candidate_target_files_rejected(self) -> None:
         with self.assertRaises(ValueError) as ctx:
             validate_candidate_scope(
-                target_files=["cpp/external/lambdatwist/p3p.cc"],
-                changed_files=["cpp/external/lambdatwist/other.cc"],
-                allowed_files=["cpp/external/lambdatwist/p3p.cc"],
+                target_files=["cpp/external/poselib/PoseLib/solvers/p3p_lambdatwist.cc"],
+                changed_files=["cpp/external/poselib/PoseLib/solvers/other.cc"],
+                allowed_files=["cpp/external/poselib/PoseLib/solvers/p3p_lambdatwist.cc"],
             )
         self.assertIn("not in allowed target_files", str(ctx.exception))
 
@@ -149,9 +149,9 @@ class ValidateCandidateScopeTests(unittest.TestCase):
         """patched CMakeLists.txt is in target_files but not in allowed_files."""
         with self.assertRaises(ValueError) as ctx:
             validate_candidate_scope(
-                target_files=["cpp/external/lambdatwist/p3p.cc", "cpp/CMakeLists.txt"],
+                target_files=["cpp/external/poselib/PoseLib/solvers/p3p_lambdatwist.cc", "cpp/CMakeLists.txt"],
                 changed_files=["cpp/CMakeLists.txt"],
-                allowed_files=["cpp/external/lambdatwist/p3p.cc"],
+                allowed_files=["cpp/external/poselib/PoseLib/solvers/p3p_lambdatwist.cc"],
             )
         self.assertIn("outside allowed optimization scope", str(ctx.exception))
 
@@ -169,7 +169,7 @@ class ExperimentConfigOptimizationScopeTests(unittest.TestCase):
             )
         self.assertIsInstance(config.optimization_scope, OptimizationScopeConfig)
         self.assertIn(
-            "cpp/external/lambdatwist/p3p.cc",
+            "cpp/external/poselib/PoseLib/solvers/p3p_lambdatwist.cc",
             config.optimization_scope.allowed_files,
         )
 
@@ -178,12 +178,12 @@ class ExperimentConfigOptimizationScopeTests(unittest.TestCase):
             config = load_experiment_config(
                 _write_experiment_config(
                     Path(tmpdir),
-                    optimization_scope={"allowed_files": ["cpp/external/lambdatwist/p3p.cc"]},
+                    optimization_scope={"allowed_files": ["cpp/external/poselib/PoseLib/solvers/p3p_lambdatwist.cc"]},
                 )
             )
         self.assertEqual(
             config.optimization_scope.allowed_files,
-            ["cpp/external/lambdatwist/p3p.cc"],
+            ["cpp/external/poselib/PoseLib/solvers/p3p_lambdatwist.cc"],
         )
 
 
@@ -191,7 +191,7 @@ def _write_experiment_config(root: Path, *, optimization_scope: dict | None) -> 
     payload = {
         "experiment_name": "scope_test",
         "description": "Temporary scope test config",
-        "target_file": "cpp/external/lambdatwist/p3p.cc",
+        "target_file": "cpp/external/poselib/PoseLib/solvers/p3p_lambdatwist.cc",
         "baseline_run_dir": "results/runs/baseline",
 
         "llm_config": "configs/llm_test.json",

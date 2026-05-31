@@ -34,10 +34,8 @@ def _step(name: str, status: str) -> dict[str, object]:
 def _successful_steps() -> list[dict[str, object]]:
     return [
         _step("configure_cmake", "success"),
-        _step("build_absolute_pose_lambdatwist_adapter_validator", "success"),
-        _step("build_absolute_pose_lambdatwist_benchmark", "success"),
-        _step("run_absolute_pose_lambdatwist_adapter_validator", "success"),
-        _step("run_absolute_pose_lambdatwist_benchmark", "success"),
+        _step("build_poselib_solver_benchmark", "success"),
+        _step("run_poselib_solver_benchmark", "success"),
     ]
 
 
@@ -45,8 +43,8 @@ def _metadata() -> dict[str, object]:
     return {
         "run_id": "test_baseline",
         "scenario": "baseline",
-        "case_study": "p3p_solver",
-        "baseline": "lambda_twist",
+        "case_study": "poselib_native",
+        "baseline": "poselib_p3p_lambdatwist",
         "started_at": "2026-05-05T00:00:00+02:00",
         "finished_at": "2026-05-05T00:00:01+02:00",
         "repository": {
@@ -59,26 +57,17 @@ def _metadata() -> dict[str, object]:
 
 def _benchmark_output(*, correct: bool = True) -> str:
     gt_found_percent = 100.0 if correct else 50.0
-    return "\n".join(
-        [
-            "solver_name: lambdatwist_p3p",
-            "num_problems: 1000",
-            "total_solutions: 3000",
-            "solutions_per_problem: 3.0",
-            "valid_solutions: 3000",
-            "valid_solutions_percent: 100.0",
-            f"gt_found: {1000 if correct else 500}",
-            f"gt_found_percent: {gt_found_percent}",
-            "runtime_ns_total_median: 1000000",
-            "runtime_ns_per_problem_median: 1000",
-            "tolerance: 1e-6",
-            "camera_fov: 75",
-            "n_point_point: 3",
-            "n_point_line: 0",
-            "timed_iterations: 10",
-            "runtime_unit: ns",
-            f"correctness_passed: {str(correct).lower()}",
-        ]
+    return (
+        'POSELIB_BENCHMARK_JSON={"solver_key":"p3p_lambdatwist",'
+        '"benchmark_kind":"absolute_pose","instances":1000,'
+        '"solutions_total":3000,"solutions_per_problem":3.0,'
+        '"valid_solutions":3000,"valid_solutions_percent":100.0,'
+        f'"gt_found":{1000 if correct else 500},'
+        f'"gt_found_percent":{gt_found_percent},'
+        '"runtime_ns_total_median":1000000,'
+        '"runtime_ns_per_problem_median":1000,'
+        f'"tolerance":1e-6,"correctness_passed":{str(correct).lower()}'
+        '}'
     )
 
 
@@ -152,9 +141,7 @@ class BaselineParsePolicyTests(unittest.TestCase):
         parse_result = _benchmark_parse_result_from_output(
             "\n".join(
                 [
-                    "solver_name: lambdatwist_p3p",
-                    "num_problems: 1000",
-                    "gt_found_percent: 100.0",
+                    'POSELIB_BENCHMARK_JSON={"solver_key":"p3p_lambdatwist",',
                 ]
             )
         )
@@ -168,12 +155,12 @@ class BaselineParsePolicyTests(unittest.TestCase):
         self.assertIn(
             "runtime_ns_per_problem_median", metrics["benchmark"]["missing_fields"]
         )
-        self.assertEqual(metrics["benchmark"]["parsed_solver_name"], "lambdatwist_p3p")
-        self.assertEqual(metrics["benchmark"]["parsed_num_problems"], 1000)
+        self.assertIsNone(metrics["benchmark"]["parsed_solver_name"])
+        self.assertIsNone(metrics["benchmark"]["parsed_num_problems"])
         self.assertIsNone(metrics["benchmark"]["parsed_runtime_ns_per_problem_median"])
 
     def test_parse_failure_index_and_summary_reflect_failed_run(self) -> None:
-        parse_result = _benchmark_parse_result_from_output("solver_name: lambdatwist_p3p\n")
+        parse_result = _benchmark_parse_result_from_output("no benchmark json\n")
         steps = [*_successful_steps(), _step(PARSE_FAMILY_BENCHMARK_STEP, "failed")]
         status = _build_status(steps, PARSE_FAMILY_BENCHMARK_STEP, "parse failed")
         metrics = _build_metrics(steps, "Release", parse_result)
@@ -194,19 +181,18 @@ class BaselineParsePolicyTests(unittest.TestCase):
     def test_prior_benchmark_failure_skips_parse_step(self) -> None:
         steps = [
             _step("configure_cmake", "success"),
-            _step("build_absolute_pose_lambdatwist_adapter_validator", "success"),
-            _step("build_absolute_pose_lambdatwist_benchmark", "failed"),
+            _step("build_poselib_solver_benchmark", "failed"),
         ]
 
         status = _build_status(
             steps,
-            "build_absolute_pose_lambdatwist_benchmark",
+            "build_poselib_solver_benchmark",
             "benchmark build failed",
         )
         step_by_name = {step["name"]: step for step in status["steps"]}
 
         self.assertEqual(
-            status["failed_step"], "build_absolute_pose_lambdatwist_benchmark"
+            status["failed_step"], "build_poselib_solver_benchmark"
         )
         self.assertEqual(step_by_name[PARSE_FAMILY_BENCHMARK_STEP]["status"], "skipped")
 

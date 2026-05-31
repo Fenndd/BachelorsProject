@@ -49,8 +49,8 @@ def _make_screen(monkeypatch, tmp_path: Path, overrides: dict[str, object] | Non
     values: dict[str, object] = {
         "experiment_name": SimpleNamespace(value="test_exp"),
         "description": SimpleNamespace(value=""),
-        "algorithm": SimpleNamespace(value="lambdatwist_p3p"),
-        "target_file": SimpleNamespace(value="cpp/external/lambdatwist/p3p.cc"),
+        "algorithm": SimpleNamespace(value="poselib_p3p_lambdatwist"),
+        "target_file": SimpleNamespace(value="cpp/external/poselib/PoseLib/solvers/p3p_lambdatwist.cc"),
         "baseline_run_sel": SimpleNamespace(value="results/runs/baseline"),
         "iterations": SimpleNamespace(value="1"),
         "llm_config": SimpleNamespace(value="configs/llm_mock.json"),
@@ -181,13 +181,13 @@ def _write_run(root: Path, name: str, *, status: str, solver: str | None, candid
 def test_baseline_filtering_excludes_failed_candidate_and_mismatched(monkeypatch, tmp_path: Path) -> None:
     root = tmp_path
     (root / ".git").mkdir()
-    _write_run(root, "good_lambdatwist", status="success", solver="lambdatwist_p3p")
-    _write_run(root, "failed_lambdatwist", status="failed", solver="lambdatwist_p3p")
-    _write_run(root, "candidate_lambdatwist", status="success", solver="lambdatwist_p3p", candidate=True)
+    _write_run(root, "good_lambdatwist", status="success", solver="poselib_p3p_lambdatwist")
+    _write_run(root, "failed_lambdatwist", status="failed", solver="poselib_p3p_lambdatwist")
+    _write_run(root, "candidate_lambdatwist", status="success", solver="poselib_p3p_lambdatwist", candidate=True)
     _write_run(root, "poselib_baseline", status="success", solver="poselib_p3p")
 
     monkeypatch.setattr(options, "get_project_paths", lambda: SimpleNamespace(repo_root=root))
-    discovered = options.discover_baseline_runs("lambdatwist_p3p")
+    discovered = options.discover_baseline_runs("poselib_p3p_lambdatwist")
     labels = [label for label, _value in discovered]
 
     assert any("good_lambdatwist" in label for label in labels)

@@ -1,4 +1,4 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 import pytest
 
@@ -462,7 +462,7 @@ def test_f_html_contains_enriched_fields(tmp_path: Path) -> None:
 
     report_data = make_empty_report_data("exp_001", TARGET_FILE)
     report_data.experiment.model = "deepseek-v4-pro"
-    report_data.experiment.benchmark_family = "absolute_pose_solvers"
+    report_data.experiment.benchmark_family = "poselib_native"
     report_data.final_result = ReportFinalResult(
         final_best_iteration=1,
         final_speedup_vs_baseline=1.30,
@@ -485,8 +485,8 @@ def test_f_html_contains_enriched_fields(tmp_path: Path) -> None:
         baseline_run_dir="results/runs/baseline",
     )
     report_data.benchmark_config = ReportBenchmarkConfig(
-        family="absolute_pose_solvers",
-        solver="lambdatwist_p3p",
+        family="poselib_native",
+        solver="poselib_p3p_lambdatwist",
         num_problems=1024,
         timed_iterations=50,
         build_type="Release",
@@ -528,8 +528,8 @@ def test_f_html_contains_enriched_fields(tmp_path: Path) -> None:
     html = html_path.read_text(encoding="utf-8")
 
     assert "deepseek-v4-pro" in html
-    assert "absolute_pose_solvers" in html
-    assert "lambdatwist_p3p" in html
+    assert "poselib_native" in html
+    assert "poselib_p3p_lambdatwist" in html
     assert "Speedup vs Current Best" in html
     assert "Closed-Loop Selection" in html
     assert "Best Verified Candidate Speedup vs Baseline" in html
@@ -821,8 +821,8 @@ def test_final_code_diff_is_visible_for_print_output(tmp_path: Path) -> None:
 def test_optional_empty_report_rows_are_hidden(tmp_path: Path) -> None:
     report_data = _report_data()
     report_data.benchmark_config = ReportBenchmarkConfig(
-        family="absolute_pose_solvers",
-        solver="lambdatwist_p3p",
+        family="poselib_native",
+        solver="poselib_p3p_lambdatwist",
         build_type="Release",
     )
     report_data.experiment_metadata = ReportExperimentMetadata(
@@ -1052,10 +1052,10 @@ def test_list_fields_render_as_comma_separated(tmp_path: Path) -> None:
         pdf_display='Not generated. Current reporting formats: ["html"]',
     )
     report_data.experiment_config_details = ReportExperimentConfigDetails(
-        optimization_scope_allowed_files=["cpp/external/lambdatwist/p3p.cc"],
+        optimization_scope_allowed_files=["cpp/external/poselib/PoseLib/solvers/p3p_lambdatwist.cc"],
     )
     report_data.final_best_candidate = ReportFinalBestCandidate(
-        changed_files=["cpp/external/lambdatwist/p3p.cc"],
+        changed_files=["cpp/external/poselib/PoseLib/solvers/p3p_lambdatwist.cc"],
     )
     counts = default_status_counts()
     counts["accepted_improvement"] = 1
@@ -1066,9 +1066,9 @@ def test_list_fields_render_as_comma_separated(tmp_path: Path) -> None:
     html = html_path.read_text(encoding="utf-8")
 
     assert "html" in html
-    assert "cpp/external/lambdatwist/p3p.cc" in html
+    assert "cpp/external/poselib/PoseLib/solvers/p3p_lambdatwist.cc" in html
     assert "['html']" not in html
-    assert "['cpp/external/lambdatwist/p3p.cc']" not in html
+    assert "['cpp/external/poselib/PoseLib/solvers/p3p_lambdatwist.cc']" not in html
 
 
 # ---------------------------------------------------------------------------

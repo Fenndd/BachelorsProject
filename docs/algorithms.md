@@ -11,39 +11,37 @@ used consistently across:
 - Closed-loop experiment runner (verification stage dispatches by
   descriptor).
 
-## Benchmark Backends
+## Benchmark Backend
 
-The project supports two benchmark backends:
+The project supports one benchmark backend:
 
 | Backend | Model | Used by |
 |---|---|---|
-| `absolute_pose` | Generated C++ benchmark with adapter validation | `lambdatwist_p3p` |
 | `poselib_native` | PoseLib's own benchmark infrastructure with `--solver` selection and machine-readable JSON output | All `poselib_*` solvers |
 
 The backend controls which CMake targets are built, which parser reads the
-benchmark stdout, and whether adapter validation runs before the benchmark.
+benchmark stdout, and which solver key is passed at runtime.
 
 ## Solver Manifests
 
 Each solver is declared in a per-solver JSON manifest:
 
 ```
-cpp/bench/absolute_pose/solvers/lambdatwist_p3p.json
+cpp/bench/poselib_native/solvers/poselib_p3p_lambdatwist.json
 cpp/bench/poselib_native/solvers/poselib_p3p.json
 cpp/bench/poselib_native/solvers/poselib_relpose_5pt.json
 ...
 ```
 
 Manifests are discovered automatically at import time by the solver
-registry. There are currently **38 manifests** (1 `absolute_pose` +
-37 `poselib_native`).
+registry. All registered manifests use the `poselib_native` family.
 
 ### Key Manifest Fields
 
 | Field | Description |
 |---|---|
 | `solver_id` | Unique project-level identifier. |
-| `family` | `"absolute_pose"` or `"poselib_native"`. |
+| `family` | `"poselib_native"`. |
 | `display_name` | Human-readable label for UIs. |
 | `benchmark_backend` | Backend name (must match family for poselib_native). |
 | `benchmark_target` | CMake target for the benchmark executable. |
@@ -51,19 +49,7 @@ registry. There are currently **38 manifests** (1 `absolute_pose` +
 | `benchmark_kind` | Category: `absolute_pose`, `relative_pose`, etc. |
 | `default_target_file` | Repo-relative path to the solver's primary source file. |
 | `default_allowed_files` | Repo-relative paths allowed for downstream validation. |
-| `targets` | CMake target names (benchmark, adapter, validator). |
-
-### `absolute_pose` Manifest Extras
-
-For the generated `absolute_pose` backend (`runner_mode`:
-`"generated_absolute_pose"`), manifests additionally contain:
-
-- `adapter_dir`, `adapter_class`, `adapter_namespace`, `adapter_header`,
-  `adapter_sources` — adapter wiring.
-- `benchmark_options` — number of problems, tolerance, fov, etc.
-- `validator_options` — validator-specific parameters.
-- `extra_libs` — extra CMake libraries to link.
-- `targets.adapter_validator` — required validator binary.
+| `targets` | CMake target names. PoseLib-native manifests use `poselib_solver_benchmark`. |
 
 ## PoseLib Native Benchmark
 
@@ -114,7 +100,7 @@ case. Key groups:
 
 | solver_id | Backend | Category |
 |---|---|---|
-| `lambdatwist_p3p` | absolute_pose | Absolute pose |
+| `poselib_p3p_lambdatwist` | poselib_native | Absolute pose |
 | `poselib_p3p` | poselib_native | Absolute pose |
 | `poselib_gp3p` | poselib_native | Generalized absolute pose |
 | `poselib_relpose_5pt` | poselib_native | Relative pose |
@@ -123,7 +109,7 @@ case. Key groups:
 ## Commands
 
 ```powershell
-# Default solver (lambdatwist_p3p)
+# Default solver (poselib_p3p_lambdatwist)
 py -m orchestrator.cli.app baseline run
 
 # PoseLib P3P

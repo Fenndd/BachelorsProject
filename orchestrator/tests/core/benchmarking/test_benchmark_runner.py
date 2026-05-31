@@ -46,11 +46,6 @@ class BuildCmakeBuildCommandTests(unittest.TestCase):
 
 
 class BuildBenchmarkRunCommandTests(unittest.TestCase):
-    def test_absolute_pose_runs_executable_without_args(self) -> None:
-        descriptor = get_solver_descriptor("lambdatwist_p3p")
-        cmd = build_benchmark_run_command(Path("/tmp/benchmark"), descriptor)
-        self.assertEqual(cmd, [str(Path("/tmp/benchmark"))])
-
     def test_poselib_native_selects_solver_and_json(self) -> None:
         descriptor = get_solver_descriptor("poselib_p3p")
         cmd = build_benchmark_run_command(Path("/tmp/poselib_solver_benchmark"), descriptor)

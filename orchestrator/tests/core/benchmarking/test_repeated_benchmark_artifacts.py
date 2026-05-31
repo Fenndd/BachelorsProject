@@ -16,7 +16,7 @@ from orchestrator.core.benchmarking.solver_registry import default_solver_descri
 def _sample(index: int, runtime: float) -> dict[str, object]:
     return {
         "run_index": index,
-        "solver_name": "lambdatwist_p3p",
+        "solver_name": "poselib_p3p_lambdatwist",
         "num_problems": 1000,
         "total_solutions": 3000,
         "solutions_per_problem": 3.0,

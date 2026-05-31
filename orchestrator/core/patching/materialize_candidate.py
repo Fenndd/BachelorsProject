@@ -60,7 +60,7 @@ def _parse_args(argv: list[str]) -> argparse.Namespace:
         required=True,
         help=(
             "Repo-like base source root to copy from. The directory must "
-            "contain repo-relative paths such as cpp/external/lambdatwist/p3p.cc. "
+            "contain repo-relative paths such as cpp/external/poselib/PoseLib/solvers/p3p_lambdatwist.cc. "
             "Its contents are copied directly into the candidate workspace."
         ),
     )

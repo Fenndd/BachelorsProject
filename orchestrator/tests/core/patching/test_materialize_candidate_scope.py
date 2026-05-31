@@ -1,4 +1,4 @@
-﻿"""Focused tests for materialize_candidate scope enforcement artifacts."""
+"""Focused tests for materialize_candidate scope enforcement artifacts."""
 
 from __future__ import annotations
 
@@ -87,7 +87,7 @@ class MaterializeCandidateScopeTests(unittest.TestCase):
 
             exit_code = _noop_materialize(
                 run_dir,
-                target_file="cpp/external/lambdatwist/other.cc",
+                target_file="cpp/external/poselib/PoseLib/solvers/other.cc",
                 allowed_files=[TARGET_FILE],
             )
 

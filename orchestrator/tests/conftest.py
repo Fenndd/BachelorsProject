@@ -10,7 +10,7 @@ import pytest
 
 from orchestrator.control.environment import get_env_specs
 
-TARGET_FILE = "cpp/external/lambdatwist/p3p.cc"
+TARGET_FILE = "cpp/external/poselib/PoseLib/solvers/p3p_lambdatwist.cc"
 
 
 def write_json(path: Path, payload: dict[str, Any]) -> None:
@@ -45,15 +45,15 @@ def clear_managed_env(monkeypatch) -> None:
 
 
 def make_benchmark_payload(runtime: float | None = None, **overrides: Any) -> dict[str, Any]:
-    """Build a standard absolute-pose-solvers benchmark metrics payload.
+    """Build a standard poselib_native benchmark metrics payload.
 
     Accepts an optional ``runtime`` positional for convenience; when given,
     *parsed_runtime_ns_per_problem_median* and *parsed_runtime_ns_total_median*
     are set from it before applying any keyword overrides.
     """
     benchmark: dict[str, Any] = {
-        "family": "absolute_pose_solvers",
-        "solver": "lambdatwist_p3p",
+        "family": "poselib_native",
+        "solver": "poselib_p3p_lambdatwist",
         "runtime_unit": "ns",
         "build_type": "Release",
         "benchmark_options": {
