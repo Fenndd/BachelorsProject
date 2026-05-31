@@ -37,16 +37,14 @@ Candidates use one fixed line-range edit schema:
 
 - `summary`
 - `rationale`
-- `risk_level`
-- `expected_effect`
-- `target_files`
 - `correctness_notes`
-- `edits`
-- `requires_manual_review`
+- `edits` — list of objects with `start_line`, `end_line`, `original`, `replace`
 
-Each edit contains `file`, `start_line`, `end_line`, `original`, and `replace`.
+The target file is known from the orchestrator experiment config and is not part of
+the candidate JSON. `materialization.json` may contain `target_files` and `edit_files`
+as orchestrator-generated metadata (not LLM input).
 
-No-op candidates set `expected_effect` to `none` and return `edits: []`.
+No-op candidates return `edits: []`.
 
 ## Experiment Results
 

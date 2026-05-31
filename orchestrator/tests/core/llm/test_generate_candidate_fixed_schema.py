@@ -264,6 +264,69 @@ class GenerateCandidateFixedSchemaTests(unittest.TestCase):
             self.assertIsNotNone(parsed)
             self.assertEqual(Path(parsed).name, run_dir.name)
 
+    def test_llm_request_json_includes_history_context_and_prompt_sections(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            source_path = root / TARGET_FILE
+            source_path.parent.mkdir(parents=True, exist_ok=True)
+            source_path.write_text("double value = 1.0;\n", encoding="utf-8")
+            response_file = root / "mock_response.json"
+            response_file.write_text(
+                json.dumps(
+                    {
+                        "summary": "no-op",
+                        "rationale": "safe",
+                        "correctness_notes": "none",
+                        "edits": [],
+                    }
+                ),
+                encoding="utf-8",
+            )
+            config_path = root / "llm_mock.json"
+            config_path.write_text(
+                json.dumps(
+                    {
+                        "provider": "mock",
+                        "model": "mock-model",
+                        "mock_response_file": str(response_file),
+                    }
+                ),
+                encoding="utf-8",
+            )
+            (root / ".git").mkdir(exist_ok=True)
+            (root / "configs").mkdir(exist_ok=True)
+            (root / "cpp").mkdir(exist_ok=True)
+            (root / "orchestrator").mkdir(exist_ok=True)
+            original_paths = generate_candidate_module.paths
+            try:
+                generate_candidate_module.paths = get_project_paths(root)
+                exit_code = generate_candidate_module.main(
+                    [
+                        "--config", str(config_path),
+                        "--source", TARGET_FILE,
+                        "--context", "user guidance text",
+                        "--history-context", "previous attempts text",
+                    ]
+                )
+            finally:
+                generate_candidate_module.paths = original_paths
+
+            self.assertEqual(exit_code, 0)
+            run_dir = next((root / "results" / "runs").iterdir())
+            request = json.loads((run_dir / "llm_request.json").read_text(encoding="utf-8"))
+            self.assertEqual(request["additional_context"], "user guidance text")
+            self.assertEqual(request["history_context"], "previous attempts text")
+            self.assertIn("prompt_sections", request)
+            sections = request["prompt_sections"]
+            self.assertIsInstance(sections, dict)
+            self.assertIn("task", sections)
+            self.assertIn("user_guidance", sections)
+            self.assertIn("previous_attempts", sections)
+            self.assertIn("source_code", sections)
+            self.assertIn("safety_constraints", sections)
+            self.assertIn("line_edit_rules", sections)
+            self.assertIn("output_schema", sections)
+
 
 if __name__ == "__main__":
     unittest.main()

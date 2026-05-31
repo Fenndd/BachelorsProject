@@ -21,26 +21,34 @@ def format_source_line_numbered(source_code: str) -> str:
 def build_optimization_prompt(
     source_code: str,
     additional_context: str | None = None,
-) -> tuple[str, str]:
-    """Build system and user prompts for one controlled optimization request."""
+    history_context: str | None = None,
+) -> tuple[str, str, dict[str, str]]:
+    """Build system and user prompts for one controlled optimization request.
+
+    Returns a tuple of (system_prompt, user_prompt, prompt_sections).
+    prompt_sections is a dict mapping section names to their raw text for
+    audit/debugging in llm_request.json.
+    """
     if not source_code:
         raise ValueError("source_code must not be empty.")
 
     system_prompt = _build_system_prompt()
     source_for_prompt = format_source_line_numbered(source_code)
 
-    user_prompt = "\n\n".join(
-        [
-            _build_task_section(),
-            _build_additional_context_section(additional_context),
-            _build_source_section(source_for_prompt),
-            _build_safety_section(),
-            _build_line_edit_rules_section(),
-            _build_output_schema_section(),
-        ]
-    )
+    sections = [
+        ("task", _build_task_section()),
+        ("user_guidance", _build_user_guidance_section(additional_context)),
+        ("previous_attempts", _build_previous_attempts_section(history_context)),
+        ("source_code", _build_source_section(source_for_prompt)),
+        ("safety_constraints", _build_safety_section()),
+        ("line_edit_rules", _build_line_edit_rules_section()),
+        ("output_schema", _build_output_schema_section()),
+    ]
 
-    return system_prompt, user_prompt
+    prompt_sections = {name: text for name, text in sections}
+    user_prompt = "\n\n".join(text for _name, text in sections)
+
+    return system_prompt, user_prompt, prompt_sections
 
 
 def _build_system_prompt() -> str:
@@ -62,9 +70,14 @@ def _build_task_section() -> str:
     )
 
 
-def _build_additional_context_section(additional_context: str | None) -> str:
+def _build_user_guidance_section(additional_context: str | None) -> str:
     context_text = additional_context or "No additional user guidance."
-    return f"User guidance / additional context:\n{context_text}"
+    return f"User guidance:\n{context_text}"
+
+
+def _build_previous_attempts_section(history_context: str | None) -> str:
+    context_text = history_context or "No previous attempts."
+    return f"Previous attempts:\n{context_text}"
 
 
 def _build_source_section(source_for_prompt: str) -> str:

@@ -479,19 +479,31 @@ class RunExperimentClosedLoopTests(unittest.TestCase):
         first_command = harness.generated_commands[0]
         second_command = harness.generated_commands[1]
         third_command = harness.generated_commands[2]
+        # --context should contain only the manually configured additional_context
         self.assertIn("--context", first_command)
         first_context = first_command[first_command.index("--context") + 1]
         self.assertEqual(first_context, "static additional context")
         self.assertNotIn("Closed-loop optimization history", first_context)
+        # No history for iteration 1
+        self.assertNotIn("--history-context", first_command)
+        # Iteration 2: --context still only additional_context, --history-context has history
         self.assertIn("--context", second_command)
         second_context = second_command[second_command.index("--context") + 1]
-        self.assertIn("static additional context", second_context)
-        self.assertIn("Closed-loop optimization history", second_context)
-        self.assertIn("already included in the current source", second_context)
+        self.assertEqual(second_context, "static additional context")
+        self.assertNotIn("Closed-loop optimization history", second_context)
+        self.assertIn("--history-context", second_command)
+        second_history = second_command[second_command.index("--history-context") + 1]
+        self.assertIn("Closed-loop optimization history", second_history)
+        self.assertIn("already included in the current source", second_history)
+        # Iteration 3: --context only additional_context, --history-context excludes no-op
         self.assertIn("--context", third_command)
         third_context = third_command[third_command.index("--context") + 1]
-        self.assertIn("candidate summary 1", third_context)
-        self.assertNotIn("candidate summary 2", third_context)
+        self.assertEqual(third_context, "static additional context")
+        self.assertNotIn("Closed-loop optimization history", third_context)
+        self.assertIn("--history-context", third_command)
+        third_history = third_command[third_command.index("--history-context") + 1]
+        self.assertIn("candidate summary 1", third_history)
+        self.assertNotIn("candidate summary 2", third_history)
 
     def test_controlled_mock_closed_loop_promotes_only_accepted_iteration(self) -> None:
         temp = tempfile.TemporaryDirectory()
@@ -621,9 +633,14 @@ class RunExperimentClosedLoopTests(unittest.TestCase):
         self.assertFalse(selection_report["safety"]["report_modifies_main_cpp_tree"])
         self.assertEqual((root / TARGET_FILE).read_text(encoding="utf-8"), main_source_before)
         third_context = generated_commands[2][generated_commands[2].index("--context") + 1]
-        self.assertIn("ACCEPTED_VALUE", third_context)
-        self.assertIn("SLOWER_VALUE", third_context)
+        self.assertNotIn("ACCEPTED_VALUE", third_context)
+        self.assertNotIn("SLOWER_VALUE", third_context)
         self.assertNotIn("No useful change", third_context)
+        self.assertIn("--history-context", generated_commands[2])
+        third_history = generated_commands[2][generated_commands[2].index("--history-context") + 1]
+        self.assertIn("ACCEPTED_VALUE", third_history)
+        self.assertIn("SLOWER_VALUE", third_history)
+        self.assertNotIn("No useful change", third_history)
 
 
 if __name__ == "__main__":

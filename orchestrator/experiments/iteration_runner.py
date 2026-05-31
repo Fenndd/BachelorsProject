@@ -46,6 +46,7 @@ def _build_generation_command(
     context_text: str | None,
     source_root: str | None = None,
     candidate_run_dir: str | None = None,
+    history_context_text: str | None = None,
 ) -> list[str]:
     command = [
         sys.executable,
@@ -62,6 +63,8 @@ def _build_generation_command(
         command.extend(["--candidate-run-dir", candidate_run_dir])
     if context_text is not None:
         command.extend(["--context", context_text])
+    if history_context_text is not None:
+        command.extend(["--history-context", history_context_text])
     for allowed_file in config.optimization_scope.allowed_files:
         command.extend(["--allowed-file", allowed_file])
     return command
@@ -210,20 +213,6 @@ def _looks_like_candidate_run_dir(value: str) -> bool:
     if scenario is not None and scenario != "llm_candidate":
         return False
     return True
-
-
-def _combine_closed_loop_context(
-    additional_context: str | None,
-    history_context: str | None,
-) -> str | None:
-    parts: list[str] = []
-    if additional_context is not None:
-        parts.append(additional_context)
-    if history_context is not None:
-        parts.append(history_context)
-    if not parts:
-        return None
-    return "\n\n".join(parts)
 
 
 def _closed_loop_history_context_log_path(
@@ -685,11 +674,6 @@ def run_closed_loop_iterations(
             iteration,
             closed_loop_history_context,
         )
-        generation_context = _combine_closed_loop_context(
-            config.additional_context,
-            closed_loop_history_context,
-        )
-
         generation_result = _run_stage(
             experiment_dir,
             iteration,
@@ -697,9 +681,10 @@ def run_closed_loop_iterations(
             _build_generation_command(
                 config,
                 llm_metadata["resolved_config"],
-                generation_context,
+                config.additional_context,
                 source_root=str(closed_loop_paths.current_best_source_dir),
                 candidate_run_dir=str(candidate_run_dir_path),
+                history_context_text=closed_loop_history_context,
             ),
         )
         generation_record, candidate_run_dir_text = _generation_stage_record(generation_result)

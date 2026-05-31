@@ -111,11 +111,8 @@ def _patch_noop_closed_loop_stage(monkeypatch: pytest.MonkeyPatch, root: Path) -
             {
                 "summary": "no-op candidate",
                 "rationale": "test",
-                "risk_level": "low",
-                "expected_effect": "none",
-                "target_files": [TARGET_FILE],
+                "correctness_notes": "no issues",
                 "edits": [],
-                "requires_manual_review": False,
             },
         )
         return {

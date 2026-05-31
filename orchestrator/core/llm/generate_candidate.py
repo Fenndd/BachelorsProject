@@ -80,7 +80,13 @@ def _parse_args(argv: list[str]) -> argparse.Namespace:
     parser.add_argument(
         "--context",
         default=None,
-        help="Optional extra context to include in the optimization prompt.",
+        help="Optional manually configured user guidance for the optimization prompt.",
+    )
+    parser.add_argument(
+        "--history-context",
+        default=None,
+        dest="history_context",
+        help="Optional closed-loop previous attempts/history context.",
     )
     parser.add_argument(
         "--allowed-file",
@@ -536,7 +542,7 @@ def main(argv: list[str] | None = None) -> int:
 
     # Resolve allowed files early
     allowed_files = _resolve_allowed_files(args.allowed_files, target_file)
-    LOGGER.info("Allowed files for LLM: %s", ", ".join(allowed_files))
+    LOGGER.info("Allowed files for downstream validation: %s", ", ".join(allowed_files))
 
     storage = RunStorage(paths.repo_root / "results")
     started_at = datetime.now().astimezone()
@@ -592,9 +598,10 @@ def main(argv: list[str] | None = None) -> int:
         except (OSError, UnicodeDecodeError, ValueError) as exc:
             raise CandidateGenerationFailure("read_source", str(exc)) from exc
 
-        system_prompt, user_prompt = build_optimization_prompt(
+        system_prompt, user_prompt, prompt_sections = build_optimization_prompt(
             source_code=source_code,
             additional_context=args.context,
+            history_context=args.history_context,
         )
 
         try:
@@ -610,6 +617,8 @@ def main(argv: list[str] | None = None) -> int:
                     "system_prompt": system_prompt,
                     "user_prompt": user_prompt,
                     "additional_context": args.context,
+                    "history_context": args.history_context,
+                    "prompt_sections": prompt_sections,
                 },
             )
         except OSError as exc:
