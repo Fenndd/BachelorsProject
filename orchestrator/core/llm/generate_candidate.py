@@ -94,7 +94,7 @@ def _parse_args(argv: list[str]) -> argparse.Namespace:
         default=None,
         dest="allowed_files",
         help=(
-            "File path the LLM is allowed to modify (may be repeated). "
+            "File path allowed for downstream validation (may be repeated). "
             "Defaults to the --source path if not provided."
         ),
     )

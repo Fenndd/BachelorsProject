@@ -88,7 +88,7 @@ def _parse_args(argv: list[str]) -> argparse.Namespace:
         dest="allowed_files",
         help=(
             "Externally allowed file path (may be repeated). "
-            "If provided, candidate target_files and diff paths "
+            "If provided, --target-file and changed diff paths "
             "must be a subset of these allowed files."
         ),
     )
