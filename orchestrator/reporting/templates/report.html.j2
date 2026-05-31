@@ -387,7 +387,19 @@
       word-break: break-word;
     }
 
+    .print-only {
+      display: none;
+    }
+
     @media print {
+      .screen-only {
+        display: none;
+      }
+
+      .print-only {
+        display: block;
+      }
+
       body {
         font-size: 11px;
       }
@@ -519,8 +531,6 @@
             <tr><th>Experiment ID</th><td>{{ report.experiment.experiment_id|display }}</td></tr>
             <tr><th>Target File</th><td><code>{{ report.experiment.target_file|display }}</code></td></tr>
             <tr><th>Experiment Mode</th><td>{{ report.experiment.experiment_mode|display }}</td></tr>
-            <tr><th>Benchmark Family</th><td>{{ report.experiment.benchmark_family|default(report.benchmark_config.family, true)|display }}</td></tr>
-            <tr><th>Solver / Model</th><td>{{ report.benchmark_config.solver|default(report.experiment.model, true)|display }}</td></tr>
             {% if report.experiment_config_details.description %}
             <tr><th>Description</th><td>{{ report.experiment_config_details.description|display }}</td></tr>
             {% endif %}
@@ -549,21 +559,23 @@
             <tr><th>Family</th><td>{{ report.benchmark_config.family|display }}</td></tr>
             <tr><th>Solver</th><td>{{ report.benchmark_config.solver|display }}</td></tr>
             <tr><th>Num Problems</th><td>{{ report.benchmark_config.num_problems|human_int }}</td></tr>
+            {% if report.benchmark_config.timed_iterations is not none %}
             <tr><th>Timed Iterations</th><td>{{ report.benchmark_config.timed_iterations|human_int }}</td></tr>
+            {% endif %}
             <tr><th>Runtime Unit</th><td>{{ report.benchmark_config.runtime_unit|display }}</td></tr>
             <tr><th>Build Type</th><td>{{ report.benchmark_config.build_type|display }}</td></tr>
             <tr><th>Benchmark Runs</th><td>{{ report.baseline_metrics.benchmark_run_count|human_int }}</td></tr>
             <tr><th>Decision Metric</th><td>{{ report.baseline_metrics.decision_metric|display }}</td></tr>
             <tr><th>Baseline Median Runtime</th><td>{{ report.baseline_metrics.runtime_ns_per_problem_median|runtime_ns }}</td></tr>
             <tr><th>Baseline Min Runtime</th><td>{{ report.baseline_metrics.min_runtime_ns_per_problem_median|runtime_ns }}</td></tr>
-            <tr><th>Benchmark Wall Time</th><td>{{ report.baseline_metrics.total_benchmark_wall_seconds|human_duration }}</td></tr>
-            {% if report.benchmark_config.seed is defined and report.benchmark_config.seed is not none %}
+            <tr><th>Baseline Benchmark Wall Time</th><td>{{ report.baseline_metrics.total_benchmark_wall_seconds|human_duration }}</td></tr>
+            {% if report.benchmark_config.seed is not none %}
             <tr><th>Seed</th><td>{{ report.benchmark_config.seed|display }}</td></tr>
             {% endif %}
-            {% if report.benchmark_config.tolerance is defined and report.benchmark_config.tolerance is not none %}
+            {% if report.benchmark_config.tolerance is not none %}
             <tr><th>Tolerance</th><td>{{ report.benchmark_config.tolerance|display }}</td></tr>
             {% endif %}
-            {% if report.benchmark_config.camera_fov is defined and report.benchmark_config.camera_fov is not none %}
+            {% if report.benchmark_config.camera_fov is not none %}
             <tr><th>Camera FOV</th><td>{{ report.benchmark_config.camera_fov|display }}</td></tr>
             {% endif %}
             {% if report.benchmark_config.n_point_point is not none %}
@@ -614,26 +626,26 @@
       <div class="kpi-card"><strong>Benchmark Runs</strong><span class="value">{{ report.final_selection.final_benchmark_run_count|default(report.final_best_candidate.benchmark_run_count, true)|human_int }}</span></div>
       {% set decision_metric = report.final_selection.decision_metric|default(report.final_best_candidate.decision_metric, true)|default(report.baseline_metrics.decision_metric, true) %}
       <div class="kpi-card"><strong>Decision Metric</strong><span class="value">{{ decision_metric|display }}</span></div>
-      <div class="kpi-card"><strong>Total Benchmark Wall Time</strong><span class="value">{{ report.final_best_candidate.total_benchmark_wall_seconds|human_duration }}</span></div>
+      <div class="kpi-card"><strong>Final Benchmark Wall Time</strong><span class="value">{{ report.final_best_candidate.total_benchmark_wall_seconds|human_duration }}</span></div>
     </div>
 
     <h3>Comparison</h3>
     <table>
       <thead>
-        <tr><th>Metric</th><th>Baseline</th><th>Final</th><th>Delta / Result</th></tr>
+        <tr><th>Metric</th><th>Baseline</th><th>Final</th><th>Change</th></tr>
       </thead>
       <tbody>
         <tr>
           <th>Median runtime ns/problem</th>
           <td>{{ report.final_selection.baseline_runtime_ns_per_problem_median|default(report.final_best_candidate.baseline_runtime_ns_per_problem_median, true)|runtime_ns }}</td>
           <td>{{ report.final_selection.final_runtime_ns_per_problem_median|default(report.final_best_candidate.runtime_ns_per_problem_median, true)|runtime_ns }}</td>
-          <td>{{ report.final_best_candidate.absolute_runtime_difference_ns_per_problem|runtime_ns }}</td>
+          <td>{{ report.final_best_candidate.absolute_runtime_difference_ns_per_problem|runtime_ns }} ns</td>
         </tr>
         <tr>
           <th>Min runtime ns/problem</th>
           <td>{{ report.baseline_metrics.min_runtime_ns_per_problem_median|runtime_ns }}</td>
           <td>{{ report.final_best_candidate.min_runtime_ns_per_problem_median|runtime_ns }}</td>
-          <td>{{ report.final_selection.runtime_reduction_percent|default(report.final_best_candidate.runtime_reduction_percent, true)|percent }}</td>
+          <td>{{ report.final_best_candidate.min_runtime_absolute_difference_ns_per_problem|runtime_ns }} ns</td>
         </tr>
         <tr>
           <th>Valid Solutions</th>
@@ -705,9 +717,6 @@
   <section id="iteration-outcomes">
     <h2>Iteration Outcomes</h2>
     <div class="plot-grid-two-column">
-      {% if plots.status_breakdown %}
-      <figure><img src="{{ plots.status_breakdown }}" alt="Iteration status breakdown plot"></figure>
-      {% endif %}
       {% if plots.candidate_funnel %}
       <figure><img src="{{ plots.candidate_funnel }}" alt="Candidate funnel plot"></figure>
       {% endif %}
@@ -778,7 +787,7 @@
             <th>Speedup vs Baseline</th>
             <th>GT Found</th>
             <th>Promoted</th>
-            <th>Reason Code or Reason</th>
+            <th>Reason</th>
             <th>Summary</th>
           </tr>
         </thead>
@@ -794,7 +803,7 @@
             <td>{{ iteration.speedup_vs_baseline|speedup }}</td>
             <td>{{ iteration.gt_found_percent|percent }}</td>
             <td>{{ iteration.promoted|yes_no }}</td>
-            <td>{{ iteration.outcome_reason.code|default(iteration.reason, true)|display }}</td>
+            <td>{{ iteration.display_reason|display }}</td>
             <td>{{ iteration.candidate_summary|display }}</td>
           </tr>
           {% endfor %}
@@ -899,8 +908,6 @@
         {% endif %}
         <tr><th>Baseline Run Directory</th><td><code>{{ report.experiment_config_details.baseline_run_dir|display }}</code></td></tr>
         <tr><th>Optimization Scope</th><td><code>{{ report.experiment_config_details.optimization_scope_allowed_files|display }}</code></td></tr>
-        <tr><th>Reporting Formats</th><td>{{ report.experiment_config_details.reporting_formats|display }}</td></tr>
-        <tr><th>Renderer</th><td>{{ report.experiment_config_details.reporting_renderer|display }}</td></tr>
       </tbody>
     </table>
   </section>
@@ -911,10 +918,14 @@
       <h3>Final Code Diff</h3>
       {% set final_best_is_baseline = report.final_selection.final_best_is_baseline|default(report.closed_loop_selection.final_current_best_is_baseline, true) %}
       {% if report.final_code_diff %}
-      <details open>
-        <summary>Show final optimized source diff</summary>
+      {% set diff_has_stats = report.final_best_candidate.diff_stats and (report.final_best_candidate.diff_stats.lines_added is not none or report.final_best_candidate.diff_stats.lines_removed is not none) %}
+      <details class="screen-only">
+        <summary>View final diff{% if diff_has_stats %} (+{{ report.final_best_candidate.diff_stats.lines_added|human_int }} / &minus;{{ report.final_best_candidate.diff_stats.lines_removed|human_int }} lines){% endif %}</summary>
         <div class="diff-container"><pre>{{ report.final_code_diff|diff_highlight }}</pre></div>
       </details>
+      <div class="print-only">
+        <div class="diff-container"><pre>{{ report.final_code_diff|diff_highlight }}</pre></div>
+      </div>
       {% elif final_best_is_baseline is true %}
       <p class="muted">No final diff is shown because the final selected source is the original baseline.</p>
       {% else %}

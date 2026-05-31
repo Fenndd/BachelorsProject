@@ -37,6 +37,15 @@ from orchestrator.shared.io.json_io import read_json, read_json_object
 
 from orchestrator.experiments.outcome_reason import build_outcome_reason, outcome_reason_to_dict
 
+from orchestrator.reporting.formatting import (
+    format_delta_pp,
+    format_human_duration,
+    format_human_int,
+    format_percent,
+    format_runtime_ns,
+    format_speedup,
+)
+
 
 def collect_report_data(
     experiment_dir: Path | str,
@@ -114,6 +123,7 @@ def collect_report_data(
         final_result,
         final_best_candidate,
         final_selection,
+        baseline_metrics,
     )
 
     report_data = ReportData(
@@ -579,6 +589,7 @@ def _apply_final_selection_overrides(
     final_result: ReportFinalResult,
     final_best_candidate: ReportFinalBestCandidate,
     final_selection: ReportFinalSelection,
+    baseline_metrics: ReportBaselineMetrics,
 ) -> None:
     if final_selection.status not in {"completed", "skipped"}:
         return
@@ -610,6 +621,13 @@ def _apply_final_selection_overrides(
     final_best_candidate.decision_metric = final_selection.decision_metric
     final_best_candidate.min_runtime_ns_per_problem_median = final_selection.final_min_runtime_ns_per_problem_median
     final_best_candidate.total_benchmark_wall_seconds = final_selection.final_total_benchmark_wall_seconds
+    final_best_candidate.min_runtime_absolute_difference_ns_per_problem = (
+        baseline_metrics.min_runtime_ns_per_problem_median
+        - final_selection.final_min_runtime_ns_per_problem_median
+        if baseline_metrics.min_runtime_ns_per_problem_median is not None
+        and final_selection.final_min_runtime_ns_per_problem_median is not None
+        else None
+    )
 
 
 def _build_experiment_metadata(
@@ -667,6 +685,16 @@ def _build_final_best_candidate(
     if final_rt is not None and baseline_rt is not None:
         abs_diff = baseline_rt - final_rt
 
+    # Min runtime delta
+    min_runtime_delta: float | None = None
+    baseline_min = baseline_metrics.min_runtime_ns_per_problem_median
+    if final_best_iter == 0:
+        final_min = baseline_min
+    else:
+        final_min = best_iter_summary.min_runtime_ns_per_problem_median if best_iter_summary else None
+    if baseline_min is not None and final_min is not None:
+        min_runtime_delta = baseline_min - final_min
+
     # Changed files from materialization.json of the best candidate record
     changed_files: list[str] = []
     if final_best_iter > 0 and best_iter_summary is not None:
@@ -705,6 +733,8 @@ def _build_final_best_candidate(
             summary.get("final_optimized_source_diff_path"), experiment_path
         ),
         diff_stats=_build_diff_stats(final_diff_stats),
+        min_runtime_ns_per_problem_median=final_min,
+        min_runtime_absolute_difference_ns_per_problem=min_runtime_delta,
     )
 
 
@@ -881,6 +911,10 @@ def _iteration_summary(
         candidate,
         decision_vs_current_best,
     )
+    extracted_reason = _extract_reason(
+        record,
+        decision_vs_current_best=artifacts.get("decision_vs_current_best"),
+    )
 
     return ReportIterationSummary(
         iteration=_int_or_default(record.get("iteration")),
@@ -936,9 +970,11 @@ def _iteration_summary(
             _verification_aggregate_number(verification, "total_benchmark_wall_seconds"),
         ),
         promoted=record.get("current_best_updated") is True,
-        reason=_extract_reason(
-            record,
-            decision_vs_current_best=artifacts.get("decision_vs_current_best"),
+        reason=extracted_reason,
+        display_reason=_compute_display_reason(
+            _string_or_default(record.get("status")),
+            extracted_reason,
+            outcome_reason,
         ),
         candidate_run_dir=candidate_run_dir_text,
         phase_timings=_build_phase_timings(record.get("phase_timings")),
@@ -1293,6 +1329,21 @@ def _reason_text(value: Any) -> str | None:
     if isinstance(value, list):
         values = [str(item) for item in value if item is not None and str(item)]
         return "; ".join(values) if values else None
+    return None
+
+
+def _compute_display_reason(
+    status: str,
+    reason: str | None,
+    outcome_reason: ReportOutcomeReason,
+) -> str | None:
+    """Compute the best display reason preferring most granular over status."""
+    if reason and reason != status:
+        return reason
+    if outcome_reason.code and outcome_reason.code != status:
+        return outcome_reason.code
+    if outcome_reason.message and len(outcome_reason.message) <= 150:
+        return outcome_reason.message
     return None
 
 
@@ -1702,17 +1753,16 @@ def _build_executive_narrative(report_data: ReportData) -> str:
         ]
         if baseline_rt is not None and final_rt is not None:
             runtime_parts.append(
-                f"from {baseline_rt:.0f} ns/problem to {final_rt:.0f} ns/problem"
+                f"from {format_runtime_ns(baseline_rt)} ns/problem to {format_runtime_ns(final_rt)} ns/problem"
             )
         metrics: list[str] = []
         if speedup is not None:
-            metrics.append(f"speedup {speedup:.2f}x")
+            metrics.append(f"speedup {format_speedup(speedup)}")
         if reduction is not None:
-            metrics.append(f"{reduction:.1f}% reduction")
+            metrics.append(f"{format_percent(reduction)} reduction")
         if metrics:
             runtime_parts.append(f"({', '.join(metrics)})")
-        runtime_parts.append(".")
-        sentences.append(" ".join(runtime_parts))
+        sentences.append(" ".join(runtime_parts) + ".")
     elif accepted == 0:
         sentences.append("No accepted runtime improvement was found.")
 
@@ -1736,7 +1786,7 @@ def _build_executive_narrative(report_data: ReportData) -> str:
         if baseline_gt is not None and final_gt is not None:
             delta = final_gt - baseline_gt
             regress_parts.append(
-                f"GT Found dropped from {baseline_gt:.1f}% to {final_gt:.1f}% ({delta:+.1f} pp)."
+                f"GT Found dropped from {format_percent(baseline_gt)} to {format_percent(final_gt)} ({format_delta_pp(delta)})."
             )
         sentences.append(" ".join(regress_parts))
     elif cp is True:
@@ -1753,15 +1803,13 @@ def _build_executive_narrative(report_data: ReportData) -> str:
     # Token usage and duration
     resource_parts: list[str] = []
     if usage.total_tokens is not None:
-        resource_parts.append(f"{usage.total_tokens:,} tokens")
-    if meta is not None and meta.total_duration_seconds is not None:
-        duration_min = meta.total_duration_seconds / 60
-        if duration_min >= 1:
-            resource_parts.append(f"{duration_min:.1f} minutes")
-        else:
-            resource_parts.append(f"{meta.total_duration_seconds:.0f} seconds")
+        resource_parts.append(f"{format_human_int(usage.total_tokens)} tokens")
+    meta_duration = meta.total_duration_seconds if meta is not None else None
+    if meta_duration is not None:
+        resource_parts.append(f"over {format_human_duration(meta_duration)} wall-clock")
+
     if resource_parts:
-        sentences.append(f"Total LLM usage: {', '.join(resource_parts)}.")
+        sentences.append(f"Total cost: {' '.join(resource_parts)}.")
 
     return " ".join(sentences)
 

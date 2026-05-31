@@ -34,7 +34,6 @@ def candidate_evaluation_lock(
     if os.name != "nt" or msvcrt is None:
         raise RuntimeError("The candidate evaluation queue is currently Windows-only.")
 
-    del experiment_id, iteration  # Reserved for contextual logging if needed later.
     workspace = Path(workspace_root) if workspace_root is not None else get_project_paths().workspace
     lock_path = workspace / LOCK_RELATIVE_PATH
     lock_path.parent.mkdir(parents=True, exist_ok=True)
@@ -55,7 +54,7 @@ def candidate_evaluation_lock(
                 lock_file.seek(0)
                 msvcrt.locking(lock_file.fileno(), msvcrt.LK_NBLCK, 1)
                 locked = True
-                print("Acquired candidate evaluation queue lock.")
+                print(f"Acquired candidate evaluation queue lock. experiment={experiment_id}, iteration={iteration}")
                 break
             except OSError as exc:
                 if exc.errno not in (errno.EACCES, errno.EDEADLK):
@@ -64,9 +63,9 @@ def candidate_evaluation_lock(
                 if wait_started_at is None:
                     wait_started_at = now
                     next_wait_log_at = now + WAIT_LOG_INTERVAL_SECONDS
-                    print("Waiting for candidate evaluation queue lock...")
+                    print(f"Waiting for candidate evaluation queue lock... experiment={experiment_id}, iteration={iteration}")
                 elif next_wait_log_at is not None and now >= next_wait_log_at:
-                    print("Still waiting for candidate evaluation queue lock...")
+                    print(f"Still waiting for candidate evaluation queue lock... experiment={experiment_id}, iteration={iteration}")
                     next_wait_log_at = now + WAIT_LOG_INTERVAL_SECONDS
                 time.sleep(RETRY_SLEEP_SECONDS)
 
@@ -76,6 +75,6 @@ def candidate_evaluation_lock(
             if locked:
                 lock_file.seek(0)
                 msvcrt.locking(lock_file.fileno(), msvcrt.LK_UNLCK, 1)
-                print("Released candidate evaluation queue lock.")
+                print(f"Released candidate evaluation queue lock. experiment={experiment_id}, iteration={iteration}")
         finally:
             lock_file.close()

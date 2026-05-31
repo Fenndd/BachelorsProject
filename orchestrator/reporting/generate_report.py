@@ -249,10 +249,16 @@ def _parse_args(argv: list[str]) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Generate a basic single-experiment report."
     )
-    parser.add_argument(
+    target_group = parser.add_mutually_exclusive_group(required=True)
+    target_group.add_argument(
         "--experiment-dir",
-        required=True,
+        default=None,
         help="Completed closed-loop experiment directory.",
+    )
+    target_group.add_argument(
+        "--experiment-id",
+        default=None,
+        help="Experiment ID (resolves to results/experiments/<id>).",
     )
     parser.add_argument(
         "--formats",
@@ -273,8 +279,17 @@ def _parse_args(argv: list[str]) -> argparse.Namespace:
     return parser.parse_args(argv)
 
 
-def _resolve_experiment_dir(path_text: str) -> Path:
-    path = Path(path_text)
+def _resolve_experiment_dir(path_text: str | None, experiment_id: str | None) -> Path:
+    if experiment_id is not None:
+        experiment_path = paths.repo_root / "results" / "experiments" / str(experiment_id)
+        if not experiment_path.is_dir():
+            print(
+                f"report_generation_error: Experiment directory does not exist: {experiment_path}",
+                file=sys.stderr,
+            )
+            raise SystemExit(1)
+        return experiment_path.resolve()
+    path = Path(path_text or "")
     if not path.is_absolute():
         path = paths.repo_root / path
     return path.resolve()
@@ -289,8 +304,9 @@ def _formats_from_args(args: argparse.Namespace) -> tuple[str, ...]:
 def main(argv: list[str] | None = None) -> int:
     try:
         args = _parse_args(sys.argv[1:] if argv is None else argv)
+        experiment_dir = _resolve_experiment_dir(args.experiment_dir, args.experiment_id)
         artifacts = generate_basic_report(
-            _resolve_experiment_dir(args.experiment_dir),
+            experiment_dir,
             formats=_formats_from_args(args),
             renderer=args.renderer,
         )

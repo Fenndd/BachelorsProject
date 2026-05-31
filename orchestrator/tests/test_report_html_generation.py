@@ -733,23 +733,6 @@ def test_runtime_reduction_uses_semantic_colors(tmp_path: Path) -> None:
     assert "baseline (1.0)" in svg_text
 
 
-def test_status_breakdown_uses_semantic_colors(tmp_path: Path) -> None:
-    """Status breakdown bars use semantic status colors."""
-
-    report_data = make_empty_report_data("exp_007", TARGET_FILE)
-    counts = default_status_counts()
-    counts["accepted_improvement"] = 1
-    counts["valid_not_improved"] = 1
-    counts["rejected"] = 1
-    report_data.status_counts = counts
-
-    plots_dir = tmp_path / "plots"
-    build_report_figures(report_data, plots_dir)
-
-    svg_path = plots_dir / "status_breakdown.svg"
-    assert svg_path.is_file()
-    svg_text = svg_path.read_text(encoding="utf-8")
-    assert "Status Breakdown" in svg_text
 
 
 def test_report_html_includes_reason_codes_and_final_sections(tmp_path: Path) -> None:
@@ -810,8 +793,10 @@ def test_final_code_diff_is_visible_for_print_output(tmp_path: Path) -> None:
     html = html_path.read_text(encoding="utf-8")
 
     assert 'id="final-code-diff"' in html
-    assert "<details open>" in html
-    assert "Show final optimized source diff" in html
+    assert "<details open>" not in html
+    assert 'class="screen-only"' in html
+    assert 'class="print-only"' in html
+    assert "View final diff" in html
     assert "old" in html
     assert "new" in html
     assert "Final optimized source diff was not available" not in html
@@ -836,6 +821,7 @@ def test_optional_empty_report_rows_are_hidden(tmp_path: Path) -> None:
 
     assert "Experiment ID" in html
     assert "Target File" in html
+    assert "Timed Iterations" not in html
     assert "Seed" not in html
     assert "Tolerance" not in html
     assert "Camera FOV" not in html
@@ -1785,3 +1771,215 @@ def test_gt_found_delta_fallback_from_iteration_data(tmp_path: Path) -> None:
 
     assert "GT Found Δ" in html
     assert "-0.50" in html
+
+
+# ---------------------------------------------------------------------------
+# Task 1: Min-runtime delta in comparison table
+# ---------------------------------------------------------------------------
+
+
+def test_min_runtime_delta_in_comparison_table(tmp_path: Path) -> None:
+    report_data = _report_data()
+    report_data.baseline_metrics.min_runtime_ns_per_problem_median = 500.0
+    report_data.final_best_candidate = ReportFinalBestCandidate(
+        iteration=1,
+        min_runtime_ns_per_problem_median=400.0,
+        min_runtime_absolute_difference_ns_per_problem=100.0,
+    )
+
+    plot_paths = build_report_figures(report_data, tmp_path / "plots")
+    html_path = render_report_html(report_data, plot_paths, tmp_path / "report.html")
+    html = html_path.read_text(encoding="utf-8")
+
+    assert "100.00" in html
+    # Should not use runtime_reduction_percent for min runtime row
+    comparison_section = html.split('id="final-result"', 1)[1]
+    assert "Min runtime ns/problem" in comparison_section
+
+
+def test_comparison_table_header_is_change(tmp_path: Path) -> None:
+    report_data = _report_data()
+    plot_paths = build_report_figures(report_data, tmp_path / "plots")
+    html_path = render_report_html(report_data, plot_paths, tmp_path / "report.html")
+    html = html_path.read_text(encoding="utf-8")
+
+    assert "<th>Change</th>" in html
+    assert "<th>Delta / Result</th>" not in html
+
+
+def test_runtime_deltas_show_ns_unit(tmp_path: Path) -> None:
+    report_data = _report_data()
+    report_data.final_best_candidate = ReportFinalBestCandidate(
+        iteration=1,
+        absolute_runtime_difference_ns_per_problem=200.0,
+    )
+
+    plot_paths = build_report_figures(report_data, tmp_path / "plots")
+    html_path = render_report_html(report_data, plot_paths, tmp_path / "report.html")
+    html = html_path.read_text(encoding="utf-8")
+
+    # Runtime deltas should include "ns"
+    assert "200.00" in html
+    assert "ns" in html
+
+
+# ---------------------------------------------------------------------------
+# Task 8: Per-iteration reason column
+# ---------------------------------------------------------------------------
+
+
+def test_per_iteration_reason_prefers_granular_reason(tmp_path: Path) -> None:
+    report_data = _report_data()
+    # Set a granular reason on iteration 2 that differs from status
+    report_data.iterations[1].reason = "insufficient_speedup"
+    report_data.iterations[1].status = "valid_not_improved"
+    report_data.iterations[1].display_reason = "insufficient_speedup"
+
+    plot_paths = build_report_figures(report_data, tmp_path / "plots")
+    html_path = render_report_html(report_data, plot_paths, tmp_path / "report.html")
+    html = html_path.read_text(encoding="utf-8")
+
+    assert "insufficient_speedup" in html
+    assert "<th>Reason</th>" in html
+
+
+def test_per_iteration_reason_header_is_reason(tmp_path: Path) -> None:
+    report_data = _report_data()
+    plot_paths = build_report_figures(report_data, tmp_path / "plots")
+    html_path = render_report_html(report_data, plot_paths, tmp_path / "report.html")
+    html = html_path.read_text(encoding="utf-8")
+
+    assert "<th>Reason</th>" in html
+    assert "Reason Code or Reason" not in html
+
+
+# ---------------------------------------------------------------------------
+# Task 5: No duplicate Benchmark Family / Solver in Experiment card
+# ---------------------------------------------------------------------------
+
+
+def test_setup_no_duplicate_benchmark_family_in_experiment_card(tmp_path: Path) -> None:
+    report_data = _report_data()
+    report_data.experiment.benchmark_family = "poselib_native"
+    report_data.benchmark_config = ReportBenchmarkConfig(
+        family="poselib_native",
+        solver="poselib_p3p",
+        build_type="Release",
+    )
+
+    plot_paths = build_report_figures(report_data, tmp_path / "plots")
+    html_path = render_report_html(report_data, plot_paths, tmp_path / "report.html")
+    html = html_path.read_text(encoding="utf-8")
+
+    # Benchmark card still shows family
+    setup_section = html.split('id="setup"', 1)[1].split('id="final-result"', 1)[0]
+    # Experiment card should NOT have Benchmark Family row
+    experiment_card = setup_section.split("<h3>Experiment</h3>", 1)[1].split("<h3>LLM</h3>", 1)[0]
+    assert "Benchmark Family" not in experiment_card
+    assert "Solver / Model" not in experiment_card
+
+
+# ---------------------------------------------------------------------------
+# Task 7: Wall-time labels
+# ---------------------------------------------------------------------------
+
+
+def test_wall_time_labels_clarified(tmp_path: Path) -> None:
+    report_data = _report_data()
+    report_data.baseline_metrics.total_benchmark_wall_seconds = 120.0
+    report_data.final_best_candidate = ReportFinalBestCandidate(
+        iteration=1,
+        total_benchmark_wall_seconds=100.0,
+    )
+
+    plot_paths = build_report_figures(report_data, tmp_path / "plots")
+    html_path = render_report_html(report_data, plot_paths, tmp_path / "report.html")
+    html = html_path.read_text(encoding="utf-8")
+
+    assert "Baseline Benchmark Wall Time" in html
+    assert "Final Benchmark Wall Time" in html
+    assert "Total Benchmark Wall Time" not in html
+
+
+# ---------------------------------------------------------------------------
+# Task 10: No Reporting Formats or Renderer in Reproducibility
+# ---------------------------------------------------------------------------
+
+
+def test_reproducibility_no_reporting_formats_or_renderer(tmp_path: Path) -> None:
+    report_data = _report_data()
+    report_data.experiment_config_details = ReportExperimentConfigDetails(
+        reporting_formats=["html"],
+        reporting_renderer="auto",
+    )
+
+    plot_paths = build_report_figures(report_data, tmp_path / "plots")
+    html_path = render_report_html(report_data, plot_paths, tmp_path / "report.html")
+    html = html_path.read_text(encoding="utf-8")
+
+    reproducibility = html.split('id="reproducibility"', 1)[1].split('id="appendix"', 1)[0]
+    assert "Reporting Formats" not in reproducibility
+    assert "Renderer" not in reproducibility
+
+
+# ---------------------------------------------------------------------------
+# Task 11: Final diff collapsed for screen, visible in print
+# ---------------------------------------------------------------------------
+
+
+def test_final_diff_collapsed_for_screen(tmp_path: Path) -> None:
+    report_data = _report_data()
+    report_data.final_code_diff = "--- a/file.cc\n+++ b/file.cc\n@@ -1 +1 @@\n-old\n+new\n"
+
+    plot_paths = build_report_figures(report_data, tmp_path / "plots")
+    html_path = render_report_html(report_data, plot_paths, tmp_path / "report.html")
+    html = html_path.read_text(encoding="utf-8")
+
+    assert "<details open>" not in html
+    assert 'class="screen-only"' in html
+    assert 'class="print-only"' in html
+    assert "View final diff" in html
+
+
+def test_final_diff_print_block_present(tmp_path: Path) -> None:
+    report_data = _report_data()
+    report_data.final_code_diff = "--- a/file.cc\n+++ b/file.cc\n@@ -1 +1 @@\n-old\n+new\n"
+
+    plot_paths = build_report_figures(report_data, tmp_path / "plots")
+    html_path = render_report_html(report_data, plot_paths, tmp_path / "report.html")
+    html = html_path.read_text(encoding="utf-8")
+
+    assert 'class="print-only"' in html
+
+
+def test_final_diff_summary_includes_line_counts(tmp_path: Path) -> None:
+    report_data = _report_data()
+    report_data.final_code_diff = "--- a/file.cc\n+++ b/file.cc\n@@ -1 +1 @@\n-old\n+new\n"
+    report_data.final_best_candidate = ReportFinalBestCandidate(
+        iteration=1,
+        diff_stats=ReportDiffStats(
+            lines_added=5,
+            lines_removed=3,
+        ),
+    )
+
+    plot_paths = build_report_figures(report_data, tmp_path / "plots")
+    html_path = render_report_html(report_data, plot_paths, tmp_path / "report.html")
+    html = html_path.read_text(encoding="utf-8")
+
+    assert "View final diff (+5 /" in html
+
+
+# ---------------------------------------------------------------------------
+# Task 9: status_breakdown not generated or referenced
+# ---------------------------------------------------------------------------
+
+
+def test_status_breakdown_not_in_html(tmp_path: Path) -> None:
+    report_data = _report_data()
+    plot_paths = build_report_figures(report_data, tmp_path / "plots")
+    html_path = render_report_html(report_data, plot_paths, tmp_path / "report.html")
+    html = html_path.read_text(encoding="utf-8")
+
+    assert "status_breakdown" not in html
+    assert not (tmp_path / "plots" / "status_breakdown.svg").exists()

@@ -39,7 +39,6 @@ PLOT_FILENAMES = {
     "runtime_progress": "runtime_progress.svg",
     "runtime_reduction_by_iteration": "runtime_reduction_by_iteration.svg",
     "correctness_metrics": "correctness_metrics.svg",
-    "status_breakdown": "status_breakdown.svg",
     "candidate_funnel": "candidate_funnel.svg",
     "phase_timings": "phase_timings.svg",
     "llm_tokens_by_iteration": "llm_tokens_by_iteration.svg",
@@ -68,7 +67,6 @@ def build_report_figures(
         data,
         output_dir / PLOT_FILENAMES["correctness_metrics"],
     )
-    _plot_status_breakdown(data, output_dir / PLOT_FILENAMES["status_breakdown"])
     _plot_candidate_funnel(data, output_dir / PLOT_FILENAMES["candidate_funnel"])
     _plot_phase_timings(data, output_dir / PLOT_FILENAMES["phase_timings"])
     _plot_llm_tokens(data, output_dir / PLOT_FILENAMES["llm_tokens_by_iteration"])
@@ -311,25 +309,6 @@ def _plot_correctness_pass_fail(
     ax.set_yticks([0, 1], labels=["Fail", "Pass"])
     ax.set_ylim(-0.2, 1.2)
     ax.grid(True, axis="y", alpha=0.3)
-    _save(fig, output_path)
-
-
-def _plot_status_breakdown(data: dict[str, Any], output_path: Path) -> None:
-    counts = _status_counts(data)
-    if not counts:
-        _save_placeholder(output_path, "Status data unavailable")
-        return
-
-    labels = list(counts)
-    values = [counts[label] for label in labels]
-    colors = [_status_color(label) for label in labels]
-    fig, ax = _new_figure(width=9.5)
-    ax.bar(labels, values, color=colors)
-    ax.set_title("Status Breakdown")
-    ax.set_ylabel("Iterations")
-    ax.tick_params(axis="x", labelrotation=35)
-    ax.grid(True, axis="y", alpha=0.3)
-    fig.tight_layout()
     _save(fig, output_path)
 
 

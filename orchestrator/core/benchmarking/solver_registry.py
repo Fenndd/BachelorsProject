@@ -155,9 +155,9 @@ def _load_manifests() -> dict[str, SolverBenchmarkDescriptor]:
             runtime_metric_key="parsed_runtime_ns_per_problem_median",
             runtime_unit="ns",
             benchmark_backend=benchmark_backend,
-        benchmark_solver_key=benchmark_solver_key,
-        benchmark_kind=benchmark_kind,
-        default_target_file=default_target_file,
+            benchmark_solver_key=benchmark_solver_key,
+            benchmark_kind=benchmark_kind,
+            default_target_file=default_target_file,
             default_allowed_files=default_allowed_files,
         )
 

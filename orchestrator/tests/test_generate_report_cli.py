@@ -263,3 +263,80 @@ def test_cli_unknown_format_returns_nonzero(
     captured = capsys.readouterr()
     assert exit_code == 1
     assert "Unsupported report format" in captured.err
+
+
+def test_experiment_id_resolves_to_correct_dir(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    experiment_dir = tmp_path / "results" / "experiments" / "42"
+    write_json(
+        experiment_dir / "closed_loop_summary.json",
+        {
+            "experiment_id": "exp_042",
+            "target_file": TARGET_FILE,
+            "total_iterations": 1,
+            "completed_iterations": 1,
+            "original_baseline_metrics_path": "missing.json",
+            "final_best_iteration": 0,
+            "status_counts": {},
+        },
+    )
+    write_jsonl(experiment_dir / "closed_loop_iterations.jsonl", [])
+
+    import orchestrator.paths
+    import orchestrator.reporting.generate_report as gr
+    import orchestrator.reporting.report_data_collector as rdc
+
+    patched_paths = orchestrator.paths.ProjectPaths(
+        repo_root=tmp_path,
+        configs=tmp_path / "configs",
+        results=tmp_path / "results",
+        workspace=tmp_path / "workspace",
+        cpp=tmp_path / "cpp",
+        orchestrator=tmp_path / "orchestrator",
+        experiments_config=tmp_path / "configs" / "experiments",
+        result_runs=tmp_path / "results" / "runs",
+        result_experiments=tmp_path / "results" / "experiments",
+    )
+    monkeypatch.setattr(gr, "paths", patched_paths)
+    monkeypatch.setattr(rdc, "paths", patched_paths)
+
+    exit_code = generate_report.main(["--experiment-id", "42", "--no-pdf"])
+
+    assert exit_code == 0
+    assert (experiment_dir / "report" / "report.html").is_file()
+
+
+def test_experiment_id_and_dir_mutually_exclusive(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    exit_code = generate_report.main(
+        ["--experiment-dir", str(tmp_path), "--experiment-id", "1"]
+    )
+
+    assert exit_code == 2  # argparse error: mutually exclusive
+
+
+def test_experiment_dir_still_accepted(
+    tmp_path: Path,
+) -> None:
+    experiment_dir = _experiment_dir(tmp_path)
+
+    exit_code = generate_report.main(
+        ["--experiment-dir", str(experiment_dir), "--no-pdf"]
+    )
+
+    assert exit_code == 0
+
+
+def test_experiment_id_missing_directory_errors(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    exit_code = generate_report.main(["--experiment-id", "999999"])
+
+    assert exit_code == 1
+    captured = capsys.readouterr()
+    assert "does not exist" in captured.err
