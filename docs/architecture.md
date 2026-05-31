@@ -27,7 +27,10 @@ The clean baseline path:
    execute from `orchestrator/cli/main.py`.
 4. For `poselib_native` solvers: the `poselib_solver_benchmark` binary runs
    with `--solver <key>` and prints machine-readable JSON output.
-5. Parsed benchmark metrics are stored under `results/runs/<run_id>/` and
+5. The benchmark executable runs 100 times sequentially. Parsed samples are
+   aggregated by median of `runtime_ns_per_problem_median`; mean and max are not
+   decision or main-report metrics.
+6. Parsed benchmark metrics are stored under `results/runs/<run_id>/` and
    indexed in `results/index.jsonl`.
 
 The C++ baseline boundary:
@@ -51,7 +54,7 @@ The main orchestration components are:
 
 - `orchestrator.core.llm.generate_candidate`: reads one source file from a configurable source root, builds a controlled prompt, calls the configured LLM or mock client, parses the response, and stores candidate artifacts.
 - `orchestrator.core.patching.materialize_candidate`: materializes a candidate inside `workspace/candidates/<candidate_run_id>/` only, optionally using an explicit `--base-source-root`.
-- `orchestrator.core.execution.verify_candidate`: runs deterministic adapter validation, family benchmark, and benchmark parsing inside a materialized candidate workspace.
+- `orchestrator.core.execution.verify_candidate`: runs deterministic adapter validation, 100 sequential family benchmark executions, and repeated-median benchmark parsing inside a materialized candidate workspace.
 - `orchestrator.core.benchmarking.candidate_decision`: evaluates one verified candidate against either a baseline run or a verified-candidate reference. In closed-loop mode, the runner records the `decision_vs_current_best` outcome on each iteration record and writes `decision_vs_original_baseline.json` to disk.
 - `orchestrator.experiments.closed_loop_state`: manages experiment-local `current_best_source` and `current_best_state` metadata.
 - `orchestrator.experiments.closed_loop_history`: builds compact benchmark-aware history for later closed-loop generations.
@@ -100,10 +103,11 @@ generation and materialization. The materializer enforces candidate
 
 Verification produces `verification.json` using the solver descriptor from
 the registry. For `absolute_pose` solvers, this runs adapter validation then
-the family benchmark. For `poselib_native` solvers, this builds and runs the
-`poselib_solver_benchmark` with the solver's `--solver <key>`. Verification
-does not compare against a reference; decisions and selection are separate
-stages that consume verified artifacts.
+100 sequential family benchmark executions. For `poselib_native` solvers, this
+builds and runs the `poselib_solver_benchmark` with the solver's `--solver <key>`
+100 times sequentially. Verification does not compare against a reference;
+decisions and selection are separate stages that consume verified repeated-median
+artifacts.
 
 ## Closed-loop Iterative Optimization
 
@@ -115,6 +119,12 @@ whether the candidate is promoted into `current_best_source` for the next
 iteration. `decision_vs_original_baseline.json` is retained for reporting only
 and does not control promotion. The main `cpp/` source tree is never modified
 automatically.
+
+Candidates with an initial 1.0% to under-2.0% repeated-median runtime reduction
+are remeasured with another 100 candidate-only executions; the final decision
+uses the merged 200-sample median. Speedups at or above 2.0% are accepted after
+the first 100 candidate executions. The final best remains the last accepted
+candidate; no separate final validation benchmark is run after the experiment.
 
 See `docs/closed_loop_optimization.md` for the full reference on the control
 flow, source-root separation, history, iteration statuses, decision artifacts,

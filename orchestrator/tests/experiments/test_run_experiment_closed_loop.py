@@ -37,8 +37,8 @@ def _fake_final_selection_report(**kwargs: Any) -> Path:
     write_json(
         report_path,
         {
-            "report_type": "single_run_final_selection_report",
-            "metric_source": "single_run_final_best_vs_original_baseline",
+            "report_type": "repeated_median_final_selection_report",
+            "metric_source": "existing_repeated_median_final_best_vs_original_baseline",
             "final_best_is_baseline": final_best_is_baseline,
             "status": "skipped" if final_best_is_baseline else "completed",
             "comparison": {
@@ -82,15 +82,12 @@ def _create_repo_layout(root: Path, source_text: str = "baseline\n") -> None:
     write_json(baseline / "metrics.json", make_benchmark_payload(1000.0))
 
 
-def _candidate_payload(*, expected_effect: str = "runtime", edits: list[dict[str, Any]] | None = None) -> dict[str, Any]:
+def _candidate_payload(*, edits: list[dict[str, Any]] | None = None) -> dict[str, Any]:
     return {
         "summary": "candidate summary",
         "rationale": "candidate rationale",
-        "risk_level": "low",
-        "expected_effect": expected_effect,
-        "target_files": [TARGET_FILE],
+        "correctness_notes": "no issues",
         "edits": [] if edits is None else edits,
-        "requires_manual_review": False,
     }
 
 
@@ -121,11 +118,11 @@ class _ClosedLoopHarness:
             if status == "generation_failed":
                 return {"exit_code": 1, "stdout": f"CANDIDATE_RUN_DIR={candidate_dir}\n", "stderr": "", "duration_seconds": 0.1}
             write_json(candidate_dir / "status.json", {"overall_status": "success"})
-            candidate = _candidate_payload(expected_effect="none" if status == "no_op" else "runtime")
+            candidate = _candidate_payload()
             candidate["summary"] = f"candidate summary {global_iteration}"
             if status != "no_op":
                 candidate["edits"] = [
-                    {"file": TARGET_FILE, "start_line": 1, "end_line": 1, "original": "baseline", "replace": f"candidate {global_iteration}"}
+                    {"start_line": 1, "end_line": 1, "original": "baseline", "replace": f"candidate {global_iteration}"}
                 ]
             write_json(candidate_dir / "candidate.json", candidate)
             return {"exit_code": 0, "stdout": f"CANDIDATE_RUN_DIR={candidate_dir}\n", "stderr": "", "duration_seconds": 0.1}
@@ -482,19 +479,31 @@ class RunExperimentClosedLoopTests(unittest.TestCase):
         first_command = harness.generated_commands[0]
         second_command = harness.generated_commands[1]
         third_command = harness.generated_commands[2]
+        # --context should contain only the manually configured additional_context
         self.assertIn("--context", first_command)
         first_context = first_command[first_command.index("--context") + 1]
         self.assertEqual(first_context, "static additional context")
         self.assertNotIn("Closed-loop optimization history", first_context)
+        # No history for iteration 1
+        self.assertNotIn("--history-context", first_command)
+        # Iteration 2: --context still only additional_context, --history-context has history
         self.assertIn("--context", second_command)
         second_context = second_command[second_command.index("--context") + 1]
-        self.assertIn("static additional context", second_context)
-        self.assertIn("Closed-loop optimization history", second_context)
-        self.assertIn("already included in the current source", second_context)
+        self.assertEqual(second_context, "static additional context")
+        self.assertNotIn("Closed-loop optimization history", second_context)
+        self.assertIn("--history-context", second_command)
+        second_history = second_command[second_command.index("--history-context") + 1]
+        self.assertIn("Closed-loop optimization history", second_history)
+        self.assertIn("already included in the current source", second_history)
+        # Iteration 3: --context only additional_context, --history-context excludes no-op
         self.assertIn("--context", third_command)
         third_context = third_command[third_command.index("--context") + 1]
-        self.assertIn("candidate summary 1", third_context)
-        self.assertNotIn("candidate summary 2", third_context)
+        self.assertEqual(third_context, "static additional context")
+        self.assertNotIn("Closed-loop optimization history", third_context)
+        self.assertIn("--history-context", third_command)
+        third_history = third_command[third_command.index("--history-context") + 1]
+        self.assertIn("candidate summary 1", third_history)
+        self.assertNotIn("candidate summary 2", third_history)
 
     def test_controlled_mock_closed_loop_promotes_only_accepted_iteration(self) -> None:
         temp = tempfile.TemporaryDirectory()
@@ -521,7 +530,7 @@ class RunExperimentClosedLoopTests(unittest.TestCase):
                 candidate_dir.mkdir(parents=True, exist_ok=True)
                 write_json(candidate_dir / "status.json", {"overall_status": "success"})
                 if global_iteration == 3:
-                    candidate = _candidate_payload(expected_effect="none", edits=[])
+                    candidate = _candidate_payload(edits=[])
                     candidate["summary"] = "No useful change"
                 else:
                     replacement = "ACCEPTED_VALUE" if global_iteration == 1 else "SLOWER_VALUE"
@@ -529,7 +538,6 @@ class RunExperimentClosedLoopTests(unittest.TestCase):
                     candidate = _candidate_payload(
                         edits=[
                             {
-                                "file": TARGET_FILE,
                                 "start_line": 1,
                                 "end_line": 1,
                                 "original": original,
@@ -617,17 +625,22 @@ class RunExperimentClosedLoopTests(unittest.TestCase):
         selection_report = json.loads((experiment_dir / "closed_loop_selection_report.json").read_text(encoding="utf-8"))
         self.assertEqual(selection_report["control_decision"]["promotion_policy"], "decision_vs_current_best.accepted_improvement_only")
         self.assertEqual(selection_report["control_decision"]["final_best_iteration"], 1)
-        self.assertEqual(selection_report["single_run_selection_analytics"]["metric_source"], "single_run_closed_loop_selection_analytics")
-        self.assertEqual(selection_report["single_run_selection_analytics"]["status_counts"]["valid_not_improved"], 1)
+        self.assertEqual(selection_report["repeated_median_selection_analytics"]["metric_source"], "existing_repeated_median_closed_loop_selection_analytics")
+        self.assertEqual(selection_report["repeated_median_selection_analytics"]["status_counts"]["valid_not_improved"], 1)
         self.assertFalse(selection_report["safety"]["report_promotes_candidates"])
         self.assertFalse(selection_report["safety"]["report_updates_current_best_source"])
         self.assertFalse(selection_report["safety"]["report_updates_final_optimized_source"])
         self.assertFalse(selection_report["safety"]["report_modifies_main_cpp_tree"])
         self.assertEqual((root / TARGET_FILE).read_text(encoding="utf-8"), main_source_before)
         third_context = generated_commands[2][generated_commands[2].index("--context") + 1]
-        self.assertIn("ACCEPTED_VALUE", third_context)
-        self.assertIn("SLOWER_VALUE", third_context)
+        self.assertNotIn("ACCEPTED_VALUE", third_context)
+        self.assertNotIn("SLOWER_VALUE", third_context)
         self.assertNotIn("No useful change", third_context)
+        self.assertIn("--history-context", generated_commands[2])
+        third_history = generated_commands[2][generated_commands[2].index("--history-context") + 1]
+        self.assertIn("ACCEPTED_VALUE", third_history)
+        self.assertIn("SLOWER_VALUE", third_history)
+        self.assertNotIn("No useful change", third_history)
 
 
 if __name__ == "__main__":

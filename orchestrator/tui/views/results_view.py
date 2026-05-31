@@ -84,7 +84,7 @@ def _format_candidate_item(item: ResultItem) -> str:
     metrics = _read_json_object(item.artifacts.metrics_json, errors)
     useful: list[str] = []
     for label, payload, keys in (
-        ("Candidate", candidate, ("summary", "expected_effect", "risk_level", "target_file")),
+        ("Candidate", candidate, ("summary", "rationale", "correctness_notes")),
         ("Status", status, ("scenario", "overall_status", "message")),
         ("Metrics", metrics, ("solver", "runtime_ns_per_problem_median", "gt_found_percent")),
     ):
@@ -94,6 +94,10 @@ def _format_candidate_item(item: ResultItem) -> str:
             value = payload.get(key)
             if isinstance(value, (str, int, float)) and not isinstance(value, bool):
                 useful.append(f"{label} {key}: {value}")
+    if isinstance(candidate, dict):
+        edits = candidate.get("edits")
+        if isinstance(edits, list):
+            useful.append(f"Candidate edit count: {len(edits)}")
     lines = [
         "Kind: candidate",
         f"Name: {item.name}",

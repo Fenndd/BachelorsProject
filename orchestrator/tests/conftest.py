@@ -81,6 +81,26 @@ def make_benchmark_payload(runtime: float | None = None, **overrides: Any) -> di
     if runtime is not None:
         benchmark["parsed_runtime_ns_per_problem_median"] = runtime
         benchmark["parsed_runtime_ns_total_median"] = runtime * 10
+    runtime_value = benchmark["parsed_runtime_ns_per_problem_median"]
+    benchmark["benchmark_run_count"] = 100
+    benchmark["decision_metric"] = "median_runtime_ns_per_problem_median"
+    benchmark["repeated_benchmark_samples"] = [
+        {
+            "run_index": index,
+            "runtime_ns_per_problem_median": runtime_value,
+            "gt_found_percent": benchmark["parsed_gt_found_percent"],
+            "valid_solutions_percent": benchmark["parsed_valid_solutions_percent"],
+            "wall_seconds": 0.001,
+        }
+        for index in range(1, 101)
+    ]
+    benchmark["repeated_benchmark_aggregate"] = {
+        "benchmark_run_count": 100,
+        "decision_metric": "median_runtime_ns_per_problem_median",
+        "median_runtime_ns_per_problem_median": runtime_value,
+        "min_runtime_ns_per_problem_median": runtime_value,
+        "total_benchmark_wall_seconds": 0.1,
+    }
     benchmark.update(overrides)
     return {"benchmark": benchmark}
 
@@ -140,24 +160,17 @@ def sample_candidate_run(tmp_path: Path) -> Path:
     write_json(
         run_dir / "candidate.json",
         {
-            "schema_version": "1.0",
-            "candidate_type": "line_range_edits",
             "summary": "Reshape arithmetic in p3p pose estimation to reduce multiplications.",
             "rationale": "Eliminate redundant scalar multiplications in the pose construction block.",
-            "risk_level": "low",
-            "expected_effect": "faster",
-            "target_files": ["cpp/external/lambdatwist/p3p.cc"],
             "correctness_notes": "Algebraically equivalent; no numerical precision change expected.",
             "edits": [
                 {
-                    "target_file": "cpp/external/lambdatwist/p3p.cc",
                     "start_line": 100,
                     "end_line": 110,
                     "original": "// placeholder original snippet",
-                    "modified": "// placeholder modified snippet",
+                    "replace": "// placeholder modified snippet",
                 }
             ],
-            "requires_manual_review": False,
         },
     )
     write_json(run_dir / "status.json", {"status": "success"})

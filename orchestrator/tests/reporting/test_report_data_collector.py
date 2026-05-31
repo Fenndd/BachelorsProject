@@ -74,7 +74,7 @@ def test_collect_report_data_does_not_apply_overrides_when_final_selection_faile
     write_json(
         experiment_dir / "final_selection_report.json",
         {
-            "report_type": "single_run_final_selection_report",
+            "report_type": "repeated_median_final_selection_report",
             "status": "failed",
             "failed_step": "benchmark",
             "comparison": {
@@ -100,8 +100,8 @@ def test_collect_report_data_uses_final_selection_metrics_when_available(tmp_pat
     write_json(
         experiment_dir / "final_selection_report.json",
         {
-            "report_type": "single_run_final_selection_report",
-            "metric_source": "single_run_final_best_vs_original_baseline",
+            "report_type": "repeated_median_final_selection_report",
+            "metric_source": "existing_repeated_median_final_best_vs_original_baseline",
             "final_best_is_baseline": False,
             "status": "completed",
             "final_benchmark": {
@@ -170,7 +170,7 @@ def test_report_data_includes_gt_found_deltas_and_selection_policy(tmp_path: Pat
     write_json(
         experiment_dir / "final_selection_report.json",
         {
-            "report_type": "single_run_final_selection_report",
+            "report_type": "repeated_median_final_selection_report",
             "final_best_is_baseline": False,
             "status": "completed",
             "final_benchmark": {"parsed_correctness_passed": True},
@@ -209,8 +209,6 @@ def test_collect_report_data_maps_iteration_records(tmp_path: Path) -> None:
                 "iteration": 1,
                 "status": "accepted_improvement",
                 "candidate_summary": "Simplify arithmetic.",
-                "candidate_expected_effect": "faster",
-                "candidate_risk_level": "low",
                 "speedup_vs_current_best": 1.1,
                 "speedup_vs_original_baseline": 1.25,
                 "current_best_updated": True,
@@ -231,8 +229,6 @@ def test_collect_report_data_maps_iteration_records(tmp_path: Path) -> None:
     accepted = report_data.iterations[0]
     assert accepted.status == "accepted_improvement"
     assert accepted.promoted is True
-    assert accepted.expected_effect == "faster"
-    assert accepted.risk_level == "low"
     assert accepted.speedup_vs_baseline == 1.25
     failed = report_data.iterations[1]
     assert failed.status == "materialization_failed"
@@ -432,8 +428,6 @@ def test_candidate_summary_fields_fall_back_to_candidate_json(tmp_path: Path) ->
         candidate_dir / "candidate.json",
         {
             "summary": "Hoist invariant expression.",
-            "expected_effect": "runtime",
-            "risk_level": "low",
             "extra": {"not": "copied"},
         },
     )
@@ -442,8 +436,6 @@ def test_candidate_summary_fields_fall_back_to_candidate_json(tmp_path: Path) ->
 
     iteration = report_data.iterations[0]
     assert iteration.candidate_summary == "Hoist invariant expression."
-    assert iteration.expected_effect == "runtime"
-    assert iteration.risk_level == "low"
 
 
 def test_collect_report_data_includes_process_metadata(tmp_path: Path) -> None:
@@ -1285,3 +1277,359 @@ def test_display_path_known_relative_prefixes(tmp_path: Path) -> None:
     assert result is not None
     assert result.startswith("workspace/experiments/x")
     assert "\\" not in result
+
+
+# ---------------------------------------------------------------------------
+# New narrative fields
+# ---------------------------------------------------------------------------
+
+
+def test_final_code_diff_loaded_when_exists(tmp_path: Path) -> None:
+    experiment_dir = _experiment_dir(tmp_path)
+    write_json(experiment_dir / "closed_loop_summary.json", _summary())
+    write_jsonl(experiment_dir / "closed_loop_iterations.jsonl", [])
+    diff_path = experiment_dir / "final_optimized_source.diff"
+    diff_path.write_text("--- a/file\n+++ b/file\n@@ -1 +1 @@\n-old\n+new\n", encoding="utf-8")
+
+    report_data = collect_report_data(experiment_dir)
+
+    assert report_data.final_code_diff is not None
+    assert "--- a/file" in report_data.final_code_diff
+    assert "+new" in report_data.final_code_diff
+
+
+def test_final_code_diff_loaded_from_summary_path(tmp_path: Path) -> None:
+    experiment_dir = _experiment_dir(tmp_path)
+    diff_path = tmp_path / "custom" / "final.diff"
+    diff_path.parent.mkdir(parents=True, exist_ok=True)
+    diff_path.write_text(
+        "--- a/summary\n+++ b/summary\n-old\n+summary path\n",
+        encoding="utf-8",
+    )
+    fallback_path = experiment_dir / "final_optimized_source.diff"
+    fallback_path.parent.mkdir(parents=True, exist_ok=True)
+    fallback_path.write_text("fallback diff\n", encoding="utf-8")
+    write_json(
+        experiment_dir / "closed_loop_summary.json",
+        _summary(final_optimized_source_diff_path=str(diff_path)),
+    )
+    write_jsonl(experiment_dir / "closed_loop_iterations.jsonl", [])
+
+    report_data = collect_report_data(experiment_dir)
+
+    assert report_data.final_code_diff is not None
+    assert "summary path" in report_data.final_code_diff
+    assert "fallback diff" not in report_data.final_code_diff
+
+
+def test_final_code_diff_falls_back_when_summary_path_missing(tmp_path: Path) -> None:
+    experiment_dir = _experiment_dir(tmp_path)
+    write_json(
+        experiment_dir / "closed_loop_summary.json",
+        _summary(final_optimized_source_diff_path="missing/final.diff"),
+    )
+    write_jsonl(experiment_dir / "closed_loop_iterations.jsonl", [])
+    diff_path = experiment_dir / "final_optimized_source.diff"
+    diff_path.write_text(
+        "--- a/fallback\n+++ b/fallback\n-old\n+fallback\n",
+        encoding="utf-8",
+    )
+
+    report_data = collect_report_data(experiment_dir)
+
+    assert report_data.final_code_diff is not None
+    assert "fallback" in report_data.final_code_diff
+
+
+def test_final_code_diff_none_when_missing(tmp_path: Path) -> None:
+    experiment_dir = _experiment_dir(tmp_path)
+    write_json(experiment_dir / "closed_loop_summary.json", _summary())
+    write_jsonl(experiment_dir / "closed_loop_iterations.jsonl", [])
+
+    report_data = collect_report_data(experiment_dir)
+
+    assert report_data.final_code_diff is None
+
+
+def test_executive_narrative_successful_improvement(tmp_path: Path) -> None:
+    experiment_dir = _experiment_dir(tmp_path)
+    write_json(
+        experiment_dir / "closed_loop_summary.json",
+        _summary(total_iterations=3, completed_iterations=3),
+    )
+    write_jsonl(
+        experiment_dir / "closed_loop_iterations.jsonl",
+        [
+            {
+                "iteration": 1,
+                "status": "accepted_improvement",
+                "runtime_ns_per_problem_median": 800.0,
+                "correctness_passed": True,
+                "current_best_updated": True,
+            },
+        ],
+    )
+    write_json(
+        experiment_dir / "experiment_config_snapshot.json",
+        {"experiment_name": "speedup test", "llm_config": "mock", "baseline_run_dir": "runs/b"},
+    )
+    write_json(
+        experiment_dir / "resolved_llm_config.json",
+        {"provider": "deepseek", "model": "deepseek-v4-pro"},
+    )
+    write_json(
+        experiment_dir / "final_selection_report.json",
+        {
+            "status": "completed",
+            "comparison": {
+                "speedup": 1.25,
+                "runtime_reduction_percent": 20.0,
+                "baseline_runtime_ns_per_problem_median": 1000.0,
+                "final_runtime_ns_per_problem_median": 800.0,
+            },
+            "final_benchmark": {"parsed_correctness_passed": True},
+        },
+    )
+
+    report_data = collect_report_data(experiment_dir)
+
+    narrative = report_data.executive_narrative
+    assert narrative is not None
+    assert "deepseek-v4-pro" in narrative
+    assert "completed 3 of 3 iterations" in narrative
+    assert "1000" in narrative
+    assert "800" in narrative
+    assert "speedup 1.25x" in narrative
+    assert "20.0%" in narrative and "reduction" in narrative
+    assert "Correctness was preserved" in narrative
+    assert "1 accepted" in narrative
+
+
+def test_executive_narrative_no_accepted_improvements(tmp_path: Path) -> None:
+    experiment_dir = _experiment_dir(tmp_path)
+    write_json(
+        experiment_dir / "closed_loop_summary.json",
+        _summary(
+            total_iterations=5,
+            completed_iterations=5,
+            final_best_iteration=0,
+            status_counts={
+                "accepted_improvement": 0,
+                "valid_not_improved": 3,
+                "generation_failed": 2,
+            },
+        ),
+    )
+    write_jsonl(
+        experiment_dir / "closed_loop_iterations.jsonl",
+        [
+            {"iteration": 1, "status": "valid_not_improved"},
+            {"iteration": 2, "status": "valid_not_improved"},
+            {"iteration": 3, "status": "valid_not_improved"},
+            {"iteration": 4, "status": "generation_failed"},
+            {"iteration": 5, "status": "generation_failed"},
+        ],
+    )
+    write_json(
+        experiment_dir / "resolved_llm_config.json",
+        {"provider": "deepseek", "model": "deepseek-v4-pro"},
+    )
+
+    report_data = collect_report_data(experiment_dir)
+
+    narrative = report_data.executive_narrative
+    assert narrative is not None
+    assert "No accepted runtime improvement was found" in narrative
+    assert "3 valid but not improved" in narrative
+    assert "Pipeline failures" in narrative
+
+
+def test_executive_narrative_correctness_regression(tmp_path: Path) -> None:
+    experiment_dir = _experiment_dir(tmp_path)
+    metrics_path = tmp_path / "results" / "runs" / "baseline" / "metrics.json"
+    write_json(
+        metrics_path,
+        {
+            "benchmark": {
+                "parsed_runtime_ns_per_problem_median": 1000.0,
+                "parsed_gt_found_percent": 100.0,
+                "parsed_correctness_passed": True,
+            },
+        },
+    )
+    write_json(
+        experiment_dir / "closed_loop_summary.json",
+        _summary(
+            total_iterations=3,
+            completed_iterations=3,
+            original_baseline_metrics_path=str(metrics_path),
+        ),
+    )
+    write_jsonl(
+        experiment_dir / "closed_loop_iterations.jsonl",
+        [
+            {
+                "iteration": 1,
+                "status": "accepted_improvement",
+                "runtime_ns_per_problem_median": 800.0,
+                "correctness_passed": True,
+                "gt_found_percent": 90.0,
+                "current_best_updated": True,
+            },
+        ],
+    )
+    write_json(
+        experiment_dir / "resolved_llm_config.json",
+        {"provider": "deepseek", "model": "deepseek-v4-pro"},
+    )
+    write_json(
+        experiment_dir / "final_selection_report.json",
+        {
+            "status": "completed",
+            "comparison": {
+                "speedup": 1.25,
+                "runtime_reduction_percent": 20.0,
+                "baseline_runtime_ns_per_problem_median": 1000.0,
+                "final_runtime_ns_per_problem_median": 800.0,
+                "baseline_gt_found_percent": 100.0,
+                "final_gt_found_percent": 90.0,
+                "final_gt_found_delta_points": -10.0,
+            },
+            "final_benchmark": {"parsed_correctness_passed": False},
+        },
+    )
+
+    report_data = collect_report_data(experiment_dir)
+
+    narrative = report_data.executive_narrative
+    assert narrative is not None
+    assert "Correctness regressed" in narrative
+    assert "GT Found dropped" in narrative
+
+
+def test_closed_loop_selection_explanation_when_not_matching(
+    tmp_path: Path,
+) -> None:
+    experiment_dir = _experiment_dir(tmp_path)
+    write_json(experiment_dir / "closed_loop_summary.json", _summary())
+    write_jsonl(
+        experiment_dir / "closed_loop_iterations.jsonl",
+        [
+            {
+                "iteration": 3,
+                "status": "valid_not_improved",
+                "candidate_summary": "Candidate was faster but not promoted.",
+                "outcome_reason": {
+                    "category": "decision",
+                    "code": "valid_not_improved",
+                    "severity": "info",
+                    "message": "Not improved over current best.",
+                },
+            },
+        ],
+    )
+    write_json(
+        experiment_dir / "closed_loop_selection_report.json",
+        {
+            "promotion_policy": "accepted_improvement_only",
+            "final_current_best": {"iteration": 1, "is_baseline": False},
+            "best_verified_candidate_vs_original_baseline": {
+                "iteration": 3,
+                "speedup": 1.15,
+                "runtime_reduction_percent": 13.0,
+                "matches_final_current_best": False,
+            },
+        },
+    )
+
+    report_data = collect_report_data(experiment_dir)
+
+    explanation = report_data.closed_loop_selection_explanation
+    assert explanation is not None
+    assert "Iteration 3" in explanation
+    assert "not promoted" in explanation
+    assert "valid_not_improved" in explanation
+
+
+def test_closed_loop_selection_explanation_none_when_matching(
+    tmp_path: Path,
+) -> None:
+    experiment_dir = _experiment_dir(tmp_path)
+    write_json(experiment_dir / "closed_loop_summary.json", _summary())
+    write_jsonl(experiment_dir / "closed_loop_iterations.jsonl", [])
+    write_json(
+        experiment_dir / "closed_loop_selection_report.json",
+        {
+            "promotion_policy": "accepted_improvement_only",
+            "final_current_best": {"iteration": 1, "is_baseline": False},
+            "best_verified_candidate_vs_original_baseline": {
+                "iteration": 1,
+                "speedup": 1.25,
+                "matches_final_current_best": True,
+            },
+        },
+    )
+
+    report_data = collect_report_data(experiment_dir)
+
+    assert report_data.closed_loop_selection_explanation is None
+
+
+def test_closed_loop_selection_explanation_none_when_no_best_verified(
+    tmp_path: Path,
+) -> None:
+    experiment_dir = _experiment_dir(tmp_path)
+    write_json(experiment_dir / "closed_loop_summary.json", _summary())
+    write_jsonl(experiment_dir / "closed_loop_iterations.jsonl", [])
+
+    report_data = collect_report_data(experiment_dir)
+
+    assert report_data.closed_loop_selection_explanation is None
+
+
+def test_executive_narrative_uses_reason_code_for_fallback(
+    tmp_path: Path,
+) -> None:
+    experiment_dir = _experiment_dir(tmp_path)
+    write_json(experiment_dir / "closed_loop_summary.json", _summary())
+    write_jsonl(
+        experiment_dir / "closed_loop_iterations.jsonl",
+        [
+            {
+                "iteration": 7,
+                "status": "valid_not_improved",
+                "failure_reason": "runtime_improvement_below_minimum_threshold",
+                "outcome_reason": {
+                    "category": "decision",
+                    "code": "valid_not_improved",
+                },
+            },
+        ],
+    )
+    write_json(
+        experiment_dir / "closed_loop_selection_report.json",
+        {
+            "final_current_best": {"iteration": 1, "is_baseline": False},
+            "best_verified_candidate_vs_original_baseline": {
+                "iteration": 7,
+                "speedup": 1.05,
+                "matches_final_current_best": False,
+            },
+        },
+    )
+
+    report_data = collect_report_data(experiment_dir)
+
+    explanation = report_data.closed_loop_selection_explanation
+    assert explanation is not None
+    assert "runtime_improvement_below_minimum_threshold" in explanation
+
+
+def test_final_code_diff_not_loaded_for_broken_file(tmp_path: Path) -> None:
+    experiment_dir = _experiment_dir(tmp_path)
+    write_json(experiment_dir / "closed_loop_summary.json", _summary())
+    write_jsonl(experiment_dir / "closed_loop_iterations.jsonl", [])
+
+    report_data = collect_report_data(experiment_dir)
+
+    assert report_data.final_code_diff is None

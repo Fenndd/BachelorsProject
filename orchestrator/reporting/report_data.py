@@ -93,6 +93,10 @@ class ReportBaselineMetrics:
     gt_found: int | None = None
     valid_solutions: int | None = None
     correctness_passed: bool | None = None
+    benchmark_run_count: int | None = None
+    decision_metric: str | None = None
+    min_runtime_ns_per_problem_median: float | None = None
+    total_benchmark_wall_seconds: float | None = None
 
 
 @dataclass
@@ -123,10 +127,10 @@ class ReportLlmUsage:
 class ReportDiffStats:
     """Compact unified-diff size summary."""
 
-    files_changed: int = 0
-    lines_added: int = 0
-    lines_removed: int = 0
-    changed_blocks: int = 0
+    files_changed: int | None = None
+    lines_added: int | None = None
+    lines_removed: int | None = None
+    changed_blocks: int | None = None
     edit_count: int | None = None
     fallback_used: bool | None = None
 
@@ -161,8 +165,6 @@ class ReportIterationSummary:
     iteration: int
     status: str
     candidate_summary: str | None = None
-    expected_effect: str | None = None
-    risk_level: str | None = None
     runtime_ns_per_problem_median: float | None = None
     gt_found_percent: float | None = None
     gt_found_delta_points_vs_original_baseline: float | None = None
@@ -170,6 +172,10 @@ class ReportIterationSummary:
     speedup_vs_current_best: float | None = None
     speedup_vs_baseline: float | None = None
     correctness_passed: bool | None = None
+    benchmark_run_count: int | None = None
+    decision_metric: str | None = None
+    min_runtime_ns_per_problem_median: float | None = None
+    total_benchmark_wall_seconds: float | None = None
     promoted: bool = False
     reason: str | None = None
     candidate_run_dir: Path | str | None = None
@@ -308,7 +314,7 @@ class ReportReportingStatus:
 
 @dataclass
 class ReportFinalSelection:
-    """Single-run final benchmark comparison against original baseline."""
+    """Final repeated-benchmark comparison against original baseline."""
 
     status: str | None = None
     final_best_is_baseline: bool | None = None
@@ -321,6 +327,14 @@ class ReportFinalSelection:
     final_gt_found_percent: float | None = None
     final_gt_found_delta_points: float | None = None
     final_correctness_passed: bool | None = None
+    baseline_benchmark_run_count: int | None = None
+    final_benchmark_run_count: int | None = None
+    decision_metric: str | None = None
+    baseline_valid_solutions_percent: float | None = None
+    final_valid_solutions_percent: float | None = None
+    final_valid_solutions_delta_points: float | None = None
+    final_min_runtime_ns_per_problem_median: float | None = None
+    final_total_benchmark_wall_seconds: float | None = None
 
 
 @dataclass
@@ -339,12 +353,14 @@ class ReportFinalBestCandidate:
     gt_found_percent: float | None = None
     gt_found_delta_points: float | None = None
     candidate_summary: str | None = None
-    expected_effect: str | None = None
-    risk_level: str | None = None
     changed_files: list[str] = field(default_factory=list)
     final_optimized_source: str | None = None
     final_diff: str | None = None
     diff_stats: ReportDiffStats | None = None
+    benchmark_run_count: int | None = None
+    decision_metric: str | None = None
+    min_runtime_ns_per_problem_median: float | None = None
+    total_benchmark_wall_seconds: float | None = None
 
 
 @dataclass
@@ -396,6 +412,9 @@ class ReportData:
     reason_summary: list[ReportReasonSummaryItem] = field(default_factory=list)
     reason_code_counts: list[ReportReasonCodeCount] = field(default_factory=list)
     experiment_metadata: ReportExperimentMetadata | None = None
+    executive_narrative: str | None = None
+    final_code_diff: str | None = None
+    closed_loop_selection_explanation: str | None = None
 
 
 def default_status_counts() -> dict[str, int]:

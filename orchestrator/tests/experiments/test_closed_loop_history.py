@@ -17,8 +17,6 @@ def _record(status: str, **overrides: object) -> dict[str, object]:
         "status": status,
         "candidate_run_dir": "results/runs/candidate_1",
         "candidate_summary": "Use Eigen noalias for pose.R assignment",
-        "candidate_expected_effect": "runtime reduction",
-        "candidate_risk_level": "low",
         "speedup_vs_current_best": 1.03,
         "speedup_vs_original_baseline": 1.03,
         "decision_vs_current_best": {
@@ -70,7 +68,6 @@ def test_valid_not_improved_requires_useful_pattern_information() -> None:
             "valid_not_improved",
             candidate_run_dir=None,
             candidate_summary="Try cached arithmetic",
-            candidate_expected_effect=None,
             speedup_vs_current_best=None,
         )
     )
@@ -79,7 +76,6 @@ def test_valid_not_improved_requires_useful_pattern_information() -> None:
             "valid_not_improved",
             candidate_run_dir=None,
             candidate_summary=None,
-            candidate_expected_effect=None,
             speedup_vs_current_best=0.99,
         )
     )
@@ -88,7 +84,6 @@ def test_valid_not_improved_requires_useful_pattern_information() -> None:
             "valid_not_improved",
             candidate_run_dir=None,
             candidate_summary=None,
-            candidate_expected_effect=None,
             speedup_vs_current_best=None,
         )
     )
@@ -160,7 +155,7 @@ def test_valid_not_improved_below_runtime_threshold_has_specific_history() -> No
                     "status": "valid_not_improved",
                     "rejection_reasons": [],
                     "non_acceptance_reasons": ["runtime_improvement_below_minimum_threshold"],
-                    "thresholds": {"min_runtime_reduction_percent": 0.5},
+                    "thresholds": {"min_runtime_reduction_percent": 1.0},
                     "comparison": {
                         "speedup": 1.001,
                         "runtime_reduction_percent": 0.1,
@@ -172,7 +167,7 @@ def test_valid_not_improved_below_runtime_threshold_has_specific_history() -> No
     )
 
     assert context is not None
-    assert "0.1% faster than current best, below the 0.5% acceptance threshold" in context
+    assert "0.1% faster than current best, below the 1.0% acceptance threshold" in context
     assert "too small to accept as reliable" in context
 
 
@@ -185,7 +180,7 @@ def test_valid_not_improved_below_runtime_threshold_legacy_rejection_reason_fall
                 decision_vs_current_best={
                     "status": "valid_not_improved",
                     "rejection_reasons": ["runtime_improvement_below_minimum_threshold"],
-                    "thresholds": {"min_runtime_reduction_percent": 0.5},
+                    "thresholds": {"min_runtime_reduction_percent": 1.0},
                     "comparison": {
                         "speedup": 1.001,
                         "runtime_reduction_percent": 0.1,
@@ -197,7 +192,7 @@ def test_valid_not_improved_below_runtime_threshold_legacy_rejection_reason_fall
     )
 
     assert context is not None
-    assert "0.1% faster than current best, below the 0.5% acceptance threshold" in context
+    assert "0.1% faster than current best, below the 1.0% acceptance threshold" in context
 
 
 def test_valid_not_improved_without_threshold_reason_uses_normal_guidance() -> None:
@@ -210,7 +205,7 @@ def test_valid_not_improved_without_threshold_reason_uses_normal_guidance() -> N
                     "status": "valid_not_improved",
                     "rejection_reasons": [],
                     "non_acceptance_reasons": [],
-                    "thresholds": {"min_runtime_reduction_percent": 0.5},
+                    "thresholds": {"min_runtime_reduction_percent": 1.0},
                     "comparison": {
                         "speedup": 1.0,
                         "runtime_reduction_percent": 0.0,

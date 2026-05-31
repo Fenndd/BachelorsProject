@@ -40,20 +40,15 @@ def _candidate() -> OptimizationCandidate:
     return OptimizationCandidate(
         summary="summary",
         rationale="rationale",
-        risk_level="low",
-        expected_effect="runtime",
-        target_files=[TARGET_FILE],
         correctness_notes="correctness",
         edits=[
             LineRangeEdit(
-                file=TARGET_FILE,
                 start_line=1,
                 end_line=1,
                 original="double value = make_value();",
                 replace="const double value = make_value();",
             )
         ],
-        requires_manual_review=True,
     )
 
 
@@ -64,7 +59,7 @@ class GenerateCandidateFixedSchemaTests(unittest.TestCase):
         self.assertFalse(hasattr(args, "candidate" + "_type"))
         self.assertFalse(hasattr(args, "source" + "_presentation"))
 
-    def test_artifacts_write_candidate_edits_json_only(self) -> None:
+    def test_artifacts_write_candidate_edits_json_without_file_field(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             run_dir = Path(tmpdir)
             _save_candidate_artifacts(run_dir, _candidate())
@@ -72,9 +67,23 @@ class GenerateCandidateFixedSchemaTests(unittest.TestCase):
             edits_payload = json.loads((run_dir / "candidate.edits.json").read_text(encoding="utf-8"))
             self.assertTrue((run_dir / "candidate.json").exists())
             self.assertFalse((run_dir / ("candidate" + ".diff")).exists())
-            self.assertEqual(edits_payload["edits"][0]["file"], TARGET_FILE)
+            self.assertNotIn("file", edits_payload["edits"][0])
+            self.assertEqual(edits_payload["edits"][0]["start_line"], 1)
+            self.assertEqual(edits_payload["edits"][0]["end_line"], 1)
 
-    def test_metadata_status_and_summary_do_not_include_removed_format_field(self) -> None:
+    def test_candidate_json_excludes_removed_fields(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            run_dir = Path(tmpdir)
+            _save_candidate_artifacts(run_dir, _candidate())
+
+            candidate_payload = json.loads((run_dir / "candidate.json").read_text(encoding="utf-8"))
+
+            self.assertNotIn("risk_level", candidate_payload)
+            self.assertNotIn("expected_effect", candidate_payload)
+            self.assertNotIn("target_files", candidate_payload)
+            self.assertNotIn("requires_manual_review", candidate_payload)
+
+    def test_metadata_status_and_summary_do_not_include_removed_fields(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             run_dir = Path(tmpdir)
             metadata = _build_metadata(
@@ -94,8 +103,11 @@ class GenerateCandidateFixedSchemaTests(unittest.TestCase):
         self.assertIn("Edit count: 1", summary)
         self.assertNotIn("Candidate format", summary)
         self.assertNotIn("Candidate type", summary)
+        self.assertNotIn("Risk level", summary)
+        self.assertNotIn("Expected effect", summary)
+        self.assertNotIn("Target files", summary)
 
-    def test_index_record_uses_edit_count(self) -> None:
+    def test_index_record_uses_edit_count_and_excludes_removed_fields(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             run_dir = Path(tmpdir)
             metadata = _build_metadata(
@@ -112,6 +124,9 @@ class GenerateCandidateFixedSchemaTests(unittest.TestCase):
 
         self.assertEqual(record["edit_count"], 1)
         self.assertFalse(record["is_noop"])
+        self.assertNotIn("risk_level", record)
+        self.assertNotIn("expected_effect", record)
+        self.assertNotIn("requires_manual_review", record)
         self.assertNotIn("candidate" + "_type", record)
 
     def test_final_summary_prints_run_dir_first(self) -> None:
@@ -146,12 +161,8 @@ class GenerateCandidateFixedSchemaTests(unittest.TestCase):
                 OptimizationCandidate(
                     summary="well-optimized no-op candidate",
                     rationale="rationale",
-                    risk_level="low",
-                    expected_effect="none",
-                    target_files=[TARGET_FILE],
                     correctness_notes="correctness",
                     edits=[],
-                    requires_manual_review=False,
                 ),
             )
         finally:
@@ -205,12 +216,8 @@ class GenerateCandidateFixedSchemaTests(unittest.TestCase):
                     {
                         "summary": "no-op",
                         "rationale": "safe",
-                        "risk_level": "low",
-                        "expected_effect": "none",
-                        "target_files": [TARGET_FILE],
                         "correctness_notes": "none",
                         "edits": [],
-                        "requires_manual_review": False,
                     }
                 ),
                 encoding="utf-8",
@@ -256,6 +263,69 @@ class GenerateCandidateFixedSchemaTests(unittest.TestCase):
             parsed = _parse_candidate_run_dir(stdout_text)
             self.assertIsNotNone(parsed)
             self.assertEqual(Path(parsed).name, run_dir.name)
+
+    def test_llm_request_json_includes_history_context_and_prompt_sections(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            source_path = root / TARGET_FILE
+            source_path.parent.mkdir(parents=True, exist_ok=True)
+            source_path.write_text("double value = 1.0;\n", encoding="utf-8")
+            response_file = root / "mock_response.json"
+            response_file.write_text(
+                json.dumps(
+                    {
+                        "summary": "no-op",
+                        "rationale": "safe",
+                        "correctness_notes": "none",
+                        "edits": [],
+                    }
+                ),
+                encoding="utf-8",
+            )
+            config_path = root / "llm_mock.json"
+            config_path.write_text(
+                json.dumps(
+                    {
+                        "provider": "mock",
+                        "model": "mock-model",
+                        "mock_response_file": str(response_file),
+                    }
+                ),
+                encoding="utf-8",
+            )
+            (root / ".git").mkdir(exist_ok=True)
+            (root / "configs").mkdir(exist_ok=True)
+            (root / "cpp").mkdir(exist_ok=True)
+            (root / "orchestrator").mkdir(exist_ok=True)
+            original_paths = generate_candidate_module.paths
+            try:
+                generate_candidate_module.paths = get_project_paths(root)
+                exit_code = generate_candidate_module.main(
+                    [
+                        "--config", str(config_path),
+                        "--source", TARGET_FILE,
+                        "--context", "user guidance text",
+                        "--history-context", "previous attempts text",
+                    ]
+                )
+            finally:
+                generate_candidate_module.paths = original_paths
+
+            self.assertEqual(exit_code, 0)
+            run_dir = next((root / "results" / "runs").iterdir())
+            request = json.loads((run_dir / "llm_request.json").read_text(encoding="utf-8"))
+            self.assertEqual(request["additional_context"], "user guidance text")
+            self.assertEqual(request["history_context"], "previous attempts text")
+            self.assertIn("prompt_sections", request)
+            sections = request["prompt_sections"]
+            self.assertIsInstance(sections, dict)
+            self.assertIn("task", sections)
+            self.assertIn("user_guidance", sections)
+            self.assertIn("previous_attempts", sections)
+            self.assertIn("source_code", sections)
+            self.assertIn("safety_constraints", sections)
+            self.assertIn("line_edit_rules", sections)
+            self.assertIn("output_schema", sections)
 
 
 if __name__ == "__main__":

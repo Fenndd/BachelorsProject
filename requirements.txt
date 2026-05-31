@@ -11,3 +11,4 @@ typer
 rich
 textual
 python-dotenv
+pygments

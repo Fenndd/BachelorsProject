@@ -162,8 +162,6 @@ def test_iteration_record_serializes_as_jsonl_compatible_dict(tmp_path: Path) ->
         candidate_run_dir=tmp_path / "candidate_1",
         candidate_summary={"changed_files": ["cpp/external/lambdatwist/p3p.cc"]},
         candidate_rationale="Simplify arithmetic.",
-        candidate_expected_effect="faster",
-        candidate_risk_level="low",
         decision_vs_current_best={"accepted": True},
         decision_vs_original_baseline={"accepted": True},
         speedup_vs_current_best=1.05,

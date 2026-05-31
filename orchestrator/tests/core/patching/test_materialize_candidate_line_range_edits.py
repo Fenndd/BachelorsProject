@@ -65,16 +65,14 @@ def _line_candidate(
     run_dir: Path,
     *,
     edits: list[dict[str, Any]],
-    target_files: list[str] | None = None,
-    expected_effect: str = "runtime",
 ) -> None:
     run_dir.mkdir(parents=True, exist_ok=True)
     (run_dir / "candidate.json").write_text(
         json.dumps(
             {
                 "summary": "test line range candidate",
-                "target_files": target_files or [TARGET_FILE],
-                "expected_effect": expected_effect,
+                "rationale": "test rationale",
+                "correctness_notes": "no issues",
                 "edits": edits,
             }
         ),
@@ -88,6 +86,7 @@ def _materialize(
     base_source_root: Path,
     *,
     allow_exact_search_fallback: bool = True,
+    target_file: str = TARGET_FILE,
 ) -> int:
     args = [
             "--candidate-run",
@@ -98,7 +97,9 @@ def _materialize(
             str(base_source_root),
             "--overwrite",
             "--allowed-file",
-            TARGET_FILE,
+            target_file,
+            "--target-file",
+            target_file,
         ]
     return materialize_main(args)
 
@@ -133,7 +134,6 @@ class MaterializeCandidateLineRangeEditsTests(unittest.TestCase):
                 run_dir,
                 edits=[
                     {
-                        "file": TARGET_FILE,
                         "start_line": 1,
                         "end_line": 1,
                         "original": "int value = 1;",
@@ -184,7 +184,6 @@ class MaterializeCandidateLineRangeEditsTests(unittest.TestCase):
                 run_dir,
                 edits=[
                     {
-                        "file": TARGET_FILE,
                         "start_line": 1,
                         "end_line": 1,
                         "original": "int value = 1;",
@@ -229,7 +228,6 @@ class MaterializeCandidateLineRangeEditsTests(unittest.TestCase):
                 run_dir,
                 edits=[
                     {
-                        "file": TARGET_FILE,
                         "start_line": 1,
                         "end_line": 1,
                         "original": "int value = 1;",
@@ -266,7 +264,6 @@ class MaterializeCandidateLineRangeEditsTests(unittest.TestCase):
                 run_dir,
                 edits=[
                     {
-                        "file": TARGET_FILE,
                         "start_line": 1,
                         "end_line": 1,
                         "original": f"{llm_indent}refine_lambda(x);",
@@ -303,7 +300,6 @@ class MaterializeCandidateLineRangeEditsTests(unittest.TestCase):
                 run_dir,
                 edits=[
                     {
-                        "file": TARGET_FILE,
                         "start_line": 1,
                         "end_line": 3,
                         "original": "        if (ok) {\n            do_a();\n        }",
@@ -401,10 +397,8 @@ class MaterializeCandidateLineRangeEditsTests(unittest.TestCase):
             run_dir = tmp_path / "candidate_current_best"
             _line_candidate(
                 run_dir,
-                target_files=[P3P_TARGET_FILE],
                 edits=[
                     {
-                        "file": P3P_TARGET_FILE,
                         "start_line": 1,
                         "end_line": 1,
                         "original": "int current_best_value = 42;",
@@ -423,6 +417,8 @@ class MaterializeCandidateLineRangeEditsTests(unittest.TestCase):
                     str(base_source_root),
                     "--overwrite",
                     "--allowed-file",
+                    P3P_TARGET_FILE,
+                    "--target-file",
                     P3P_TARGET_FILE,
                 ]
             )
@@ -457,10 +453,8 @@ class MaterializeCandidateLineRangeEditsTests(unittest.TestCase):
             run_dir = tmp_path / "candidate_missing_target"
             _line_candidate(
                 run_dir,
-                target_files=[P3P_TARGET_FILE],
                 edits=[
                     {
-                        "file": P3P_TARGET_FILE,
                         "start_line": 1,
                         "end_line": 1,
                         "original": "int current_best_value = 42;",
@@ -480,6 +474,8 @@ class MaterializeCandidateLineRangeEditsTests(unittest.TestCase):
                     "--overwrite",
                     "--allowed-file",
                     P3P_TARGET_FILE,
+                    "--target-file",
+                    P3P_TARGET_FILE,
                 ]
             )
 
@@ -496,81 +492,6 @@ class MaterializeCandidateLineRangeEditsTests(unittest.TestCase):
             self.assertEqual(failed["file"], P3P_TARGET_FILE)
             self.assertEqual(failed["status"], "failed")
             self.assertEqual(failed["failure_reason"], "target_file_missing")
-            self.assertIsNone(materialization["generated_diff_path"])
-            self.assertFalse(materialization["generated_diff_created"])
-            self.assertFalse((run_dir / "candidate.generated.diff").exists())
-
-    def test_target_file_missing_completes_remaining_line_range_results(self) -> None:
-        with tempfile.TemporaryDirectory() as tmpdir:
-            tmp_path = Path(tmpdir)
-            base_source_root = _source_dir(tmp_path) / "current_best_source"
-            existing_file = base_source_root / TARGET_FILE
-            existing_file.parent.mkdir(parents=True)
-            existing_file.write_text("int value = 1;\n", encoding="utf-8")
-            missing_file = "cpp/missing.cpp"
-            other_file = "cpp/other.cpp"
-            other_existing_file = base_source_root / other_file
-            other_existing_file.parent.mkdir(parents=True, exist_ok=True)
-            other_existing_file.write_text("int other = 1;\n", encoding="utf-8")
-            run_dir = tmp_path / "candidate_missing_multi"
-            _line_candidate(
-                run_dir,
-                target_files=[TARGET_FILE, missing_file, other_file],
-                edits=[
-                    {
-                        "file": TARGET_FILE,
-                        "start_line": 1,
-                        "end_line": 1,
-                        "original": "int value = 1;",
-                        "replace": "int value = 2;",
-                    },
-                    {
-                        "file": missing_file,
-                        "start_line": 1,
-                        "end_line": 1,
-                        "original": "int missing = 1;",
-                        "replace": "int missing = 2;",
-                    },
-                    {
-                        "file": other_file,
-                        "start_line": 1,
-                        "end_line": 1,
-                        "original": "int other = 1;",
-                        "replace": "int other = 2;",
-                    },
-                ],
-            )
-
-            exit_code = materialize_main(
-                [
-                    "--candidate-run",
-                    str(run_dir),
-                    "--candidate-workspace-dir",
-                    str(tmp_path / "workspaces" / run_dir.name),
-                    "--base-source-root",
-                    str(base_source_root),
-                    "--overwrite",
-                    "--allowed-file",
-                    TARGET_FILE,
-                    "--allowed-file",
-                    missing_file,
-                    "--allowed-file",
-                    other_file,
-                ]
-            )
-
-            self.assertEqual(exit_code, 1)
-            materialization = _read_materialization(run_dir)
-            results = materialization["line_range_edit_results"]
-            self.assertEqual(materialization["line_range_edit_count"], 3)
-            self.assertEqual(len(results), 3)
-            self.assertEqual([result["index"] for result in results], [0, 1, 2])
-            self.assertEqual(results[0]["status"], "success")
-            self.assertEqual(results[0]["match_mode"], "line_range_exact")
-            self.assertEqual(results[1]["status"], "failed")
-            self.assertEqual(results[1]["failure_reason"], "target_file_missing")
-            self.assertEqual(results[2]["status"], "not_attempted")
-            self.assertEqual(results[2]["failure_reason"], "previous_edit_failed")
             self.assertIsNone(materialization["generated_diff_path"])
             self.assertFalse(materialization["generated_diff_created"])
             self.assertFalse((run_dir / "candidate.generated.diff").exists())
@@ -604,14 +525,12 @@ class MaterializeCandidateLineRangeEditsTests(unittest.TestCase):
                 run_dir,
                 edits=[
                     {
-                        "file": TARGET_FILE,
                         "start_line": 1,
                         "end_line": 1,
                         "original": "int a = 1;",
                         "replace": "int a = 10;",
                     },
                     {
-                        "file": TARGET_FILE,
                         "start_line": 3,
                         "end_line": 3,
                         "original": "int c = 3;",
@@ -639,7 +558,6 @@ class MaterializeCandidateLineRangeEditsTests(unittest.TestCase):
                 run_dir,
                 edits=[
                     {
-                        "file": TARGET_FILE,
                         "start_line": 1,
                         "end_line": 1,
                         "original": "int unique = 7;",
@@ -669,7 +587,6 @@ class MaterializeCandidateLineRangeEditsTests(unittest.TestCase):
                 run_dir,
                 edits=[
                     {
-                        "file": TARGET_FILE,
                         "start_line": 99,
                         "end_line": 99,
                         "original": "int unique = 7;",
@@ -697,7 +614,6 @@ class MaterializeCandidateLineRangeEditsTests(unittest.TestCase):
                 run_dir,
                 edits=[
                     {
-                        "file": TARGET_FILE,
                         "start_line": 1,
                         "end_line": 1,
                         "original": "int unique = 7;",
@@ -726,7 +642,6 @@ class MaterializeCandidateLineRangeEditsTests(unittest.TestCase):
                 run_dir,
                 edits=[
                     {
-                        "file": TARGET_FILE,
                         "start_line": 2,
                         "end_line": 2,
                         "original": "int same = 1;",
@@ -759,7 +674,6 @@ class MaterializeCandidateLineRangeEditsTests(unittest.TestCase):
                 run_dir,
                 edits=[
                     {
-                        "file": TARGET_FILE,
                         "start_line": 1,
                         "end_line": 1,
                         "original": "int missing = 9;",
@@ -791,21 +705,18 @@ class MaterializeCandidateLineRangeEditsTests(unittest.TestCase):
                 run_dir,
                 edits=[
                     {
-                        "file": TARGET_FILE,
                         "start_line": 1,
                         "end_line": 1,
                         "original": "int a = 1;",
                         "replace": "int a = 10;",
                     },
                     {
-                        "file": TARGET_FILE,
                         "start_line": 2,
                         "end_line": 2,
                         "original": "int missing = 9;",
                         "replace": "int missing = 10;",
                     },
                     {
-                        "file": TARGET_FILE,
                         "start_line": 3,
                         "end_line": 3,
                         "original": "int c = 3;",
@@ -828,39 +739,13 @@ class MaterializeCandidateLineRangeEditsTests(unittest.TestCase):
             self.assertEqual(results[2]["status"], "success")
             self.assertEqual(results[2]["match_mode"], "line_range_exact")
 
-    def test_edit_file_outside_target_files_rejected(self) -> None:
-        with tempfile.TemporaryDirectory() as tmpdir:
-            tmp_path = Path(tmpdir)
-            base_source_root = _source_dir(tmp_path)
-            _write_source(base_source_root, "int value = 1;\n")
-            run_dir = tmp_path / "candidate_outside_target"
-            _line_candidate(
-                run_dir,
-                edits=[
-                    {
-                        "file": "cpp/other.cpp",
-                        "start_line": 1,
-                        "end_line": 1,
-                        "original": "int value = 1;",
-                        "replace": "int value = 2;",
-                    }
-                ],
-            )
-
-            exit_code = _materialize(tmp_path, run_dir, base_source_root)
-
-            self.assertEqual(exit_code, 1)
-            materialization = _read_materialization(run_dir)
-            self.assertEqual(materialization["failed_step"], "validate_candidate_scope")
-            self.assertIn("not listed", materialization["error_message"])
-
     def test_line_range_noop_skipped_without_candidate_diff(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             tmp_path = Path(tmpdir)
             base_source_root = _source_dir(tmp_path)
             _write_source(base_source_root, "int value = 1;\n")
             run_dir = tmp_path / "candidate_noop"
-            _line_candidate(run_dir, edits=[], expected_effect="none")
+            _line_candidate(run_dir, edits=[])
 
             exit_code = _materialize(tmp_path, run_dir, base_source_root)
 
@@ -880,7 +765,6 @@ class MaterializeCandidateLineRangeEditsTests(unittest.TestCase):
                 run_dir,
                 edits=[
                     {
-                        "file": TARGET_FILE,
                         "start_line": 1,
                         "end_line": 1,
                         "original": "int value = 1;",
@@ -899,6 +783,8 @@ class MaterializeCandidateLineRangeEditsTests(unittest.TestCase):
                     str(base_source_root),
                     "--overwrite",
                     "--allowed-file",
+                    TARGET_FILE,
+                    "--target-file",
                     TARGET_FILE,
                 ]
             )
@@ -921,7 +807,6 @@ class MaterializeCandidateLineRangeEditsTests(unittest.TestCase):
                 run_dir,
                 edits=[
                     {
-                        "file": TARGET_FILE,
                         "start_line": 1,
                         "end_line": 1,
                         "original": "int value = 1;",
@@ -942,6 +827,8 @@ class MaterializeCandidateLineRangeEditsTests(unittest.TestCase):
                     "--overwrite",
                     "--allowed-file",
                     TARGET_FILE,
+                    "--target-file",
+                    TARGET_FILE,
                 ]
             )
 
@@ -952,6 +839,117 @@ class MaterializeCandidateLineRangeEditsTests(unittest.TestCase):
             self.assertFalse(Path(materialization["source_root"]).is_absolute())
             self.assertFalse(Path(materialization["base_source_root"]).is_absolute())
             self.assertNotIn(str(base_source_root.resolve()), json.dumps(materialization))
+
+    # --- New schema tests (--target-file, edits without file) ---
+
+    def test_new_schema_exact_line_range_edit_succeeds(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmp_path = Path(tmpdir)
+            base_source_root = _source_dir(tmp_path)
+            _write_source(base_source_root, "int value = 1;\n")
+            run_dir = tmp_path / "candidate_new_exact"
+            _line_candidate(
+                run_dir,
+                edits=[
+                    {
+                        "start_line": 1,
+                        "end_line": 1,
+                        "original": "int value = 1;",
+                        "replace": "int value = 2;",
+                    }
+                ],
+            )
+
+            exit_code = _materialize(tmp_path, run_dir, base_source_root, target_file=TARGET_FILE)
+
+            self.assertEqual(exit_code, 0)
+            materialization = _read_materialization(run_dir)
+            self.assertEqual(materialization["overall_status"], "success")
+            self.assertEqual(materialization["target_files"], [TARGET_FILE])
+            self.assertEqual(materialization["edit_files"], [TARGET_FILE])
+            self.assertEqual(materialization["changed_files"], [TARGET_FILE])
+            file_path = Path(materialization["workspace_path"]) / TARGET_FILE
+            self.assertEqual(file_path.read_text(encoding="utf-8"), "int value = 2;\n")
+
+    def test_new_schema_noop_skipped(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmp_path = Path(tmpdir)
+            base_source_root = _source_dir(tmp_path)
+            _write_source(base_source_root, "int value = 1;\n")
+            run_dir = tmp_path / "candidate_new_noop"
+            _line_candidate(run_dir, edits=[])
+
+            exit_code = _materialize(tmp_path, run_dir, base_source_root, target_file=TARGET_FILE)
+
+            self.assertEqual(exit_code, 0)
+            materialization = _read_materialization(run_dir)
+            self.assertEqual(materialization["overall_status"], "skipped")
+            self.assertEqual(materialization["target_files"], [TARGET_FILE])
+            self.assertEqual(materialization["edit_files"], [])
+            self.assertEqual(materialization["changed_files"], [])
+
+    def test_new_schema_line_range_mismatch_fails(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmp_path = Path(tmpdir)
+            base_source_root = _source_dir(tmp_path)
+            _write_source(base_source_root, "int value = 1;\n")
+            run_dir = tmp_path / "candidate_new_mismatch"
+            _line_candidate(
+                run_dir,
+                edits=[
+                    {
+                        "start_line": 1,
+                        "end_line": 1,
+                        "original": "THIS DOES NOT MATCH",
+                        "replace": "int value = 2;",
+                    }
+                ],
+            )
+
+            exit_code = _materialize(tmp_path, run_dir, base_source_root, target_file=TARGET_FILE)
+
+            self.assertEqual(exit_code, 1)
+            materialization = _read_materialization(run_dir)
+            self.assertEqual(materialization["overall_status"], "failed")
+
+    def test_new_schema_target_file_validated_against_allowed_files(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmp_path = Path(tmpdir)
+            base_source_root = _source_dir(tmp_path)
+            _write_source(base_source_root, "int value = 1;\n")
+            run_dir = tmp_path / "candidate_new_scope"
+            _line_candidate(
+                run_dir,
+                edits=[
+                    {
+                        "start_line": 1,
+                        "end_line": 1,
+                        "original": "int value = 1;",
+                        "replace": "int value = 2;",
+                    }
+                ],
+            )
+
+            exit_code = materialize_main(
+                [
+                    "--candidate-run",
+                    str(run_dir),
+                    "--candidate-workspace-dir",
+                    str(tmp_path / "workspaces" / run_dir.name),
+                    "--base-source-root",
+                    str(base_source_root),
+                    "--overwrite",
+                    "--allowed-file",
+                    "cpp/external/lambdatwist/p3p.cc",  # different from TARGET_FILE
+                    "--target-file",
+                    TARGET_FILE,
+                ]
+            )
+
+            self.assertEqual(exit_code, 1)
+            materialization = _read_materialization(run_dir)
+            self.assertEqual(materialization["overall_status"], "failed")
+            self.assertIn("outside allowed optimization scope", materialization["error_message"])
 
 if __name__ == "__main__":
     unittest.main()

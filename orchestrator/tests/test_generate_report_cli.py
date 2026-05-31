@@ -11,22 +11,22 @@ import pytest
 
 from orchestrator.reporting import generate_basic_report
 from orchestrator.reporting import generate_report
+from orchestrator.reporting.figure_builder import PLOT_FILENAMES
 
 
 from orchestrator.tests.conftest import TARGET_FILE, write_json, write_jsonl
 
-EXPECTED_PLOTS = (
-    "runtime_progress.svg",
-    "candidate_runtime_by_iteration.svg",
-    "runtime_reduction_by_iteration.svg",
-    "correctness_metrics.svg",
-    "status_breakdown.svg",
-    "candidate_funnel.svg",
-    "phase_timings.svg",
-    "llm_tokens_by_iteration.svg",
-    "llm_latency_by_iteration.svg",
-    "failure_reason_breakdown.svg",
-    "diff_stats_by_iteration.svg",
+EXPECTED_PLOTS = tuple(PLOT_FILENAMES.values())
+
+EXPECTED_SECTIONS = (
+    "executive-summary",
+    "setup",
+    "final-result",
+    "optimization-process",
+    "iteration-outcomes",
+    "cost-performance-profile",
+    "reproducibility",
+    "appendix",
 )
 
 
@@ -123,7 +123,11 @@ def test_generate_basic_report_html_only_does_not_require_pdf_exporter(
     assert payload["reporting_status"]["report_pdf_path"] is None
     assert payload["reporting_status"]["pdf_display"] == 'Not generated. Current reporting formats: ["html"]'
     html = (experiment_dir / "report" / "report.html").read_text(encoding="utf-8")
-    assert "<th>Status</th><td>completed</td>" in html
+    for section_id in EXPECTED_SECTIONS:
+        assert f'id="{section_id}"' in html
+    assert 'id="reporting-status"' not in html
+    assert "Not generated" not in html
+    assert "Not available" not in html
     _assert_inputs_unchanged(experiment_dir, before)
 
 
@@ -146,8 +150,9 @@ def test_refresh_report_artifact_map_updates_final_status_and_summary(tmp_path: 
     assert payload["artifacts"]["experiment_status"].endswith("experiment_status.json")
     assert payload["artifacts"]["summary_txt"].endswith("summary.txt")
     html = html_path.read_text(encoding="utf-8")
-    assert "experiment_status.json" in html
-    assert "summary.txt" in html
+    assert 'id="artifact-map"' not in html
+    assert "experiment_status.json" not in html
+    assert "summary.txt" not in html
 
 
 def test_generate_basic_report_pdf_calls_exporter(
@@ -161,14 +166,11 @@ def test_generate_basic_report_pdf_calls_exporter(
         calls.append(html_path)
         assert html_path == experiment_dir / "report" / "report.html"
         html = html_path.read_text(encoding="utf-8")
-        assert "<th>Status</th><td>completed</td>" in html
+        for section_id in EXPECTED_SECTIONS:
+            assert f'id="{section_id}"' in html
+        assert 'id="reporting-status"' not in html
         assert "pdf_pending" not in html
-        assert 'id="failure-analysis"' in html
-        assert 'id="phase-timings"' in html
-        assert 'id="llm-usage"' in html
-        assert 'id="final-comparison"' in html
-        assert 'id="diff-statistics"' in html
-        assert 'id="iteration-appendix"' in html
+        assert "exp_001" in html
         assert renderer == "weasyprint"
         pdf_path.write_bytes(b"%PDF-dummy")
         return pdf_path
@@ -190,7 +192,8 @@ def test_generate_basic_report_pdf_calls_exporter(
     assert payload["reporting_status"]["pdf_generated"] is True
     assert payload["reporting_status"]["report_pdf_path"].endswith("report.pdf")
     html = (experiment_dir / "report" / "report.html").read_text(encoding="utf-8")
-    assert "<th>Status</th><td>completed</td>" in html
+    assert 'id="reporting-status"' not in html
+    assert "Not available" not in html
 
 
 def test_generate_basic_report_pdf_failure_writes_failed_status(
@@ -201,7 +204,8 @@ def test_generate_basic_report_pdf_failure_writes_failed_status(
 
     def fake_pdf_export(html_path: Path, pdf_path: Path, *, renderer: str) -> Path:
         html = html_path.read_text(encoding="utf-8")
-        assert "<th>Status</th><td>completed</td>" in html
+        for section_id in EXPECTED_SECTIONS:
+            assert f'id="{section_id}"' in html
         assert "pdf_pending" not in html
         raise RuntimeError("pdf boom")
 
@@ -215,8 +219,8 @@ def test_generate_basic_report_pdf_failure_writes_failed_status(
     assert payload["reporting_status"]["pdf_generated"] is False
     assert payload["reporting_status"]["error"] == "pdf boom"
     html = (experiment_dir / "report" / "report.html").read_text(encoding="utf-8")
-    assert "<th>Status</th><td>failed</td>" in html
-    assert "pdf boom" in html
+    assert 'id="reporting-status"' not in html
+    assert "pdf boom" not in html
 
 
 def test_cli_no_pdf_creates_html_report(

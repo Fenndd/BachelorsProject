@@ -131,8 +131,6 @@ class ClosedLoopIterationRecord:
     candidate_run_dir: Path | None = None
     candidate_summary: dict[str, Any] | str | None = None
     candidate_rationale: str | None = None
-    candidate_expected_effect: str | None = None
-    candidate_risk_level: str | None = None
     decision_vs_current_best: dict[str, Any] | str | None = None
     decision_vs_original_baseline: dict[str, Any] | str | None = None
     speedup_vs_current_best: float | None = None

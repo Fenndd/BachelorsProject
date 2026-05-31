@@ -87,22 +87,21 @@ def validate_candidate_scope(
     allowed_set = set(allowed_files)
     target_set = set(target_files)
 
-    # Check 1: candidate target_files ⊆ external allowed_files
+    # Check 1: target_files ⊆ external allowed_files
     outside_target = sorted(target_set - allowed_set)
     if outside_target:
         raise ValueError(
-            "candidate target_files outside allowed optimization scope: "
+            "target_files outside allowed optimization scope: "
             + ", ".join(outside_target)
         )
 
-    # Check 2: changed files from edits ⊆ candidate target_files
+    # Check 2: changed files from edits ⊆ target_files
     if changed_files:
         changed_set = set(changed_files)
         outside_candidate = sorted(changed_set - target_set)
         if outside_candidate:
             raise ValueError(
-                "candidate edits modify files not listed in "
-                "candidate.json['target_files']: "
+                "candidate edits modify files not in allowed target_files: "
                 + ", ".join(outside_candidate)
             )
 

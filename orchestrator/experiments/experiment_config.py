@@ -38,9 +38,9 @@ class SelectionPolicyConfig:
 
 @dataclass(frozen=True)
 class OptimizationScopeConfig:
-    """Files that LLM candidates are allowed to modify in the optimization pipeline.
+    """Files allowed for downstream validation in the optimization pipeline.
 
-    The main pipeline enforces that candidate target_files and diff paths
+    The main pipeline enforces that the --target-file and changed diff paths
     must be a subset of these allowed_files. Benchmark, adapter, validator,
     CMake, orchestrator, configs, docs, and tests are fixed infrastructure
     and must never appear in allowed_files.

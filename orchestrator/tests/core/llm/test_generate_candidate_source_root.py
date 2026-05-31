@@ -81,8 +81,7 @@ class GenerateCandidateSourceRootTests(unittest.TestCase):
             self.assertEqual(llm_request["physical_source_path"], str(physical_source.resolve()))
             self.assertEqual(metadata["physical_source_path"], str(physical_source.resolve()))
             self.assertIn(DISTINCTIVE_SOURCE.strip(), user_prompt)
-            self.assertIn(f"Target file path:\n{TARGET_FILE}", user_prompt)
-            self.assertNotIn(f"Target file path:\n{source_root.resolve()}", user_prompt)
+            self.assertNotIn(f"Target file path:\n{TARGET_FILE}", user_prompt)
             self.assertNotIn(str(source_root.resolve()).replace("\\", "/"), user_prompt)
 
     def test_missing_file_under_custom_source_root_fails_at_read_source(self) -> None:
@@ -122,7 +121,7 @@ class GenerateCandidateSourceRootTests(unittest.TestCase):
             self.assertEqual(metadata["source_root"], ".")
             self.assertEqual(llm_request["physical_source_path"], TARGET_FILE)
             self.assertEqual(metadata["physical_source_path"], TARGET_FILE)
-            self.assertIn(f"Target file path:\n{TARGET_FILE}", llm_request["user_prompt"])
+            self.assertNotIn("Target file path", llm_request["user_prompt"])
             self.assertNotIn("workspace/current_best_source", llm_request["target_file"])
 
     def _run_generate_candidate(
@@ -162,12 +161,8 @@ def _write_mock_llm_config(root: Path) -> Path:
             {
                 "summary": "no-op",
                 "rationale": "source-root test",
-                "risk_level": "low",
-                "expected_effect": "none",
-                "target_files": [TARGET_FILE],
                 "correctness_notes": "not applicable",
                 "edits": [],
-                "requires_manual_review": False,
             }
         ),
         encoding="utf-8",

@@ -134,7 +134,7 @@ class ValidateCandidateScopeTests(unittest.TestCase):
                 changed_files=["cpp/external/lambdatwist/other.cc"],
                 allowed_files=["cpp/external/lambdatwist/p3p.cc"],
             )
-        self.assertIn("not listed in", str(ctx.exception))
+        self.assertIn("not in allowed target_files", str(ctx.exception))
 
     def test_benchmark_file_not_allowed(self) -> None:
         with self.assertRaises(ValueError) as ctx:

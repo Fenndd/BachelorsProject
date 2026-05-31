@@ -1,11 +1,8 @@
 """Audit benchmark artifacts for safe future comparison.
 
-This module checks whether reference and candidate benchmark metric artifacts are
-well-formed and comparable. It intentionally does not decide which artifact is
-better, faster, accepted, or rejected.
-
-Baseline-vs-candidate helpers remain available for backward compatibility with
-the original selection path.
+This module checks whether reference and candidate repeated benchmark artifacts
+are well-formed and comparable. It intentionally does not decide which artifact
+is better, faster, accepted, or rejected.
 """
 
 from __future__ import annotations
@@ -33,6 +30,10 @@ BENCHMARK_FIELDS = [
     "runtime_unit",
     "build_type",
     "benchmark_options",
+    "benchmark_run_count",
+    "decision_metric",
+    "repeated_benchmark_samples",
+    "repeated_benchmark_aggregate",
 ]
 
 
@@ -95,6 +96,9 @@ def audit_single_benchmark_artifact(artifact: dict[str, Any], role: str) -> dict
     _check_present_string(normalized, "solver", failed_checks)
     if normalized.get("parse_success") is not True:
         failed_checks.append("parse_success_not_true")
+    _check_positive_number(normalized, "benchmark_run_count", failed_checks)
+    if normalized.get("decision_metric") != "median_runtime_ns_per_problem_median":
+        failed_checks.append("decision_metric_not_median_runtime_ns_per_problem_median")
     _check_positive_number(normalized, "parsed_num_problems", failed_checks)
     _check_positive_number(
         normalized,
@@ -108,6 +112,21 @@ def audit_single_benchmark_artifact(artifact: dict[str, Any], role: str) -> dict
     _check_non_negative_number(normalized, "parsed_gt_found", failed_checks)
     _check_non_negative_number(normalized, "parsed_gt_found_percent", failed_checks)
     _check_present_bool(normalized, "parsed_correctness_passed", failed_checks)
+    samples = normalized.get("repeated_benchmark_samples")
+    run_count = normalized.get("benchmark_run_count")
+    if not isinstance(samples, list):
+        failed_checks.append("repeated_benchmark_samples_missing")
+    elif isinstance(run_count, (int, float)) and not isinstance(run_count, bool):
+        if len(samples) != int(run_count):
+            failed_checks.append("repeated_benchmark_samples_length_mismatch")
+    aggregate = normalized.get("repeated_benchmark_aggregate")
+    if not isinstance(aggregate, dict):
+        failed_checks.append("repeated_benchmark_aggregate_missing")
+    else:
+        if aggregate.get("decision_metric") != "median_runtime_ns_per_problem_median":
+            failed_checks.append("aggregate_decision_metric_not_median_runtime_ns_per_problem_median")
+        if aggregate.get("benchmark_run_count") != normalized.get("benchmark_run_count"):
+            failed_checks.append("aggregate_benchmark_run_count_mismatch")
 
     runtime_unit = normalized.get("runtime_unit")
     if runtime_unit is None:
@@ -169,6 +188,9 @@ def audit_comparable_benchmark_artifacts(
         and candidate.get("parsed_correctness_passed") is not None,
         "runtime_unit_ns": reference.get("runtime_unit") == "ns"
         and candidate.get("runtime_unit") == "ns",
+        "same_decision_metric": reference.get("decision_metric")
+        == candidate.get("decision_metric")
+        == "median_runtime_ns_per_problem_median",
     }
 
     failed_checks: list[str] = []
@@ -314,11 +336,11 @@ def _is_number(value: object) -> bool:
 
 
 def _is_positive_number(value: object) -> bool:
-    return _is_number(value) and value > 0
+    return _is_number(value) and isinstance(value, (int, float)) and float(value) > 0.0
 
 
 def _is_non_negative_number(value: object) -> bool:
-    return _is_number(value) and value >= 0
+    return _is_number(value) and isinstance(value, (int, float)) and float(value) >= 0.0
 
 
 def _unique_preserving_order(values: list[str]) -> list[str]:

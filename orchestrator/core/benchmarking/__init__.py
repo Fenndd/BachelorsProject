@@ -11,9 +11,16 @@ from .benchmark_artifact_audit import (
 )
 from .benchmark_artifacts import (
     benchmark_artifact_from_parse,
+    benchmark_artifact_from_repeated_samples,
     benchmark_required_fields,
     build_benchmark_correctness_error_message,
     empty_benchmark_artifact,
+)
+from .repeated_benchmark import (
+    DEFAULT_REPEATED_BENCHMARK_RUN_COUNT,
+    DECISION_METRIC,
+    merge_repeated_benchmark_artifacts,
+    run_repeated_benchmark,
 )
 from .benchmark_runner import (
     build_benchmark_run_command,
@@ -46,12 +53,15 @@ __all__ = [
     "audit_comparable_benchmark_artifacts",
     "audit_single_benchmark_artifact",
     "benchmark_artifact_from_parse",
+    "benchmark_artifact_from_repeated_samples",
     "benchmark_required_fields",
     "build_benchmark_correctness_error_message",
     "build_benchmark_run_command",
     "build_cmake_build_command",
     "CandidateDecisionThresholds",
     "configure_cmake_command",
+    "DECISION_METRIC",
+    "DEFAULT_REPEATED_BENCHMARK_RUN_COUNT",
     "default_solver_descriptor",
     "empty_benchmark_artifact",
     "evaluate_candidate_against_baseline",
@@ -64,9 +74,11 @@ __all__ = [
     "load_candidate_benchmark_artifact",
     "load_reference_benchmark_artifact",
     "load_verified_candidate_benchmark_artifact",
+    "merge_repeated_benchmark_artifacts",
     "parse_absolute_pose_benchmark_output",
     "parse_poselib_native_benchmark_output",
     "run_command",
+    "run_repeated_benchmark",
     "SolverBenchmarkDescriptor",
     "write_candidate_decision",
     "write_step_log",

@@ -8,7 +8,7 @@ This is fixed infrastructure behavior, not an experiment configuration option.
 
 - The LLM receives the target source with 1-based line numbers.
 - The LLM returns a JSON object containing `edits[]`.
-- Each edit contains `file`, `start_line`, `end_line`, `original`, and `replace`.
+- Each edit contains `start_line`, `end_line`, `original`, and `replace`.
 - The materializer verifies that `original` matches the selected source range before applying the replacement.
 - The materializer may use its internal exact-search fallback when a line range does not match but the original text appears exactly once.
 - After applying edits, the system writes `candidate.generated.diff` as an inspection artifact.
@@ -19,21 +19,38 @@ This is fixed infrastructure behavior, not an experiment configuration option.
 {
   "summary": "Short summary of the proposed optimization.",
   "rationale": "Why this change may improve performance.",
-  "risk_level": "low",
-  "expected_effect": "runtime",
-  "target_files": ["relative/path/to/file.cpp"],
   "correctness_notes": "Why numerical behavior should remain unchanged.",
   "edits": [
     {
-      "file": "relative/path/to/file.cpp",
       "start_line": 1,
       "end_line": 1,
       "original": "exact source text without line-number prefixes",
       "replace": "replacement source text"
     }
-  ],
-  "requires_manual_review": true
+  ]
 }
 ```
 
-If no safe optimization is available, the candidate sets `expected_effect` to `none` and returns `edits: []`.
+- An edit does not contain a `file` field. The target file is known from the orchestrator
+  experiment config and is passed to the materializer via `--target-file`. All edits
+  apply to that single target file.
+
+- If no safe optimization is available, the candidate returns `edits: []` (a no-op candidate).
+
+## Removed Fields
+
+These fields were part of an older schema and are no longer used:
+
+| Removed Field | Former Purpose | Replacement |
+|---|---|---|
+| `risk_level` | Subjective risk label | Removed |
+| `expected_effect` | Hint for classification | `edits == []` signals no-op |
+| `target_files` | LLM-chosen target file list | `--target-file` from config |
+| `requires_manual_review` | Human review flag | Removed |
+| `file` inside each edit | Per-edit target file | All edits go to `--target-file` |
+
+## Materialization Metadata
+
+The file `materialization.json` still contains `target_files` and `edit_files` as
+**orchestrator-generated metadata** (not LLM input). These are derived from the
+`--target-file` CLI argument and the edits received.

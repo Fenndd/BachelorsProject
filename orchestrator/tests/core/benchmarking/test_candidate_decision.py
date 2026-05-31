@@ -48,6 +48,32 @@ def _evaluate(
         )
 
 
+def _repeated_overrides(runtime: float, run_count: int) -> dict[str, Any]:
+    samples = [
+        {
+            "run_index": index,
+            "runtime_ns_per_problem_median": runtime,
+            "gt_found_percent": 100.0,
+            "valid_solutions_percent": 100.0,
+            "wall_seconds": 0.001,
+        }
+        for index in range(1, run_count + 1)
+    ]
+    return {
+        "parsed_runtime_ns_per_problem_median": runtime,
+        "benchmark_run_count": run_count,
+        "decision_metric": "median_runtime_ns_per_problem_median",
+        "repeated_benchmark_samples": samples,
+        "repeated_benchmark_aggregate": {
+            "benchmark_run_count": run_count,
+            "decision_metric": "median_runtime_ns_per_problem_median",
+            "median_runtime_ns_per_problem_median": runtime,
+            "min_runtime_ns_per_problem_median": runtime,
+            "total_benchmark_wall_seconds": run_count * 0.001,
+        },
+    }
+
+
 class CandidateDecisionTests(unittest.TestCase):
     def test_audit_failure_leads_to_rejected(self) -> None:
         decision = _evaluate(
@@ -89,6 +115,42 @@ class CandidateDecisionTests(unittest.TestCase):
             "runtime_improvement_below_minimum_threshold",
             decision["non_acceptance_reasons"],
         )
+
+    def test_one_to_two_percent_improvement_requires_confirmation(self) -> None:
+        decision = _evaluate(
+            baseline_overrides={"parsed_runtime_ns_per_problem_median": 1000.0},
+            candidate_overrides=_repeated_overrides(985.0, 100),
+        )
+
+        self.assertEqual(decision["status"], "confirmation_required")
+        self.assertIn(
+            "borderline_runtime_improvement_requires_confirmation",
+            decision["non_acceptance_reasons"],
+        )
+
+    def test_two_percent_improvement_accepts_immediately(self) -> None:
+        decision = _evaluate(
+            baseline_overrides={"parsed_runtime_ns_per_problem_median": 1000.0},
+            candidate_overrides=_repeated_overrides(980.0, 100),
+        )
+
+        self.assertEqual(decision["status"], "accepted_improvement")
+
+    def test_confirmed_merged_candidate_accepts_at_one_percent(self) -> None:
+        decision = _evaluate(
+            baseline_overrides={"parsed_runtime_ns_per_problem_median": 1000.0},
+            candidate_overrides=_repeated_overrides(990.0, 200),
+        )
+
+        self.assertEqual(decision["status"], "accepted_improvement")
+
+    def test_confirmed_merged_candidate_rejects_below_one_percent(self) -> None:
+        decision = _evaluate(
+            baseline_overrides={"parsed_runtime_ns_per_problem_median": 1000.0},
+            candidate_overrides=_repeated_overrides(991.0, 200),
+        )
+
+        self.assertEqual(decision["status"], "valid_not_improved")
 
     def test_large_runtime_improvement_accepted(self) -> None:
         decision = _evaluate(

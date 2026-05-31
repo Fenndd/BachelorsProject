@@ -8,15 +8,10 @@ from json import JSONDecodeError
 from typing import Any
 
 
-ALLOWED_RISK_LEVELS = {"low", "medium", "high"}
-ALLOWED_EXPECTED_EFFECTS = {"runtime", "memory", "both", "none"}
-
-
 @dataclass(frozen=True)
 class LineRangeEdit:
     """Validated line-range edit candidate operation."""
 
-    file: str
     start_line: int
     end_line: int
     original: str
@@ -29,32 +24,20 @@ class OptimizationCandidate:
 
     summary: str
     rationale: str
-    risk_level: str
-    expected_effect: str
-    target_files: list[str]
     correctness_notes: str
     edits: list[LineRangeEdit]
-    requires_manual_review: bool
 
 
 def parse_optimization_candidate(raw_content: str) -> OptimizationCandidate:
     """Parse and validate one optimization candidate JSON object."""
     payload = _parse_json_object(raw_content)
-    expected_effect = _validate_enum(
-        payload, "expected_effect", ALLOWED_EXPECTED_EFFECTS
-    )
-    target_files = _validate_string_list(payload, "target_files")
-    edits = _parse_line_range_edits_fields(payload, expected_effect, target_files)
+    edits = _parse_line_range_edits(payload)
 
     return OptimizationCandidate(
         summary=_validate_string(payload, "summary"),
         rationale=_validate_string(payload, "rationale"),
-        risk_level=_validate_enum(payload, "risk_level", ALLOWED_RISK_LEVELS),
-        expected_effect=expected_effect,
-        target_files=target_files,
         correctness_notes=_validate_string(payload, "correctness_notes"),
         edits=edits,
-        requires_manual_review=_validate_bool(payload, "requires_manual_review"),
     )
 
 
@@ -142,34 +125,6 @@ def _validate_string(
     return value
 
 
-def _validate_enum(
-    payload: dict[str, Any], field_name: str, allowed_values: set[str]
-) -> str:
-    value = _validate_string(payload, field_name)
-    if value not in allowed_values:
-        allowed = ", ".join(sorted(allowed_values))
-        raise ValueError(f"Field '{field_name}' must be one of: {allowed}.")
-    return value
-
-
-def _validate_string_list(payload: dict[str, Any], field_name: str) -> list[str]:
-    value = _require_field(payload, field_name)
-    if not isinstance(value, list):
-        raise ValueError(f"Field '{field_name}' must be a list of strings.")
-    if not value:
-        raise ValueError(f"Field '{field_name}' must contain at least one file path.")
-    if not all(isinstance(item, str) and item for item in value):
-        raise ValueError(f"Field '{field_name}' must contain only non-empty strings.")
-    return value
-
-
-def _validate_bool(payload: dict[str, Any], field_name: str) -> bool:
-    value = _require_field(payload, field_name)
-    if not isinstance(value, bool):
-        raise ValueError(f"Field '{field_name}' must be a boolean.")
-    return value
-
-
 def _validate_positive_int_value(value: Any, field_name: str) -> int:
     if not isinstance(value, int) or isinstance(value, bool) or value <= 0:
         raise ValueError(f"Field '{field_name}' must be a positive integer.")
@@ -202,21 +157,15 @@ def _validate_edit_positive_int(
     return _validate_positive_int_value(edit[key], field_name)
 
 
-def _parse_line_range_edits_fields(
+def _parse_line_range_edits(
     payload: dict[str, Any],
-    expected_effect: str,
-    target_files: list[str],
 ) -> list[LineRangeEdit]:
     edits_value = _require_field(payload, "edits")
     if not isinstance(edits_value, list):
         raise ValueError("Field 'edits' must be a list.")
-    if expected_effect != "none" and not edits_value:
-        raise ValueError(
-            "Field 'edits' must be non-empty when expected_effect is not 'none'."
-        )
 
     edits = [
-        _validate_line_range_edit(edit, index, target_files)
+        _validate_line_range_edit(edit, index)
         for index, edit in enumerate(edits_value)
     ]
     return edits
@@ -225,17 +174,11 @@ def _parse_line_range_edits_fields(
 def _validate_line_range_edit(
     edit: Any,
     index: int,
-    target_files: list[str],
 ) -> LineRangeEdit:
     field_prefix = f"edits[{index}]"
     if not isinstance(edit, dict):
         raise ValueError(f"Field '{field_prefix}' must be an object.")
 
-    file = _validate_edit_string(edit, "file", f"{field_prefix}.file")
-    if file not in target_files:
-        raise ValueError(
-            f"Field '{field_prefix}.file' must be included in target_files."
-        )
     start_line = _validate_edit_positive_int(
         edit,
         "start_line",
@@ -252,7 +195,6 @@ def _validate_line_range_edit(
         )
 
     return LineRangeEdit(
-        file=file,
         start_line=start_line,
         end_line=end_line,
         original=_validate_edit_string(edit, "original", f"{field_prefix}.original"),
@@ -271,27 +213,20 @@ def main() -> int:
         {
             "summary": "Avoid repeated temporary allocation in a hot helper.",
             "rationale": "Reusing a local value may reduce per-call overhead.",
-            "risk_level": "low",
-            "expected_effect": "runtime",
-            "target_files": ["cpp/src/example.cpp"],
             "correctness_notes": "The proposed change preserves arithmetic order.",
             "edits": [
                 {
-                    "file": "cpp/src/example.cpp",
                     "start_line": 1,
                     "end_line": 1,
                     "original": "double value = make_value();",
                     "replace": "const double value = make_value();",
                 }
             ],
-            "requires_manual_review": True,
         }
     )
     candidate = parse_optimization_candidate(sample)
 
     print(f"Parsed summary: {candidate.summary}")
-    print(f"Target files: {', '.join(candidate.target_files)}")
-    print(f"Risk level: {candidate.risk_level}")
     print(f"Edit count: {len(candidate.edits)}")
     return 0
 

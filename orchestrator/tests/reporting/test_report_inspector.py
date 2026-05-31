@@ -111,8 +111,8 @@ def test_inspect_report_warns_when_pdf_requested_and_missing(tmp_path: Path) -> 
     assert any("report.pdf" in warning for warning in result["warnings"])
 
 
-def test_expected_sections_include_reproducibility_environment() -> None:
-    assert "reproducibility-environment" in EXPECTED_SECTIONS
+def test_expected_sections_include_reproducibility() -> None:
+    assert "reproducibility" in EXPECTED_SECTIONS
 
 
 def test_inspect_report_fails_when_report_data_missing(tmp_path: Path) -> None:
@@ -206,23 +206,20 @@ def test_inspect_report_warns_when_important_top_level_keys_missing(tmp_path: Pa
     assert set(missing) == set(IMPORTANT_REPORT_DATA_KEYS) - {"schema_version"}
 
 
-def test_inspect_report_warns_when_enriched_sections_missing(tmp_path: Path) -> None:
+def test_inspect_report_warns_when_some_sections_missing(tmp_path: Path) -> None:
     experiment_dir = tmp_path / "results" / "experiments" / "exp_001"
-    old_section_ids = tuple(
+    partial_section_ids = tuple(
         section_id
         for section_id in EXPECTED_SECTIONS
         if section_id
         not in {
-            "reproducibility-environment",
-            "failure-analysis",
-            "phase-timings",
-            "llm-usage",
-            "diff-statistics",
-            "iteration-appendix",
+            "optimization-process",
+            "iteration-outcomes",
+            "cost-performance-profile",
         }
     )
     _write_report_data(experiment_dir)
-    _write_html(experiment_dir, old_section_ids)
+    _write_html(experiment_dir, partial_section_ids)
     _write_pdf(experiment_dir)
     _write_plots(experiment_dir)
 
@@ -230,12 +227,12 @@ def test_inspect_report_warns_when_enriched_sections_missing(tmp_path: Path) -> 
 
     assert result["status"] == "warning"
     assert result["errors"] == []
-    assert "failure-analysis" in result["sections"]["missing"]
-    assert "reproducibility-environment" in result["sections"]["missing"]
-    assert "iteration-appendix" in result["sections"]["missing"]
+    assert "optimization-process" in result["sections"]["missing"]
+    assert "iteration-outcomes" in result["sections"]["missing"]
+    assert "cost-performance-profile" in result["sections"]["missing"]
 
 
-def test_inspect_report_handles_v1_like_report_without_crashing(tmp_path: Path) -> None:
+def test_inspect_report_handles_older_report_without_crashing(tmp_path: Path) -> None:
     experiment_dir = tmp_path / "results" / "experiments" / "exp_old"
     _write_report_data(
         experiment_dir,

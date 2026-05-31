@@ -22,22 +22,29 @@ Materialization writes:
 
 `candidate.generated.diff` is produced by the infrastructure after edits are materialized. It is an inspection artifact, not an LLM-returned candidate representation.
 
+Verification writes `verification.json`. Its `benchmark` section is a repeated
+benchmark artifact: candidate verification runs 100 sequential benchmark
+executions, stores `repeated_benchmark_samples`, and uses
+`parsed_runtime_ns_per_problem_median` as the median of those sample
+`runtime_ns_per_problem_median` values. Borderline 1.0% to under-2.0% candidates
+are remeasured with another 100 candidate-only executions; the final stored
+candidate artifact then has `benchmark_run_count = 200` and a merged 200-sample
+median. Mean and max are not top-level decision/report metrics.
+
 ## Candidate Schema
 
 Candidates use one fixed line-range edit schema:
 
 - `summary`
 - `rationale`
-- `risk_level`
-- `expected_effect`
-- `target_files`
 - `correctness_notes`
-- `edits`
-- `requires_manual_review`
+- `edits` — list of objects with `start_line`, `end_line`, `original`, `replace`
 
-Each edit contains `file`, `start_line`, `end_line`, `original`, and `replace`.
+The target file is known from the orchestrator experiment config and is not part of
+the candidate JSON. `materialization.json` may contain `target_files` and `edit_files`
+as orchestrator-generated metadata (not LLM input).
 
-No-op candidates set `expected_effect` to `none` and return `edits: []`.
+No-op candidates return `edits: []`.
 
 ## Experiment Results
 
@@ -57,3 +64,10 @@ Closed-loop experiment results include:
 - `report/` when reporting is enabled
 
 Experiment metadata and report data may have their own storage schema identifiers. Those identifiers are artifact contracts and are unrelated to the LLM candidate schema.
+
+Baseline run `metrics.json` uses the same repeated benchmark artifact schema in
+its `benchmark` section. Baseline benchmark measurement always runs 100
+sequential benchmark executions.
+
+The final best is the last accepted candidate/current best after iterations.
+There is no separate final validation benchmark phase.

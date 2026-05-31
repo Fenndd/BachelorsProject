@@ -12,8 +12,6 @@ Implementation status update:
 
 - Pairwise reference-vs-candidate decision is implemented in
   `orchestrator/core/benchmarking/candidate_decision.py`.
-- The original baseline-vs-candidate API remains available as a compatibility
-  wrapper for direct pairwise comparisons.
 - Closed-loop experiments use reference-vs-candidate decisions inside each
   iteration.
 - Experiment-local current-best promotion is implemented through
@@ -43,8 +41,8 @@ The pairwise comparator supports an explicit generic reference:
 
 Data source rules:
 
-- Baseline benchmark metrics are loaded from `metrics.json`.
-- Candidate benchmark verification metrics are loaded from `verification.json`.
+- Baseline benchmark metrics are loaded from `metrics.json` after 100 sequential benchmark executions.
+- Candidate benchmark verification metrics are loaded from `verification.json` after 100 sequential benchmark executions.
 - Verified-candidate reference metrics are loaded from `verification.json`.
 - Selection consumes verified benchmark artifacts and is independent of raw LLM candidate format.
 - It works for generated candidates as long as `verification.json` exists.
@@ -69,6 +67,10 @@ The following benchmark fields are required for comparison:
 - `runtime_unit`
 - `build_type`
 - `benchmark_options`
+- `benchmark_run_count`
+- `decision_metric = "median_runtime_ns_per_problem_median"`
+- `repeated_benchmark_samples`
+- `repeated_benchmark_aggregate`
 
 ## 5. Hard rejection gates
 
@@ -101,7 +103,7 @@ Primary runtime metric:
 
 - `parsed_runtime_ns_per_problem_median`
 
-Lower values are better.
+This field is the median of the repeated `runtime_ns_per_problem_median` samples. Lower values are better. Mean and max are not decision metrics.
 
 ## 8. Correctness policy
 
@@ -137,7 +139,7 @@ the ground-truth found percentage. It is configured in the experiment config:
     is rejected with reason `gt_found_drop_exceeds_max_drop_points`.
   - 100.0% → 97.5% is a drop of **2.5 percentage points** (not 2.5%).
 
-This gate applies to:
+This gate applies to aggregate repeated-median artifacts for:
 
 - Current-best iteration decisions (`decision_vs_current_best`)
 - Final selection comparison (`decision_vs_original_baseline`)
@@ -158,12 +160,14 @@ Pairwise candidate statuses:
     reduction threshold.
   - Non-rejected candidates can include `non_acceptance_reasons` explaining why
     they were not accepted.
+- `confirmation_required`
+  - Candidate passed hard gates and initial repeated-median runtime reduction is at least 1.0% but below 2.0%.
+  - The runner must run another 100 candidate-only benchmark executions, merge all candidate samples, and rerun the decision.
 - `accepted_improvement`
   - Candidate passed all hard gates and improves runtime versus the reference by
     at least the minimum runtime reduction threshold.
 
-Closed-loop final analysis does not introduce additional pairwise statuses in
-`candidate_decision.py`.
+After confirmation, the final merged 200-run artifact is decided as either `accepted_improvement` or `valid_not_improved`.
 
 ## 12. Improvement calculations
 
@@ -172,22 +176,26 @@ Runtime improvement formulas:
 - `speedup = reference_runtime_ns_per_problem_median / candidate_runtime_ns_per_problem_median`
 - `runtime_reduction_percent = ((reference_runtime - candidate_runtime) / reference_runtime) * 100`
 
-Default acceptance threshold:
+Default thresholds:
 
-- `min_runtime_reduction_percent = 0.5`
+- `min_runtime_reduction_percent = 1.0`
+- `immediate_accept_runtime_reduction_percent = 2.0`
 
 For `accepted_improvement`, the candidate must pass correctness/comparability
 gates, have lower runtime than the reference, and have
-`runtime_reduction_percent >= min_runtime_reduction_percent`. A faster candidate
-below this threshold is recorded as `valid_not_improved` with comparison metrics
-still present and `non_acceptance_reasons` containing
-`runtime_improvement_below_minimum_threshold`. Its `rejection_reasons` remain
-empty because it passed hard rejection gates.
+`runtime_reduction_percent >= min_runtime_reduction_percent`. A candidate with
+`runtime_reduction_percent >= 2.0` is accepted immediately after the first 100
+candidate benchmark executions. A candidate with `1.0 <= runtime_reduction_percent < 2.0`
+requires another 100 candidate-only executions and is decided from the merged
+200-sample median. A faster candidate below 1.0% is recorded as
+`valid_not_improved` with comparison metrics still present and
+`non_acceptance_reasons` containing `runtime_improvement_below_minimum_threshold`.
+Its `rejection_reasons` remain empty because it passed hard rejection gates.
 
 Where:
 
-- `reference_runtime = reference parsed_runtime_ns_per_problem_median`
-- `candidate_runtime = candidate parsed_runtime_ns_per_problem_median`
+- `reference_runtime = reference parsed_runtime_ns_per_problem_median` repeated median
+- `candidate_runtime = candidate parsed_runtime_ns_per_problem_median` repeated median
 
 ## 13. Closed-loop selection outcome
 
@@ -198,12 +206,11 @@ decision policy defined in §5–§11. An `accepted_improvement` decision promot
 the candidate into the experiment-local `current_best_source` for the next
 iteration.
 
-At experiment completion, `orchestrator/experiments/final_selection_report.py`
-produces `final_selection_report.json` under
-`results/experiments/<experiment_id>/`. This artifact reports the final best
-iteration selected after closed-loop completion, with a single benchmark run
-comparing the final optimized source against the original baseline. It does not
-use an `overall_status` field or a global ranking across all iterations.
+At experiment completion, the final best is simply the last accepted candidate
+or the original baseline if no candidate was accepted. There is no separate final
+validation benchmark phase. `orchestrator/experiments/final_selection_report.py`
+produces `final_selection_report.json` from existing repeated benchmark artifacts
+only.
 
 Per-iteration decision outcomes are recorded in `closed_loop_iterations.jsonl`
 using `IterationStatus` values (see `orchestrator/experiments/closed_loop_state.py`):
@@ -223,6 +230,8 @@ Selection and reporting do **not** implement:
 - promotion into the main `cpp/` source tree
 - benchmark modification
 - benchmark threshold modification
+- mean or max runtime decision/report metrics
+- separate final validation benchmarking after an experiment ends
 - candidate generation prompt format or materialization format
 - source-tree mutation from final selector/reporting artifacts
 

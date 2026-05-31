@@ -50,7 +50,7 @@ registry. There are currently **38 manifests** (1 `absolute_pose` +
 | `benchmark_solver_key` | PoseLib solver name passed via `--solver`. |
 | `benchmark_kind` | Category: `absolute_pose`, `relative_pose`, etc. |
 | `default_target_file` | Repo-relative path to the solver's primary source file. |
-| `default_allowed_files` | Repo-relative paths the LLM is allowed to modify. |
+| `default_allowed_files` | Repo-relative paths allowed for downstream validation. |
 | `targets` | CMake target names (benchmark, adapter, validator). |
 
 ### `absolute_pose` Manifest Extras

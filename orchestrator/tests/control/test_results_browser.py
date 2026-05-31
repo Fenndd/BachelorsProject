@@ -91,7 +91,7 @@ def test_synthetic_experiment_is_listed(tmp_path: Path) -> None:
     assert item.artifacts.experiment_config_effective_json is not None
 
 
-def test_experiment_does_not_fallback_to_single_run_closed_loop_metrics(tmp_path: Path) -> None:
+def test_experiment_does_not_fallback_to_selection_report_metrics(tmp_path: Path) -> None:
     root = repo_root(tmp_path)
     exp_dir = _write_experiment(root, "exp_old")
     (exp_dir / "closed_loop_summary.json").write_text(

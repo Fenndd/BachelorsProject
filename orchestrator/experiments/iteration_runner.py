@@ -46,6 +46,7 @@ def _build_generation_command(
     context_text: str | None,
     source_root: str | None = None,
     candidate_run_dir: str | None = None,
+    history_context_text: str | None = None,
 ) -> list[str]:
     command = [
         sys.executable,
@@ -62,6 +63,8 @@ def _build_generation_command(
         command.extend(["--candidate-run-dir", candidate_run_dir])
     if context_text is not None:
         command.extend(["--context", context_text])
+    if history_context_text is not None:
+        command.extend(["--history-context", history_context_text])
     for allowed_file in config.optimization_scope.allowed_files:
         command.extend(["--allowed-file", allowed_file])
     return command
@@ -87,6 +90,7 @@ def _build_materialization_command(
         command.extend(["--candidate-workspace-dir", candidate_workspace_dir])
     for allowed_file in config.optimization_scope.allowed_files:
         command.extend(["--allowed-file", allowed_file])
+    command.extend(["--target-file", config.target_file])
     return command
 
 
@@ -100,6 +104,12 @@ def _build_verification_command(candidate_run_dir: str, config: ExperimentConfig
         "--solver",
         config.solver_id,
     ]
+
+
+def _build_confirmation_command(candidate_run_dir: str, config: ExperimentConfig) -> list[str]:
+    command = _build_verification_command(candidate_run_dir, config)
+    command.extend(["--append-benchmark-runs", "100"])
+    return command
 
 
 def _write_stage_log(
@@ -205,20 +215,6 @@ def _looks_like_candidate_run_dir(value: str) -> bool:
     return True
 
 
-def _combine_closed_loop_context(
-    additional_context: str | None,
-    history_context: str | None,
-) -> str | None:
-    parts: list[str] = []
-    if additional_context is not None:
-        parts.append(additional_context)
-    if history_context is not None:
-        parts.append(history_context)
-    if not parts:
-        return None
-    return "\n\n".join(parts)
-
-
 def _closed_loop_history_context_log_path(
     experiment_dir: Path,
     iteration: int,
@@ -243,22 +239,16 @@ def _candidate_field_summary(candidate_path: Path) -> dict[str, Any]:
     edit_count = len(edits) if isinstance(edits, list) else None
     return {
         "candidate_summary": candidate.get("summary"),
-        "risk_level": candidate.get("risk_level"),
-        "expected_effect": candidate.get("expected_effect"),
-        "target_files": candidate.get("target_files"),
-        "requires_manual_review": candidate.get("requires_manual_review"),
+        "rationale": candidate.get("rationale"),
         "edit_count": edit_count,
-        "is_noop": candidate.get("expected_effect") == "none" and edit_count == 0,
+        "is_noop": edit_count == 0 if edit_count is not None else None,
     }
 
 
 def _empty_generation_fields() -> dict[str, Any]:
     return {
         "candidate_summary": None,
-        "risk_level": None,
-        "expected_effect": None,
-        "target_files": None,
-        "requires_manual_review": None,
+        "rationale": None,
         "edit_count": None,
         "is_noop": None,
     }
@@ -439,8 +429,6 @@ def _candidate_summary_for_record(candidate: dict[str, Any] | None) -> str | Non
 
 
 def is_noop_candidate(candidate: dict[str, Any]) -> bool:
-    if candidate.get("expected_effect") != "none":
-        return False
     edits = candidate.get("edits")
     return isinstance(edits, list) and len(edits) == 0
 
@@ -507,12 +495,13 @@ def _closed_loop_phase_timings(
     generation_result: dict[str, Any] | None = None,
     materialization_result: dict[str, Any] | None = None,
     verification_result: dict[str, Any] | None = None,
+    confirmation_result: dict[str, Any] | None = None,
 ) -> dict[str, float | None]:
     return {
         "generation_seconds": _stage_duration_or_none(generation_result),
         "materialization_seconds": _stage_duration_or_none(materialization_result),
         "verification_seconds": _stage_duration_or_none(verification_result),
-        "benchmark_seconds": None,
+        "benchmark_seconds": _stage_duration_or_none(confirmation_result),
         "total_iteration_seconds": round(time.perf_counter() - iteration_started, 3),
     }
 
@@ -607,8 +596,6 @@ def _build_closed_loop_iteration_record(
         candidate_run_dir=candidate_run_dir,
         candidate_summary=_candidate_summary_for_record(candidate),
         candidate_rationale=(candidate or {}).get("rationale") if isinstance((candidate or {}).get("rationale"), str) else None,
-        candidate_expected_effect=(candidate or {}).get("expected_effect") if isinstance((candidate or {}).get("expected_effect"), str) else None,
-        candidate_risk_level=(candidate or {}).get("risk_level") if isinstance((candidate or {}).get("risk_level"), str) else None,
         decision_vs_current_best=_compact_decision_summary(decision_vs_current_best),
         decision_vs_original_baseline=_compact_decision_summary(decision_vs_original_baseline),
         speedup_vs_current_best=_decision_speedup(decision_vs_current_best),
@@ -687,11 +674,6 @@ def run_closed_loop_iterations(
             iteration,
             closed_loop_history_context,
         )
-        generation_context = _combine_closed_loop_context(
-            config.additional_context,
-            closed_loop_history_context,
-        )
-
         generation_result = _run_stage(
             experiment_dir,
             iteration,
@@ -699,9 +681,10 @@ def run_closed_loop_iterations(
             _build_generation_command(
                 config,
                 llm_metadata["resolved_config"],
-                generation_context,
+                config.additional_context,
                 source_root=str(closed_loop_paths.current_best_source_dir),
                 candidate_run_dir=str(candidate_run_dir_path),
+                history_context_text=closed_loop_history_context,
             ),
         )
         generation_record, candidate_run_dir_text = _generation_stage_record(generation_result)
@@ -887,6 +870,59 @@ def run_closed_loop_iterations(
             candidate_run_dir=candidate_run_dir,
             thresholds=decision_thresholds,
         )
+        confirmation_result: dict[str, Any] | None = None
+        if decision_vs_current_best.get("status") == "confirmation_required":
+            confirmation_result = _run_stage(
+                experiment_dir,
+                iteration,
+                "confirm_candidate_benchmark",
+                _build_confirmation_command(str(candidate_run_dir), config),
+            )
+            verification_record = _verification_stage_record(
+                confirmation_result,
+                str(candidate_run_dir),
+            )
+            if verification_record["status"] != "success":
+                record = _build_closed_loop_iteration_record(
+                    experiment_id=experiment_id,
+                    iteration=iteration,
+                    status=IterationStatus.VERIFICATION_FAILED,
+                    base_source_kind=base_source_kind,
+                    reference_best_iteration_before=reference_best_iteration_before,
+                    reference_best_run_dir=reference_run_dir_before,
+                    candidate_run_dir=candidate_run_dir,
+                    candidate=candidate,
+                    decision_vs_current_best=decision_vs_current_best,
+                    decision_vs_original_baseline=None,
+                    current_best_updated=False,
+                    current_best_iteration_after=state.current_best_iteration,
+                    failure_stage="confirmation_benchmark",
+                    failure_reason=verification_record.get("error_message") or verification_record.get("failed_step"),
+                    materialization_match_summary=materialization_record.get("materialization_match_summary"),
+                    phase_timings=_closed_loop_phase_timings(
+                        iteration_started,
+                        generation_result,
+                        materialization_result,
+                        confirmation_result,
+                    ),
+                    outcome_reason=_closed_loop_outcome_reason(
+                        status=IterationStatus.VERIFICATION_FAILED,
+                        record_fields=verification_record,
+                        candidate_run_dir=candidate_run_dir,
+                        candidate=candidate,
+                    ),
+                )
+                records.append(record)
+                _append_closed_loop_record_and_state(closed_loop_paths, state, record)
+                write_candidate_decision(candidate_run_dir, decision_vs_current_best, "decision_vs_current_best.json")
+                print("- iteration: verification_failed")
+                continue
+            decision_vs_current_best = _evaluate_candidate_with_thresholds(
+                reference_run_dir=state.current_best_run_dir,
+                reference_kind=reference_kind,
+                candidate_run_dir=candidate_run_dir,
+                thresholds=decision_thresholds,
+            )
         decision_vs_original_baseline = _evaluate_candidate_with_thresholds(
             reference_run_dir=baseline_run_dir,
             reference_kind="baseline",
@@ -932,6 +968,7 @@ def run_closed_loop_iterations(
                 generation_result,
                 materialization_result,
                 verification_result,
+                confirmation_result,
             ),
             outcome_reason=_closed_loop_outcome_reason(
                 status=iteration_status,

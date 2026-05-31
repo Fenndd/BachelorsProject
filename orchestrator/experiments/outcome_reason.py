@@ -157,10 +157,9 @@ def _no_op_reason(
     source_artifacts: dict[str, str | None],
 ) -> OutcomeReason:
     candidate = candidate or {}
-    expected_effect = _first_value(candidate.get("expected_effect"), record.get("candidate_expected_effect"))
     has_empty_payload = _candidate_edit_payload_empty(candidate)
     code = CODE_EMPTY_EDIT_PAYLOAD if has_empty_payload else CODE_NO_OP_CANDIDATE
-    message = "Candidate declared no expected effect and did not include edits." if expected_effect == "none" and has_empty_payload else "Candidate was classified as a no-op."
+    message = "Candidate did not include any edits." if has_empty_payload else "Candidate was classified as a no-op."
     return OutcomeReason(
         CATEGORY_NO_OP,
         code,

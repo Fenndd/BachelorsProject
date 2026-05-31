@@ -35,30 +35,32 @@ from orchestrator.reporting import (
     make_empty_report_data,
     render_report_html,
 )
+from orchestrator.reporting.figure_builder import PLOT_FILENAMES
 
 
 from orchestrator.tests.conftest import TARGET_FILE
-EXPECTED_PLOTS = {
-    "runtime_progress": "runtime_progress.svg",
-    "candidate_runtime_by_iteration": "candidate_runtime_by_iteration.svg",
-    "runtime_reduction_by_iteration": "runtime_reduction_by_iteration.svg",
-    "correctness_metrics": "correctness_metrics.svg",
-    "status_breakdown": "status_breakdown.svg",
-    "candidate_funnel": "candidate_funnel.svg",
-    "phase_timings": "phase_timings.svg",
-    "llm_tokens_by_iteration": "llm_tokens_by_iteration.svg",
-    "llm_latency_by_iteration": "llm_latency_by_iteration.svg",
-    "failure_reason_breakdown": "failure_reason_breakdown.svg",
-    "diff_stats_by_iteration": "diff_stats_by_iteration.svg",
-}
+
+EXPECTED_PLOTS = PLOT_FILENAMES
 
 NEW_SECTION_IDS = (
-    "reproducibility-environment",
-    "failure-analysis",
-    "phase-timings",
-    "llm-usage",
+    "executive-summary",
+    "setup",
+    "final-result",
+    "optimization-process",
+    "iteration-outcomes",
+    "cost-performance-profile",
+    "reproducibility",
+    "appendix",
+)
+
+OLD_SECTION_IDS = (
+    "cover",
+    "reporting-status",
+    "artifact-map",
+    "reason-summary",
     "final-comparison",
-    "diff-statistics",
+    "baseline-metrics",
+    "final-best-candidate-summary",
     "iteration-appendix",
 )
 
@@ -337,16 +339,16 @@ def test_report_html_contains_expected_report_content(tmp_path: Path) -> None:
     assert "20" in html
     assert "accepted_improvement" in html
     assert "valid_not_improved" in html
-    assert "Per-Iteration Table" in html
+    assert "Per-Iteration Summary" in html
     assert "Simplify arithmetic." in html
-    assert "Artifact Map" in html
-    assert "final_optimized_source" in html
-    assert "experiment_metadata" in html
-    assert "closed_loop_selection_report" in html
     for section_id in NEW_SECTION_IDS:
         assert f'id="{section_id}"' in html
+    for section_id in OLD_SECTION_IDS:
+        assert f'id="{section_id}"' not in html
     for filename in EXPECTED_PLOTS.values():
         assert f"plots/{filename}" in html
+    assert "candidate_runtime_by_iteration" not in html
+    assert "Not available" not in html
 
 
 def test_report_html_contains_enriched_sections(tmp_path: Path) -> None:
@@ -362,21 +364,19 @@ def test_report_html_contains_enriched_sections(tmp_path: Path) -> None:
 
     for section_id in NEW_SECTION_IDS:
         assert f'id="{section_id}"' in html
-    assert 'id="failure-analysis"' in html
-    assert "Outcome and Failure Analysis" in html
-    assert "Phase Timings" in html
-    assert "LLM Usage" in html
+    assert "Iteration Outcomes" in html
+    assert "Cost &amp; Performance Profile" in html
     assert "Total Tokens" in html
     assert "310" in html
-    assert "Diff Statistics" in html
-    assert "Iteration Appendix" in html
-    assert "Reproducibility and Environment" in html
+    assert "Final Diff Statistics" in html
+    assert "Selected Iteration Details" in html
+    assert "Reproducibility" in html
     assert "reportUpdatev2v3" in html
     assert "valid_not_improved" in html
-    assert "mock-model" in html
     assert "Candidate improved the current best runtime." in html
     assert "reports/runs" not in html
     assert "Benchmark s" not in html
+    assert "Not available" not in html
 
 
 def test_report_html_handles_older_missing_enriched_fields(tmp_path: Path) -> None:
@@ -407,10 +407,12 @@ def test_report_html_handles_older_missing_enriched_fields(tmp_path: Path) -> No
 
     assert "exp_old" in html
     assert "Old artifact without enriched fields." in html
-    assert "No structured outcome reasons are available" in html
-    assert "Not available" in html
+    assert "\u2014" in html
     for section_id in NEW_SECTION_IDS:
         assert f'id="{section_id}"' in html
+    for section_id in OLD_SECTION_IDS:
+        assert f'id="{section_id}"' not in html
+    assert "Not available" not in html
 
 
 def test_generate_basic_html_report_creates_report_outputs_read_only(
@@ -516,8 +518,6 @@ def test_f_html_contains_enriched_fields(tmp_path: Path) -> None:
             candidate_summary="Optimized hot loop.",
             speedup_vs_current_best=1.30,
             speedup_vs_baseline=1.30,
-            expected_effect="decrease",
-            risk_level="low",
             correctness_passed=True,
             promoted=True,
         )
@@ -532,18 +532,15 @@ def test_f_html_contains_enriched_fields(tmp_path: Path) -> None:
     assert "lambdatwist_p3p" in html
     assert "Speedup vs Current Best" in html
     assert "Closed-Loop Selection" in html
-    assert "single-run selection analytics from per-iteration candidate verification" in html
-    assert "Best Verified Candidate Single-Run Speedup vs Baseline" in html
-    assert "Best Verified Candidate Single-Run Runtime Reduction %" in html
+    assert "Best Verified Candidate Speedup vs Baseline" in html
     assert "Promotion Policy" in html
     assert "decision_vs_current_best.accepted_improvement_only" in html
     assert "Selection Enabled" not in html
     assert "History Policy Enabled" not in html
     assert "Final Best Candidate" in html
-    assert "Candidate runtime fields in this section reflect the final single-run comparison against the original baseline" in html
-    assert "Not generated" in html
     # correctness_preserved rendered as Yes/No
     assert "Yes" in html
+    assert "Not available" not in html
 
 
 def test_g_html_does_not_contain_manual_prose_paragraphs(tmp_path: Path) -> None:
@@ -591,7 +588,9 @@ def test_runtime_progress_uses_current_best_step_plot(tmp_path: Path) -> None:
     assert svg_path.is_file()
     svg_text = svg_path.read_text(encoding="utf-8")
     assert svg_text.strip() != ""
-    assert "Current Best Runtime Progress" in svg_text
+    assert "Runtime Progress" in svg_text
+    assert "baseline" in svg_text
+    assert "current best" in svg_text
 
 
 def test_runtime_progress_placeholder_when_no_runtime_data(tmp_path: Path) -> None:
@@ -613,12 +612,157 @@ def test_runtime_progress_placeholder_when_no_runtime_data(tmp_path: Path) -> No
     assert "Current best runtime data unavailable" in svg_text
 
 
-def test_report_html_includes_reason_summary_and_new_plot(tmp_path: Path) -> None:
-    """Generated HTML contains reason summary, new plot, and key section headings."""
+def test_combined_runtime_plot_includes_scatter_by_status(tmp_path: Path) -> None:
+    """runtime_progress.svg combines step line and scatter with semantic colors."""
+
+    report_data = make_empty_report_data("exp_004", TARGET_FILE)
+    report_data.baseline_metrics = ReportBaselineMetrics(runtime_ns_per_problem_median=100.0)
+    report_data.iterations = [
+        ReportIterationSummary(
+            iteration=1,
+            status="accepted_improvement",
+            runtime_ns_per_problem_median=90.0,
+            promoted=True,
+        ),
+        ReportIterationSummary(
+            iteration=2,
+            status="valid_not_improved",
+            runtime_ns_per_problem_median=95.0,
+            promoted=False,
+        ),
+        ReportIterationSummary(
+            iteration=3,
+            status="rejected",
+            runtime_ns_per_problem_median=105.0,
+            promoted=False,
+        ),
+        ReportIterationSummary(
+            iteration=4,
+            status="generation_failed",
+            promoted=False,
+        ),
+    ]
+    plots_dir = tmp_path / "plots"
+    build_report_figures(report_data, plots_dir)
+
+    svg_path = plots_dir / "runtime_progress.svg"
+    assert svg_path.is_file()
+    svg_text = svg_path.read_text(encoding="utf-8")
+
+    assert "Runtime Progress" in svg_text
+    assert "baseline" in svg_text
+    assert "current best" in svg_text
+
+    assert "accepted_improvement" in svg_text
+    assert "valid_not_improved" in svg_text
+    assert "rejected" in svg_text
+    assert "generation_failed" not in svg_text
+
+
+def test_combined_runtime_plot_works_without_baseline(tmp_path: Path) -> None:
+    """runtime_progress.svg works when baseline is missing but iterations have data."""
+
+    report_data = make_empty_report_data("exp_005", TARGET_FILE)
+    report_data.iterations = [
+        ReportIterationSummary(
+            iteration=1,
+            status="accepted_improvement",
+            runtime_ns_per_problem_median=90.0,
+            promoted=True,
+        ),
+        ReportIterationSummary(
+            iteration=2,
+            status="valid_not_improved",
+            runtime_ns_per_problem_median=85.0,
+            promoted=True,
+        ),
+    ]
+    plots_dir = tmp_path / "plots"
+    build_report_figures(report_data, plots_dir)
+
+    svg_path = plots_dir / "runtime_progress.svg"
+    assert svg_path.is_file()
+    svg_text = svg_path.read_text(encoding="utf-8")
+    assert "Runtime Progress" in svg_text
+    assert "current best" in svg_text
+
+
+def test_candidate_runtime_by_iteration_not_generated(tmp_path: Path) -> None:
+    """candidate_runtime_by_iteration.svg is no longer generated."""
+
+    from orchestrator.reporting.figure_builder import PLOT_FILENAMES
+
+    assert "candidate_runtime_by_iteration" not in PLOT_FILENAMES
+    assert "candidate_runtime_by_iteration.svg" not in PLOT_FILENAMES.values()
 
     report_data = _report_data()
-    report_data.reason_summary = [
-        ReportReasonSummaryItem(reason="runtime_not_improved", count=1, iterations=[2]),
+    plots_dir = tmp_path / "plots"
+    build_report_figures(report_data, plots_dir)
+
+    assert not (plots_dir / "candidate_runtime_by_iteration.svg").exists()
+
+
+def test_runtime_reduction_uses_semantic_colors(tmp_path: Path) -> None:
+    """runtime_reduction_by_iteration.svg uses semantic status colors."""
+
+    report_data = make_empty_report_data("exp_006", TARGET_FILE)
+    report_data.baseline_metrics = ReportBaselineMetrics(runtime_ns_per_problem_median=100.0)
+    report_data.iterations = [
+        ReportIterationSummary(
+            iteration=1,
+            status="accepted_improvement",
+            runtime_ns_per_problem_median=90.0,
+            speedup_vs_baseline=1.11,
+            promoted=True,
+        ),
+        ReportIterationSummary(
+            iteration=2,
+            status="valid_not_improved",
+            runtime_ns_per_problem_median=95.0,
+            speedup_vs_baseline=1.05,
+            promoted=False,
+        ),
+    ]
+    plots_dir = tmp_path / "plots"
+    build_report_figures(report_data, plots_dir)
+
+    svg_path = plots_dir / "runtime_reduction_by_iteration.svg"
+    assert svg_path.is_file()
+    svg_text = svg_path.read_text(encoding="utf-8")
+    assert "Runtime Reduction by Iteration" in svg_text
+    assert "baseline (1.0)" in svg_text
+
+
+def test_status_breakdown_uses_semantic_colors(tmp_path: Path) -> None:
+    """Status breakdown bars use semantic status colors."""
+
+    report_data = make_empty_report_data("exp_007", TARGET_FILE)
+    counts = default_status_counts()
+    counts["accepted_improvement"] = 1
+    counts["valid_not_improved"] = 1
+    counts["rejected"] = 1
+    report_data.status_counts = counts
+
+    plots_dir = tmp_path / "plots"
+    build_report_figures(report_data, plots_dir)
+
+    svg_path = plots_dir / "status_breakdown.svg"
+    assert svg_path.is_file()
+    svg_text = svg_path.read_text(encoding="utf-8")
+    assert "Status Breakdown" in svg_text
+
+
+def test_report_html_includes_reason_codes_and_final_sections(tmp_path: Path) -> None:
+    """Generated HTML contains reason codes, plots, and final section headings."""
+
+    report_data = _report_data()
+    report_data.reason_code_counts = [
+        ReportReasonCodeCount(
+            category="decision",
+            code="runtime_not_improved",
+            count=1,
+            iterations=[2],
+        ),
     ]
     report_data.reporting_status = ReportReportingStatus(
         enabled=True,
@@ -631,34 +775,82 @@ def test_report_html_includes_reason_summary_and_new_plot(tmp_path: Path) -> Non
     html_path = render_report_html(report_data, plot_paths, tmp_path / "report.html")
     html = html_path.read_text(encoding="utf-8")
 
-    assert "Reason Summary" in html
-    assert "candidate_runtime_by_iteration.svg" in html
+    assert "Iteration Outcome Codes" in html
+    assert "runtime_not_improved" in html
     assert "Speedup vs Current Best" in html
     assert "Closed-Loop Selection" in html
-    assert "Final Best Candidate Summary" in html
-    assert "Not generated" in html
+    assert "Final Best Candidate" in html
     # Must not contain explanatory prose
     assert "This report describes" not in html
     assert "The final promoted version" not in html
     assert "All benchmarked non-no-op candidates" not in html
     # Must not leak absolute temp path into HTML body
     assert str(tmp_path) not in html
+    assert "Not available" not in html
 
 
-def test_iteration_appendix_appears_after_artifact_map(tmp_path: Path) -> None:
+def test_appendix_contains_final_diff_area_after_iteration_outcomes(tmp_path: Path) -> None:
     report_data = _enriched_report_data()
     plot_paths = build_report_figures(report_data, tmp_path / "plots")
     html_path = render_report_html(report_data, plot_paths, tmp_path / "report.html")
     html = html_path.read_text(encoding="utf-8")
 
-    assert html.index('id="artifact-map"') < html.index('id="iteration-appendix"')
+    assert html.index('id="iteration-outcomes"') < html.index('id="appendix"')
+    assert 'id="final-code-diff"' in html
+    assert 'id="artifact-map"' not in html
+    assert 'id="iteration-appendix"' not in html
+
+
+def test_final_code_diff_is_visible_for_print_output(tmp_path: Path) -> None:
+    report_data = _enriched_report_data()
+    report_data.final_code_diff = "--- a/file.cc\n+++ b/file.cc\n@@ -1 +1 @@\n-old\n+new\n"
+
+    plot_paths = build_report_figures(report_data, tmp_path / "plots")
+    html_path = render_report_html(report_data, plot_paths, tmp_path / "report.html")
+    html = html_path.read_text(encoding="utf-8")
+
+    assert 'id="final-code-diff"' in html
+    assert "<details open>" in html
+    assert "Show final optimized source diff" in html
+    assert "old" in html
+    assert "new" in html
+    assert "Final optimized source diff was not available" not in html
+    assert "Not available" not in html
+
+
+def test_optional_empty_report_rows_are_hidden(tmp_path: Path) -> None:
+    report_data = _report_data()
+    report_data.benchmark_config = ReportBenchmarkConfig(
+        family="absolute_pose_solvers",
+        solver="lambdatwist_p3p",
+        build_type="Release",
+    )
+    report_data.experiment_metadata = ReportExperimentMetadata(
+        repository={"git_commit": "abc123"},
+        environment={"python_version": "3.12"},
+    )
+
+    plot_paths = build_report_figures(report_data, tmp_path / "plots")
+    html_path = render_report_html(report_data, plot_paths, tmp_path / "report.html")
+    html = html_path.read_text(encoding="utf-8")
+
+    assert "Experiment ID" in html
+    assert "Target File" in html
+    assert "Seed" not in html
+    assert "Tolerance" not in html
+    assert "Camera FOV" not in html
+    assert "Started At" not in html
+    assert "Finished At" not in html
+    assert "CMake Executable" not in html
+    assert "CMake Generator" not in html
+    assert "C++ Compiler" not in html
 
 
 def test_report_template_packaging_renders_real_template(tmp_path: Path) -> None:
-    """report_v1.html.j2 exists on disk and generate_basic_report renders report.html."""
+    """report.html.j2 exists on disk and generate_basic_report renders report.html."""
 
     from pathlib import Path as _Path
-    template_path = _Path(__file__).resolve().parents[2] / "orchestrator" / "reporting" / "templates" / "report_v1.html.j2"
+    template_path = _Path(__file__).resolve().parents[2] / "orchestrator" / "reporting" / "templates" / "report.html.j2"
     assert template_path.is_file(), f"Template missing: {template_path}"
 
     experiment_dir = tmp_path / "results" / "experiments" / "exp_tpl"
@@ -682,11 +874,14 @@ def test_report_template_packaging_renders_real_template(tmp_path: Path) -> None
     assert html_path.is_file()
     html = html_path.read_text(encoding="utf-8")
     assert "exp_tpl" in html
+    for section_id in NEW_SECTION_IDS:
+        assert f'id="{section_id}"' in html
     payload = json.loads((experiment_dir / "report" / "report_data.json").read_text(encoding="utf-8"))
     assert payload["reporting_status"]["status"] == "completed"
     assert payload["reporting_status"]["pdf_generated"] is False
     assert payload["reporting_status"]["pdf_display"] == 'Not generated. Current reporting formats: ["html"]'
-    assert "<th>Status</th><td>completed</td>" in html
+    assert "Not generated" not in html
+    assert "Not available" not in html
     assert "PDF requested" not in payload["reporting_status"]["pdf_display"]
 
 
@@ -699,7 +894,6 @@ def test_phase_timings_chart_still_generated_without_benchmark_column(tmp_path: 
     assert (plots_dir / "phase_timings.svg").is_file()
     html = html_path.read_text(encoding="utf-8")
     assert "Benchmark s" not in html
-    assert "Verification time includes build" in html
     assert 'colspan="6"' not in html
 
 
@@ -724,15 +918,15 @@ def test_html_contains_final_comparison_section_and_llm_kpis(tmp_path: Path) -> 
     html_path = render_report_html(report_data, plot_paths, tmp_path / "report.html")
     html = html_path.read_text(encoding="utf-8")
 
-    assert 'id="final-comparison"' in html
+    assert 'id="final-result"' in html
     assert "Speedup vs Original Baseline" in html
-    assert "Runtime Reduction %" in html
-    assert "Final Correctness Passed" in html
+    assert "Runtime Reduction" in html
+    assert "Correctness Passed" in html
     assert "Most Expensive Iteration" in html
     assert "Highest Latency Iteration" in html
 
 
-def test_executive_summary_uses_final_selection_baseline_runtime(tmp_path: Path) -> None:
+def test_final_result_uses_final_best_runtime_fallback(tmp_path: Path) -> None:
     report_data = _report_data()
     report_data.final_result.final_speedup_vs_baseline = 1.25
     report_data.final_result.final_runtime_reduction_percent = 20.0
@@ -744,11 +938,13 @@ def test_executive_summary_uses_final_selection_baseline_runtime(tmp_path: Path)
     plot_paths = build_report_figures(report_data, tmp_path / "plots")
     html_path = render_report_html(report_data, plot_paths, tmp_path / "report.html")
     html = html_path.read_text(encoding="utf-8")
-    executive = html.split('id="experiment-configuration"', 1)[0]
+    final_result = html.split('id="final-result"', 1)[1].split(
+        'id="optimization-process"', 1
+    )[0]
 
-    assert "Baseline Runtime ns/problem</strong>900" in executive
-    assert "Final Best Runtime ns/problem</strong>700" in executive
-    assert "Baseline Runtime ns/problem</strong>1000" not in executive
+    assert "900" in final_result
+    assert "700" in final_result
+    assert "1000" not in final_result
 
 
 def test_executive_summary_not_available_when_final_selection_metrics_null(tmp_path: Path) -> None:
@@ -761,39 +957,43 @@ def test_executive_summary_not_available_when_final_selection_metrics_null(tmp_p
     plot_paths = build_report_figures(report_data, tmp_path / "plots")
     html_path = render_report_html(report_data, plot_paths, tmp_path / "report.html")
     html = html_path.read_text(encoding="utf-8")
-    executive = html.split('id="experiment-configuration"', 1)[0]
+    executive = html.split('id="setup"', 1)[0]
+    final_result = html.split('id="final-result"', 1)[1].split(
+        'id="optimization-process"', 1
+    )[0]
 
-    assert "Final Selection Speedup</strong>Not available" in executive
-    assert "Final Selection Runtime Reduction %</strong>Not available" in executive
-    assert "Correctness Preserved</strong>Not available" in executive
-    assert "Headline performance metrics are unavailable" in executive
+    assert "Speedup vs Baseline" in executive
+    assert "Runtime Reduction" in executive
+    assert "Correctness Preserved" in executive
+    assert "Final repeated-median comparison metrics are unavailable" in final_result
+    assert "Not available" not in html
 
 
-def test_final_comparison_html_not_available_message(tmp_path: Path) -> None:
+def test_final_result_html_missing_metrics_message(tmp_path: Path) -> None:
     report_data = _report_data()
 
     plot_paths = build_report_figures(report_data, tmp_path / "plots")
     html_path = render_report_html(report_data, plot_paths, tmp_path / "report.html")
     html = html_path.read_text(encoding="utf-8")
-    final_comparison = html.split('id="final-comparison"', 1)[1].split(
-        'id="baseline-metrics"', 1
+    final_result = html.split('id="final-result"', 1)[1].split(
+        'id="optimization-process"', 1
     )[0]
 
-    assert "Final single-run comparison was not available" in final_comparison
+    assert "Final repeated-median comparison metrics are unavailable" in final_result
 
 
-def test_final_comparison_html_failed_message(tmp_path: Path) -> None:
+def test_final_result_html_failed_message(tmp_path: Path) -> None:
     report_data = _report_data()
     report_data.final_selection = ReportFinalSelection(status="failed")
 
     plot_paths = build_report_figures(report_data, tmp_path / "plots")
     html_path = render_report_html(report_data, plot_paths, tmp_path / "report.html")
     html = html_path.read_text(encoding="utf-8")
-    final_comparison = html.split('id="final-comparison"', 1)[1].split(
-        'id="baseline-metrics"', 1
+    final_result = html.split('id="final-result"', 1)[1].split(
+        'id="optimization-process"', 1
     )[0]
 
-    assert "Final single-run comparison failed" in final_comparison
+    assert "because the final selection report failed" in final_result
 
 
 def test_final_validation_runtime_distribution_plot_not_generated(tmp_path: Path) -> None:
@@ -806,12 +1006,12 @@ def test_final_validation_runtime_distribution_plot_not_generated(tmp_path: Path
 
 
 # ---------------------------------------------------------------------------
-# Fix 4: Runtime Improvement label in HTML
+# Fix 4: Runtime Delta label in HTML
 # ---------------------------------------------------------------------------
 
 
 def test_html_contains_runtime_improvement_label(tmp_path: Path) -> None:
-    """HTML renders 'Runtime Improvement ns/problem' label with positive value."""
+    """HTML renders 'Runtime Delta, ns/problem' label with positive value."""
 
     report_data = _report_data()
     report_data.final_best_candidate = ReportFinalBestCandidate(
@@ -825,7 +1025,7 @@ def test_html_contains_runtime_improvement_label(tmp_path: Path) -> None:
     html_path = render_report_html(report_data, plot_paths, tmp_path / "report.html")
     html = html_path.read_text(encoding="utf-8")
 
-    assert "Runtime Improvement ns/problem" in html
+    assert "Runtime Delta, ns/problem" in html
     assert "20" in html
 
 
@@ -872,7 +1072,7 @@ def test_list_fields_render_as_comma_separated(tmp_path: Path) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Fix 7: Empty reason_summary hides the section
+# Fix 7: reason_summary is not rendered as a standalone section
 # ---------------------------------------------------------------------------
 
 
@@ -889,8 +1089,8 @@ def test_reason_summary_section_absent_when_empty(tmp_path: Path) -> None:
     assert "Reason Summary" not in html
 
 
-def test_reason_summary_section_present_when_nonempty(tmp_path: Path) -> None:
-    """Reason Summary section is rendered when reason_summary has entries."""
+def test_reason_summary_section_absent_when_nonempty(tmp_path: Path) -> None:
+    """Reason Summary is no longer rendered as a standalone report section."""
 
     report_data = _report_data()
     report_data.reason_summary = [
@@ -908,5 +1108,680 @@ def test_reason_summary_section_present_when_nonempty(tmp_path: Path) -> None:
     html_path = render_report_html(report_data, plot_paths, tmp_path / "report.html")
     html = html_path.read_text(encoding="utf-8")
 
-    assert "Reason Summary" in html
-    assert "runtime_not_improved" in html
+    assert "Reason Summary" not in html
+    assert "runtime_not_improved" not in html
+    assert 'id="reason-summary"' not in html
+
+
+# ---------------------------------------------------------------------------
+# correctness_metrics plot - GT Found % (item 1)
+# ---------------------------------------------------------------------------
+
+
+def test_correctness_metrics_uses_gt_found_percent(tmp_path: Path) -> None:
+    report_data = make_empty_report_data("exp_001", TARGET_FILE)
+    report_data.experiment.total_iterations = 3
+    report_data.experiment.completed_iterations = 3
+    report_data.baseline_metrics = ReportBaselineMetrics(
+        runtime_ns_per_problem_median=100.0,
+        gt_found_percent=95.0,
+        correctness_passed=True,
+    )
+    report_data.iterations = [
+        ReportIterationSummary(
+            iteration=1,
+            status="accepted_improvement",
+            runtime_ns_per_problem_median=90.0,
+            gt_found_percent=94.0,
+            correctness_passed=True,
+            promoted=True,
+        ),
+        ReportIterationSummary(
+            iteration=2,
+            status="valid_not_improved",
+            runtime_ns_per_problem_median=88.0,
+            gt_found_percent=93.5,
+            correctness_passed=True,
+            promoted=False,
+        ),
+        ReportIterationSummary(
+            iteration=3,
+            status="rejected",
+            runtime_ns_per_problem_median=85.0,
+            gt_found_percent=92.0,
+            correctness_passed=False,
+            promoted=False,
+        ),
+    ]
+
+    plots_dir = tmp_path / "plots"
+    build_report_figures(report_data, plots_dir)
+
+    svg_path = plots_dir / "correctness_metrics.svg"
+    assert svg_path.is_file()
+    svg_text = svg_path.read_text(encoding="utf-8")
+    assert "GT Found %" in svg_text
+    assert "baseline" in svg_text
+    assert "95" in svg_text
+
+
+def test_correctness_metrics_fallback_to_pass_fail(tmp_path: Path) -> None:
+    report_data = make_empty_report_data("exp_001", TARGET_FILE)
+    report_data.experiment.total_iterations = 2
+    report_data.experiment.completed_iterations = 2
+    report_data.baseline_metrics = ReportBaselineMetrics(
+        runtime_ns_per_problem_median=100.0,
+        correctness_passed=True,
+    )
+    report_data.iterations = [
+        ReportIterationSummary(
+            iteration=1,
+            status="accepted_improvement",
+            runtime_ns_per_problem_median=90.0,
+            correctness_passed=True,
+            promoted=True,
+        ),
+        ReportIterationSummary(
+            iteration=2,
+            status="verification_failed",
+            correctness_passed=False,
+            promoted=False,
+        ),
+    ]
+
+    plots_dir = tmp_path / "plots"
+    build_report_figures(report_data, plots_dir)
+
+    svg_path = plots_dir / "correctness_metrics.svg"
+    svg_text = svg_path.read_text(encoding="utf-8")
+    assert "Pass" in svg_text or "Fail" in svg_text
+    assert "GT Found %" not in svg_text
+
+
+# ---------------------------------------------------------------------------
+# GT Found Δ KPI (item 8)
+# ---------------------------------------------------------------------------
+
+
+def test_gt_found_delta_kpi_present(tmp_path: Path) -> None:
+    report_data = _report_data()
+    report_data.final_selection = ReportFinalSelection(
+        status="completed",
+        final_best_is_baseline=False,
+        speedup_vs_original_baseline=1.25,
+        runtime_reduction_percent=20.0,
+        final_gt_found_delta_points=-2.5,
+        final_correctness_passed=True,
+    )
+
+    plot_paths = build_report_figures(report_data, tmp_path / "plots")
+    html_path = render_report_html(report_data, plot_paths, tmp_path / "report.html")
+    html = html_path.read_text(encoding="utf-8")
+
+    assert "GT Found Δ" in html
+    assert "-2.50" in html
+    assert "pp" in html
+
+
+def test_gt_found_delta_kpi_hidden_when_missing(tmp_path: Path) -> None:
+    report_data = _report_data()
+
+    plot_paths = build_report_figures(report_data, tmp_path / "plots")
+    html_path = render_report_html(report_data, plot_paths, tmp_path / "report.html")
+    html = html_path.read_text(encoding="utf-8")
+
+    assert "GT Found Δ" not in html
+
+
+def test_gt_found_delta_kpi_fallback_to_final_best_candidate(tmp_path: Path) -> None:
+    report_data = _report_data()
+    report_data.final_best_candidate = ReportFinalBestCandidate(
+        iteration=1,
+        runtime_ns_per_problem_median=800.0,
+        speedup_vs_baseline=1.25,
+        gt_found_delta_points=-1.0,
+    )
+
+    plot_paths = build_report_figures(report_data, tmp_path / "plots")
+    html_path = render_report_html(report_data, plot_paths, tmp_path / "report.html")
+    html = html_path.read_text(encoding="utf-8")
+
+    assert "GT Found Δ" in html
+    assert "-1.00" in html
+
+
+# ---------------------------------------------------------------------------
+# GT Found Max Drop Points conditional (item 7)
+# ---------------------------------------------------------------------------
+
+
+def test_gt_found_max_drop_hidden_when_gate_disabled(tmp_path: Path) -> None:
+    report_data = _report_data()
+    report_data.selection_policy.gt_found_gate_enabled = False
+    report_data.selection_policy.gt_found_max_drop_points = 5.0
+
+    plot_paths = build_report_figures(report_data, tmp_path / "plots")
+    html_path = render_report_html(report_data, plot_paths, tmp_path / "report.html")
+    html = html_path.read_text(encoding="utf-8")
+
+    assert "GT Found Gate Enabled" in html
+    assert "GT Found Max Drop Points" not in html
+
+
+def test_gt_found_max_drop_shown_when_gate_enabled(tmp_path: Path) -> None:
+    report_data = _report_data()
+    report_data.selection_policy.gt_found_gate_enabled = True
+    report_data.selection_policy.gt_found_max_drop_points = 5.0
+
+    plot_paths = build_report_figures(report_data, tmp_path / "plots")
+    html_path = render_report_html(report_data, plot_paths, tmp_path / "report.html")
+    html = html_path.read_text(encoding="utf-8")
+
+    assert "GT Found Max Drop Points" in html
+
+
+# ---------------------------------------------------------------------------
+# Selected Iteration Details empty/filled (item 5)
+# ---------------------------------------------------------------------------
+
+
+def test_selected_iteration_empty_shows_message_no_table(tmp_path: Path) -> None:
+    report_data = make_empty_report_data("exp_001", TARGET_FILE)
+    report_data.experiment.total_iterations = 1
+    report_data.experiment.completed_iterations = 1
+    report_data.baseline_metrics = ReportBaselineMetrics(
+        runtime_ns_per_problem_median=100.0,
+        correctness_passed=True,
+    )
+    report_data.iterations = [
+        ReportIterationSummary(
+            iteration=1,
+            status="no_op",
+            candidate_summary="No changes made.",
+            promoted=False,
+        ),
+    ]
+
+    plot_paths = build_report_figures(report_data, tmp_path / "plots")
+    html_path = render_report_html(report_data, plot_paths, tmp_path / "report.html")
+    html = html_path.read_text(encoding="utf-8")
+
+    assert "Selected Iteration Details" in html
+    assert "No accepted, failed, or rejected iterations required appendix-level details." in html
+    appendix_section = html.split('id="appendix"', 1)[1]
+    assert "<table" not in appendix_section
+
+
+def test_selected_iteration_populated_renders_table(tmp_path: Path) -> None:
+    report_data = _report_data()
+    report_data.iterations[0].outcome_reason = ReportOutcomeReason(
+        category="decision",
+        code="accepted_improvement",
+        message="Candidate improved the current best runtime.",
+    )
+
+    plot_paths = build_report_figures(report_data, tmp_path / "plots")
+    html_path = render_report_html(report_data, plot_paths, tmp_path / "report.html")
+    html = html_path.read_text(encoding="utf-8")
+
+    assert "Selected Iteration Details" in html
+    assert "<thead>" in html
+    assert "<table" in html
+
+
+# ---------------------------------------------------------------------------
+# Sticky TOC (item 10)
+# ---------------------------------------------------------------------------
+
+
+def test_sticky_toc_css_present(tmp_path: Path) -> None:
+    report_data = _report_data()
+
+    plot_paths = build_report_figures(report_data, tmp_path / "plots")
+    html_path = render_report_html(report_data, plot_paths, tmp_path / "report.html")
+    html = html_path.read_text(encoding="utf-8")
+
+    assert "position: sticky" in html
+    assert "z-index: 50" in html
+
+
+# ---------------------------------------------------------------------------
+# runtime_ns formatting in per-iteration summary (item 9)
+# ---------------------------------------------------------------------------
+
+
+def test_runtime_ns_applied_in_per_iteration_summary(tmp_path: Path) -> None:
+    report_data = make_empty_report_data("exp_001", TARGET_FILE)
+    report_data.experiment.total_iterations = 1
+    report_data.experiment.completed_iterations = 1
+    report_data.baseline_metrics = ReportBaselineMetrics(
+        runtime_ns_per_problem_median=1000.0,
+        correctness_passed=True,
+    )
+    report_data.iterations = [
+        ReportIterationSummary(
+            iteration=1,
+            status="accepted_improvement",
+            runtime_ns_per_problem_median=485.988,
+            min_runtime_ns_per_problem_median=400.567,
+            speedup_vs_baseline=2.058,
+            correctness_passed=True,
+            promoted=True,
+        ),
+    ]
+
+    plot_paths = build_report_figures(report_data, tmp_path / "plots")
+    html_path = render_report_html(report_data, plot_paths, tmp_path / "report.html")
+    html = html_path.read_text(encoding="utf-8")
+
+    assert "485.99" in html
+    assert "400.57" in html
+
+
+# ---------------------------------------------------------------------------
+# Iteration Outcomes 2x2 grid (item 12)
+# ---------------------------------------------------------------------------
+
+
+def test_iteration_outcomes_two_column_grid(tmp_path: Path) -> None:
+    report_data = _report_data()
+
+    plot_paths = build_report_figures(report_data, tmp_path / "plots")
+    html_path = render_report_html(report_data, plot_paths, tmp_path / "report.html")
+    html = html_path.read_text(encoding="utf-8")
+
+    iteration_outcomes_section = html.split('id="iteration-outcomes"', 1)[1].split(
+        'id="cost-performance-profile"', 1
+    )[0]
+    assert "plot-grid-two-column" in iteration_outcomes_section
+
+
+# ---------------------------------------------------------------------------
+# Total Iterations label (item 11)
+# ---------------------------------------------------------------------------
+
+
+def test_total_iterations_label(tmp_path: Path) -> None:
+    report_data = _report_data()
+
+    plot_paths = build_report_figures(report_data, tmp_path / "plots")
+    html_path = render_report_html(report_data, plot_paths, tmp_path / "report.html")
+    html = html_path.read_text(encoding="utf-8")
+
+    executive = html.split('id="setup"', 1)[0]
+    assert "Total Iterations" in executive
+    assert "Total / Completed" not in executive
+
+
+# ---------------------------------------------------------------------------
+# Diff stats optional fields (item 6)
+# ---------------------------------------------------------------------------
+
+
+def test_diff_stats_optional_fields_hidden_when_missing(tmp_path: Path) -> None:
+    report_data = _enriched_report_data()
+    report_data.final_best_candidate.diff_stats = ReportDiffStats(
+        files_changed=1,
+        lines_added=4,
+        lines_removed=2,
+        changed_blocks=1,
+        edit_count=None,
+        fallback_used=None,
+    )
+
+    plot_paths = build_report_figures(report_data, tmp_path / "plots")
+    html_path = render_report_html(report_data, plot_paths, tmp_path / "report.html")
+    html = html_path.read_text(encoding="utf-8")
+
+    cost_section = html.split('id="cost-performance-profile"', 1)[1].split(
+        'id="reproducibility"', 1
+    )[0]
+    assert "Files Changed" in cost_section
+    assert "Lines Added" in cost_section
+    assert "Changed Blocks" in cost_section
+    assert "Edit Count" not in cost_section
+    assert "Fallback Used" not in cost_section
+
+
+def test_diff_stats_optional_fields_shown_when_present(tmp_path: Path) -> None:
+    report_data = _enriched_report_data()
+    report_data.final_best_candidate.diff_stats = ReportDiffStats(
+        files_changed=1,
+        lines_added=4,
+        lines_removed=2,
+        changed_blocks=1,
+        edit_count=2,
+        fallback_used=True,
+    )
+
+    plot_paths = build_report_figures(report_data, tmp_path / "plots")
+    html_path = render_report_html(report_data, plot_paths, tmp_path / "report.html")
+    html = html_path.read_text(encoding="utf-8")
+
+    assert "Edit Count" in html
+    assert "Fallback Used" in html
+
+
+# ---------------------------------------------------------------------------
+# Status badge semantic colors (item 3)
+# ---------------------------------------------------------------------------
+
+
+def test_status_badge_css_colors_match_semantics(tmp_path: Path) -> None:
+    report_data = _report_data()
+
+    plot_paths = build_report_figures(report_data, tmp_path / "plots")
+    html_path = render_report_html(report_data, plot_paths, tmp_path / "report.html")
+    html = html_path.read_text(encoding="utf-8")
+
+    assert ".status-valid_not_improved" in html
+    assert ".status-no_op" in html
+    assert "status-valid_not_improved,\n    .status-no_op" not in html
+
+
+# ---------------------------------------------------------------------------
+# Timestamps use human_datetime (item 4)
+# ---------------------------------------------------------------------------
+
+
+def test_timestamps_use_human_datetime(tmp_path: Path) -> None:
+    report_data = _report_data()
+    report_data.experiment_metadata = ReportExperimentMetadata(
+        started_at="2026-05-30T14:22:33.123456+00:00",
+        finished_at="2026-05-30T15:10:05Z",
+        repository={"git_commit": "abc123"},
+        environment={"python_version": "3.12"},
+    )
+
+    plot_paths = build_report_figures(report_data, tmp_path / "plots")
+    html_path = render_report_html(report_data, plot_paths, tmp_path / "report.html")
+    html = html_path.read_text(encoding="utf-8")
+
+    assert "2026-05-30 14:22" in html
+    assert "2026-05-30 15:10" in html
+    assert "123456" not in html
+
+
+# ---------------------------------------------------------------------------
+# Issue 1: Status badge overflow CSS
+# ---------------------------------------------------------------------------
+
+
+def test_status_badge_wrap_css_in_iteration_tables(tmp_path: Path) -> None:
+    report_data = _report_data()
+
+    plot_paths = build_report_figures(report_data, tmp_path / "plots")
+    html_path = render_report_html(report_data, plot_paths, tmp_path / "report.html")
+    html = html_path.read_text(encoding="utf-8")
+
+    assert "white-space: normal" in html
+    assert "overflow-wrap: anywhere" in html
+    assert "word-break: break-word" in html
+    assert "max-width: 100%" in html
+
+
+# ---------------------------------------------------------------------------
+# Issue 2: Scroll margin for sticky TOC
+# ---------------------------------------------------------------------------
+
+
+def test_scroll_margin_top_in_section_css(tmp_path: Path) -> None:
+    report_data = _report_data()
+
+    plot_paths = build_report_figures(report_data, tmp_path / "plots")
+    html_path = render_report_html(report_data, plot_paths, tmp_path / "report.html")
+    html = html_path.read_text(encoding="utf-8")
+
+    assert "scroll-margin-top: 140px" in html
+    assert "scroll-margin-top: 0" in html
+
+
+# ---------------------------------------------------------------------------
+# Issue 3: Decision Metric uses data not hardcoded
+# ---------------------------------------------------------------------------
+
+
+def test_decision_metric_not_hardcoded(tmp_path: Path) -> None:
+    report_data = _report_data()
+    report_data.final_selection = ReportFinalSelection(
+        status="completed",
+        decision_metric="median_runtime",
+        speedup_vs_original_baseline=1.25,
+        runtime_reduction_percent=20.0,
+        final_correctness_passed=True,
+    )
+
+    plot_paths = build_report_figures(report_data, tmp_path / "plots")
+    html_path = render_report_html(report_data, plot_paths, tmp_path / "report.html")
+    html = html_path.read_text(encoding="utf-8")
+
+    # "Decision Metric" KPI card uses the actual data field value
+    assert "median_runtime" in html
+
+
+def test_decision_metric_fallbacks_to_baseline(tmp_path: Path) -> None:
+    report_data = _report_data()
+    report_data.baseline_metrics.decision_metric = "minimum_runtime"
+
+    plot_paths = build_report_figures(report_data, tmp_path / "plots")
+    html_path = render_report_html(report_data, plot_paths, tmp_path / "report.html")
+    html = html_path.read_text(encoding="utf-8")
+
+    assert "minimum_runtime" in html
+
+
+# ---------------------------------------------------------------------------
+# Issue 4: delta_pp applied to percentage-point deltas in comparison table
+# ---------------------------------------------------------------------------
+
+
+def test_valid_solutions_delta_uses_delta_pp(tmp_path: Path) -> None:
+    report_data = _report_data()
+    report_data.final_selection = ReportFinalSelection(
+        status="completed",
+        speedup_vs_original_baseline=1.25,
+        runtime_reduction_percent=20.0,
+        final_valid_solutions_delta_points=-1.50,
+        final_correctness_passed=True,
+    )
+
+    plot_paths = build_report_figures(report_data, tmp_path / "plots")
+    html_path = render_report_html(report_data, plot_paths, tmp_path / "report.html")
+    html = html_path.read_text(encoding="utf-8")
+
+    assert "-1.50\u202fpp" in html
+
+
+def test_gt_found_delta_uses_delta_pp_in_comparison(tmp_path: Path) -> None:
+    report_data = _report_data()
+    report_data.final_selection = ReportFinalSelection(
+        status="completed",
+        speedup_vs_original_baseline=1.25,
+        runtime_reduction_percent=20.0,
+        final_gt_found_delta_points=0.00,
+        final_correctness_passed=True,
+    )
+
+    plot_paths = build_report_figures(report_data, tmp_path / "plots")
+    html_path = render_report_html(report_data, plot_paths, tmp_path / "report.html")
+    html = html_path.read_text(encoding="utf-8")
+
+    assert "0.00\u202fpp" in html
+
+
+# ---------------------------------------------------------------------------
+# Issue 5: final_valid_solutions_percent uses percent filter
+# ---------------------------------------------------------------------------
+
+
+def test_final_valid_solutions_percent_uses_percent_filter(tmp_path: Path) -> None:
+    report_data = _report_data()
+    report_data.final_selection = ReportFinalSelection(
+        status="completed",
+        speedup_vs_original_baseline=1.25,
+        runtime_reduction_percent=20.0,
+        final_valid_solutions_percent=95.00,
+        final_correctness_passed=True,
+    )
+
+    plot_paths = build_report_figures(report_data, tmp_path / "plots")
+    html_path = render_report_html(report_data, plot_paths, tmp_path / "report.html")
+    html = html_path.read_text(encoding="utf-8")
+
+    assert "95.00%" in html
+
+
+# ---------------------------------------------------------------------------
+# Issue 6: Missing final diff message distinguishes two cases
+# ---------------------------------------------------------------------------
+
+
+def test_missing_diff_message_when_baseline_is_final_best(tmp_path: Path) -> None:
+    report_data = _report_data()
+    report_data.final_selection = ReportFinalSelection(
+        status="completed",
+        final_best_is_baseline=True,
+        speedup_vs_original_baseline=1.0,
+        runtime_reduction_percent=0.0,
+        final_correctness_passed=True,
+    )
+    report_data.final_code_diff = None
+
+    plot_paths = build_report_figures(report_data, tmp_path / "plots")
+    html_path = render_report_html(report_data, plot_paths, tmp_path / "report.html")
+    html = html_path.read_text(encoding="utf-8")
+
+    assert "final selected source is the original baseline" in html
+    assert "artifact is missing" not in html
+
+
+def test_missing_diff_message_when_artifact_missing(tmp_path: Path) -> None:
+    report_data = _report_data()
+    report_data.final_selection = ReportFinalSelection(
+        status="completed",
+        final_best_is_baseline=False,
+        speedup_vs_original_baseline=1.25,
+        runtime_reduction_percent=20.0,
+        final_correctness_passed=True,
+    )
+    report_data.final_code_diff = None
+
+    plot_paths = build_report_figures(report_data, tmp_path / "plots")
+    html_path = render_report_html(report_data, plot_paths, tmp_path / "report.html")
+    html = html_path.read_text(encoding="utf-8")
+
+    assert "artifact is missing" in html
+    assert "final selected source is the original baseline" not in html
+
+
+# ---------------------------------------------------------------------------
+# Issue 8: Speedup cell in Selected Iteration Details uses <br>
+# ---------------------------------------------------------------------------
+
+
+def test_speedup_cell_two_line_format(tmp_path: Path) -> None:
+    report_data = _report_data()
+    report_data.iterations[0].outcome_reason = ReportOutcomeReason(
+        category="decision",
+        code="accepted_improvement",
+        message="Accepted.",
+    )
+
+    plot_paths = build_report_figures(report_data, tmp_path / "plots")
+    html_path = render_report_html(report_data, plot_paths, tmp_path / "report.html")
+    html = html_path.read_text(encoding="utf-8")
+
+    appendix_section = html.split('id="appendix"', 1)[1]
+    assert "<br>" in appendix_section
+    assert "; current best" not in appendix_section
+
+
+# ---------------------------------------------------------------------------
+# Issue 9: Diff stats zero vs None distinction
+# ---------------------------------------------------------------------------
+
+
+def test_diff_stats_explicit_zero_is_shown(tmp_path: Path) -> None:
+    report_data = _enriched_report_data()
+    report_data.final_best_candidate.diff_stats = ReportDiffStats(
+        files_changed=0,
+        lines_added=0,
+        lines_removed=0,
+        changed_blocks=0,
+        edit_count=0,
+    )
+
+    plot_paths = build_report_figures(report_data, tmp_path / "plots")
+    html_path = render_report_html(report_data, plot_paths, tmp_path / "report.html")
+    html = html_path.read_text(encoding="utf-8")
+
+    cost_section = html.split('id="cost-performance-profile"', 1)[1].split(
+        'id="reproducibility"', 1
+    )[0]
+    assert "Files Changed" in cost_section
+    assert "0" in cost_section
+
+
+def test_diff_stats_missing_fields_are_hidden(tmp_path: Path) -> None:
+    report_data = _enriched_report_data()
+    report_data.final_best_candidate.diff_stats = ReportDiffStats(
+        files_changed=1,
+        lines_added=None,
+        lines_removed=None,
+        changed_blocks=1,
+    )
+
+    plot_paths = build_report_figures(report_data, tmp_path / "plots")
+    html_path = render_report_html(report_data, plot_paths, tmp_path / "report.html")
+    html = html_path.read_text(encoding="utf-8")
+
+    cost_section = html.split('id="cost-performance-profile"', 1)[1].split(
+        'id="reproducibility"', 1
+    )[0]
+    assert "Files Changed" in cost_section
+    assert "Changed Blocks" in cost_section
+    assert "Lines Added" not in cost_section
+    assert "Lines Removed" not in cost_section
+
+
+def test_diff_stats_all_none_shows_fallback(tmp_path: Path) -> None:
+    report_data = _enriched_report_data()
+    report_data.final_best_candidate.diff_stats = ReportDiffStats()
+
+    plot_paths = build_report_figures(report_data, tmp_path / "plots")
+    html_path = render_report_html(report_data, plot_paths, tmp_path / "report.html")
+    html = html_path.read_text(encoding="utf-8")
+
+    cost_section = html.split('id="cost-performance-profile"', 1)[1].split(
+        'id="reproducibility"', 1
+    )[0]
+    assert "Final Diff Statistics" not in cost_section
+    assert "Final diff statistics were not recorded" in cost_section
+
+
+# ---------------------------------------------------------------------------
+# Issue 11: GT Found Δ fallback from iteration data
+# ---------------------------------------------------------------------------
+
+
+def test_gt_found_delta_fallback_from_iteration_data(tmp_path: Path) -> None:
+    report_data = _report_data()
+    report_data.final_result.final_best_iteration = 1
+    report_data.iterations = [
+        ReportIterationSummary(
+            iteration=1,
+            status="accepted_improvement",
+            runtime_ns_per_problem_median=800.0,
+            speedup_vs_baseline=1.25,
+            correctness_passed=True,
+            promoted=True,
+            gt_found_delta_points_vs_original_baseline=-0.50,
+        ),
+    ]
+
+    plot_paths = build_report_figures(report_data, tmp_path / "plots")
+    html_path = render_report_html(report_data, plot_paths, tmp_path / "report.html")
+    html = html_path.read_text(encoding="utf-8")
+
+    assert "GT Found Δ" in html
+    assert "-0.50" in html

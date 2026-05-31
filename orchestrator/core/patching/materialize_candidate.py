@@ -75,13 +75,20 @@ def _parse_args(argv: list[str]) -> argparse.Namespace:
         help="Keep the candidate workspace if materialization fails.",
     )
     parser.add_argument(
+        "--target-file",
+        required=True,
+        help=(
+            "Repo-relative target file path. All edits apply to this file."
+        ),
+    )
+    parser.add_argument(
         "--allowed-file",
         action="append",
         default=None,
         dest="allowed_files",
         help=(
             "Externally allowed file path (may be repeated). "
-            "If provided, candidate target_files and diff paths "
+            "If provided, --target-file and changed diff paths "
             "must be a subset of these allowed files."
         ),
     )
@@ -143,36 +150,13 @@ def _resolve_scope_metadata(
     )
 
 
-def _validate_target_files(candidate_data: dict[str, Any]) -> list[str]:
-    if "target_files" not in candidate_data:
-        raise ValueError("candidate.json is missing required field 'target_files'.")
-
-    target_files = candidate_data["target_files"]
-    if not isinstance(target_files, list) or not target_files:
-        raise ValueError("candidate.json field 'target_files' must be a non-empty list.")
-
-    normalized_files = []
-    seen = set()
-    for index, target_file in enumerate(target_files):
-        if not isinstance(target_file, str):
-            raise ValueError(
-                "candidate.json field 'target_files' must contain only strings; "
-                f"item {index} is {type(target_file).__name__}."
-            )
-        normalized_file = _normalize_candidate_path(target_file)
-        if normalized_file not in seen:
-            normalized_files.append(normalized_file)
-            seen.add(normalized_file)
-
-    return normalized_files
-
-
 def _is_positive_int(value: Any) -> bool:
     return isinstance(value, int) and not isinstance(value, bool) and value > 0
 
 
 def _validate_line_range_edits(
-    candidate_data: dict[str, Any], target_files: list[str]
+    candidate_data: dict[str, Any],
+    target_file: str,
 ) -> list[dict[str, Any]]:
     if "edits" not in candidate_data:
         raise ValueError("line_range_edits candidate.json is missing required field 'edits'.")
@@ -181,31 +165,11 @@ def _validate_line_range_edits(
     if not isinstance(raw_edits, list):
         raise ValueError("line_range_edits candidate.json field 'edits' must be a list.")
 
-    expected_effect = candidate_data.get("expected_effect")
-    if expected_effect != "none" and not raw_edits:
-        raise ValueError(
-            "line_range_edits candidate has no edits, but expected_effect is not 'none'."
-        )
-
-    target_set = set(target_files)
     validated_edits: list[dict[str, Any]] = []
     for index, edit in enumerate(raw_edits):
         label = f"line_range_edits edit {index}"
         if not isinstance(edit, dict):
             raise ValueError(f"{label} must be a JSON object.")
-
-        raw_file = edit.get("file")
-        if not isinstance(raw_file, str) or not raw_file.strip():
-            raise ValueError(f"{label} field 'file' must be a non-empty string.")
-        try:
-            edit_file = _normalize_candidate_path(raw_file)
-        except ValueError as exc:
-            raise ValueError(f"{label} field 'file' is invalid: {exc}") from exc
-        if edit_file not in target_set:
-            raise ValueError(
-                f"{label} modifies file not listed in candidate.json['target_files']: "
-                f"{edit_file}"
-            )
 
         start_line = edit.get("start_line")
         end_line = edit.get("end_line")
@@ -226,7 +190,7 @@ def _validate_line_range_edits(
         validated_edits.append(
             {
                 "index": index,
-                "file": edit_file,
+                "file": target_file,
                 "start_line": start_line,
                 "end_line": end_line,
                 "original": original,
@@ -1104,7 +1068,7 @@ def _skip_noop_candidate(
     LOGGER.info("Candidate run id: %s", candidate_run_id)
     LOGGER.info("Workspace path: %s", workspace_path)
     LOGGER.info("Changed files: none")
-    LOGGER.info("No patch to materialize: candidate expected_effect is 'none'.")
+    LOGGER.info("No patch to materialize: candidate has no edits.")
     LOGGER.info("Main source tree was not modified: %s", base_source_root_text)
     LOGGER.info("Logs saved to: %s", candidate_run_dir / "apply_candidate.log")
     return 0
@@ -1171,12 +1135,15 @@ def main(argv: list[str] | None = None) -> int:
 
         generated_diff_path = patch_path
 
-        target_files = _validate_target_files(candidate_data)
+        target_files = [_normalize_candidate_path(args.target_file)]
         scope_enforcement, allowed_files = (
             _resolve_scope_metadata(args.allowed_files, target_files)
         )
 
-        line_range_edits = _validate_line_range_edits(candidate_data, target_files)
+        line_range_edits = _validate_line_range_edits(
+            candidate_data,
+            target_files[0],
+        )
         edit_files = _unique_files_from_edits(line_range_edits)
         validate_candidate_scope(target_files, edit_files, allowed_files)
         patch_apply_metadata.update(
@@ -1193,7 +1160,7 @@ def main(argv: list[str] | None = None) -> int:
                 "line_range_edit_results": [],
             }
         )
-        if candidate_data.get("expected_effect") == "none" and not line_range_edits:
+        if not line_range_edits:
             validation_duration = round(time.perf_counter() - validation_started, 3)
             steps.append(
                 _step_status(

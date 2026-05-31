@@ -31,6 +31,25 @@ def _loaded_artifact(**benchmark_overrides: object) -> dict[str, object]:
         "parsed_runtime_ns_total_median": 1000000.0,
         "parsed_runtime_ns_per_problem_median": 1000.0,
         "parsed_correctness_passed": True,
+        "benchmark_run_count": 100,
+        "decision_metric": "median_runtime_ns_per_problem_median",
+        "repeated_benchmark_samples": [
+            {
+                "run_index": index,
+                "runtime_ns_per_problem_median": 1000.0,
+                "gt_found_percent": 100.0,
+                "valid_solutions_percent": 100.0,
+                "wall_seconds": 0.001,
+            }
+            for index in range(1, 101)
+        ],
+        "repeated_benchmark_aggregate": {
+            "benchmark_run_count": 100,
+            "decision_metric": "median_runtime_ns_per_problem_median",
+            "median_runtime_ns_per_problem_median": 1000.0,
+            "min_runtime_ns_per_problem_median": 1000.0,
+            "total_benchmark_wall_seconds": 0.1,
+        },
     }
     benchmark.update(benchmark_overrides)
     return {

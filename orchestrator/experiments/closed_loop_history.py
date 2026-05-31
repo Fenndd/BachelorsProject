@@ -133,10 +133,6 @@ def summarize_closed_loop_record_for_history(record: dict[str, Any]) -> dict[str
         "reason": _reason_text(record),
         "guidance": build_history_guidance(record),
     }
-    if record.get("candidate_expected_effect") is not None:
-        summary["expected_effect"] = _compact_text(record.get("candidate_expected_effect"))
-    if record.get("candidate_risk_level") is not None:
-        summary["risk_level"] = _compact_text(record.get("candidate_risk_level"))
     return summary
 
 
@@ -163,10 +159,6 @@ def build_closed_loop_history_context(records: list[dict[str, Any]]) -> str | No
             lines.append(f"Result: {summary['result']}.")
         if summary.get("reason"):
             lines.append(f"Reason: {summary['reason']}.")
-        if summary.get("expected_effect"):
-            lines.append(f"Expected effect: {summary['expected_effect']}.")
-        if summary.get("risk_level"):
-            lines.append(f"Risk level: {summary['risk_level']}.")
         lines.append(f"Guidance: {summary['guidance']}")
         lines.append("")
 
@@ -184,8 +176,6 @@ def _has_useful_pattern_information(record: dict[str, Any]) -> bool:
     status = _status_value(record.get("status"))
     if _compact_text(record.get("candidate_summary")):
         return True
-    if _compact_text(record.get("candidate_expected_effect")):
-        return True
     if status in {"rejected", "materialization_failed", "verification_failed"}:
         return bool(_reason_text(record))
     if status == "accepted_improvement":
@@ -199,9 +189,6 @@ def _idea_text(record: dict[str, Any]) -> str:
     summary = _compact_text(record.get("candidate_summary"))
     if summary:
         return summary
-    expected_effect = _compact_text(record.get("candidate_expected_effect"))
-    if expected_effect:
-        return f"Candidate expected effect: {expected_effect}"
     return "Optimization candidate pattern from this iteration"
 
 
@@ -367,7 +354,7 @@ def _below_threshold_result_text(record: dict[str, Any]) -> str | None:
     if isinstance(thresholds, dict):
         threshold = _float_or_none(thresholds.get("min_runtime_reduction_percent"))
     if threshold is None:
-        threshold = 0.5
+        threshold = 1.0
     return (
         f"{runtime_reduction:.1f}% faster than current best, below the "
         f"{threshold:.1f}% acceptance threshold"

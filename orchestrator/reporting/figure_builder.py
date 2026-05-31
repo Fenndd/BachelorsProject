@@ -13,9 +13,30 @@ from matplotlib import pyplot as plt
 from orchestrator.reporting.report_data import ReportData, to_report_dict
 
 
+_COLOR_BASELINE = "#7a7a7a"
+_COLOR_CURRENT_BEST = "#246b8f"
+_COLOR_ACCEPTED = "#4f8f46"
+_COLOR_VALID_NOT_IMPROVED = "#e07b39"
+_COLOR_FAILED = "#c0392b"
+_COLOR_NO_OP = "#aaaaaa"
+
+_STATUS_COLORS: dict[str, str] = {
+    "accepted_improvement": _COLOR_ACCEPTED,
+    "valid_not_improved": _COLOR_VALID_NOT_IMPROVED,
+    "rejected": _COLOR_FAILED,
+    "materialization_failed": _COLOR_FAILED,
+    "verification_failed": _COLOR_FAILED,
+    "generation_failed": _COLOR_FAILED,
+    "no_op": _COLOR_NO_OP,
+}
+
+
+def _status_color(status: str) -> str:
+    return _STATUS_COLORS.get(status, _COLOR_NO_OP)
+
+
 PLOT_FILENAMES = {
     "runtime_progress": "runtime_progress.svg",
-    "candidate_runtime_by_iteration": "candidate_runtime_by_iteration.svg",
     "runtime_reduction_by_iteration": "runtime_reduction_by_iteration.svg",
     "correctness_metrics": "correctness_metrics.svg",
     "status_breakdown": "status_breakdown.svg",
@@ -39,10 +60,6 @@ def build_report_figures(
     output_dir.mkdir(parents=True, exist_ok=True)
 
     _plot_runtime_progress(data, output_dir / PLOT_FILENAMES["runtime_progress"])
-    _plot_candidate_runtime_by_iteration(
-        data,
-        output_dir / PLOT_FILENAMES["candidate_runtime_by_iteration"],
-    )
     _plot_runtime_reduction(
         data,
         output_dir / PLOT_FILENAMES["runtime_reduction_by_iteration"],
@@ -79,13 +96,12 @@ def _as_report_dict(report_data: ReportData | dict[str, Any]) -> dict[str, Any]:
 
 
 def _plot_runtime_progress(data: dict[str, Any], output_path: Path) -> None:
-    """Step plot of current-best runtime over iterations (including baseline as iter 0)."""
+    """Combined runtime plot: current-best step line + candidate scatter + baseline."""
 
     baseline_rt = _number_or_none(
         _dict_value(data.get("baseline_metrics")).get("runtime_ns_per_problem_median")
     )
 
-    # Build (iteration, runtime) step sequence using only promoted iterations
     iterations = sorted(
         (it for it in _iterations(data) if _is_number(it.get("iteration"))),
         key=lambda it: it["iteration"],
@@ -104,70 +120,79 @@ def _plot_runtime_progress(data: dict[str, Any], output_path: Path) -> None:
         if current_best is not None:
             step_points.append((int(it["iteration"]), current_best))
 
-    if not step_points:
+    scatter_points: list[tuple[int, float, str]] = []
+    for it in iterations:
+        rt = _number_or_none(it.get("runtime_ns_per_problem_median"))
+        if rt is not None:
+            status = str(it.get("status", ""))
+            scatter_points.append((int(it["iteration"]), rt, status))
+
+    has_step = len(step_points) > 0
+    has_scatter = len(scatter_points) > 0
+    has_baseline = baseline_rt is not None
+
+    if not has_step and not has_scatter:
         _save_placeholder(output_path, "Current best runtime data unavailable")
         return
 
-    x_values, y_values = zip(*step_points)
     fig, ax = _new_figure()
-    ax.step(x_values, y_values, where="post", color="#246b8f", linewidth=2)
-    ax.scatter(x_values, y_values, color="#246b8f", zorder=3)
-    ax.set_title("Current Best Runtime Progress")
-    ax.set_xlabel("Iteration")
-    ax.set_ylabel("Current best median runtime (ns/problem)")
-    ax.grid(True, alpha=0.3)
-    _save(fig, output_path)
 
+    if has_baseline:
+        ax.axhline(
+            baseline_rt,
+            color=_COLOR_BASELINE,
+            linewidth=1.2,
+            linestyle="--",
+            label="baseline",
+        )
 
-def _plot_candidate_runtime_by_iteration(data: dict[str, Any], output_path: Path) -> None:
-    """Scatter plot of candidate runtime per iteration with baseline and final-best lines."""
+    if has_step:
+        x_vals, y_vals = zip(*step_points)
+        ax.step(
+            x_vals, y_vals, where="post",
+            color=_COLOR_CURRENT_BEST, linewidth=2, label="current best",
+        )
 
-    points = [
-        (int(it["iteration"]), _number_or_none(it.get("runtime_ns_per_problem_median")))
-        for it in _iterations(data)
-        if _is_number(it.get("iteration"))
-        and _number_or_none(it.get("runtime_ns_per_problem_median")) is not None
-    ]
-
-    if not points:
-        _save_placeholder(output_path, "Candidate runtime data unavailable")
-        return
-
-    x_values, y_values = zip(*points)
-    fig, ax = _new_figure()
-    ax.plot(x_values, y_values, color="#aaaaaa", linewidth=0.8, zorder=1)
-    ax.scatter(x_values, y_values, color="#246b8f", zorder=2, label="candidate")
-
-    baseline_rt = _number_or_none(
-        _dict_value(data.get("baseline_metrics")).get("runtime_ns_per_problem_median")
-    )
-    if baseline_rt is not None:
-        ax.axhline(baseline_rt, color="#e07b39", linewidth=1.2, linestyle="--", label="baseline")
+    if has_scatter:
+        seen_statuses: set[str] = set()
+        for x_val, y_val, status in scatter_points:
+            color = _status_color(status)
+            label = status if status not in seen_statuses else None
+            if label is not None:
+                seen_statuses.add(status)
+            ax.scatter(x_val, y_val, color=color, zorder=3, label=label, s=36)
 
     final_best_rt = _number_or_none(
         _dict_value(data.get("final_best_candidate")).get("runtime_ns_per_problem_median")
     )
     if final_best_rt is not None:
         ax.axhline(
-            final_best_rt, color="#4f8f46", linewidth=1.2, linestyle=":", label="final best"
+            final_best_rt,
+            color=_COLOR_ACCEPTED,
+            linewidth=1.0,
+            linestyle=":",
+            label="final best",
         )
 
-    ax.set_title("Candidate Runtime by Iteration")
+    handles, labels = ax.get_legend_handles_labels()
+    by_label = dict(zip(labels, handles))
+    ax.legend(by_label.values(), by_label.keys(), fontsize=9)
+
+    ax.set_title("Runtime Progress")
     ax.set_xlabel("Iteration")
     ax.set_ylabel("Median runtime (ns/problem)")
     ax.grid(True, alpha=0.3)
-    ax.legend(fontsize=9)
     _save(fig, output_path)
 
 
 def _plot_runtime_reduction(data: dict[str, Any], output_path: Path) -> None:
-    """Bar chart of speedup vs baseline per iteration, coloured by promotion status."""
+    """Bar chart of speedup vs baseline per iteration, coloured by status."""
 
     points = [
         (
             int(it["iteration"]),
             _number_or_none(it.get("speedup_vs_baseline")),
-            it.get("promoted") is True,
+            str(it.get("status", "")),
         )
         for it in _iterations(data)
         if _is_number(it.get("iteration"))
@@ -180,11 +205,13 @@ def _plot_runtime_reduction(data: dict[str, Any], output_path: Path) -> None:
 
     x_values = [p[0] for p in points]
     y_values = [p[1] for p in points]
-    colors = ["#4f8f46" if p[2] else "#7a9fbf" for p in points]
+    colors = [_status_color(p[2]) for p in points]
 
     fig, ax = _new_figure()
     ax.bar(x_values, y_values, color=colors)
-    ax.axhline(1.0, color="#555555", linewidth=1, linestyle="--", label="baseline (1.0)")
+    ax.axhline(
+        1.0, color=_COLOR_BASELINE, linewidth=1, linestyle="--", label="baseline (1.0)",
+    )
     ax.set_title("Runtime Reduction by Iteration")
     ax.set_xlabel("Iteration")
     ax.set_ylabel("Speedup vs baseline")
@@ -194,17 +221,88 @@ def _plot_runtime_reduction(data: dict[str, Any], output_path: Path) -> None:
 
 
 def _plot_correctness_metrics(data: dict[str, Any], output_path: Path) -> None:
-    points = [
-        (it.get("iteration"), 1 if it.get("correctness_passed") else 0)
-        for it in _iterations(data)
-        if _is_number(it.get("iteration"))
-        and isinstance(it.get("correctness_passed"), bool)
-    ]
-    if not points:
-        _save_placeholder(output_path, "Correctness data unavailable")
+    baseline_gt = _number_or_none(
+        _dict_value(data.get("baseline_metrics")).get("gt_found_percent")
+    )
+
+    gt_points: list[tuple[int, float, bool | None]] = []
+    correctness_points: list[tuple[int, bool]] = []
+
+    for it in _iterations(data):
+        if not _is_number(it.get("iteration")):
+            continue
+        iteration_num = int(it["iteration"])
+        gt_val = _number_or_none(it.get("gt_found_percent"))
+        cp_val = isinstance(it.get("correctness_passed"), bool)
+        if gt_val is not None:
+            gt_points.append((iteration_num, gt_val, it.get("correctness_passed") if cp_val else None))
+        elif cp_val:
+            correctness_points.append((iteration_num, it["correctness_passed"]))
+
+    if gt_points:
+        _plot_gt_found_progress(
+            gt_points,
+            baseline_gt,
+            output_path,
+        )
         return
 
-    x_values, y_values = zip(*points)
+    if correctness_points:
+        _plot_correctness_pass_fail(correctness_points, output_path)
+        return
+
+    _save_placeholder(output_path, "Correctness data unavailable")
+
+
+def _plot_gt_found_progress(
+    points: list[tuple[int, float, bool | None]],
+    baseline_gt: float | None,
+    output_path: Path,
+) -> None:
+    points.sort(key=lambda p: p[0])
+    x_values = [p[0] for p in points]
+    y_values = [p[1] for p in points]
+
+    fig, ax = _new_figure()
+    ax.step(x_values, y_values, where="mid", color="#6d5a9c", linewidth=2, label="GT Found %")
+    ax.scatter(
+        x_values,
+        y_values,
+        c=[_COLOR_ACCEPTED if p[2] is True else (_COLOR_FAILED if p[2] is False else "#6d5a9c") for p in points],
+        zorder=3,
+        s=36,
+    )
+
+    if baseline_gt is not None:
+        ax.axhline(
+            baseline_gt,
+            color=_COLOR_BASELINE,
+            linewidth=1.2,
+            linestyle="--",
+            label=f"baseline ({baseline_gt:.1f}%)",
+        )
+
+    ax.set_title("Correctness and Accuracy Safety")
+    ax.set_xlabel("Iteration")
+    ax.set_ylabel("GT Found %")
+
+    y_min = min(min(y_values) if y_values else 0, baseline_gt or 100)
+    y_max = max(max(y_values) if y_values else 100, baseline_gt or 0)
+    y_pad = max((y_max - y_min) * 0.1, 1.0)
+    ax.set_ylim(max(0, y_min - y_pad), min(100, y_max + y_pad))
+
+    ax.grid(True, alpha=0.3)
+    ax.legend(fontsize=9)
+    _save(fig, output_path)
+
+
+def _plot_correctness_pass_fail(
+    points: list[tuple[int, bool]],
+    output_path: Path,
+) -> None:
+    x_values = [p[0] for p in points]
+    y_values = [1 if p[1] else 0 for p in points]
+
     fig, ax = _new_figure()
     ax.step(x_values, y_values, where="mid", color="#6d5a9c", linewidth=2)
     ax.scatter(x_values, y_values, color="#6d5a9c")
@@ -224,8 +322,9 @@ def _plot_status_breakdown(data: dict[str, Any], output_path: Path) -> None:
 
     labels = list(counts)
     values = [counts[label] for label in labels]
+    colors = [_status_color(label) for label in labels]
     fig, ax = _new_figure(width=9.5)
-    ax.bar(labels, values, color="#8a6d3b")
+    ax.bar(labels, values, color=colors)
     ax.set_title("Status Breakdown")
     ax.set_ylabel("Iterations")
     ax.tick_params(axis="x", labelrotation=35)
@@ -251,9 +350,9 @@ def _plot_candidate_funnel(data: dict[str, Any], output_path: Path) -> None:
 
 def _plot_phase_timings(data: dict[str, Any], output_path: Path) -> None:
     phases = [
-        ("generation_seconds", "Generation", "#246b8f"),
-        ("materialization_seconds", "Materialization", "#7a9fbf"),
-        ("verification_seconds", "Verification", "#4f8f46"),
+        ("generation_seconds", "Generation", _COLOR_CURRENT_BEST),
+        ("materialization_seconds", "Materialization", _COLOR_VALID_NOT_IMPROVED),
+        ("verification_seconds", "Verification", _COLOR_ACCEPTED),
     ]
     rows: list[tuple[int, dict[str, float]]] = []
     for iteration in _iterations(data):
@@ -303,7 +402,7 @@ def _plot_llm_tokens(data: dict[str, Any], output_path: Path) -> None:
 
     x_values, y_values = zip(*points)
     fig, ax = _new_figure()
-    ax.bar(x_values, y_values, color="#6d5a9c")
+    ax.bar(x_values, y_values, color=_COLOR_CURRENT_BEST)
     ax.set_title("LLM Token Usage by Iteration")
     ax.set_xlabel("Iteration")
     ax.set_ylabel("Total tokens")
@@ -325,8 +424,8 @@ def _plot_llm_latency(data: dict[str, Any], output_path: Path) -> None:
 
     x_values, y_values = zip(*points)
     fig, ax = _new_figure()
-    ax.plot(x_values, y_values, color="#2f6f6d", linewidth=1.5)
-    ax.scatter(x_values, y_values, color="#2f6f6d")
+    ax.plot(x_values, y_values, color=_COLOR_VALID_NOT_IMPROVED, linewidth=1.5)
+    ax.scatter(x_values, y_values, color=_COLOR_VALID_NOT_IMPROVED)
     ax.set_title("LLM API Latency by Iteration")
     ax.set_xlabel("Iteration")
     ax.set_ylabel("Latency (seconds)")

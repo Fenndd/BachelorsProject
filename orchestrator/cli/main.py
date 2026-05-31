@@ -34,6 +34,10 @@ from orchestrator.core.benchmarking.benchmark_artifacts import (
     empty_benchmark_artifact,
 )
 from orchestrator.core.benchmarking.benchmark_runner import build_benchmark_run_command
+from orchestrator.core.benchmarking.repeated_benchmark import (
+    DEFAULT_REPEATED_BENCHMARK_RUN_COUNT,
+    run_repeated_benchmark,
+)
 from orchestrator.core.benchmarking.solver_registry import (
     SolverBenchmarkDescriptor,
     default_solver_descriptor,
@@ -408,7 +412,9 @@ def _build_metrics(
         step_statuses, f"run_{DESCRIPTOR.benchmark_target}"
     )
 
-    if benchmark_parse_result.get("raw_output_available") is not True:
+    if isinstance(benchmark_parse_result.get("repeated_benchmark_samples"), list):
+        benchmark = benchmark_parse_result
+    elif benchmark_parse_result.get("raw_output_available") is not True:
         benchmark = empty_benchmark_artifact(
             DESCRIPTOR,
             raw_output_available=benchmark_parse_result.get("raw_output_available", False),
@@ -474,6 +480,7 @@ def _build_summary(
         )
 
     benchmark = metrics["benchmark"]
+    aggregate = benchmark.get("repeated_benchmark_aggregate") or {}
     lines.extend(
         [
             "",
@@ -487,6 +494,8 @@ def _build_summary(
             f"Family benchmark parse log: logs/parse_{DESCRIPTOR.benchmark_target}.log",
             "",
             "Family benchmark:",
+            f"- benchmark runs: {_format_metric_value(benchmark.get('benchmark_run_count'))}",
+            f"- decision metric: {_format_metric_value(benchmark.get('decision_metric'))}",
             f"- solver: {_format_metric_value(benchmark['parsed_solver_name'])}",
             f"- problems: {_format_metric_value(benchmark['parsed_num_problems'])}",
             f"- solutions/problem: {_format_metric_value(benchmark['parsed_solutions_per_problem'])}",
@@ -497,6 +506,10 @@ def _build_summary(
             f"{_format_metric_value(benchmark['parsed_runtime_ns_total_median'])} ns",
             "- median runtime per problem: "
             f"{_format_metric_value(benchmark['parsed_runtime_ns_per_problem_median'])} ns",
+            "- min runtime per problem: "
+            f"{_format_metric_value(aggregate.get('min_runtime_ns_per_problem_median'))} ns",
+            "- total benchmark wall seconds: "
+            f"{_format_metric_value(aggregate.get('total_benchmark_wall_seconds'))}",
             "",
         ]
     )
@@ -566,8 +579,32 @@ def _build_index_record(
             "parsed_runtime_ns_per_problem_median"
         ],
         "family_benchmark_correctness_passed": benchmark["parsed_correctness_passed"],
+        "family_benchmark_run_count": benchmark.get("benchmark_run_count"),
+        "family_benchmark_decision_metric": benchmark.get("decision_metric"),
         "run_dir": _display_path(run_dir, repo_root),
     }
+
+
+def _save_repeated_benchmark_log(
+    storage: RunStorage,
+    run_dir: Path,
+    run_index: int,
+    step_name: str,
+    command: Sequence[str],
+    cwd: Path,
+    exit_code: int | None,
+    stdout: str,
+    stderr: str,
+) -> None:
+    storage.save_log(
+        run_dir,
+        step_name,
+        command,
+        cwd,
+        exit_code,
+        stdout,
+        stderr,
+    )
 
 
 def _write_final_artifacts(
@@ -749,7 +786,6 @@ def main() -> int:
     )
 
     if failed_step is None:
-        benchmark_stdout = ""
         for step_name, title, executable_name, is_benchmark in run_targets:
             try:
                 executable = _find_executable(build_dir, executable_name)
@@ -778,41 +814,72 @@ def main() -> int:
                 break
 
             command = build_benchmark_run_command(executable, DESCRIPTOR) if is_benchmark else [str(executable)]
-            step_status, step_error, stdout = _run_step(
-                storage, run_dir, step_name, title, command, paths.repo_root
-            )
-            step_statuses.append(step_status)
-            if step_name == f"run_{DESCRIPTOR.benchmark_target}":
-                benchmark_stdout = stdout
-                benchmark_parse_result = _empty_benchmark_parse_result(
-                    True, ["family benchmark output was not parsed"]
+            if is_benchmark:
+                repeated_result = run_repeated_benchmark(
+                    command=command,
+                    cwd=paths.repo_root,
+                    descriptor=DESCRIPTOR,
+                    build_type=cmake_build_type,
+                    step_name=step_name,
+                    title=title,
+                    run_count=DEFAULT_REPEATED_BENCHMARK_RUN_COUNT,
+                    log_callback=lambda run_index, label, cmd, cwd, exit_code, stdout, stderr: _save_repeated_benchmark_log(
+                        storage,
+                        run_dir,
+                        run_index,
+                        label,
+                        cmd,
+                        cwd,
+                        exit_code,
+                        stdout,
+                        stderr,
+                    ),
+                    echo_progress=True,
                 )
-            if step_error:
-                failed_step = step_name
-                error_message = step_error
-                break
-
-        if failed_step is None:
-            step_status, benchmark_parse_result, parse_error = _run_benchmark_parse_step(
-                storage,
-                run_dir,
-                benchmark_stdout,
-            )
-            step_statuses.append(step_status)
-            if parse_error:
-                failed_step = PARSE_FAMILY_BENCHMARK_STEP
-                error_message = parse_error
-            else:
-                step_status, correctness_error = _run_benchmark_correctness_check_step(
-                    storage,
+                benchmark_parse_result = repeated_result["benchmark"]
+                step_statuses.append(repeated_result["run_step_status"])
+                step_statuses.append(repeated_result["parse_step_status"])
+                step_statuses.append(repeated_result["correctness_step_status"])
+                storage.save_log(
                     run_dir,
-                    benchmark_parse_result,
+                    PARSE_FAMILY_BENCHMARK_STEP,
+                    "parse repeated benchmark outputs",
+                    paths.repo_root,
+                    None,
+                    "\n".join(
+                        [
+                            f"parse_success: {benchmark_parse_result.get('parse_success')}",
+                            f"benchmark_run_count: {benchmark_parse_result.get('benchmark_run_count')}",
+                            f"decision_metric: {benchmark_parse_result.get('decision_metric')}",
+                            f"missing_fields: {benchmark_parse_result.get('missing_fields')}",
+                            f"parse_errors: {benchmark_parse_result.get('parse_errors')}",
+                            "",
+                        ]
+                    ),
+                    "",
+                )
+                storage.save_log(
+                    run_dir,
+                    BENCHMARK_CORRECTNESS_CHECK_STEP,
+                    "check repeated benchmark correctness_passed metrics",
+                    paths.repo_root,
+                    None,
+                    f"correctness_passed: {benchmark_parse_result.get('parsed_correctness_passed')}\n",
+                    "",
+                )
+                if repeated_result.get("success") is not True:
+                    failed_step = repeated_result.get("failed_step") or step_name
+                    error_message = repeated_result.get("error_message")
+                    break
+            else:
+                step_status, step_error, _stdout = _run_step(
+                    storage, run_dir, step_name, title, command, paths.repo_root
                 )
                 step_statuses.append(step_status)
-                if correctness_error:
-                    failed_step = BENCHMARK_CORRECTNESS_CHECK_STEP
-                    error_message = correctness_error
-
+                if step_error:
+                    failed_step = step_name
+                    error_message = step_error
+                    break
     status = _write_final_artifacts(
         storage,
         run_dir,

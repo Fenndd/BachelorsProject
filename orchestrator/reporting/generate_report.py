@@ -45,14 +45,15 @@ def generate_basic_report(
     }
     if "pdf" in requested_formats:
         pdf_path = report_dir / "report.pdf"
+        # Pre-render: honest status — PDF is pending, not falsely "completed"
         report_data = _finalize_reporting_status(
             report_data_path,
             requested_formats=requested_formats,
             renderer=renderer,
             html_path=html_path,
-            pdf_path=pdf_path,
-            status="completed",
-            assume_pdf_generated=True,
+            pdf_path=None,
+            status="pdf_pending",
+            payload=report_data,
         )
         render_report_html(report_data, plot_paths, html_path)
         try:
@@ -70,23 +71,27 @@ def generate_basic_report(
                 pdf_path=None,
                 status="failed",
                 error=str(exc),
+                payload=report_data,
             )
             try:
                 render_report_html(failed_data, plot_paths, html_path)
             except Exception:
                 pass
             raise
+        # Post-render: PDF succeeded, show final status with actual PDF path
         report_data = _finalize_reporting_status(
             report_data_path,
             requested_formats=requested_formats,
             renderer=renderer,
             html_path=html_path,
-            pdf_path=artifacts.get("pdf"),
+            pdf_path=artifacts["pdf"],
             status="completed",
+            payload=report_data,
         )
         render_report_html(report_data, plot_paths, html_path)
         return artifacts
 
+    # HTML-only: finalize once, render once
     report_data = _finalize_reporting_status(
         report_data_path,
         requested_formats=requested_formats,
@@ -94,6 +99,7 @@ def generate_basic_report(
         html_path=html_path,
         pdf_path=None,
         status="completed",
+        payload=report_data,
     )
     render_report_html(report_data, plot_paths, html_path)
     return artifacts
@@ -186,15 +192,14 @@ def _finalize_reporting_status(
     pdf_path: Path | None,
     status: str = "completed",
     error: str | None = None,
-    assume_pdf_generated: bool = False,
+    payload: dict | None = None,
 ) -> dict:
-    payload = read_json(report_data_path)
+    if payload is None:
+        payload = read_json(report_data_path)
     if not isinstance(payload, dict):
         raise ValueError("report_data.json must contain a JSON object")
 
-    pdf_generated = (
-        pdf_path is not None and (assume_pdf_generated or pdf_path.is_file())
-    )
+    pdf_generated = pdf_path is not None and pdf_path.is_file()
     report_pdf_path = _display_path(pdf_path) if pdf_generated and pdf_path is not None else None
     if pdf_generated:
         pdf_display = report_pdf_path
