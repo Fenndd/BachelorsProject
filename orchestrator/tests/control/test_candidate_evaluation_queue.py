@@ -117,9 +117,12 @@ def test_candidate_evaluation_lock_cross_process(
     workspace.mkdir(parents=True)
     monkeypatch.setattr(queue, "RETRY_SLEEP_SECONDS", 0.01)
 
+    repo_root = Path(__file__).resolve().parents[3]
+
     script_path = tmp_path / "_cross_process_lock_test.py"
-    script_path.write_text(r'''
+    script_path.write_text(f'''
 import sys
+sys.path.insert(0, {str(repo_root)!r})
 import time
 from pathlib import Path
 from orchestrator.control.candidate_evaluation_queue import candidate_evaluation_lock
@@ -148,6 +151,8 @@ elif mode == "waiter":
         [_sys.executable, str(script_path), "holder", str(workspace)],
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
+        cwd=str(repo_root),
+        env={**os.environ, "PYTHONPATH": str(repo_root)},
     )
 
     waited = 0.0
@@ -166,6 +171,8 @@ elif mode == "waiter":
         [_sys.executable, str(script_path), "waiter", str(workspace)],
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
+        cwd=str(repo_root),
+        env={**os.environ, "PYTHONPATH": str(repo_root)},
     )
 
     time.sleep(0.3)
