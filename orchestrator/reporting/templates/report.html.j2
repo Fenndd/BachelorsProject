@@ -301,6 +301,12 @@
       }
     }
 
+    .plot-grid-single-column {
+      display: grid;
+      gap: 14px;
+      grid-template-columns: 1fr;
+    }
+
     .badge {
       background: var(--neutral-bg);
       border: 1px solid var(--line-strong);
@@ -622,10 +628,9 @@
       <div class="kpi-card"><strong>Runtime Reduction</strong><span class="value">{{ report.final_selection.runtime_reduction_percent|default(report.final_best_candidate.runtime_reduction_percent, true)|percent }}</span></div>
       <div class="kpi-card"><strong>Runtime Delta, ns/problem</strong><span class="value">{{ report.final_best_candidate.absolute_runtime_difference_ns_per_problem|runtime_ns }}</span></div>
       <div class="kpi-card"><strong>Final Best Iteration</strong><span class="value">{{ report.final_best_candidate.iteration|default(report.final_result.final_best_iteration, true)|display }}</span></div>
-      <div class="kpi-card"><strong>Correctness Passed</strong><span class="value">{{ report.final_selection.final_correctness_passed|default(report.final_best_candidate.correctness_passed, true)|yes_no }}</span></div>
+      <div class="kpi-card"><strong>Correctness Passed</strong><span class="value">{{ report.final_best_candidate.correctness_passed|default(report.final_selection.final_correctness_passed, true)|yes_no }}</span></div>
       <div class="kpi-card"><strong>Benchmark Runs</strong><span class="value">{{ report.final_selection.final_benchmark_run_count|default(report.final_best_candidate.benchmark_run_count, true)|human_int }}</span></div>
-      {% set decision_metric = report.final_selection.decision_metric|default(report.final_best_candidate.decision_metric, true)|default(report.baseline_metrics.decision_metric, true) %}
-      <div class="kpi-card"><strong>Decision Metric</strong><span class="value">{{ decision_metric|display }}</span></div>
+
       <div class="kpi-card"><strong>Final Benchmark Wall Time</strong><span class="value">{{ report.final_best_candidate.total_benchmark_wall_seconds|human_duration }}</span></div>
     </div>
 
@@ -659,12 +664,7 @@
           <td>{{ report.final_selection.final_gt_found_percent|default(report.final_best_candidate.gt_found_percent, true)|percent }}</td>
           <td>{{ report.final_selection.final_gt_found_delta_points|default(report.final_best_candidate.gt_found_delta_points)|delta_pp }}</td>
         </tr>
-        <tr>
-          <th>Correctness</th>
-          <td>{{ report.baseline_metrics.correctness_passed|yes_no }}</td>
-          <td>{{ report.final_selection.final_correctness_passed|default(report.final_best_candidate.correctness_passed, true)|yes_no }}</td>
-          <td>{{ report.final_result.correctness_preserved|yes_no }}</td>
-        </tr>
+
         <tr>
           <th>Performance</th>
           <td>Reference</td>
@@ -687,7 +687,6 @@
 
   <section id="optimization-process">
     <h2>Optimization Process</h2>
-    <p class="section-lead">Closed-loop optimization updates the current best source only when a verified candidate is accepted as an improvement.</p>
     <div class="plot-grid">
       {% if plots.runtime_progress %}
       <figure><img src="{{ plots.runtime_progress }}" alt="Current best runtime progress plot"><figcaption>Runtime of the current best candidate over iterations.</figcaption></figure>
@@ -716,7 +715,7 @@
 
   <section id="iteration-outcomes">
     <h2>Iteration Outcomes</h2>
-    <div class="plot-grid-two-column">
+    <div class="plot-grid-single-column">
       {% if plots.candidate_funnel %}
       <figure><img src="{{ plots.candidate_funnel }}" alt="Candidate funnel plot"></figure>
       {% endif %}
@@ -782,7 +781,7 @@
             <th>Status</th>
             <th>Runtime, ns/problem</th>
             <th>Runs</th>
-            <th>Min Runtime</th>
+            <th>Min Runtime ns/problem</th>
             <th>Speedup vs Current Best</th>
             <th>Speedup vs Baseline</th>
             <th>GT Found</th>
@@ -817,7 +816,7 @@
 
   <section id="cost-performance-profile">
     <h2>Cost &amp; Performance Profile</h2>
-    <div class="plot-grid">
+    <div class="plot-grid-two-column">
       {% if plots.phase_timings %}
       <figure><img src="{{ plots.phase_timings }}" alt="Phase timings plot"></figure>
       {% endif %}
@@ -890,22 +889,16 @@
         <tr><th>Finished At</th><td>{{ report.experiment_metadata.finished_at|human_datetime }}</td></tr>
         {% endif %}
         <tr><th>Total Duration</th><td>{{ report.experiment_metadata.total_duration_seconds|human_duration }}</td></tr>
-        <tr><th>Git Commit</th><td>{{ report.experiment_metadata.repository.git_commit|display }}</td></tr>
-        <tr><th>Git Branch</th><td>{{ report.experiment_metadata.repository.git_branch|display }}</td></tr>
-        <tr><th>Dirty Worktree</th><td>{{ report.experiment_metadata.repository.dirty_worktree|yes_no }}</td></tr>
+
         <tr><th>OS</th><td>{{ report.experiment_metadata.environment.os|display }}</td></tr>
         <tr><th>Platform</th><td>{{ report.experiment_metadata.environment.platform|display }}</td></tr>
         <tr><th>Python Version</th><td>{{ report.experiment_metadata.environment.python_version|display }}</td></tr>
         <tr><th>CMake Build Type</th><td>{{ report.experiment_metadata.environment.cmake_build_type|default(report.benchmark_config.build_type, true)|display }}</td></tr>
-        {% if report.experiment_metadata.environment.cmake_exe %}
-        <tr><th>CMake Executable</th><td><code>{{ report.experiment_metadata.environment.cmake_exe|display }}</code></td></tr>
-        {% endif %}
+
         {% if report.experiment_metadata.environment.cmake_generator %}
         <tr><th>CMake Generator</th><td>{{ report.experiment_metadata.environment.cmake_generator|display }}</td></tr>
         {% endif %}
-        {% if report.experiment_metadata.environment.cxx_compiler %}
-        <tr><th>C++ Compiler</th><td><code>{{ report.experiment_metadata.environment.cxx_compiler|display }}</code></td></tr>
-        {% endif %}
+
         <tr><th>Baseline Run Directory</th><td><code>{{ report.experiment_config_details.baseline_run_dir|display }}</code></td></tr>
         <tr><th>Optimization Scope</th><td><code>{{ report.experiment_config_details.optimization_scope_allowed_files|display }}</code></td></tr>
       </tbody>

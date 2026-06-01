@@ -1786,6 +1786,8 @@ def test_gt_found_drop_no_threshold_correctness_false(tmp_path: Path) -> None:
     report_data = collect_report_data(experiment_dir)
 
     assert report_data.final_result.correctness_preserved is False
+    assert report_data.final_best_candidate.correctness_passed is False
+    assert report_data.final_selection.final_correctness_passed is True  # benchmark value preserved for narrative
 
 
 def test_gt_found_small_drop_no_threshold_keeps_benchmark_true(tmp_path: Path) -> None:
@@ -1816,6 +1818,7 @@ def test_gt_found_small_drop_no_threshold_keeps_benchmark_true(tmp_path: Path) -
     report_data = collect_report_data(experiment_dir)
 
     assert report_data.final_result.correctness_preserved is True
+    assert report_data.final_best_candidate.correctness_passed is True
 
 
 def test_gt_found_threshold_configured_keeps_existing_logic(tmp_path: Path) -> None:
@@ -1846,6 +1849,7 @@ def test_gt_found_threshold_configured_keeps_existing_logic(tmp_path: Path) -> N
     report_data = collect_report_data(experiment_dir)
 
     assert report_data.final_result.correctness_preserved is True
+    assert report_data.final_best_candidate.correctness_passed is True
 
 
 def test_gt_found_drop_no_threshold_narrative_marks_correctness_not_preserved(tmp_path: Path) -> None:
@@ -1889,6 +1893,8 @@ def test_gt_found_drop_no_threshold_narrative_marks_correctness_not_preserved(tm
 
     narrative = report_data.executive_narrative
     assert narrative is not None
+    assert report_data.final_best_candidate.correctness_passed is False
+    assert report_data.final_result.correctness_preserved is False
     assert "Benchmark correctness check passed" in narrative
     assert "no GT Found acceptance constraint was configured" in narrative
     assert "correctness as not preserved" in narrative

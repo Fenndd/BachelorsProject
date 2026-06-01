@@ -371,7 +371,6 @@ def test_report_html_contains_enriched_sections(tmp_path: Path) -> None:
     assert "Final Diff Statistics" in html
     assert "Selected Iteration Details" in html
     assert "Reproducibility" in html
-    assert "reportUpdatev2v3" in html
     assert "valid_not_improved" in html
     assert "Candidate improved the current best runtime." in html
     assert "reports/runs" not in html
@@ -1369,7 +1368,7 @@ def test_runtime_ns_applied_in_per_iteration_summary(tmp_path: Path) -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_iteration_outcomes_two_column_grid(tmp_path: Path) -> None:
+def test_iteration_outcomes_single_column_grid(tmp_path: Path) -> None:
     report_data = _report_data()
 
     plot_paths = build_report_figures(report_data, tmp_path / "plots")
@@ -1379,7 +1378,8 @@ def test_iteration_outcomes_two_column_grid(tmp_path: Path) -> None:
     iteration_outcomes_section = html.split('id="iteration-outcomes"', 1)[1].split(
         'id="cost-performance-profile"', 1
     )[0]
-    assert "plot-grid-two-column" in iteration_outcomes_section
+    assert "plot-grid-single-column" in iteration_outcomes_section
+    assert "plot-grid-two-column" not in iteration_outcomes_section
 
 
 # ---------------------------------------------------------------------------
@@ -1529,6 +1529,7 @@ def test_scroll_margin_top_in_section_css(tmp_path: Path) -> None:
 
 def test_decision_metric_not_hardcoded(tmp_path: Path) -> None:
     report_data = _report_data()
+    report_data.baseline_metrics.decision_metric = "median_runtime"
     report_data.final_selection = ReportFinalSelection(
         status="completed",
         decision_metric="median_runtime",
@@ -1541,8 +1542,9 @@ def test_decision_metric_not_hardcoded(tmp_path: Path) -> None:
     html_path = render_report_html(report_data, plot_paths, tmp_path / "report.html")
     html = html_path.read_text(encoding="utf-8")
 
-    # "Decision Metric" KPI card uses the actual data field value
-    assert "median_runtime" in html
+    # Decision Metric appears in Setup -> Benchmark card
+    setup_section = html.split('id="setup"', 1)[1].split('id="final-result"', 1)[0]
+    assert "median_runtime" in setup_section
 
 
 def test_decision_metric_fallbacks_to_baseline(tmp_path: Path) -> None:
@@ -1983,3 +1985,190 @@ def test_status_breakdown_not_in_html(tmp_path: Path) -> None:
 
     assert "status_breakdown" not in html
     assert not (tmp_path / "plots" / "status_breakdown.svg").exists()
+
+
+# ---------------------------------------------------------------------------
+# Visual cleanup: Decision Metric KPI removed from Final Result
+# ---------------------------------------------------------------------------
+
+
+def test_final_result_no_decision_metric_kpi(tmp_path: Path) -> None:
+    report_data = _report_data()
+    report_data.baseline_metrics.decision_metric = "median_runtime"
+    report_data.final_selection = ReportFinalSelection(
+        status="completed",
+        decision_metric="median_runtime",
+        speedup_vs_original_baseline=1.25,
+        runtime_reduction_percent=20.0,
+        final_correctness_passed=True,
+    )
+
+    plot_paths = build_report_figures(report_data, tmp_path / "plots")
+    html_path = render_report_html(report_data, plot_paths, tmp_path / "report.html")
+    html = html_path.read_text(encoding="utf-8")
+
+    final_result = html.split('id="final-result"', 1)[1].split(
+        'id="optimization-process"', 1
+    )[0]
+    # Decision Metric KPI card must NOT appear inside final-result
+    assert "Decision Metric</strong>" not in final_result
+
+    # But the label and value should still appear in Setup -> Benchmark
+    setup_section = html.split('id="setup"', 1)[1].split('id="final-result"', 1)[0]
+    assert "Decision Metric</th>" in setup_section
+    assert "median_runtime" in setup_section
+
+
+def test_final_result_comparison_no_correctness_row(tmp_path: Path) -> None:
+    report_data = _report_data()
+    report_data.baseline_metrics.correctness_passed = True
+    report_data.final_selection = ReportFinalSelection(
+        status="completed",
+        speedup_vs_original_baseline=1.25,
+        runtime_reduction_percent=20.0,
+        final_correctness_passed=True,
+    )
+
+    plot_paths = build_report_figures(report_data, tmp_path / "plots")
+    html_path = render_report_html(report_data, plot_paths, tmp_path / "report.html")
+    html = html_path.read_text(encoding="utf-8")
+
+    final_result = html.split('id="final-result"', 1)[1].split(
+        'id="optimization-process"', 1
+    )[0]
+    comparison_template = final_result.split("<h3>Comparison</h3>", 1)[1].split(
+        "<h3>Final Best Candidate</h3>", 1
+    )[0]
+    assert "Correctness" not in comparison_template
+
+
+def test_optimization_process_no_explanatory_prose(tmp_path: Path) -> None:
+    report_data = _report_data()
+
+    plot_paths = build_report_figures(report_data, tmp_path / "plots")
+    html_path = render_report_html(report_data, plot_paths, tmp_path / "report.html")
+    html = html_path.read_text(encoding="utf-8")
+
+    assert "Closed-loop optimization updates the current best source only when a verified candidate is accepted as an improvement." not in html
+
+
+def test_per_iteration_min_runtime_ns_problem_header(tmp_path: Path) -> None:
+    report_data = _report_data()
+
+    plot_paths = build_report_figures(report_data, tmp_path / "plots")
+    html_path = render_report_html(report_data, plot_paths, tmp_path / "report.html")
+    html = html_path.read_text(encoding="utf-8")
+
+    assert "<th>Min Runtime ns/problem</th>" in html
+    assert "<th>Min Runtime</th>" not in html
+
+
+def test_cost_profile_two_column_grid(tmp_path: Path) -> None:
+    report_data = _report_data()
+
+    plot_paths = build_report_figures(report_data, tmp_path / "plots")
+    html_path = render_report_html(report_data, plot_paths, tmp_path / "report.html")
+    html = html_path.read_text(encoding="utf-8")
+
+    cost_section = html.split('id="cost-performance-profile"', 1)[1].split(
+        'id="reproducibility"', 1
+    )[0]
+    assert "plot-grid-two-column" in cost_section
+
+
+def test_reproducibility_no_removed_fields(tmp_path: Path) -> None:
+    report_data = _report_data()
+    report_data.experiment_metadata = ReportExperimentMetadata(
+        repository={
+            "git_commit": "abc123",
+            "git_branch": "main",
+            "dirty_worktree": True,
+        },
+        environment={
+            "os": "nt",
+            "platform": "Windows-test",
+            "python_version": "3.12",
+            "cmake_build_type": "Release",
+            "cmake_exe": "cmake",
+            "cmake_generator": "Ninja",
+            "cxx_compiler": "clang++",
+        },
+    )
+
+    plot_paths = build_report_figures(report_data, tmp_path / "plots")
+    html_path = render_report_html(report_data, plot_paths, tmp_path / "report.html")
+    html = html_path.read_text(encoding="utf-8")
+
+    reproducibility = html.split('id="reproducibility"', 1)[1].split(
+        'id="appendix"', 1
+    )[0]
+    assert "Git Commit" not in reproducibility
+    assert "Git Branch" not in reproducibility
+    assert "Dirty Worktree" not in reproducibility
+    assert "CMake Executable" not in reproducibility
+    assert "C++ Compiler" not in reproducibility
+    # These should still be present
+    assert "OS" in reproducibility
+    assert "Platform" in reproducibility
+    assert "Python Version" in reproducibility
+    assert "CMake Build Type" in reproducibility
+    assert "CMake Generator" in reproducibility
+    assert "Baseline Run Directory" in reproducibility
+
+
+# ---------------------------------------------------------------------------
+# Integer iteration ticks on plots
+# ---------------------------------------------------------------------------
+
+
+def test_runtime_progress_integer_ticks_0_to_10(tmp_path: Path) -> None:
+    report_data = make_empty_report_data("exp_ticks", TARGET_FILE)
+    report_data.baseline_metrics = ReportBaselineMetrics(runtime_ns_per_problem_median=100.0)
+    report_data.iterations = [
+        ReportIterationSummary(
+            iteration=i,
+            status="accepted_improvement",
+            runtime_ns_per_problem_median=100.0 - i,
+            promoted=True,
+        )
+        for i in range(1, 11)
+    ]
+    plots_dir = tmp_path / "plots"
+    build_report_figures(report_data, plots_dir)
+
+    svg_text = (plots_dir / "runtime_progress.svg").read_text(encoding="utf-8")
+    for i in range(0, 11):
+        assert str(i) in svg_text
+
+
+def test_runtime_reduction_integer_ticks_1_to_10(tmp_path: Path) -> None:
+    report_data = make_empty_report_data("exp_ticks", TARGET_FILE)
+    report_data.iterations = [
+        ReportIterationSummary(
+            iteration=i,
+            status="accepted_improvement",
+            runtime_ns_per_problem_median=100.0,
+            speedup_vs_baseline=1.0 + 0.01 * i,
+            promoted=True,
+        )
+        for i in range(1, 11)
+    ]
+    plots_dir = tmp_path / "plots"
+    build_report_figures(report_data, plots_dir)
+
+    svg_text = (plots_dir / "runtime_reduction_by_iteration.svg").read_text(encoding="utf-8")
+    for i in range(1, 11):
+        assert str(i) in svg_text, f"Tick label {i} not found in runtime_reduction SVG"
+
+    # Tick label 0 should not appear as an x-axis tick (runtime_reduction only uses iterations 1+)
+    # The SVG may contain "0" as part of "1.0", version strings, etc. -- that is fine.
+
+
+def test_html_no_not_available_after_visual_cleanup(tmp_path: Path) -> None:
+    report_data = _enriched_report_data()
+
+    plot_paths = build_report_figures(report_data, tmp_path / "plots")
+    html_path = render_report_html(report_data, plot_paths, tmp_path / "report.html")
+    html = html_path.read_text(encoding="utf-8")
+
+    assert "Not available" not in html

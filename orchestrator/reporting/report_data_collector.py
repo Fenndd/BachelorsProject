@@ -605,16 +605,6 @@ def _apply_final_selection_overrides(
     final_result.final_runtime_reduction_percent = reduction
     final_result.correctness_preserved = final_selection.final_correctness_passed
 
-    gt_delta = final_selection.final_gt_found_delta_points
-    if (
-        final_result.correctness_preserved
-        and selection_policy is not None
-        and not selection_policy.gt_found_gate_enabled
-        and gt_delta is not None
-        and gt_delta <= -1.0
-    ):
-        final_result.correctness_preserved = False
-
     baseline_runtime = final_selection.baseline_runtime_ns_per_problem_median
     final_runtime = final_selection.final_runtime_ns_per_problem_median
     final_best_candidate.runtime_ns_per_problem_median = final_runtime
@@ -627,6 +617,17 @@ def _apply_final_selection_overrides(
     final_best_candidate.speedup_vs_baseline = speedup
     final_best_candidate.runtime_reduction_percent = reduction
     final_best_candidate.correctness_passed = final_selection.final_correctness_passed
+
+    gt_delta = final_selection.final_gt_found_delta_points
+    if (
+        final_result.correctness_preserved
+        and selection_policy is not None
+        and not selection_policy.gt_found_gate_enabled
+        and gt_delta is not None
+        and gt_delta <= -1.0
+    ):
+        final_result.correctness_preserved = False
+        final_best_candidate.correctness_passed = False
     final_best_candidate.baseline_gt_found_percent = final_selection.baseline_gt_found_percent
     final_best_candidate.gt_found_percent = final_selection.final_gt_found_percent
     final_best_candidate.gt_found_delta_points = final_selection.final_gt_found_delta_points

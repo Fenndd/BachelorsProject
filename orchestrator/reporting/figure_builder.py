@@ -180,6 +180,9 @@ def _plot_runtime_progress(data: dict[str, Any], output_path: Path) -> None:
     ax.set_xlabel("Iteration")
     ax.set_ylabel("Median runtime (ns/problem)")
     ax.grid(True, alpha=0.3)
+    all_x = [p[0] for p in step_points] + [p[0] for p in scatter_points]
+    if all_x:
+        _set_integer_iteration_ticks(ax, max(all_x), include_zero=True)
     _save(fig, output_path)
 
 
@@ -215,6 +218,8 @@ def _plot_runtime_reduction(data: dict[str, Any], output_path: Path) -> None:
     ax.set_ylabel("Speedup vs baseline")
     ax.grid(True, axis="y", alpha=0.3)
     ax.legend(fontsize=9)
+    if x_values:
+        _set_integer_iteration_ticks(ax, max(x_values))
     _save(fig, output_path)
 
 
@@ -291,6 +296,8 @@ def _plot_gt_found_progress(
 
     ax.grid(True, alpha=0.3)
     ax.legend(fontsize=9)
+    if x_values:
+        _set_integer_iteration_ticks(ax, max(x_values))
     _save(fig, output_path)
 
 
@@ -309,6 +316,8 @@ def _plot_correctness_pass_fail(
     ax.set_yticks([0, 1], labels=["Fail", "Pass"])
     ax.set_ylim(-0.2, 1.2)
     ax.grid(True, axis="y", alpha=0.3)
+    if x_values:
+        _set_integer_iteration_ticks(ax, max(x_values))
     _save(fig, output_path)
 
 
@@ -364,6 +373,8 @@ def _plot_phase_timings(data: dict[str, Any], output_path: Path) -> None:
     ax.set_ylabel("Seconds")
     ax.grid(True, axis="y", alpha=0.3)
     ax.legend(fontsize=9)
+    if x_values:
+        _set_integer_iteration_ticks(ax, max(x_values))
     _save(fig, output_path)
 
 
@@ -386,6 +397,8 @@ def _plot_llm_tokens(data: dict[str, Any], output_path: Path) -> None:
     ax.set_xlabel("Iteration")
     ax.set_ylabel("Total tokens")
     ax.grid(True, axis="y", alpha=0.3)
+    if x_values:
+        _set_integer_iteration_ticks(ax, max(x_values))
     _save(fig, output_path)
 
 
@@ -409,6 +422,8 @@ def _plot_llm_latency(data: dict[str, Any], output_path: Path) -> None:
     ax.set_xlabel("Iteration")
     ax.set_ylabel("Latency (seconds)")
     ax.grid(True, alpha=0.3)
+    if x_values:
+        _set_integer_iteration_ticks(ax, max(x_values))
     _save(fig, output_path)
 
 
@@ -462,6 +477,8 @@ def _plot_diff_stats_by_iteration(data: dict[str, Any], output_path: Path) -> No
     ax.set_xlabel("Iteration")
     ax.set_ylabel("Changed lines")
     ax.grid(True, axis="y", alpha=0.3)
+    if x_values:
+        _set_integer_iteration_ticks(ax, max(x_values))
     _save(fig, output_path)
 
 
@@ -562,6 +579,19 @@ def _int_or_zero(value: Any) -> int:
 
 def _int_or_none(value: Any) -> int | None:
     return value if isinstance(value, int) and not isinstance(value, bool) else None
+
+
+def _set_integer_iteration_ticks(
+    ax: Any,
+    max_iteration: int,
+    *,
+    include_zero: bool = False,
+) -> None:
+    start = 0 if include_zero else 1
+    if max_iteration < start:
+        return
+    ticks = list(range(start, max_iteration + 1))
+    ax.set_xticks(ticks)
 
 
 __all__ = ["build_report_figures"]

@@ -340,3 +340,49 @@ def test_experiment_id_missing_directory_errors(
     assert exit_code == 1
     captured = capsys.readouterr()
     assert "does not exist" in captured.err
+
+
+def test_report_data_json_preserves_all_fields(tmp_path: Path) -> None:
+    experiment_dir = _experiment_dir(tmp_path)
+
+    write_json(
+        experiment_dir / "experiment_metadata.json",
+        {
+            "schema_version": "experiment_metadata.v1",
+            "started_at": "2026-05-30T10:00:00+02:00",
+            "finished_at": "2026-05-30T10:01:00+02:00",
+            "total_duration_seconds": 60.0,
+            "repository": {"git_commit": "abc", "git_branch": "main", "dirty_worktree": False},
+            "environment": {
+                "os": "nt",
+                "platform": "Windows",
+                "python_version": "3.12",
+                "cmake_build_type": "Release",
+                "cmake_generator": "Ninja",
+                "cmake_exe": "cmake",
+                "cxx_compiler": "clang++",
+            },
+        },
+    )
+
+    generate_basic_report(experiment_dir, formats=("html",))
+
+    report_data = json.loads(
+        (experiment_dir / "report" / "report_data.json").read_text(encoding="utf-8")
+    )
+    bm = report_data.get("baseline_metrics", {})
+    assert "decision_metric" in bm
+    assert "correctness_passed" in bm
+
+    em = report_data.get("experiment_metadata") or {}
+    repo = em.get("repository", {})
+    assert "git_commit" in repo
+    assert "git_branch" in repo
+    assert "dirty_worktree" in repo
+
+    env = em.get("environment", {})
+    assert "cmake_exe" in env
+    assert "cxx_compiler" in env
+
+    fs = report_data.get("final_selection", {})
+    assert "decision_metric" in fs
