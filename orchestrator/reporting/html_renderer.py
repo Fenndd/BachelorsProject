@@ -16,6 +16,14 @@ from jinja2 import (
 )
 from markupsafe import Markup
 
+from orchestrator.reporting.formatting import (
+    format_delta_pp,
+    format_human_duration,
+    format_human_int,
+    format_percent,
+    format_runtime_ns,
+    format_speedup,
+)
 from orchestrator.reporting.report_data import ReportData, to_report_dict
 
 _EM_DASH = "\u2014"
@@ -118,60 +126,25 @@ def _yes_no(value: Any) -> str:
 def _human_int(value: Any) -> str:
     if value is None or isinstance(value, Undefined):
         return _EM_DASH
-    if isinstance(value, bool):
-        return str(value)
-    try:
-        num = int(value)
-        return f"{num:,}".replace(",", "\u202f")
-    except (ValueError, TypeError):
-        return str(value)
+    return format_human_int(value)
 
 
 def _human_duration(value: Any) -> str:
     if value is None or isinstance(value, Undefined):
         return _EM_DASH
-    try:
-        total_seconds = float(value)
-    except (ValueError, TypeError):
-        return str(value)
-
-    if total_seconds < 0:
-        total_seconds = 0.0
-
-    hours = int(total_seconds // 3600)
-    minutes = int((total_seconds % 3600) // 60)
-    seconds = total_seconds % 60
-
-    if hours > 0:
-        return f"{hours}h {minutes:02d}m {int(seconds):02d}s"
-
-    if minutes > 0:
-        return f"{minutes}m {int(seconds):02d}s"
-
-    if seconds == int(seconds):
-        return f"{int(seconds)}s"
-
-    return f"{seconds:.1f}s"
+    return format_human_duration(value)
 
 
 def _percent(value: Any) -> str:
     if value is None or isinstance(value, Undefined):
         return _EM_DASH
-    try:
-        num = float(value)
-        return f"{num:.2f}%"
-    except (ValueError, TypeError):
-        return str(value)
+    return format_percent(value)
 
 
 def _speedup(value: Any) -> str:
     if value is None or isinstance(value, Undefined):
         return _EM_DASH
-    try:
-        num = float(value)
-        return f"{num:.3f}\u00d7"
-    except (ValueError, TypeError):
-        return str(value)
+    return format_speedup(value)
 
 
 def _human_datetime(value: Any) -> str:
@@ -212,22 +185,13 @@ def _diff_highlight(value: Any) -> Markup:
 def _runtime_ns(value: Any) -> str:
     if value is None or isinstance(value, Undefined):
         return _EM_DASH
-    try:
-        num = float(value)
-        return f"{num:,.2f}".replace(",", "\u202f")
-    except (ValueError, TypeError):
-        return str(value)
+    return format_runtime_ns(value)
 
 
 def _delta_pp(value: Any) -> str:
     if value is None or isinstance(value, Undefined):
         return _EM_DASH
-    try:
-        num = float(value)
-        formatted = f"{num:,.2f}".replace(",", "\u202f")
-        return f"{formatted}\u202fpp"
-    except (ValueError, TypeError):
-        return str(value)
+    return format_delta_pp(value)
 
 
 def _selected_iterations(data: dict[str, Any]) -> list[dict[str, Any]]:

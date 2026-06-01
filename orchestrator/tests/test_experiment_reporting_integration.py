@@ -16,9 +16,8 @@ from orchestrator.experiments import experiment_artifacts as artifacts
 from orchestrator.experiments import experiment_planner as planner
 from orchestrator.experiments import iteration_runner
 from orchestrator.experiments.experiment_config import (
-    ExperimentConfig,
-    LlmConfig,
-    ReportingConfig,
+    ExperimentConfigError,
+    load_experiment_config,
 )
 from orchestrator.tests.conftest import TARGET_FILE, write_json, make_benchmark_payload
 

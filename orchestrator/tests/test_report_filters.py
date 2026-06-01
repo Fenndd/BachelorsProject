@@ -395,3 +395,13 @@ def test_delta_pp_none_returns_dash() -> None:
 
 def test_delta_pp_undefined_returns_dash() -> None:
     assert _delta_pp(Undefined()) == _EM_DASH
+
+
+def test_delta_pp_does_not_render_negative_zero() -> None:
+    result = _delta_pp(-0.001)
+    assert result == "0.00\u202fpp"
+
+
+def test_delta_pp_near_zero_renders_zero() -> None:
+    result = _delta_pp(0.003)
+    assert result == "0.00\u202fpp"

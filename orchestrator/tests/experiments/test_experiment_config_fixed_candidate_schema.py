@@ -20,7 +20,7 @@ from orchestrator.experiments.experiment_config import (
 def _base_config_payload() -> dict[str, Any]:
     return {
         "experiment_name": "candidate config test",
-        "target_file": "cpp/external/lambdatwist/p3p.cc",
+        "target_file": "cpp/external/poselib/PoseLib/solvers/p3p_lambdatwist.cc",
         "baseline_run_dir": "results/runs/baseline",
 
         "llm_config": "configs/llm_mock_candidate.json",

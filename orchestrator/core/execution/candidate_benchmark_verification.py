@@ -51,9 +51,7 @@ SOURCE_FILE_SUFFIXES_FOR_PATH_DIAGNOSTICS = {".cpp", ".cc", ".cxx", ".h", ".hpp"
 
 EXPECTED_STEPS = [
     "configure_cmake",
-    f"build_{DESCRIPTOR.adapter_validator_target}",
     f"build_{DESCRIPTOR.benchmark_target}",
-    f"run_{DESCRIPTOR.adapter_validator_target}",
     f"run_{DESCRIPTOR.benchmark_target}",
     f"parse_{DESCRIPTOR.benchmark_target}",
     "benchmark_correctness_check",
@@ -86,8 +84,7 @@ def _activate_descriptor(descriptor: SolverBenchmarkDescriptor) -> None:
 def _parse_args(argv: list[str]) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description=(
-            "Verify one materialized candidate with the absolute-pose benchmark "
-            "family path."
+            "Verify one materialized candidate with the PoseLib-native benchmark path."
         )
     )
     parser.add_argument(
@@ -98,7 +95,7 @@ def _parse_args(argv: list[str]) -> argparse.Namespace:
     parser.add_argument(
         "--solver",
         default=None,
-        help="Optional solver_id from the solver registry. Defaults to lambdatwist_p3p.",
+        help="Optional solver_id from the solver registry. Defaults to poselib_p3p_lambdatwist.",
     )
     parser.add_argument(
         "--cmake-exe",

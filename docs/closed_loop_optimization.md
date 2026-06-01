@@ -34,7 +34,7 @@ This helps later iterations understand what was attempted and avoid redundant or
 
 Closed-loop mode separates logical repository paths from physical source roots:
 
-- The logical `target_file` remains repo-relative, for example `cpp/external/lambdatwist/p3p.cc`.
+- The logical `target_file` remains repo-relative, for example `cpp/external/poselib/PoseLib/solvers/p3p_lambdatwist.cc`.
 - `generate_candidate` uses `--source-root workspace/experiments/<experiment_id>/current_best_source` to read the active source text.
 - `materialize_candidate` uses `--base-source-root workspace/experiments/<experiment_id>/current_best_source` to apply the candidate against the same source version the LLM saw.
 - Candidate `target_files`, `allowed_files`, prompt metadata, and decision artifacts continue to use logical repo-relative paths.
@@ -60,7 +60,7 @@ results/experiments/<experiment_id>/current_best_state.json
 `current_best_source/` is a repo-like tree. For the current P3P target, the active source file is stored at:
 
 ```text
-workspace/experiments/<experiment_id>/current_best_source/cpp/external/lambdatwist/p3p.cc
+workspace/experiments/<experiment_id>/current_best_source/cpp/external/poselib/PoseLib/solvers/p3p_lambdatwist.cc
 ```
 
 ## Iteration Statuses

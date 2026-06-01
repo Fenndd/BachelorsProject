@@ -17,20 +17,25 @@ from orchestrator.core.benchmarking.solver_registry import (
 
 
 class SolverRegistryTests(unittest.TestCase):
-    def test_default_descriptor_is_lambdatwist_p3p(self) -> None:
+    def test_default_descriptor_is_poselib_p3p_lambdatwist(self) -> None:
         desc = default_solver_descriptor()
         self.assertIsInstance(desc, SolverBenchmarkDescriptor)
-        self.assertEqual(desc.solver_id, "lambdatwist_p3p")
-        self.assertEqual(desc.family, "absolute_pose_solvers")
-        self.assertEqual(desc.benchmark_target, "absolute_pose_lambdatwist_benchmark")
-        self.assertEqual(desc.adapter_validator_target, "absolute_pose_lambdatwist_adapter_validator")
+        self.assertEqual(desc.solver_id, "poselib_p3p_lambdatwist")
+        self.assertEqual(desc.family, "poselib_native")
+        self.assertEqual(desc.benchmark_target, "poselib_solver_benchmark")
+        self.assertIsNone(desc.adapter_validator_target)
         self.assertEqual(desc.runtime_unit, "ns")
         self.assertEqual(desc.runtime_metric_key, "parsed_runtime_ns_per_problem_median")
 
-    def test_get_solver_descriptor_returns_lambdatwist(self) -> None:
-        desc = get_solver_descriptor("lambdatwist_p3p")
-        self.assertEqual(desc.solver_id, "lambdatwist_p3p")
-        self.assertEqual(desc.benchmark_backend, "absolute_pose")
+    def test_get_solver_descriptor_returns_poselib_lambdatwist(self) -> None:
+        desc = get_solver_descriptor("poselib_p3p_lambdatwist")
+        self.assertEqual(desc.solver_id, "poselib_p3p_lambdatwist")
+        self.assertEqual(desc.benchmark_backend, "poselib_native")
+        self.assertEqual(desc.family, "poselib_native")
+
+    def test_old_lambdatwist_solver_id_is_not_registered(self) -> None:
+        with self.assertRaises(KeyError):
+            get_solver_descriptor("lambdatwist_p3p")
 
     def test_poselib_p3p_descriptor(self) -> None:
         desc = get_solver_descriptor("poselib_p3p")
@@ -97,14 +102,19 @@ class SolverRegistryTests(unittest.TestCase):
         with self.assertRaises(KeyError) as ctx:
             get_solver_descriptor("nonexistent_solver")
         self.assertIn("nonexistent_solver", str(ctx.exception))
-        self.assertIn("lambdatwist_p3p", str(ctx.exception))
+        self.assertIn("poselib_p3p_lambdatwist", str(ctx.exception))
 
     def test_list_solver_descriptors_returns_non_empty_list(self) -> None:
         descriptors = list_solver_descriptors()
         self.assertIsInstance(descriptors, list)
         self.assertGreaterEqual(len(descriptors), 1)
         ids = {d.solver_id for d in descriptors}
-        self.assertIn("lambdatwist_p3p", ids)
+        self.assertIn("poselib_p3p_lambdatwist", ids)
+
+    def test_all_descriptors_are_poselib_native(self) -> None:
+        for desc in list_solver_descriptors():
+            self.assertEqual(desc.family, "poselib_native")
+            self.assertEqual(desc.benchmark_backend, "poselib_native")
 
     def test_descriptor_is_frozen(self) -> None:
         desc = default_solver_descriptor()
@@ -119,7 +129,7 @@ class SolverRegistryTests(unittest.TestCase):
         try:
             with self.assertRaises(RuntimeError) as ctx:
                 solver_registry.default_solver_descriptor()
-            self.assertIn("lambdatwist_p3p", str(ctx.exception))
+            self.assertIn("poselib_p3p_lambdatwist", str(ctx.exception))
             self.assertIn("not registered", str(ctx.exception))
         finally:
             solver_registry._descriptors_cache = original_cache

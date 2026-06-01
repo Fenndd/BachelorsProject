@@ -35,7 +35,7 @@ from orchestrator.experiments.iteration_runner import format_iteration_dir
 _EXP_1 = "exp_001"
 _EXP_2 = "exp_002"
 
-_TARGET_FILE = "cpp/external/lambdatwist/p3p.cc"
+_TARGET_FILE = "cpp/external/poselib/PoseLib/solvers/p3p_lambdatwist.cc"
 
 
 def _make_state(experiment_id: str, ws_root: Path, results_root: Path) -> CurrentBestState:

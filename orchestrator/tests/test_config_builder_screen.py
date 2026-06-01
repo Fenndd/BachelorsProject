@@ -49,8 +49,8 @@ def _make_screen(monkeypatch, tmp_path: Path, overrides: dict[str, object] | Non
     values: dict[str, object] = {
         "experiment_name": SimpleNamespace(value="test_exp"),
         "description": SimpleNamespace(value=""),
-        "algorithm": SimpleNamespace(value="lambdatwist_p3p"),
-        "target_file": SimpleNamespace(value="cpp/external/lambdatwist/p3p.cc"),
+        "algorithm": SimpleNamespace(value="poselib_p3p_lambdatwist"),
+        "target_file": SimpleNamespace(value="cpp/external/poselib/PoseLib/solvers/p3p_lambdatwist.cc"),
         "baseline_run_sel": SimpleNamespace(value="results/runs/baseline"),
         "iterations": SimpleNamespace(value="1"),
         "llm_config": SimpleNamespace(value="configs/llm_mock.json"),
@@ -181,13 +181,13 @@ def _write_run(root: Path, name: str, *, status: str, solver: str | None, candid
 def test_baseline_filtering_excludes_failed_candidate_and_mismatched(monkeypatch, tmp_path: Path) -> None:
     root = tmp_path
     (root / ".git").mkdir()
-    _write_run(root, "good_lambdatwist", status="success", solver="lambdatwist_p3p")
-    _write_run(root, "failed_lambdatwist", status="failed", solver="lambdatwist_p3p")
-    _write_run(root, "candidate_lambdatwist", status="success", solver="lambdatwist_p3p", candidate=True)
+    _write_run(root, "good_lambdatwist", status="success", solver="poselib_p3p_lambdatwist")
+    _write_run(root, "failed_lambdatwist", status="failed", solver="poselib_p3p_lambdatwist")
+    _write_run(root, "candidate_lambdatwist", status="success", solver="poselib_p3p_lambdatwist", candidate=True)
     _write_run(root, "poselib_baseline", status="success", solver="poselib_p3p")
 
     monkeypatch.setattr(options, "get_project_paths", lambda: SimpleNamespace(repo_root=root))
-    discovered = options.discover_baseline_runs("lambdatwist_p3p")
+    discovered = options.discover_baseline_runs("poselib_p3p_lambdatwist")
     labels = [label for label, _value in discovered]
 
     assert any("good_lambdatwist" in label for label in labels)
@@ -212,3 +212,36 @@ def test_invalid_max_tokens_rejected_save_prevented(monkeypatch, tmp_path: Path,
     with pytest.raises(ExperimentConfigError):
         screen._build_payload()
     assert screen._save_to_local() is None
+
+
+# ---------------------------------------------------------------------------
+# Task 5: ConfigBuilderView default solver preference
+# ---------------------------------------------------------------------------
+
+
+def test_config_builder_default_solver_is_poselib_p3p_lambdatwist(monkeypatch) -> None:
+    from orchestrator.tui.views.config_builder_view import ConfigBuilderView
+
+    fake_options = [
+        type("Fake", (), {"solver_id": "other_solver", "display_label": "Other"}),  # type: ignore[abstract]
+        type("Fake", (), {"solver_id": "poselib_p3p_lambdatwist", "display_label": "LambdaTwist"}),  # type: ignore[abstract]
+    ]
+    monkeypatch.setattr(config_builder, "list_config_builder_solver_options", lambda: fake_options)
+
+    view = ConfigBuilderView()
+
+    assert view._default_solver_id() == "poselib_p3p_lambdatwist"
+
+
+def test_config_builder_default_solver_fallback_when_preferred_absent(monkeypatch) -> None:
+    from orchestrator.tui.views.config_builder_view import ConfigBuilderView
+
+    fake_options = [
+        type("Fake", (), {"solver_id": "solver_a", "display_label": "Solver A"}),  # type: ignore[abstract]
+        type("Fake", (), {"solver_id": "solver_b", "display_label": "Solver B"}),  # type: ignore[abstract]
+    ]
+    monkeypatch.setattr(config_builder, "list_config_builder_solver_options", lambda: fake_options)
+
+    view = ConfigBuilderView()
+
+    assert view._default_solver_id() == "solver_a"

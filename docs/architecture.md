@@ -2,16 +2,14 @@
 
 This project uses C++ for the algorithmic layer and Python for automation around baseline preparation, LLM candidate generation, candidate materialization, verification, decisions, and closed-loop experiment orchestration.
 
-The C++ benchmark layer supports two backends:
+The C++ benchmark layer supports one backend:
 
-- **`absolute_pose`**: a generated backend for the Lambda Twist P3P minimal
-  solver (adapter validation + absolute-pose family benchmark).
 - **`poselib_native`**: a backend that reuses PoseLib's benchmark
-  infrastructure for 37 PoseLib minimal-solver cases through a
+  infrastructure for PoseLib minimal-solver cases through a
   `poselib_solver_benchmark` target and `--solver` flag.
 
 Solver support is declared through per-solver JSON manifests under
-`cpp/bench/absolute_pose/solvers/` and `cpp/bench/poselib_native/solvers/`.
+`cpp/bench/poselib_native/solvers/`.
 The solver registry (`solver_registry.py`) loads these manifests at import
 time and provides descriptors that drive baseline builds, candidate
 verification, and closed-loop experiment dispatch.
@@ -21,28 +19,21 @@ verification, and closed-loop experiment dispatch.
 The clean baseline path:
 
 1. CMake configures the C++ project.
-2. The appropriate benchmark targets are built (depends on the selected
-   solver's manifest).
-3. For `absolute_pose` solvers: an adapter validator and family benchmark
-   execute from `orchestrator/cli/main.py`.
-4. For `poselib_native` solvers: the `poselib_solver_benchmark` binary runs
+2. The `poselib_solver_benchmark` target is built.
+3. The `poselib_solver_benchmark` binary runs
    with `--solver <key>` and prints machine-readable JSON output.
-5. The benchmark executable runs 100 times sequentially. Parsed samples are
+4. The benchmark executable runs 100 times sequentially. Parsed samples are
    aggregated by median of `runtime_ns_per_problem_median`; mean and max are not
    decision or main-report metrics.
-6. Parsed benchmark metrics are stored under `results/runs/<run_id>/` and
+5. Parsed benchmark metrics are stored under `results/runs/<run_id>/` and
    indexed in `results/index.jsonl`.
 
 The C++ baseline boundary:
 
-- `cpp/external/lambdatwist/`: imported third-party Lambda Twist source.
 - `cpp/external/poselib/`: imported third-party PoseLib source.
-- `lambdatwist_baseline` / `poselib_solver_benchmark`: project CMake targets
-  wrapping the imported solver libraries.
-- `absolute_pose_lambdatwist_adapter_validator`: project-owned validator
-  target (absolute_pose backend only).
-- `absolute_pose_lambdatwist_benchmark`: project-owned benchmark-family
-  evaluation entry point (absolute_pose backend only).
+- `poselib_solver_benchmark`: project CMake target wrapping PoseLib's solver
+  benchmark. LambdaTwist is available through PoseLib as
+  `poselib_p3p_lambdatwist`.
 
 The baseline Python entry point is `orchestrator/cli/main.py`. It remains
 separate from LLM optimization experiments. The `--solver` flag selects
@@ -102,9 +93,7 @@ generation and materialization. The materializer enforces candidate
 `target_files` and `edits[].file` paths against that allowlist.
 
 Verification produces `verification.json` using the solver descriptor from
-the registry. For `absolute_pose` solvers, this runs adapter validation then
-100 sequential family benchmark executions. For `poselib_native` solvers, this
-builds and runs the `poselib_solver_benchmark` with the solver's `--solver <key>`
+the registry. It builds and runs the `poselib_solver_benchmark` with the solver's `--solver <key>`
 100 times sequentially. Verification does not compare against a reference;
 decisions and selection are separate stages that consume verified repeated-median
 artifacts.

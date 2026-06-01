@@ -178,6 +178,7 @@ class ReportIterationSummary:
     total_benchmark_wall_seconds: float | None = None
     promoted: bool = False
     reason: str | None = None
+    display_reason: str | None = None
     candidate_run_dir: Path | str | None = None
     phase_timings: ReportPhaseTimings | None = None
     llm_usage: ReportLlmUsage | None = None
@@ -361,6 +362,7 @@ class ReportFinalBestCandidate:
     decision_metric: str | None = None
     min_runtime_ns_per_problem_median: float | None = None
     total_benchmark_wall_seconds: float | None = None
+    min_runtime_absolute_difference_ns_per_problem: float | None = None
 
 
 @dataclass

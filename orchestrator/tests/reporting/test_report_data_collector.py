@@ -1,4 +1,4 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 import pytest
 
@@ -864,8 +864,8 @@ def test_b_collector_fills_benchmark_config(tmp_path: Path) -> None:
         metrics_path,
         {
             "benchmark": {
-                "family": "absolute_pose_solvers",
-                "solver": "lambdatwist_p3p",
+                "family": "poselib_native",
+                "solver": "poselib_p3p_lambdatwist",
                 "runtime_unit": "ns",
                 "build_type": "Release",
                 "benchmark_options": {
@@ -891,8 +891,8 @@ def test_b_collector_fills_benchmark_config(tmp_path: Path) -> None:
 
     report_data = collect_report_data(experiment_dir)
 
-    assert report_data.benchmark_config.family == "absolute_pose_solvers"
-    assert report_data.benchmark_config.solver == "lambdatwist_p3p"
+    assert report_data.benchmark_config.family == "poselib_native"
+    assert report_data.benchmark_config.solver == "poselib_p3p_lambdatwist"
     assert report_data.benchmark_config.num_problems == 1024
     assert report_data.benchmark_config.timed_iterations == 50
     assert report_data.benchmark_config.seed == 42
@@ -1269,9 +1269,9 @@ def test_display_path_known_relative_prefixes(tmp_path: Path) -> None:
     assert result is not None
     assert "configs/llm.json" in result
 
-    result = rdc._display_path("cpp/external/lambdatwist/p3p.cc")
+    result = rdc._display_path("cpp/external/poselib/PoseLib/solvers/p3p_lambdatwist.cc")
     assert result is not None
-    assert "cpp/external/lambdatwist/p3p.cc" in result
+    assert "cpp/external/poselib/PoseLib/solvers/p3p_lambdatwist.cc" in result
 
     result = rdc._display_path("workspace/experiments/x")
     assert result is not None
@@ -1397,10 +1397,8 @@ def test_executive_narrative_successful_improvement(tmp_path: Path) -> None:
     assert narrative is not None
     assert "deepseek-v4-pro" in narrative
     assert "completed 3 of 3 iterations" in narrative
-    assert "1000" in narrative
-    assert "800" in narrative
-    assert "speedup 1.25x" in narrative
-    assert "20.0%" in narrative and "reduction" in narrative
+    assert "speedup 1.250\u00d7" in narrative
+    assert "20.00%" in narrative and "reduction" in narrative
     assert "Correctness was preserved" in narrative
     assert "1 accepted" in narrative
 
@@ -1633,3 +1631,271 @@ def test_final_code_diff_not_loaded_for_broken_file(tmp_path: Path) -> None:
     report_data = collect_report_data(experiment_dir)
 
     assert report_data.final_code_diff is None
+
+
+# ---------------------------------------------------------------------------
+# Task 1: Min-runtime delta
+# ---------------------------------------------------------------------------
+
+
+def test_min_runtime_delta_computed_when_data_available(tmp_path: Path) -> None:
+    experiment_dir = _experiment_dir(tmp_path)
+    write_json(
+        experiment_dir / "closed_loop_summary.json",
+        _summary(
+            final_best_iteration=1,
+            original_baseline_metrics_path=str(experiment_dir / "baseline_metrics.json"),
+        ),
+    )
+    write_json(
+        experiment_dir / "baseline_metrics.json",
+        {
+            "benchmark": {
+                "runtime_ns_per_problem_median": 1000.0,
+                "repeated_benchmark_aggregate": {
+                    "min_runtime_ns_per_problem_median": 500.0,
+                },
+            }
+        },
+    )
+    write_jsonl(
+        experiment_dir / "closed_loop_iterations.jsonl",
+        [
+            {
+                "iteration": 1,
+                "status": "accepted_improvement",
+                "runtime_ns_per_problem_median": 800.0,
+                "min_runtime_ns_per_problem_median": 400.0,
+                "correctness_passed": True,
+                "current_best_updated": True,
+            }
+        ],
+    )
+
+    report_data = collect_report_data(experiment_dir)
+
+    assert report_data.final_best_candidate.min_runtime_absolute_difference_ns_per_problem == 100.0
+
+
+def test_min_runtime_delta_none_when_missing(tmp_path: Path) -> None:
+    experiment_dir = _experiment_dir(tmp_path)
+    write_json(
+        experiment_dir / "closed_loop_summary.json",
+        _summary(
+            final_best_iteration=0,
+            original_baseline_metrics_path=str(experiment_dir / "baseline_metrics.json"),
+        ),
+    )
+    write_json(
+        experiment_dir / "baseline_metrics.json",
+        {
+            "benchmark": {
+                "runtime_ns_per_problem_median": 1000.0,
+            }
+        },
+    )
+    write_jsonl(experiment_dir / "closed_loop_iterations.jsonl", [])
+
+    report_data = collect_report_data(experiment_dir)
+
+    assert report_data.final_best_candidate.min_runtime_absolute_difference_ns_per_problem is None
+
+
+# ---------------------------------------------------------------------------
+# Task 8: display_reason
+# ---------------------------------------------------------------------------
+
+
+def test_display_reason_prefers_granular_over_status(tmp_path: Path) -> None:
+    experiment_dir = _experiment_dir(tmp_path)
+    write_json(experiment_dir / "closed_loop_summary.json", _summary())
+    write_jsonl(
+        experiment_dir / "closed_loop_iterations.jsonl",
+        [
+            {
+                "iteration": 1,
+                "status": "valid_not_improved",
+                "runtime_ns_per_problem_median": 820.0,
+                "correctness_passed": True,
+                "failure_reason": "insufficient_speedup_threshold",
+            }
+        ],
+    )
+
+    report_data = collect_report_data(experiment_dir)
+
+    assert len(report_data.iterations) == 1
+    it = report_data.iterations[0]
+    # display_reason should prefer the granular failure_reason over status
+    assert it.display_reason == "insufficient_speedup_threshold"
+
+
+def test_display_reason_uses_outcome_code_when_reason_duplicates_status(tmp_path: Path) -> None:
+    experiment_dir = _experiment_dir(tmp_path)
+    write_json(experiment_dir / "closed_loop_summary.json", _summary())
+    write_jsonl(
+        experiment_dir / "closed_loop_iterations.jsonl",
+        [
+            {
+                "iteration": 1,
+                "status": "materialization_failed",
+                "failure_reason": "materialization_failed",
+            }
+        ],
+    )
+
+    report_data = collect_report_data(experiment_dir)
+
+    assert len(report_data.iterations) == 1
+    it = report_data.iterations[0]
+    # reason duplicates status, should fall back to outcome_reason message or other
+    assert it.display_reason is not None
+    assert it.display_reason != "materialization_failed"
+
+
+# ---------------------------------------------------------------------------
+# Task 3: GT Found drop without threshold marks correctness as not preserved
+# ---------------------------------------------------------------------------
+
+
+def test_gt_found_drop_no_threshold_correctness_false(tmp_path: Path) -> None:
+    experiment_dir = _experiment_dir(tmp_path)
+    write_json(experiment_dir / "closed_loop_summary.json", _summary())
+    write_jsonl(experiment_dir / "closed_loop_iterations.jsonl", [])
+    write_json(
+        experiment_dir / "experiment_config_snapshot.json",
+        {"selection": {}},
+    )
+    write_json(
+        experiment_dir / "final_selection_report.json",
+        {
+            "status": "completed",
+            "comparison": {
+                "speedup": 1.25,
+                "runtime_reduction_percent": 20.0,
+                "baseline_runtime_ns_per_problem_median": 100.0,
+                "final_runtime_ns_per_problem_median": 80.0,
+                "baseline_gt_found_percent": 100.0,
+                "final_gt_found_percent": 98.5,
+                "final_gt_found_delta_points": -1.5,
+            },
+            "final_benchmark": {"parsed_correctness_passed": True},
+        },
+    )
+
+    report_data = collect_report_data(experiment_dir)
+
+    assert report_data.final_result.correctness_preserved is False
+    assert report_data.final_best_candidate.correctness_passed is False
+    assert report_data.final_selection.final_correctness_passed is True  # benchmark value preserved for narrative
+
+
+def test_gt_found_small_drop_no_threshold_keeps_benchmark_true(tmp_path: Path) -> None:
+    experiment_dir = _experiment_dir(tmp_path)
+    write_json(experiment_dir / "closed_loop_summary.json", _summary())
+    write_jsonl(experiment_dir / "closed_loop_iterations.jsonl", [])
+    write_json(
+        experiment_dir / "experiment_config_snapshot.json",
+        {"selection": {}},
+    )
+    write_json(
+        experiment_dir / "final_selection_report.json",
+        {
+            "status": "completed",
+            "comparison": {
+                "speedup": 1.25,
+                "runtime_reduction_percent": 20.0,
+                "baseline_runtime_ns_per_problem_median": 100.0,
+                "final_runtime_ns_per_problem_median": 80.0,
+                "baseline_gt_found_percent": 100.0,
+                "final_gt_found_percent": 99.5,
+                "final_gt_found_delta_points": -0.5,
+            },
+            "final_benchmark": {"parsed_correctness_passed": True},
+        },
+    )
+
+    report_data = collect_report_data(experiment_dir)
+
+    assert report_data.final_result.correctness_preserved is True
+    assert report_data.final_best_candidate.correctness_passed is True
+
+
+def test_gt_found_threshold_configured_keeps_existing_logic(tmp_path: Path) -> None:
+    experiment_dir = _experiment_dir(tmp_path)
+    write_json(experiment_dir / "closed_loop_summary.json", _summary())
+    write_jsonl(experiment_dir / "closed_loop_iterations.jsonl", [])
+    write_json(
+        experiment_dir / "experiment_config_snapshot.json",
+        {"selection": {"gt_found_max_drop_points": 2.0}},
+    )
+    write_json(
+        experiment_dir / "final_selection_report.json",
+        {
+            "status": "completed",
+            "comparison": {
+                "speedup": 1.25,
+                "runtime_reduction_percent": 20.0,
+                "baseline_runtime_ns_per_problem_median": 100.0,
+                "final_runtime_ns_per_problem_median": 80.0,
+                "baseline_gt_found_percent": 100.0,
+                "final_gt_found_percent": 98.5,
+                "final_gt_found_delta_points": -1.5,
+            },
+            "final_benchmark": {"parsed_correctness_passed": True},
+        },
+    )
+
+    report_data = collect_report_data(experiment_dir)
+
+    assert report_data.final_result.correctness_preserved is True
+    assert report_data.final_best_candidate.correctness_passed is True
+
+
+def test_gt_found_drop_no_threshold_narrative_marks_correctness_not_preserved(tmp_path: Path) -> None:
+    experiment_dir = _experiment_dir(tmp_path)
+    metrics_path = tmp_path / "results" / "runs" / "baseline" / "metrics.json"
+    write_json(
+        metrics_path,
+        {"benchmark": {"parsed_runtime_ns_per_problem_median": 1000.0, "parsed_gt_found_percent": 100.0}},
+    )
+    write_json(
+        experiment_dir / "closed_loop_summary.json",
+        _summary(original_baseline_metrics_path=str(metrics_path)),
+    )
+    write_jsonl(experiment_dir / "closed_loop_iterations.jsonl", [])
+    write_json(
+        experiment_dir / "experiment_config_snapshot.json",
+        {"selection": {}, "baseline_run_dir": str(metrics_path)},
+    )
+    write_json(
+        experiment_dir / "resolved_llm_config.json",
+        {"provider": "deepseek", "model": "deepseek-v4-pro"},
+    )
+    write_json(
+        experiment_dir / "final_selection_report.json",
+        {
+            "status": "completed",
+            "comparison": {
+                "speedup": 1.25,
+                "runtime_reduction_percent": 20.0,
+                "baseline_runtime_ns_per_problem_median": 1000.0,
+                "final_runtime_ns_per_problem_median": 800.0,
+                "baseline_gt_found_percent": 100.0,
+                "final_gt_found_percent": 98.0,
+                "final_gt_found_delta_points": -2.0,
+            },
+            "final_benchmark": {"parsed_correctness_passed": True},
+        },
+    )
+
+    report_data = collect_report_data(experiment_dir)
+
+    narrative = report_data.executive_narrative
+    assert narrative is not None
+    assert report_data.final_best_candidate.correctness_passed is False
+    assert report_data.final_result.correctness_preserved is False
+    assert "Benchmark correctness check passed" in narrative
+    assert "no GT Found acceptance constraint was configured" in narrative
+    assert "correctness as not preserved" in narrative
+    assert "Correctness was preserved" not in narrative

@@ -62,7 +62,7 @@ class ExperimentConfig:
     additional_context: str | None
     reporting: ReportingConfig = field(default_factory=ReportingConfig)
     selection: SelectionPolicyConfig = field(default_factory=SelectionPolicyConfig)
-    solver_id: str = "lambdatwist_p3p"
+    solver_id: str = "poselib_p3p_lambdatwist"
 
 
 def load_experiment_config(path: Path | str) -> ExperimentConfig:

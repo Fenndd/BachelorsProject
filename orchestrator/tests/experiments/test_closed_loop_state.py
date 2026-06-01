@@ -66,7 +66,7 @@ def _baseline_state(root: Path) -> CurrentBestState:
     baseline_run_dir = root / "results" / "runs" / "baseline"
     return CurrentBestState(
         experiment_id="exp_001",
-        target_file="cpp/external/lambdatwist/p3p.cc",
+        target_file="cpp/external/poselib/PoseLib/solvers/p3p_lambdatwist.cc",
         original_baseline_run_dir=baseline_run_dir,
         original_baseline_metrics_path=baseline_run_dir / "metrics.json",
         current_best_iteration=0,
@@ -83,7 +83,7 @@ def _candidate_state(root: Path) -> CurrentBestState:
     candidate_run_dir = root / "results" / "runs" / "candidate_001"
     return CurrentBestState(
         experiment_id="exp_001",
-        target_file="cpp/external/lambdatwist/p3p.cc",
+        target_file="cpp/external/poselib/PoseLib/solvers/p3p_lambdatwist.cc",
         original_baseline_run_dir=root / "results" / "runs" / "baseline",
         original_baseline_metrics_path=root / "results" / "runs" / "baseline" / "metrics.json",
         current_best_iteration=1,
@@ -160,7 +160,7 @@ def test_iteration_record_serializes_as_jsonl_compatible_dict(tmp_path: Path) ->
         reference_best_iteration_before=0,
         reference_best_run_dir=tmp_path / "baseline",
         candidate_run_dir=tmp_path / "candidate_1",
-        candidate_summary={"changed_files": ["cpp/external/lambdatwist/p3p.cc"]},
+        candidate_summary={"changed_files": ["cpp/external/poselib/PoseLib/solvers/p3p_lambdatwist.cc"]},
         candidate_rationale="Simplify arithmetic.",
         decision_vs_current_best={"accepted": True},
         decision_vs_original_baseline={"accepted": True},
@@ -203,7 +203,7 @@ def test_append_iteration_record_writes_exactly_one_json_object_per_line(tmp_pat
 def test_closed_loop_summary_serializes_correctly(tmp_path: Path) -> None:
     summary = ClosedLoopSummary(
         experiment_id="exp_001",
-        target_file="cpp/external/lambdatwist/p3p.cc",
+        target_file="cpp/external/poselib/PoseLib/solvers/p3p_lambdatwist.cc",
         total_iterations=5,
         completed_iterations=5,
         original_baseline_run_dir=tmp_path / "results" / "runs" / "baseline",

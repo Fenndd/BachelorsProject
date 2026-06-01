@@ -72,6 +72,7 @@ temp/
 AGENTS.md
 CLAUDE.md
 .claude/
+.opencode/
 opencode.json
 
 # User-generated experiment configs

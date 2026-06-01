@@ -37,10 +37,7 @@ from .candidate_decision import (
     evaluate_candidate_against_reference,
     write_candidate_decision,
 )
-from .family_benchmark_parser import (
-    parse_absolute_pose_benchmark_output,
-    parse_poselib_native_benchmark_output,
-)
+from .family_benchmark_parser import parse_poselib_native_benchmark_output
 from .solver_registry import (
     SolverBenchmarkDescriptor,
     default_solver_descriptor,
@@ -75,7 +72,6 @@ __all__ = [
     "load_reference_benchmark_artifact",
     "load_verified_candidate_benchmark_artifact",
     "merge_repeated_benchmark_artifacts",
-    "parse_absolute_pose_benchmark_output",
     "parse_poselib_native_benchmark_output",
     "run_command",
     "run_repeated_benchmark",

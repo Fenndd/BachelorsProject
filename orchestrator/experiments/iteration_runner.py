@@ -29,6 +29,7 @@ from orchestrator.core.benchmarking.candidate_decision import (
     evaluate_candidate_against_reference,
     write_candidate_decision,
 )
+from orchestrator.control.candidate_evaluation_queue import candidate_evaluation_lock
 from orchestrator.shared.process.step_runner import StepRunner, format_command
 
 
@@ -496,13 +497,17 @@ def _closed_loop_phase_timings(
     materialization_result: dict[str, Any] | None = None,
     verification_result: dict[str, Any] | None = None,
     confirmation_result: dict[str, Any] | None = None,
+    exclude_seconds: float = 0.0,
 ) -> dict[str, float | None]:
+    total = round(time.perf_counter() - iteration_started - exclude_seconds, 3)
+    if total < 0.0:
+        total = 0.0
     return {
         "generation_seconds": _stage_duration_or_none(generation_result),
         "materialization_seconds": _stage_duration_or_none(materialization_result),
         "verification_seconds": _stage_duration_or_none(verification_result),
         "benchmark_seconds": _stage_duration_or_none(confirmation_result),
-        "total_iteration_seconds": round(time.perf_counter() - iteration_started, 3),
+        "total_iteration_seconds": total,
     }
 
 
@@ -776,112 +781,67 @@ def run_closed_loop_iterations(
             print("- iteration: no_op")
             continue
 
-        materialization_result = _run_stage(
-            experiment_dir,
-            iteration,
-            "materialize_candidate",
-            _build_materialization_command(
-                str(candidate_run_dir),
-                config,
-                base_source_root=str(closed_loop_paths.current_best_source_dir),
-                candidate_workspace_dir=str(candidate_workspace_dir_path),
-            ),
-        )
-        materialization_record = _materialization_stage_record(materialization_result, str(candidate_run_dir))
-        if materialization_record["status"] != "success":
-            record = _build_closed_loop_iteration_record(
-                experiment_id=experiment_id,
-                iteration=iteration,
-                status=IterationStatus.MATERIALIZATION_FAILED,
-                base_source_kind=base_source_kind,
-                reference_best_iteration_before=reference_best_iteration_before,
-                reference_best_run_dir=reference_run_dir_before,
-                candidate_run_dir=candidate_run_dir,
-                candidate=candidate,
-                decision_vs_current_best=None,
-                decision_vs_original_baseline=None,
-                current_best_updated=False,
-                current_best_iteration_after=state.current_best_iteration,
-                failure_stage="materialization",
-                failure_reason=materialization_record.get("error_message") or materialization_record.get("failed_step"),
-                materialization_match_summary=materialization_record.get("materialization_match_summary"),
-                phase_timings=_closed_loop_phase_timings(
-                    iteration_started,
-                    generation_result,
-                    materialization_result,
-                ),
-                outcome_reason=_closed_loop_outcome_reason(
-                    status=IterationStatus.MATERIALIZATION_FAILED,
-                    record_fields=materialization_record,
-                    candidate_run_dir=candidate_run_dir,
-                    candidate=candidate,
-                ),
-            )
-            records.append(record)
-            _append_closed_loop_record_and_state(closed_loop_paths, state, record)
-            print("- iteration: materialization_failed")
-            continue
-
-        verification_result = _run_stage(
-            experiment_dir,
-            iteration,
-            "verify_candidate",
-            _build_verification_command(str(candidate_run_dir), config),
-        )
-        verification_record = _verification_stage_record(verification_result, str(candidate_run_dir))
-        if verification_record["status"] != "success":
-            record = _build_closed_loop_iteration_record(
-                experiment_id=experiment_id,
-                iteration=iteration,
-                status=IterationStatus.VERIFICATION_FAILED,
-                base_source_kind=base_source_kind,
-                reference_best_iteration_before=reference_best_iteration_before,
-                reference_best_run_dir=reference_run_dir_before,
-                candidate_run_dir=candidate_run_dir,
-                candidate=candidate,
-                decision_vs_current_best=None,
-                decision_vs_original_baseline=None,
-                current_best_updated=False,
-                current_best_iteration_after=state.current_best_iteration,
-                failure_stage="verification",
-                failure_reason=verification_record.get("error_message") or verification_record.get("failed_step"),
-                materialization_match_summary=materialization_record.get("materialization_match_summary"),
-                phase_timings=_closed_loop_phase_timings(
-                    iteration_started,
-                    generation_result,
-                    materialization_result,
-                    verification_result,
-                ),
-                outcome_reason=_closed_loop_outcome_reason(
-                    status=IterationStatus.VERIFICATION_FAILED,
-                    record_fields=verification_record,
-                    candidate_run_dir=candidate_run_dir,
-                    candidate=candidate,
-                ),
-            )
-            records.append(record)
-            _append_closed_loop_record_and_state(closed_loop_paths, state, record)
-            print("- iteration: verification_failed")
-            continue
-
-        decision_vs_current_best = _evaluate_candidate_with_thresholds(
-            reference_run_dir=state.current_best_run_dir,
-            reference_kind=reference_kind,
-            candidate_run_dir=candidate_run_dir,
-            thresholds=decision_thresholds,
-        )
-        confirmation_result: dict[str, Any] | None = None
-        if decision_vs_current_best.get("status") == "confirmation_required":
-            confirmation_result = _run_stage(
+        lock_wait_start = time.perf_counter()
+        with candidate_evaluation_lock(
+            experiment_id=experiment_id,
+            iteration=iteration,
+            workspace_root=closed_loop_paths.workspace_root,
+        ):
+            queue_wait_seconds = time.perf_counter() - lock_wait_start
+            materialization_result = _run_stage(
                 experiment_dir,
                 iteration,
-                "confirm_candidate_benchmark",
-                _build_confirmation_command(str(candidate_run_dir), config),
+                "materialize_candidate",
+                _build_materialization_command(
+                    str(candidate_run_dir),
+                    config,
+                    base_source_root=str(closed_loop_paths.current_best_source_dir),
+                    candidate_workspace_dir=str(candidate_workspace_dir_path),
+                ),
             )
-            verification_record = _verification_stage_record(
-                confirmation_result,
-                str(candidate_run_dir),
+            materialization_record = _materialization_stage_record(materialization_result, str(candidate_run_dir))
+            if materialization_record["status"] != "success":
+                record = _build_closed_loop_iteration_record(
+                    experiment_id=experiment_id,
+                    iteration=iteration,
+                    status=IterationStatus.MATERIALIZATION_FAILED,
+                    base_source_kind=base_source_kind,
+                    reference_best_iteration_before=reference_best_iteration_before,
+                    reference_best_run_dir=reference_run_dir_before,
+                    candidate_run_dir=candidate_run_dir,
+                    candidate=candidate,
+                    decision_vs_current_best=None,
+                    decision_vs_original_baseline=None,
+                    current_best_updated=False,
+                    current_best_iteration_after=state.current_best_iteration,
+                    failure_stage="materialization",
+                    failure_reason=materialization_record.get("error_message") or materialization_record.get("failed_step"),
+                    materialization_match_summary=materialization_record.get("materialization_match_summary"),
+                    phase_timings=_closed_loop_phase_timings(
+                        iteration_started,
+                        generation_result,
+                        materialization_result,
+                        exclude_seconds=queue_wait_seconds,
+                    ),
+                    outcome_reason=_closed_loop_outcome_reason(
+                        status=IterationStatus.MATERIALIZATION_FAILED,
+                        record_fields=materialization_record,
+                        candidate_run_dir=candidate_run_dir,
+                        candidate=candidate,
+                    ),
+                )
+                records.append(record)
+                _append_closed_loop_record_and_state(closed_loop_paths, state, record)
+                print("- iteration: materialization_failed")
+                continue
+
+            verification_result = _run_stage(
+                experiment_dir,
+                iteration,
+                "verify_candidate",
+                _build_verification_command(str(candidate_run_dir), config),
             )
+            verification_record = _verification_stage_record(verification_result, str(candidate_run_dir))
             if verification_record["status"] != "success":
                 record = _build_closed_loop_iteration_record(
                     experiment_id=experiment_id,
@@ -892,18 +852,19 @@ def run_closed_loop_iterations(
                     reference_best_run_dir=reference_run_dir_before,
                     candidate_run_dir=candidate_run_dir,
                     candidate=candidate,
-                    decision_vs_current_best=decision_vs_current_best,
+                    decision_vs_current_best=None,
                     decision_vs_original_baseline=None,
                     current_best_updated=False,
                     current_best_iteration_after=state.current_best_iteration,
-                    failure_stage="confirmation_benchmark",
+                    failure_stage="verification",
                     failure_reason=verification_record.get("error_message") or verification_record.get("failed_step"),
                     materialization_match_summary=materialization_record.get("materialization_match_summary"),
                     phase_timings=_closed_loop_phase_timings(
                         iteration_started,
                         generation_result,
                         materialization_result,
-                        confirmation_result,
+                        verification_result,
+                        exclude_seconds=queue_wait_seconds,
                     ),
                     outcome_reason=_closed_loop_outcome_reason(
                         status=IterationStatus.VERIFICATION_FAILED,
@@ -914,71 +875,126 @@ def run_closed_loop_iterations(
                 )
                 records.append(record)
                 _append_closed_loop_record_and_state(closed_loop_paths, state, record)
-                write_candidate_decision(candidate_run_dir, decision_vs_current_best, "decision_vs_current_best.json")
                 print("- iteration: verification_failed")
                 continue
+
             decision_vs_current_best = _evaluate_candidate_with_thresholds(
                 reference_run_dir=state.current_best_run_dir,
                 reference_kind=reference_kind,
                 candidate_run_dir=candidate_run_dir,
                 thresholds=decision_thresholds,
             )
-        decision_vs_original_baseline = _evaluate_candidate_with_thresholds(
-            reference_run_dir=baseline_run_dir,
-            reference_kind="baseline",
-            candidate_run_dir=candidate_run_dir,
-            thresholds=decision_thresholds,
-        )
-        write_candidate_decision(candidate_run_dir, decision_vs_current_best, "decision_vs_current_best.json")
-        write_candidate_decision(candidate_run_dir, decision_vs_original_baseline, "decision_vs_original_baseline.json")
+            confirmation_result: dict[str, Any] | None = None
+            if decision_vs_current_best.get("status") == "confirmation_required":
+                confirmation_result = _run_stage(
+                    experiment_dir,
+                    iteration,
+                    "confirm_candidate_benchmark",
+                    _build_confirmation_command(str(candidate_run_dir), config),
+                )
+                verification_record = _verification_stage_record(
+                    confirmation_result,
+                    str(candidate_run_dir),
+                )
+                if verification_record["status"] != "success":
+                    record = _build_closed_loop_iteration_record(
+                        experiment_id=experiment_id,
+                        iteration=iteration,
+                        status=IterationStatus.VERIFICATION_FAILED,
+                        base_source_kind=base_source_kind,
+                        reference_best_iteration_before=reference_best_iteration_before,
+                        reference_best_run_dir=reference_run_dir_before,
+                        candidate_run_dir=candidate_run_dir,
+                        candidate=candidate,
+                        decision_vs_current_best=decision_vs_current_best,
+                        decision_vs_original_baseline=None,
+                        current_best_updated=False,
+                        current_best_iteration_after=state.current_best_iteration,
+                        failure_stage="confirmation_benchmark",
+                        failure_reason=verification_record.get("error_message") or verification_record.get("failed_step"),
+                        materialization_match_summary=materialization_record.get("materialization_match_summary"),
+                        phase_timings=_closed_loop_phase_timings(
+                            iteration_started,
+                            generation_result,
+                            materialization_result,
+                            confirmation_result,
+                            exclude_seconds=queue_wait_seconds,
+                        ),
+                        outcome_reason=_closed_loop_outcome_reason(
+                            status=IterationStatus.VERIFICATION_FAILED,
+                            record_fields=verification_record,
+                            candidate_run_dir=candidate_run_dir,
+                            candidate=candidate,
+                        ),
+                    )
+                    records.append(record)
+                    _append_closed_loop_record_and_state(closed_loop_paths, state, record)
+                    write_candidate_decision(candidate_run_dir, decision_vs_current_best, "decision_vs_current_best.json")
+                    print("- iteration: verification_failed")
+                    continue
+                decision_vs_current_best = _evaluate_candidate_with_thresholds(
+                    reference_run_dir=state.current_best_run_dir,
+                    reference_kind=reference_kind,
+                    candidate_run_dir=candidate_run_dir,
+                    thresholds=decision_thresholds,
+                )
+            decision_vs_original_baseline = _evaluate_candidate_with_thresholds(
+                reference_run_dir=baseline_run_dir,
+                reference_kind="baseline",
+                candidate_run_dir=candidate_run_dir,
+                thresholds=decision_thresholds,
+            )
+            write_candidate_decision(candidate_run_dir, decision_vs_current_best, "decision_vs_current_best.json")
+            write_candidate_decision(candidate_run_dir, decision_vs_original_baseline, "decision_vs_original_baseline.json")
 
-        decision_status = decision_vs_current_best.get("status")
-        current_best_updated = False
-        if decision_status == "accepted_improvement":
-            workspace_path = _resolve_materialized_workspace(candidate_run_dir)
-            env.update_current_best_source_from_workspace(closed_loop_paths, workspace_path, config)
-            state.current_best_iteration = iteration
-            state.current_best_is_baseline = False
-            state.current_best_run_dir = candidate_run_dir
-            state.current_best_metrics_path = candidate_run_dir / "verification.json"
-            state.accepted_improvements += 1
-            iteration_status = IterationStatus.ACCEPTED_IMPROVEMENT
-            current_best_updated = True
-        elif decision_status == "valid_not_improved":
-            iteration_status = IterationStatus.VALID_NOT_IMPROVED
-        else:
-            iteration_status = IterationStatus.REJECTED
+            decision_status = decision_vs_current_best.get("status")
+            current_best_updated = False
+            if decision_status == "accepted_improvement":
+                workspace_path = _resolve_materialized_workspace(candidate_run_dir)
+                env.update_current_best_source_from_workspace(closed_loop_paths, workspace_path, config)
+                state.current_best_iteration = iteration
+                state.current_best_is_baseline = False
+                state.current_best_run_dir = candidate_run_dir
+                state.current_best_metrics_path = candidate_run_dir / "verification.json"
+                state.accepted_improvements += 1
+                iteration_status = IterationStatus.ACCEPTED_IMPROVEMENT
+                current_best_updated = True
+            elif decision_status == "valid_not_improved":
+                iteration_status = IterationStatus.VALID_NOT_IMPROVED
+            else:
+                iteration_status = IterationStatus.REJECTED
 
-        record = _build_closed_loop_iteration_record(
-            experiment_id=experiment_id,
-            iteration=iteration,
-            status=iteration_status,
-            base_source_kind=base_source_kind,
-            reference_best_iteration_before=reference_best_iteration_before,
-            reference_best_run_dir=reference_run_dir_before,
-            candidate_run_dir=candidate_run_dir,
-            candidate=candidate,
-            decision_vs_current_best=decision_vs_current_best,
-            decision_vs_original_baseline=decision_vs_original_baseline,
-            current_best_updated=current_best_updated,
-            current_best_iteration_after=state.current_best_iteration,
-            materialization_match_summary=materialization_record.get("materialization_match_summary"),
-            phase_timings=_closed_loop_phase_timings(
-                iteration_started,
-                generation_result,
-                materialization_result,
-                verification_result,
-                confirmation_result,
-            ),
-            outcome_reason=_closed_loop_outcome_reason(
+            record = _build_closed_loop_iteration_record(
+                experiment_id=experiment_id,
+                iteration=iteration,
                 status=iteration_status,
+                base_source_kind=base_source_kind,
+                reference_best_iteration_before=reference_best_iteration_before,
+                reference_best_run_dir=reference_run_dir_before,
                 candidate_run_dir=candidate_run_dir,
                 candidate=candidate,
                 decision_vs_current_best=decision_vs_current_best,
-            ),
-        )
-        records.append(record)
-        _append_closed_loop_record_and_state(closed_loop_paths, state, record)
-        print(f"- iteration: {iteration_status.value}")
+                decision_vs_original_baseline=decision_vs_original_baseline,
+                current_best_updated=current_best_updated,
+                current_best_iteration_after=state.current_best_iteration,
+                materialization_match_summary=materialization_record.get("materialization_match_summary"),
+                phase_timings=_closed_loop_phase_timings(
+                    iteration_started,
+                    generation_result,
+                    materialization_result,
+                    verification_result,
+                    confirmation_result,
+                    exclude_seconds=queue_wait_seconds,
+                ),
+                outcome_reason=_closed_loop_outcome_reason(
+                    status=iteration_status,
+                    candidate_run_dir=candidate_run_dir,
+                    candidate=candidate,
+                    decision_vs_current_best=decision_vs_current_best,
+                ),
+            )
+            records.append(record)
+            _append_closed_loop_record_and_state(closed_loop_paths, state, record)
+            print(f"- iteration: {iteration_status.value}")
 
     return closed_loop_paths, state, records, env._now_iso()

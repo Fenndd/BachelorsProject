@@ -39,7 +39,7 @@ class GenerateCandidateSourceRootTests(unittest.TestCase):
         physical_source = REPO_ROOT / logical_target
 
         self.assertEqual(logical_target, TARGET_FILE)
-        self.assertIn("namespace lambdatwist", _read_source(physical_source))
+        self.assertIn("namespace poselib", _read_source(physical_source))
 
     def test_absolute_source_under_repo_without_source_root_stays_supported(self) -> None:
         logical_target = _resolve_logical_target_file(

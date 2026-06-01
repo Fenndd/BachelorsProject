@@ -7,7 +7,7 @@ from textual.containers import Horizontal, VerticalScroll
 from textual.widget import Widget
 from textual.widgets import Button, Select, Static
 
-from orchestrator.control import list_solver_manifest_options
+from orchestrator.control import list_solver_manifest_options, preferred_solver_id
 from orchestrator.tui.debug_log import write_tui_debug
 
 _DEFAULT_SOLVER_VALUE = "__default__"
@@ -20,7 +20,9 @@ def _solver_select_options() -> tuple[list[tuple[str, str]], str]:
     ]
     if not options:
         return ([('Default baseline', _DEFAULT_SOLVER_VALUE)], _DEFAULT_SOLVER_VALUE)
-    return (options, options[0][1])
+    preferred = preferred_solver_id()
+    default = next((v for _, v in options if v == preferred), options[0][1])
+    return (options, default)
 
 
 class BaselineView(Widget):

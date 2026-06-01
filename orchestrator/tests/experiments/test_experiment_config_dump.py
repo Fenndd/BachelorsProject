@@ -25,10 +25,10 @@ def _make_full_config() -> ExperimentConfig:
     return ExperimentConfig(
         experiment_name="test_full",
         description="A full test experiment",
-        solver_id="lambdatwist_p3p",
-        target_file="cpp/external/lambdatwist/p3p.cc",
+        solver_id="poselib_p3p_lambdatwist",
+        target_file="cpp/external/poselib/PoseLib/solvers/p3p_lambdatwist.cc",
         baseline_run_dir="results/runs/test_baseline",
-        optimization_scope=OptimizationScopeConfig(allowed_files=["cpp/external/lambdatwist/p3p.cc"]),
+        optimization_scope=OptimizationScopeConfig(allowed_files=["cpp/external/poselib/PoseLib/solvers/p3p_lambdatwist.cc"]),
         reporting=ReportingConfig(enabled=True, formats=["html", "pdf"], renderer="auto"),
         selection=SelectionPolicyConfig(gt_found_max_drop_points=2.5),
         llm_config="configs/llm_deepseek.json",
@@ -46,10 +46,10 @@ def _make_full_config() -> ExperimentConfig:
 def _make_minimal_config() -> ExperimentConfig:
     return ExperimentConfig(
         experiment_name="test_min",
-        solver_id="lambdatwist_p3p",
-        target_file="cpp/external/lambdatwist/p3p.cc",
+        solver_id="poselib_p3p_lambdatwist",
+        target_file="cpp/external/poselib/PoseLib/solvers/p3p_lambdatwist.cc",
         baseline_run_dir="results/runs/test_baseline",
-        optimization_scope=OptimizationScopeConfig(allowed_files=["cpp/external/lambdatwist/p3p.cc"]),
+        optimization_scope=OptimizationScopeConfig(allowed_files=["cpp/external/poselib/PoseLib/solvers/p3p_lambdatwist.cc"]),
         reporting=ReportingConfig(),
         llm_config="configs/llm_mock.json",
         llm_overrides=None,
@@ -67,9 +67,9 @@ class TestDumpLoadRoundtrip:
 
         assert loaded.experiment_name == "test_full"
         assert loaded.description == "A full test experiment"
-        assert loaded.target_file == "cpp/external/lambdatwist/p3p.cc"
+        assert loaded.target_file == "cpp/external/poselib/PoseLib/solvers/p3p_lambdatwist.cc"
         assert loaded.baseline_run_dir == "results/runs/test_baseline"
-        assert loaded.optimization_scope.allowed_files == ["cpp/external/lambdatwist/p3p.cc"]
+        assert loaded.optimization_scope.allowed_files == ["cpp/external/poselib/PoseLib/solvers/p3p_lambdatwist.cc"]
         assert loaded.reporting.formats == ["html", "pdf"]
         assert loaded.selection.gt_found_max_drop_points == 2.5
         assert loaded.llm_config == "configs/llm_deepseek.json"
