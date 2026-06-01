@@ -497,13 +497,17 @@ def _closed_loop_phase_timings(
     materialization_result: dict[str, Any] | None = None,
     verification_result: dict[str, Any] | None = None,
     confirmation_result: dict[str, Any] | None = None,
+    exclude_seconds: float = 0.0,
 ) -> dict[str, float | None]:
+    total = round(time.perf_counter() - iteration_started - exclude_seconds, 3)
+    if total < 0.0:
+        total = 0.0
     return {
         "generation_seconds": _stage_duration_or_none(generation_result),
         "materialization_seconds": _stage_duration_or_none(materialization_result),
         "verification_seconds": _stage_duration_or_none(verification_result),
         "benchmark_seconds": _stage_duration_or_none(confirmation_result),
-        "total_iteration_seconds": round(time.perf_counter() - iteration_started, 3),
+        "total_iteration_seconds": total,
     }
 
 
@@ -777,11 +781,13 @@ def run_closed_loop_iterations(
             print("- iteration: no_op")
             continue
 
+        lock_wait_start = time.perf_counter()
         with candidate_evaluation_lock(
             experiment_id=experiment_id,
             iteration=iteration,
             workspace_root=closed_loop_paths.workspace_root,
         ):
+            queue_wait_seconds = time.perf_counter() - lock_wait_start
             materialization_result = _run_stage(
                 experiment_dir,
                 iteration,
@@ -815,6 +821,7 @@ def run_closed_loop_iterations(
                         iteration_started,
                         generation_result,
                         materialization_result,
+                        exclude_seconds=queue_wait_seconds,
                     ),
                     outcome_reason=_closed_loop_outcome_reason(
                         status=IterationStatus.MATERIALIZATION_FAILED,
@@ -857,6 +864,7 @@ def run_closed_loop_iterations(
                         generation_result,
                         materialization_result,
                         verification_result,
+                        exclude_seconds=queue_wait_seconds,
                     ),
                     outcome_reason=_closed_loop_outcome_reason(
                         status=IterationStatus.VERIFICATION_FAILED,
@@ -910,6 +918,7 @@ def run_closed_loop_iterations(
                             generation_result,
                             materialization_result,
                             confirmation_result,
+                            exclude_seconds=queue_wait_seconds,
                         ),
                         outcome_reason=_closed_loop_outcome_reason(
                             status=IterationStatus.VERIFICATION_FAILED,
@@ -975,6 +984,7 @@ def run_closed_loop_iterations(
                     materialization_result,
                     verification_result,
                     confirmation_result,
+                    exclude_seconds=queue_wait_seconds,
                 ),
                 outcome_reason=_closed_loop_outcome_reason(
                     status=iteration_status,

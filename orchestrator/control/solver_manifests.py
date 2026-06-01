@@ -9,6 +9,14 @@ from pathlib import Path
 from .project_paths import get_project_paths
 
 
+_PREFERRED_SOLVER_ID = "poselib_p3p_lambdatwist"
+
+
+def preferred_solver_id() -> str:
+    """Return the solver id that should be pre-selected in TUI views."""
+    return _PREFERRED_SOLVER_ID
+
+
 @dataclass(frozen=True)
 class SolverManifestOption:
     solver_id: str

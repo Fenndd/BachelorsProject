@@ -21,6 +21,7 @@ from orchestrator.control import (
     discover_template_configs,
     get_project_paths,
     list_config_builder_solver_options,
+    preferred_solver_id,
     safe_config_stem,
 )
 from orchestrator.experiments.experiment_config import (
@@ -275,7 +276,13 @@ class ConfigBuilderView(Widget):
             self._load_local()
 
     def _default_solver_id(self) -> str | None:
-        return self._solver_options[0].solver_id if self._solver_options else None
+        if not self._solver_options:
+            return None
+        preferred = preferred_solver_id()
+        for opt in self._solver_options:
+            if opt.solver_id == preferred:
+                return preferred
+        return self._solver_options[0].solver_id
 
     def _algorithm_select_options(self) -> list[tuple[str, str]]:
         if not self._solver_options:

@@ -48,7 +48,7 @@ from .results_browser import (
     list_run_items,
     resolve_result_selector,
 )
-from .solver_manifests import SolverManifestOption, list_solver_manifest_options
+from .solver_manifests import SolverManifestOption, list_solver_manifest_options, preferred_solver_id
 from .status import ProjectStatus, read_project_status
 from .workspace_manager import (
     CleanupResult,
@@ -103,6 +103,7 @@ __all__ = [
     "list_config_builder_solver_options",
     "list_solver_manifest_options",
     "open_path",
+    "preferred_solver_id",
     "read_project_status",
     "read_experiment_config_summary",
     "resolve_project_path",

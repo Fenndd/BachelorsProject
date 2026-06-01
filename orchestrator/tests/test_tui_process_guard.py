@@ -650,3 +650,54 @@ def test_active_run_screen_escape_action_pops_without_cancelling(monkeypatch) ->
 
     assert popped == [True]
     assert cancelled == []
+
+
+# ---------------------------------------------------------------------------
+# BaselineView default solver preference (Task 5)
+# ---------------------------------------------------------------------------
+
+
+def test_baseline_view_default_solver_is_poselib_p3p_lambdatwist(monkeypatch) -> None:
+    import orchestrator.tui.views.baseline_view as baseline_view
+    from orchestrator.tui.views.baseline_view import _solver_select_options
+
+    mock_options = [
+        (f"Solver A", "solver_a"),
+        (f"LambdaTwist P3P", "poselib_p3p_lambdatwist"),
+        (f"Solver B", "solver_b"),
+    ]
+    monkeypatch.setattr(
+        baseline_view,
+        "list_solver_manifest_options",
+        lambda: [
+            type("Fake", (), {"display_label": label, "solver_id": sid})()
+            for label, sid in mock_options
+        ],
+    )
+
+    options, default = _solver_select_options()
+
+    assert default == "poselib_p3p_lambdatwist"
+    assert any(sid == "poselib_p3p_lambdatwist" for _label, sid in options)
+
+
+def test_baseline_view_default_solver_fallback_when_preferred_absent(monkeypatch) -> None:
+    import orchestrator.tui.views.baseline_view as baseline_view
+    from orchestrator.tui.views.baseline_view import _solver_select_options
+
+    mock_options = [
+        (f"Solver A", "solver_a"),
+        (f"Solver B", "solver_b"),
+    ]
+    monkeypatch.setattr(
+        baseline_view,
+        "list_solver_manifest_options",
+        lambda: [
+            type("Fake", (), {"display_label": label, "solver_id": sid})()
+            for label, sid in mock_options
+        ],
+    )
+
+    options, default = _solver_select_options()
+
+    assert default == "solver_a"

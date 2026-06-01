@@ -1751,3 +1751,145 @@ def test_display_reason_uses_outcome_code_when_reason_duplicates_status(tmp_path
     # reason duplicates status, should fall back to outcome_reason message or other
     assert it.display_reason is not None
     assert it.display_reason != "materialization_failed"
+
+
+# ---------------------------------------------------------------------------
+# Task 3: GT Found drop without threshold marks correctness as not preserved
+# ---------------------------------------------------------------------------
+
+
+def test_gt_found_drop_no_threshold_correctness_false(tmp_path: Path) -> None:
+    experiment_dir = _experiment_dir(tmp_path)
+    write_json(experiment_dir / "closed_loop_summary.json", _summary())
+    write_jsonl(experiment_dir / "closed_loop_iterations.jsonl", [])
+    write_json(
+        experiment_dir / "experiment_config_snapshot.json",
+        {"selection": {}},
+    )
+    write_json(
+        experiment_dir / "final_selection_report.json",
+        {
+            "status": "completed",
+            "comparison": {
+                "speedup": 1.25,
+                "runtime_reduction_percent": 20.0,
+                "baseline_runtime_ns_per_problem_median": 100.0,
+                "final_runtime_ns_per_problem_median": 80.0,
+                "baseline_gt_found_percent": 100.0,
+                "final_gt_found_percent": 98.5,
+                "final_gt_found_delta_points": -1.5,
+            },
+            "final_benchmark": {"parsed_correctness_passed": True},
+        },
+    )
+
+    report_data = collect_report_data(experiment_dir)
+
+    assert report_data.final_result.correctness_preserved is False
+
+
+def test_gt_found_small_drop_no_threshold_keeps_benchmark_true(tmp_path: Path) -> None:
+    experiment_dir = _experiment_dir(tmp_path)
+    write_json(experiment_dir / "closed_loop_summary.json", _summary())
+    write_jsonl(experiment_dir / "closed_loop_iterations.jsonl", [])
+    write_json(
+        experiment_dir / "experiment_config_snapshot.json",
+        {"selection": {}},
+    )
+    write_json(
+        experiment_dir / "final_selection_report.json",
+        {
+            "status": "completed",
+            "comparison": {
+                "speedup": 1.25,
+                "runtime_reduction_percent": 20.0,
+                "baseline_runtime_ns_per_problem_median": 100.0,
+                "final_runtime_ns_per_problem_median": 80.0,
+                "baseline_gt_found_percent": 100.0,
+                "final_gt_found_percent": 99.5,
+                "final_gt_found_delta_points": -0.5,
+            },
+            "final_benchmark": {"parsed_correctness_passed": True},
+        },
+    )
+
+    report_data = collect_report_data(experiment_dir)
+
+    assert report_data.final_result.correctness_preserved is True
+
+
+def test_gt_found_threshold_configured_keeps_existing_logic(tmp_path: Path) -> None:
+    experiment_dir = _experiment_dir(tmp_path)
+    write_json(experiment_dir / "closed_loop_summary.json", _summary())
+    write_jsonl(experiment_dir / "closed_loop_iterations.jsonl", [])
+    write_json(
+        experiment_dir / "experiment_config_snapshot.json",
+        {"selection": {"gt_found_max_drop_points": 2.0}},
+    )
+    write_json(
+        experiment_dir / "final_selection_report.json",
+        {
+            "status": "completed",
+            "comparison": {
+                "speedup": 1.25,
+                "runtime_reduction_percent": 20.0,
+                "baseline_runtime_ns_per_problem_median": 100.0,
+                "final_runtime_ns_per_problem_median": 80.0,
+                "baseline_gt_found_percent": 100.0,
+                "final_gt_found_percent": 98.5,
+                "final_gt_found_delta_points": -1.5,
+            },
+            "final_benchmark": {"parsed_correctness_passed": True},
+        },
+    )
+
+    report_data = collect_report_data(experiment_dir)
+
+    assert report_data.final_result.correctness_preserved is True
+
+
+def test_gt_found_drop_no_threshold_narrative_marks_correctness_not_preserved(tmp_path: Path) -> None:
+    experiment_dir = _experiment_dir(tmp_path)
+    metrics_path = tmp_path / "results" / "runs" / "baseline" / "metrics.json"
+    write_json(
+        metrics_path,
+        {"benchmark": {"parsed_runtime_ns_per_problem_median": 1000.0, "parsed_gt_found_percent": 100.0}},
+    )
+    write_json(
+        experiment_dir / "closed_loop_summary.json",
+        _summary(original_baseline_metrics_path=str(metrics_path)),
+    )
+    write_jsonl(experiment_dir / "closed_loop_iterations.jsonl", [])
+    write_json(
+        experiment_dir / "experiment_config_snapshot.json",
+        {"selection": {}, "baseline_run_dir": str(metrics_path)},
+    )
+    write_json(
+        experiment_dir / "resolved_llm_config.json",
+        {"provider": "deepseek", "model": "deepseek-v4-pro"},
+    )
+    write_json(
+        experiment_dir / "final_selection_report.json",
+        {
+            "status": "completed",
+            "comparison": {
+                "speedup": 1.25,
+                "runtime_reduction_percent": 20.0,
+                "baseline_runtime_ns_per_problem_median": 1000.0,
+                "final_runtime_ns_per_problem_median": 800.0,
+                "baseline_gt_found_percent": 100.0,
+                "final_gt_found_percent": 98.0,
+                "final_gt_found_delta_points": -2.0,
+            },
+            "final_benchmark": {"parsed_correctness_passed": True},
+        },
+    )
+
+    report_data = collect_report_data(experiment_dir)
+
+    narrative = report_data.executive_narrative
+    assert narrative is not None
+    assert "Benchmark correctness check passed" in narrative
+    assert "no GT Found acceptance constraint was configured" in narrative
+    assert "correctness as not preserved" in narrative
+    assert "Correctness was preserved" not in narrative

@@ -119,11 +119,13 @@ def collect_report_data(
     final_best_candidate = _build_final_best_candidate(
         summary, iterations, baseline_metrics, records, experiment_path
     )
+    selection_policy_for_overrides = _build_selection_policy(config_snapshot)
     _apply_final_selection_overrides(
         final_result,
         final_best_candidate,
         final_selection,
         baseline_metrics,
+        selection_policy=selection_policy_for_overrides,
     )
 
     report_data = ReportData(
@@ -145,7 +147,7 @@ def collect_report_data(
             else None,
         ),
         final_result=final_result,
-        selection_policy=_build_selection_policy(config_snapshot),
+        selection_policy=selection_policy_for_overrides,
         baseline_metrics=baseline_metrics,
         iterations=iterations,
         status_counts=status_counts,
@@ -590,6 +592,7 @@ def _apply_final_selection_overrides(
     final_best_candidate: ReportFinalBestCandidate,
     final_selection: ReportFinalSelection,
     baseline_metrics: ReportBaselineMetrics,
+    selection_policy: ReportSelectionPolicy | None = None,
 ) -> None:
     if final_selection.status not in {"completed", "skipped"}:
         return
@@ -601,6 +604,16 @@ def _apply_final_selection_overrides(
     final_result.final_speedup_vs_baseline = speedup
     final_result.final_runtime_reduction_percent = reduction
     final_result.correctness_preserved = final_selection.final_correctness_passed
+
+    gt_delta = final_selection.final_gt_found_delta_points
+    if (
+        final_result.correctness_preserved
+        and selection_policy is not None
+        and not selection_policy.gt_found_gate_enabled
+        and gt_delta is not None
+        and gt_delta <= -1.0
+    ):
+        final_result.correctness_preserved = False
 
     baseline_runtime = final_selection.baseline_runtime_ns_per_problem_median
     final_runtime = final_selection.final_runtime_ns_per_problem_median
@@ -1781,14 +1794,29 @@ def _build_executive_narrative(report_data: ReportData) -> str:
     cp = fr.correctness_preserved
     baseline_gt = bm.gt_found_percent
     final_gt = fbc.gt_found_percent
+    sp = report_data.selection_policy
+    fs = report_data.final_selection
     if cp is False:
-        regress_parts: list[str] = ["Correctness regressed."]
-        if baseline_gt is not None and final_gt is not None:
-            delta = final_gt - baseline_gt
-            regress_parts.append(
-                f"GT Found dropped from {format_percent(baseline_gt)} to {format_percent(final_gt)} ({format_delta_pp(delta)})."
-            )
-        sentences.append(" ".join(regress_parts))
+        benchmark_passed = fs.final_correctness_passed
+        gt_gate_enabled = sp.gt_found_gate_enabled
+        if benchmark_passed and not gt_gate_enabled:
+            sentences.append("Benchmark correctness check passed.")
+            if baseline_gt is not None and final_gt is not None:
+                delta = final_gt - baseline_gt
+                delta_abs = abs(delta) if delta is not None else 0.0
+                sentences.append(
+                    f"GT Found decreased by {delta_abs:.2f} percentage points; "
+                    "no GT Found acceptance constraint was configured, so the experiment completed "
+                    "but the final report marks correctness as not preserved."
+                )
+        else:
+            regress_parts: list[str] = ["Correctness regressed."]
+            if baseline_gt is not None and final_gt is not None:
+                delta = final_gt - baseline_gt
+                regress_parts.append(
+                    f"GT Found dropped from {format_percent(baseline_gt)} to {format_percent(final_gt)} ({format_delta_pp(delta)})."
+                )
+            sentences.append(" ".join(regress_parts))
     elif cp is True:
         sentences.append("Correctness was preserved.")
 

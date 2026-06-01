@@ -71,7 +71,11 @@ def test_candidate_evaluation_lock_is_exclusive_and_waits(
     thread.join(timeout=2.0)
     assert entered.is_set()
     assert not errors
-    assert "Waiting for candidate evaluation queue lock..." in capsys.readouterr().out
+    captured = capsys.readouterr().out
+    assert "Waiting for candidate evaluation queue lock... experiment=exp, iteration=2" in captured
+    assert "Acquired candidate evaluation queue lock. experiment=exp, iteration=2" in captured
+    assert "Released candidate evaluation queue lock. experiment=exp, iteration=2" in captured
+    assert "held=" in captured
 
 
 @pytestmark_windows

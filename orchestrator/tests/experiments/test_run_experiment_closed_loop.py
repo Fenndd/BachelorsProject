@@ -718,5 +718,37 @@ class RunExperimentClosedLoopTests(unittest.TestCase):
         self.assertNotIn("No useful change", third_history)
 
 
+    def test_phase_timings_excludes_lock_wait(self) -> None:
+        import time as _time
+        start = _time.perf_counter() - 5.0
+        result = iteration_runner._closed_loop_phase_timings(start, exclude_seconds=3.0)
+        total = result["total_iteration_seconds"]
+        assert isinstance(total, float)
+        self.assertLessEqual(total, 2.1)
+        self.assertGreaterEqual(total, 1.9)
+
+    def test_phase_timings_exclude_seconds_clamps_to_zero(self) -> None:
+        import time as _time
+        start = _time.perf_counter() - 0.05
+        result = iteration_runner._closed_loop_phase_timings(start, exclude_seconds=5.0)
+        self.assertEqual(result["total_iteration_seconds"], 0.0)
+
+    def test_lock_wait_not_excluded_outside_lock(self) -> None:
+        root, harness = self._run_with_statuses(["generation_failed"])
+        experiment_dir = next((root / "results" / "experiments").iterdir())
+        paths = ClosedLoopPaths.from_roots(root / "workspace", root / "results", experiment_dir.name)
+        record = json.loads(paths.closed_loop_iterations_path.read_text(encoding="utf-8").splitlines()[0])
+        self.assertGreater(record["phase_timings"]["total_iteration_seconds"], 0)
+
+    def test_lock_wait_excluded_when_lock_acquired(self) -> None:
+        root, harness = self._run_with_statuses(["valid_not_improved"])
+        experiment_dir = next((root / "results" / "experiments").iterdir())
+        paths = ClosedLoopPaths.from_roots(root / "workspace", root / "results", experiment_dir.name)
+        record = json.loads(paths.closed_loop_iterations_path.read_text(encoding="utf-8").splitlines()[0])
+        self.assertEqual(record["status"], "valid_not_improved")
+        self.assertIsNotNone(record["phase_timings"]["total_iteration_seconds"])
+        self.assertIsNotNone(record["phase_timings"]["materialization_seconds"])
+
+
 if __name__ == "__main__":
     unittest.main()

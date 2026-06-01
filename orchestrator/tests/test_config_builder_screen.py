@@ -212,3 +212,36 @@ def test_invalid_max_tokens_rejected_save_prevented(monkeypatch, tmp_path: Path,
     with pytest.raises(ExperimentConfigError):
         screen._build_payload()
     assert screen._save_to_local() is None
+
+
+# ---------------------------------------------------------------------------
+# Task 5: ConfigBuilderView default solver preference
+# ---------------------------------------------------------------------------
+
+
+def test_config_builder_default_solver_is_poselib_p3p_lambdatwist(monkeypatch) -> None:
+    from orchestrator.tui.views.config_builder_view import ConfigBuilderView
+
+    fake_options = [
+        type("Fake", (), {"solver_id": "other_solver", "display_label": "Other"}),  # type: ignore[abstract]
+        type("Fake", (), {"solver_id": "poselib_p3p_lambdatwist", "display_label": "LambdaTwist"}),  # type: ignore[abstract]
+    ]
+    monkeypatch.setattr(config_builder, "list_config_builder_solver_options", lambda: fake_options)
+
+    view = ConfigBuilderView()
+
+    assert view._default_solver_id() == "poselib_p3p_lambdatwist"
+
+
+def test_config_builder_default_solver_fallback_when_preferred_absent(monkeypatch) -> None:
+    from orchestrator.tui.views.config_builder_view import ConfigBuilderView
+
+    fake_options = [
+        type("Fake", (), {"solver_id": "solver_a", "display_label": "Solver A"}),  # type: ignore[abstract]
+        type("Fake", (), {"solver_id": "solver_b", "display_label": "Solver B"}),  # type: ignore[abstract]
+    ]
+    monkeypatch.setattr(config_builder, "list_config_builder_solver_options", lambda: fake_options)
+
+    view = ConfigBuilderView()
+
+    assert view._default_solver_id() == "solver_a"

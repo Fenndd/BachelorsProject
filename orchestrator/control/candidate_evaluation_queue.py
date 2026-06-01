@@ -49,12 +49,16 @@ def candidate_evaluation_lock(
 
         wait_started_at: float | None = None
         next_wait_log_at: float | None = None
+        acquired_at: float | None = None
         while True:
             try:
                 lock_file.seek(0)
                 msvcrt.locking(lock_file.fileno(), msvcrt.LK_NBLCK, 1)
                 locked = True
-                print(f"Acquired candidate evaluation queue lock. experiment={experiment_id}, iteration={iteration}")
+                now = time.monotonic()
+                acquired_at = now
+                waited = now - wait_started_at if wait_started_at is not None else 0.0
+                print(f"Acquired candidate evaluation queue lock. experiment={experiment_id}, iteration={iteration}, waited={waited:.3f}s")
                 break
             except OSError as exc:
                 if exc.errno not in (errno.EACCES, errno.EDEADLK):
@@ -63,9 +67,10 @@ def candidate_evaluation_lock(
                 if wait_started_at is None:
                     wait_started_at = now
                     next_wait_log_at = now + WAIT_LOG_INTERVAL_SECONDS
-                    print(f"Waiting for candidate evaluation queue lock... experiment={experiment_id}, iteration={iteration}")
+                    print(f"Waiting for candidate evaluation queue lock... experiment={experiment_id}, iteration={iteration}, lock_path={lock_path}")
                 elif next_wait_log_at is not None and now >= next_wait_log_at:
-                    print(f"Still waiting for candidate evaluation queue lock... experiment={experiment_id}, iteration={iteration}")
+                    waited = now - wait_started_at
+                    print(f"Still waiting for candidate evaluation queue lock... experiment={experiment_id}, iteration={iteration}, waited={waited:.1f}s")
                     next_wait_log_at = now + WAIT_LOG_INTERVAL_SECONDS
                 time.sleep(RETRY_SLEEP_SECONDS)
 
@@ -75,6 +80,8 @@ def candidate_evaluation_lock(
             if locked:
                 lock_file.seek(0)
                 msvcrt.locking(lock_file.fileno(), msvcrt.LK_UNLCK, 1)
-                print(f"Released candidate evaluation queue lock. experiment={experiment_id}, iteration={iteration}")
+                now = time.monotonic()
+                held = now - acquired_at if acquired_at is not None else 0.0
+                print(f"Released candidate evaluation queue lock. experiment={experiment_id}, iteration={iteration}, held={held:.3f}s")
         finally:
             lock_file.close()
