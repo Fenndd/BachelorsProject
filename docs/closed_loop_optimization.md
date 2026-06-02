@@ -6,6 +6,8 @@ Closed-loop optimization lets each iteration improve the current best accepted s
 
 The mutable source state is experiment-local. Accepted candidates update `workspace/experiments/<experiment_id>/current_best_source/`, not the main source tree.
 
+For the full pipeline overview including baseline benchmarking, generation, materialization, verification, and final artifacts, see `experiment_workflow.md`.
+
 ## Core Flow
 
 The implemented closed-loop flow is:
@@ -25,10 +27,7 @@ At the start of a closed-loop experiment, `current_best_source` is initialized f
 
 ## Closed-loop History in Prompts
 
-Closed-loop optimization always includes compact previous-iteration history in later LLM prompts. This is internal pipeline behavior, not a per-experiment config option. The history builder (`build_closed_loop_history_context`) provides each generation subprocess with:
-- The iteration number, status, per-iteration phase durations, llm response usage, source diffs, verification metrics.
-
-This helps later iterations understand what was attempted and avoid redundant or failing approaches.
+Closed-loop optimization always includes compact previous-iteration history in later LLM prompts. Each generation receives the iteration number, status, phase durations, verification metrics, and deterministic guidance. This helps later iterations understand what was attempted and avoid redundant or failing approaches.
 
 ## Source Roots
 
@@ -65,32 +64,8 @@ workspace/experiments/<experiment_id>/current_best_source/cpp/external/poselib/P
 
 ## Iteration Statuses
 
-Closed-loop iteration records can use these statuses:
-
-- `accepted_improvement`
-- `valid_not_improved`
-- `rejected`
-- `materialization_failed`
-- `verification_failed`
-- `no_op`
-- `generation_failed`
-
-Only `accepted_improvement` updates `current_best_source`. A verified candidate
-must pass correctness/comparability gates and reduce runtime by at least the
-default `min_runtime_reduction_percent = 1.0` to be accepted. Baseline and
-candidate verification each use 100 sequential benchmark executions aggregated
-by median. Faster candidates below 1.0% are `valid_not_improved` and are not promoted. Such
-candidates are valid rather than rejected; their decision artifacts use
-`non_acceptance_reasons`, for example
-`runtime_improvement_below_minimum_threshold`, while `rejection_reasons` stays
-reserved for hard rejection/correctness/audit failures.
-
-Candidates with an initial repeated-median runtime reduction from 1.0% inclusive
-to below 2.0% are borderline. The runner executes another 100 candidate-only
-benchmark runs, merges all 200 candidate samples, recomputes the candidate
-median, and decides from that merged median. Candidates at or above 2.0% are
-accepted immediately after the first 100 candidate executions. Mean and max are
-not decision or main-report metrics.
+Only `accepted_improvement` updates `current_best_source`. Acceptance criteria and
+decision thresholds are defined in `best_result_selection_policy.md`.
 
 ## Decision Artifacts
 
@@ -127,10 +102,9 @@ Excluded statuses:
 
 The compact history contains summaries, benchmark-aware result text, short failure or rejection reasons, and deterministic guidance. It does not include full code, full diffs, full `candidate.json`, full `verification.json`, benchmark logs, audit objects, stack traces, or no-op entries.
 
-For materialization failures, compact history uses generic deterministic
-guidance when it can identify ambiguous repeated original text, line-range
-original mismatches, or disabled fallback. It does not implement repeated failure
-grouping/detection, LLM-based failure summaries, or special-case repair logic.
+For materialization failures, compact history includes generic deterministic
+guidance identifying the failure pattern (ambiguous repeated text, line-range
+mismatch, disabled fallback, or fallback with no match).
 
 The exact history context passed to generation is logged under:
 
@@ -168,13 +142,3 @@ Key artifacts are:
 - `decision_vs_original_baseline.json` is reporting/control only and does not promote candidates.
 - The final selector/report never reruns benchmarks, promotes candidates, or modifies source.
 - All planned iterations are attempted; there is no early stopping.
-
-## Current Limitations
-
-- Exactly one variant is supported in closed-loop mode.
-- Automatic promotion into the main `cpp/` source tree is not implemented.
-- Multi-variant closed-loop strategy is not implemented.
-- Candidate acceptance uses repeated median runtime plus a default 1.0% minimum runtime-reduction threshold after correctness and comparability gates.
-- Pairwise correctness is benchmark-defined and absolute: both artifacts must have `parsed_correctness_passed == true`.
-- Line-number mismatch diagnosis is not implemented as a special repair mechanism.
-- The current minimal P3P prototype focuses on runtime and PoseLib-style calibrated-pose correctness metrics. Memory measurement is not implemented yet and remains future optional work.

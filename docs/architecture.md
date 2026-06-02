@@ -22,9 +22,8 @@ The clean baseline path:
 2. The `poselib_solver_benchmark` target is built.
 3. The `poselib_solver_benchmark` binary runs
    with `--solver <key>` and prints machine-readable JSON output.
-4. The benchmark executable runs 100 times sequentially. Parsed samples are
-   aggregated by median of `runtime_ns_per_problem_median`; mean and max are not
-   decision or main-report metrics.
+4. The benchmark executable runs multiple times sequentially. Parsed samples are
+   aggregated by median of `runtime_ns_per_problem_median`.
 5. Parsed benchmark metrics are stored under `results/runs/<run_id>/` and
    indexed in `results/index.jsonl`.
 
@@ -32,8 +31,7 @@ The C++ baseline boundary:
 
 - `cpp/external/poselib/`: imported third-party PoseLib source.
 - `poselib_solver_benchmark`: project CMake target wrapping PoseLib's solver
-  benchmark. LambdaTwist is available through PoseLib as
-  `poselib_p3p_lambdatwist`.
+  benchmark.
 
 The baseline Python entry point is `orchestrator/cli/main.py`. It remains
 separate from LLM optimization experiments. The `--solver` flag selects
@@ -59,7 +57,7 @@ Experiment runs use `workspace/` for isolated source copies and `results/` for p
 The system uses one fixed LLM candidate representation: line-range edits. This is infrastructure behavior, not an experiment config option.
 
 - The LLM receives source with 1-based line numbers.
-- The LLM returns `edits[]` with `file`, `start_line`, `end_line`, `original`, and `replace`.
+- The LLM returns `edits[]` with `start_line`, `end_line`, `original`, and `replace`. Edits do not contain a `file` field; the materializer associates all edits with the configured `target_file`.
 - `original` is source text only and must not include line-number prefixes.
 - The materializer verifies the actual source text at the requested line range before applying.
 - An internal exact-search fallback may be used only when the `original` text occurs exactly once.
@@ -68,33 +66,15 @@ The system uses one fixed LLM candidate representation: line-range edits. This i
 
 See `docs/candidate_edit_formats.md` for the dedicated format reference.
 
-## Config Builder
-
-The TUI includes an interactive Config Builder screen (accessible via the
-**Build Config** button on MainScreen). It lets users create and edit
-experiment JSON configs without manual JSON editing. Saved configs are
-validated through `load_experiment_config` and stored under
-`configs/experiments/local/`. See `docs/config_builder.md` for the full
-reference.
-
-## Parallel TUI Runs
-
-Experiment runs are non-blocking. Multiple experiments can run in parallel.
-The `ActiveRunsManager` (owned by the TUI app) manages lifecycle, output
-streaming, cancellation, and the Active Runs panel on MainScreen. Users can
-leave the live output screen without cancelling the run and reopen it later.
-Quitting the TUI while runs are active triggers a confirmation dialog. See
-`docs/parallel_runs.md` for details.
-
 ## Scope and Verification
 
 Configured experiments pass `optimization_scope.allowed_files` to candidate
-generation and materialization. The materializer enforces candidate
-`target_files` and `edits[].file` paths against that allowlist.
+generation and materialization. The materializer enforces that all edit target
+files fall within that allowlist.
 
 Verification produces `verification.json` using the solver descriptor from
 the registry. It builds and runs the `poselib_solver_benchmark` with the solver's `--solver <key>`
-100 times sequentially. Verification does not compare against a reference;
+sequentially. Verification does not compare against a reference;
 decisions and selection are separate stages that consume verified repeated-median
 artifacts.
 
@@ -109,11 +89,7 @@ iteration. `decision_vs_original_baseline.json` is retained for reporting only
 and does not control promotion. The main `cpp/` source tree is never modified
 automatically.
 
-Candidates with an initial 1.0% to under-2.0% repeated-median runtime reduction
-are remeasured with another 100 candidate-only executions; the final decision
-uses the merged 200-sample median. Speedups at or above 2.0% are accepted after
-the first 100 candidate executions. The final best remains the last accepted
-candidate; no separate final validation benchmark is run after the experiment.
+Decision thresholds and remeasurement rules are documented separately.
 
 See `docs/closed_loop_optimization.md` for the full reference on the control
 flow, source-root separation, history, iteration statuses, decision artifacts,
@@ -144,13 +120,4 @@ results/experiments/<experiment_id>/closed_loop_selection_report.json
 results/experiments/<experiment_id>/current_best_state.json
 ```
 
-## Current Limitations
 
-- Automatic promotion of candidates into the main `cpp/` source tree is not
-  implemented.
-- Closed-loop mode currently supports exactly one variant; multi-variant
-  closed-loop strategy is not implemented.
-- Robust estimator support is not the current benchmark target; the
-  pipeline focuses on minimal-solver performance.
-- Advanced plots and broader statistical dashboards or aggregate analyses
-  across multiple experiments are future work.

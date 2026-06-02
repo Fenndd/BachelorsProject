@@ -69,32 +69,17 @@ binary is built once; the solver is chosen at runtime via `--solver`.
 
 ## Supported PoseLib Solver Groups
 
-The project ships manifests for every PoseLib minimal-solver benchmark
-case. Key groups:
+The project ships manifests for PoseLib minimal-solver benchmark cases. Key groups:
 
-- **Absolute pose**: `poselib_p3p`, `poselib_p3p_lambdatwist`,
-  `poselib_p4pf`, `poselib_p5pfr`, `poselib_p6lp`,
-  `poselib_p5lp_radial`, etc.
-- **Generalized absolute pose**: `poselib_gp3p`, `poselib_gp4ps`,
-  `poselib_gp4ps_degenerate`.
-- **Upright absolute pose**: `poselib_up2p`, `poselib_up4pl`,
-  `poselib_up1p1ll`, `poselib_up1p2pl`, `poselib_ugp2p`,
-  `poselib_ugp3ps`, `poselib_ugp4pl`.
-- **Point/line pose solvers**: `poselib_p2p2pl`, `poselib_p3p1llf`,
-  `poselib_p2p2llf`, `poselib_p1p3llf`, `poselib_p4llf`,
-  `poselib_p2p1ll`, `poselib_p1p2ll`, `poselib_p3ll`.
-- **Relative pose**: `poselib_relpose_5pt`, `poselib_relpose_8pt`,
-  `poselib_relpose_8pt_100pts`, `poselib_shared_focal_relpose_6pt`.
-- **Generalized relative pose**: `poselib_gen_relpose_5p1pt`,
-  `poselib_gen_relpose_6pt`, `poselib_gen_relpose_upright_4pt`.
-- **Upright relative pose**: `poselib_relpose_upright_3pt`,
-  `poselib_relpose_upright_planar_2pt`,
-  `poselib_relpose_upright_planar_3pt`.
-- **Monodepth relative pose**: `poselib_monodepth_relpose_3pt`,
-  `poselib_monodepth_shared_focal_relpose_3pt`,
-  `poselib_monodepth_varying_focal_relpose_3pt`.
-- **Homography**: `poselib_homography_4pt`,
-  `poselib_homography_4pt_cheirality`.
+- **Absolute pose**: `p3p`, `p3p_lambdatwist`, `p4pf`, `p5pfr`, `p5lp_radial`, `p6lp`, etc.
+- **Generalized absolute pose**: `gp3p`, `gp4ps`, etc.
+- **Upright absolute pose**: `up2p`, `up4pl`, `ugp2p`, `ugp3ps`, etc.
+- **Point/line pose solvers**: `p2p2pl`, `p3p1llf`, `p2p2llf`, etc.
+- **Relative pose**: `relpose_5pt`, `relpose_8pt`, `shared_focal_relpose_6pt`, etc.
+- **Generalized relative pose**: `gen_relpose_5p1pt`, `gen_relpose_6pt`, `gen_relpose_upright_4pt`.
+- **Upright relative pose**: `relpose_upright_3pt`, `relpose_upright_planar_2pt`, `relpose_upright_planar_3pt`.
+- **Monodepth relative pose**: `monodepth_relpose_3pt`, `monodepth_shared_focal_relpose_3pt`, `monodepth_varying_focal_relpose_3pt`.
+- **Homography**: `homography_4pt`, `homography_4pt_cheirality`.
 
 ## Examples
 
@@ -105,22 +90,6 @@ case. Key groups:
 | `poselib_gp3p` | poselib_native | Generalized absolute pose |
 | `poselib_relpose_5pt` | poselib_native | Relative pose |
 | `poselib_homography_4pt` | poselib_native | Homography |
-
-## Commands
-
-```powershell
-# Default solver (poselib_p3p_lambdatwist)
-py -m orchestrator.cli.app baseline run
-
-# PoseLib P3P
-py -m orchestrator.cli.app baseline run --solver poselib_p3p
-
-# PoseLib relative pose 5-pt
-py -m orchestrator.cli.app baseline run --solver poselib_relpose_5pt
-
-# PoseLib homography 4-pt
-py -m orchestrator.cli.app baseline run --solver poselib_homography_4pt
-```
 
 ## What the LLM Optimizes
 

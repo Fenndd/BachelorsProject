@@ -1,39 +1,10 @@
 # Automated Optimization of C++ 3D Vision Algorithms Using LLMs
 
-## Short Project Overview
-
-This repository supports a bachelor thesis on automated optimization of C++ 3D vision algorithms using LLM-generated candidates. The C++ benchmark layer supports two backends: a generated Lambda Twist P3P benchmark and a PoseLib-native benchmark backend covering 37 PoseLib minimal-solver cases.
-
-The project combines a clean C++ baseline and benchmark layer under `cpp/`, a Python orchestration layer under `orchestrator/`, persistent artifacts under `results/`, and isolated workspaces under `workspace/`.
-
-## Current Status
-
-Implemented:
-
-- Baseline automation through `orchestrator/cli/main.py`.
-- Absolute-pose benchmark family for Lambda Twist P3P, including adapter validation and parsed benchmark metrics.
-- PoseLib native benchmark backend with 37 solver manifests and machine-readable JSON output.
-- Solver registry with per-solver JSON manifests under `cpp/bench/*/solvers/`.
-- Baseline CLI supports multiple solvers via `--solver` flag.
-- LLM candidate generation through `orchestrator.core.llm.generate_candidate`.
-- A single line-range edit schema for LLM-generated candidates.
-- Candidate materialization and verification in isolated workspaces.
-- Pairwise candidate decision for closed-loop promotion and reporting, with optional `gt_found_max_drop_points` correctness gate.
-- Repeated median benchmark decisions: baseline and candidate verification each run 100 sequential benchmark executions.
-- Closed-loop iterative optimization in the experiment runner with experiment-local `current_best_source`.
-- Compact benchmark-aware closed-loop history for later generations.
-- Final closed-loop artifacts and analysis-only selector/reporting.
-- Final best is the last accepted candidate; there is no separate final validation benchmark phase.
-- Single unified HTML/PDF report with repeated-median runtime, correctness, failure analysis, phase timing, LLM usage, reproducibility metadata, diff statistics, iteration appendix sections, and a read-only report inspector.
-- TUI Config Builder for interactive experiment config creation with validation.
-- Parallel non-blocking TUI experiment runs with `ActiveRunsManager`, cancellation, and quit guard.
-
-Not implemented yet:
-
-- Automatic candidate promotion into the main `cpp/` source tree.
-- Multi-variant closed-loop optimization strategy.
-- Broader statistical dashboards or aggregate reports across multiple experiments.
-- Memory measurement; the current prototype focuses on runtime and PoseLib-style calibrated-pose correctness metrics.
+Bachelor thesis project for closed-loop automated optimization of C++ 3D vision minimal
+solvers using LLM-generated candidates. The benchmark layer uses the PoseLib-native
+backend with solver selection through JSON manifests and the solver registry. Candidate
+edits are materialized and verified in isolated workspaces — the main source tree is never
+modified automatically.
 
 ## Repository Structure
 
@@ -48,100 +19,66 @@ Not implemented yet:
 `- scripts/        # Helper scripts only
 ```
 
-## Architecture Summary
+## How It Works
 
-The baseline CLI and the LLM experiment runner are separate entry points:
+The baseline CLI and the LLM experiment runner are separate entry points.
+`orchestrator/cli/app.py` (Typer) is the control layer — it launches these entry points,
+provides diagnostics, results browsing, and a terminal UI.
 
-- `orchestrator/cli/main.py` prepares and records clean baseline runs.
-- `orchestrator.experiments.run_experiment` runs configured LLM optimization experiments.
-- `orchestrator/cli/app.py` (Typer) is the control layer: it launches these existing entry points and reads existing artifacts without reimplementing pipeline logic.
+Closed-loop pipeline: **generate** (LLM) → **materialize** (isolated workspace) →
+**verify** (100 repeated benchmarks) → **decide** (pairwise comparison) →
+**promote** (into experiment-local current best). See `docs/architecture.md` for details.
 
-Experiment runs use `workspace/` for isolated source copies and `results/` for persistent outputs. Candidate materialization and closed-loop promotion never modify the main `cpp/` source tree automatically.
-
-See `docs/closed_loop_optimization.md` for the full closed-loop control flow.
-
-## Baseline Automation
-
-The baseline command-line flow requires `EIGEN3_INCLUDE_DIR` and optionally supports `CMAKE_EXE`, `CMAKE_GENERATOR`, `CMAKE_CXX_COMPILER`, and `CMAKE_MAKE_PROGRAM`.
+## Quick Start
 
 ```powershell
-$env:EIGEN3_INCLUDE_DIR="C:\path\to\eigen"
-py orchestrator/cli/main.py
-```
+copy .env.example .env.local                    # fill in paths and API keys
 
-The flow configures CMake, builds/runs the appropriate targets for the selected solver, runs the benchmark executable 100 times sequentially, aggregates by median of `runtime_ns_per_problem_median`, and checks `correctness_passed`. Benchmark and evaluation builds default to **Release**.
+python -m orchestrator.cli.app doctor           # environment + project health check
+python -m orchestrator.cli.app baseline run --solver poselib_p3p_lambdatwist
 
-Run a specific solver:
-
-```powershell
-py -m orchestrator.cli.app baseline run --solver poselib_p3p
-py -m orchestrator.cli.app baseline run --solver poselib_relpose_5pt
-```
-
-## Experimental Terminal Control Layer
-
-The Typer/Rich CLI and Textual TUI provide a control surface for project status, diagnostics, and launching baseline and experiment runs.
-
-```powershell
-copy .env.example .env.local   # fill in local paths and API keys
-
-python -m orchestrator.cli.app --help
-python -m orchestrator.cli.app doctor
-python -m orchestrator.cli.app baseline run
 python -m orchestrator.cli.app experiment list
-python -m orchestrator.cli.app experiment run --config configs/experiments/basic_deepseek_flash_3iter.json --dry-run
+python -m orchestrator.cli.app experiment run --config configs/experiments/<file>.json --dry-run
 python -m orchestrator.cli.app experiment run --config configs/experiments/<file>.json --yes
-python -m orchestrator.cli.app results list
+
 python -m orchestrator.cli.app results latest
-python -m orchestrator.cli.app results show latest
-python -m orchestrator.cli.app results open latest
 python -m orchestrator.cli.app tui
 ```
 
-The results browser is read-only. Workspace cleanup only affects `workspace/`; it does not delete `results/`. API keys and other secrets are masked in CLI/TUI diagnostics.
+Full command reference: `python -m orchestrator.cli.app --help`.
+See `docs/setup.md` for required environment variables and toolchain requirements.
 
-See `docs/interactive_terminal_control_layer.md` for the full command reference and TUI screen list.
+## LLM Candidate Edits
 
-## LLM Candidate Generation and Candidate Edit Schema
-
-LLM candidate generation is implemented by `orchestrator.core.llm.generate_candidate`. The LLM receives line-numbered source and returns structured `edits[]` entries with `file`, `start_line`, `end_line`, `original`, and `replace`. Generation writes `candidate.json` and `candidate.edits.json`; materialization applies the edits deterministically and writes `candidate.generated.diff`.
-
-See `docs/candidate_edit_formats.md` for details.
-
-## Candidate Materialization and Verification
-
-Materialization runs only inside `workspace/candidates/<candidate_run_id>/` using the `optimization_scope.allowed_files` allowlist from the experiment config. Verification configures/builds inside the isolated candidate workspace, runs 100 sequential benchmark executions, aggregates by median, and writes `verification.json`.
+The LLM receives line-numbered source and returns a JSON candidate with `edits[]`.
+Each edit contains only `start_line`, `end_line`, `original`, and `replace`. The target
+file is set by the experiment config — edits do not carry a `file` field. No-op candidates
+use `edits: []`. The materializer verifies each `original` block matches the source before
+applying the replacement. See `docs/candidate_edit_formats.md` for the full schema.
 
 ## Selection and Reporting
 
-Pairwise candidate decisions consume verified benchmark artifacts and explicit references. The closed-loop runner uses the `decision_vs_current_best` outcome on each iteration record to control promotion into the experiment-local current best. `decision_vs_original_baseline.json` is retained for reporting and traceability only.
-
-Candidates with a 1.0% to under-2.0% runtime reduction are remeasured with another 100 candidate-only benchmark executions and decided from the merged 200-sample median. Mean and max are not decision or main-report metrics.
-
-Completed reports can be checked without regenerating anything:
-
-```powershell
-python -m orchestrator.reporting.report_inspector --experiment-dir results/experiments/<experiment_id>
-```
-
-See `docs/best_result_selection_policy.md` for the full decision policy and improvement thresholds.
+Verified candidates are compared pairwise against the baseline and current best using
+repeated-median benchmark metrics. Accepted candidates are promoted into the
+experiment-local current best. A final HTML/PDF report is generated at experiment end.
+See `docs/result_storage_format.md` for artifact paths and layout.
 
 ## External Baseline Code
 
-- `cpp/external/poselib/` contains imported third-party PoseLib source code.
-- LambdaTwist remains available through PoseLib as `poselib_p3p_lambdatwist`.
-- Clean baseline files are expected to remain unchanged in repository baseline state.
-- Candidate changes are materialized only in isolated workspace copies.
+`cpp/external/poselib/` contains imported third-party source code. Candidate changes are
+materialized only in isolated workspace copies.
+
+## Outputs
+
+- `results/` — persistent run and experiment artifacts (metadata, metrics, decisions,
+  reports). Grows across runs; not automatically cleaned.
+- `workspace/` — isolated candidate and experiment workspaces. Regenerable and gitignored.
+  Clean with `python -m orchestrator.cli.app workspace clean-all`.
 
 ## Documentation
 
 - `docs/architecture.md` — pipeline components and module boundaries
-- `docs/setup.md` — toolchain targets, env vars, build-type override
-- `docs/algorithms.md` — solver registry, manifests, PoseLib native benchmark
-- `docs/config_builder.md` — TUI Config Builder reference
-- `docs/parallel_runs.md` — TUI parallel experiment runs and ActiveRunsManager
-- `docs/closed_loop_optimization.md` — closed-loop control flow, artifacts, safety
+- `docs/setup.md` — toolchain targets, environment variables
+- `docs/algorithms.md` — solver registry, manifests, PoseLib-native benchmark
 - `docs/candidate_edit_formats.md` — LLM edit schema
 - `docs/result_storage_format.md` — artifact paths and storage layout
-- `docs/best_result_selection_policy.md` — pairwise decision rules, thresholds, statuses
-- `docs/interactive_terminal_control_layer.md` — Typer CLI and TUI reference

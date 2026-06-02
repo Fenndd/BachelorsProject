@@ -5,19 +5,8 @@
 This policy defines how candidate optimization results are **filtered**,
 **compared**, **ranked**, and **selected** against a reference run.
 
-This document defines the implemented pairwise decision policy used by the
+This document defines the pairwise decision policy used by the
 closed-loop optimization pipeline.
-
-Implementation status update:
-
-- Pairwise reference-vs-candidate decision is implemented in
-  `orchestrator/core/benchmarking/candidate_decision.py`.
-- Closed-loop experiments use reference-vs-candidate decisions inside each
-  iteration.
-- Experiment-local current-best promotion is implemented through
-  the `decision_vs_current_best` outcome recorded on each iteration record.
-- Promotion into the main `cpp/` source tree is still not implemented and remains
-  out of scope for selection/reporting.
 
 ## 2. Scope
 
@@ -147,7 +136,7 @@ This gate applies to aggregate repeated-median artifacts for:
 GT-found deltas are always recorded in the `comparison` block of decision
 artifacts, even when the gate is disabled.
 
-## 11. Candidate decision statuses
+## 10. Candidate decision statuses
 
 Pairwise candidate statuses:
 
@@ -169,7 +158,7 @@ Pairwise candidate statuses:
 
 After confirmation, the final merged 200-run artifact is decided as either `accepted_improvement` or `valid_not_improved`.
 
-## 12. Improvement calculations
+## 11. Improvement calculations
 
 Runtime improvement formulas:
 
@@ -197,66 +186,9 @@ Where:
 - `reference_runtime = reference parsed_runtime_ns_per_problem_median` repeated median
 - `candidate_runtime = candidate parsed_runtime_ns_per_problem_median` repeated median
 
-## 13. Closed-loop selection outcome
+## 12. Related Documents
 
-Closed-loop mode does not maintain a global candidate pool from which a single
-best is picked by runtime ranking. Instead, each iteration is evaluated
-independently against the current experiment-local best using the pairwise
-decision policy defined in §5–§11. An `accepted_improvement` decision promotes
-the candidate into the experiment-local `current_best_source` for the next
-iteration.
-
-At experiment completion, the final best is simply the last accepted candidate
-or the original baseline if no candidate was accepted. There is no separate final
-validation benchmark phase. `orchestrator/experiments/final_selection_report.py`
-produces `final_selection_report.json` from existing repeated benchmark artifacts
-only.
-
-Per-iteration decision outcomes are recorded in `closed_loop_iterations.jsonl`
-using `IterationStatus` values (see `orchestrator/experiments/closed_loop_state.py`):
-
-- `accepted_improvement`
-- `valid_not_improved`
-- `rejected`
-- `materialization_failed`
-- `verification_failed`
-- `no_op`
-- `generation_failed`
-
-## 14. Non-goals
-
-Selection and reporting do **not** implement:
-
-- promotion into the main `cpp/` source tree
-- benchmark modification
-- benchmark threshold modification
-- mean or max runtime decision/report metrics
-- separate final validation benchmarking after an experiment ends
-- candidate generation prompt format or materialization format
-- source-tree mutation from final selector/reporting artifacts
-
-## 15. Closed-loop comparison in the runner
-
-The comparator can compare a new verified candidate against either:
-
-1. the original baseline run (`reference_kind="baseline"`), or
-2. a previously accepted verified candidate run used as the current best
-   (`reference_kind="verified_candidate"`).
-
-For each verified candidate, the closed-loop runner writes
-`decision_vs_original_baseline.json` to the candidate run directory and
-records the `decision_vs_current_best` outcome as a field on the iteration
-record (stored in `closed_loop_iterations.jsonl`).
-
-Only the `decision_vs_current_best` outcome controls promotion. If it is
-`accepted_improvement`, the closed-loop runner promotes the materialized
-candidate workspace into
-`workspace/experiments/<experiment_id>/current_best_source/` and updates
-`current_best_state.json`.
-
-`decision_vs_original_baseline.json` is for reporting/control and traceability.
-It does not control promotion.
-
-Final selector/reporting artifacts, including `closed_loop_selection_report.json`,
-are analysis-only. They never promote candidates, update `current_best_source`,
-rewrite `final_optimized_source`, or modify the main `cpp/` source tree.
+- `experiment_workflow.md` — full pipeline overview including closed-loop promotion
+  flow, iteration statuses, and final artifacts.
+- `closed_loop_optimization.md` — detailed closed-loop reference including source
+  roots, current-best state, history context, and safety invariants.

@@ -1,87 +1,56 @@
-# Development Environment Targets
+# Environment Setup
 
-This document defines the expected local environment for the current baseline and LLM experiment pipeline.
+## Prerequisites
 
-## Toolchain Targets
+- **Python** `>=3.11`
+- **CMake** `>=3.20`
+- **C++20** capable compiler (GCC 13+, Clang 16+, or MSVC 2022 19.3x+)
+- **Eigen 3** — set `EIGEN3_INCLUDE_DIR` to the directory containing `Eigen/Core`
 
-- Python: target `3.11` or newer compatible patch release.
-- CMake: minimum `3.20`.
-- C++ standard: `C++20`.
-
-## Expected Compiler Examples
-
-- GCC `13+`
-- Clang `16+`
-- MSVC / Visual Studio 2022 toolset `19.3x+`
-
-## Dependency Note
-
-Eigen is required by the Lambda Twist baseline. The CMake project expects `EIGEN3_INCLUDE_DIR` to point to the Eigen include root, meaning the directory that contains `Eigen/Core`.
-
-## Command-Line Automation
-
-The baseline automation entry point is `orchestrator/cli/main.py`. It configures CMake, builds the adapter validator and absolute-pose benchmark, then runs and parses them.
-
-This baseline CLI is intentionally separate from LLM optimization experiments. Use `orchestrator.experiments.run_experiment` for configured LLM experiment runs.
-
-On Windows outside CLion, CMake may need explicit toolchain selection to avoid an unavailable default generator. The scripts support these environment variables:
-
-- `EIGEN3_INCLUDE_DIR` (required for baseline and candidate verification)
-- `CMAKE_EXE` (optional)
-- `CMAKE_GENERATOR` (optional)
-- `CMAKE_CXX_COMPILER` (optional)
-- `CMAKE_MAKE_PROGRAM` (optional)
-- `CMAKE_BUILD_TYPE` (optional; defaults to `Release`)
-
-Simple baseline example:
-
-```powershell
-$env:EIGEN3_INCLUDE_DIR="C:\path\to\eigen"
-py orchestrator/cli/main.py
-```
-
-Use `python orchestrator/cli/main.py` instead if `python` is the available launcher in the shell.
-
-## LLM Experiment Environment
-
-- `DEEPSEEK_API_KEY` is required for real DeepSeek runs.
-- `EIGEN3_INCLUDE_DIR` is required for baseline and candidate verification.
-- `CMAKE_BUILD_TYPE` defaults to `Release` and should remain `Release` for performance comparison.
-
-Example PowerShell setup based on a common Windows/CLion-style toolchain. These paths are examples only and are not mandatory:
-
-```powershell
-$env:EIGEN3_INCLUDE_DIR = "C:\Libraries\eigen-3.4.1"
-$env:CMAKE_EXE = "C:\Users\<user>\AppData\Local\Programs\CLion\bin\cmake\win\x64\bin\cmake.exe"
-$env:CMAKE_GENERATOR = "Ninja"
-$env:CMAKE_CXX_COMPILER = "C:\Users\<user>\AppData\Local\Programs\CLion\bin\mingw\bin\g++.exe"
-$env:CMAKE_MAKE_PROGRAM = "C:\Users\<user>\AppData\Local\Programs\CLion\bin\ninja\win\x64\ninja.exe"
-$env:CMAKE_BUILD_TYPE = "Release"
-$env:DEEPSEEK_API_KEY = "..."
-```
-
-## Build Type Override
-
-Baseline and candidate benchmarks default to `Release` builds for accurate
-runtime metrics. Debug builds are not suitable for performance comparisons.
-
-Override `CMAKE_BUILD_TYPE` to `Debug` for debugging only:
-
-```powershell
-$env:CMAKE_BUILD_TYPE = "Debug"
-py orchestrator/cli/main.py
-```
+## Install
 
 ```bash
-export CMAKE_BUILD_TYPE=Debug
-python orchestrator/cli/main.py
+python -m pip install -e ".[dev]"
+python -m playwright install chromium   # for PDF report rendering
 ```
 
-The resolved build type is:
+## Local Environment
 
-- passed to CMake configure as `-DCMAKE_BUILD_TYPE=<value>`
-- passed to `cmake --build` as `--config <value>`
-- recorded in `metadata.json` and `metrics.json` for reproducibility
+Copy the template and fill in your paths and keys:
 
-Baseline and candidate benchmarks must use the same build type for valid
-comparison. The benchmark artifact audit enforces this check.
+```bash
+copy .env.example .env.local    # Windows
+cp .env.example .env.local      # Unix
+```
+
+Required in `.env.local`:
+
+| Variable | Purpose |
+|---|---|
+| `EIGEN3_INCLUDE_DIR` | Path to Eigen include root |
+| `DEEPSEEK_API_KEY` | API key for DeepSeek (real experiment runs only) |
+
+Optional CMake toolchain variables (useful on Windows outside an IDE):
+
+| Variable | Purpose |
+|---|---|
+| `CMAKE_EXE` | Path to `cmake` executable |
+| `CMAKE_GENERATOR` | CMake generator (e.g. `Ninja`) |
+| `CMAKE_CXX_COMPILER` | Path to C++ compiler |
+| `CMAKE_MAKE_PROGRAM` | Path to make/ninja executable |
+
+## Build Type
+
+The pipeline defaults to `Release` builds for accurate performance metrics.
+The resolution order is:
+
+1. `BENCHMARK_CMAKE_BUILD_TYPE` (primary)
+2. `CMAKE_BUILD_TYPE` (fallback)
+3. `Release` (default)
+
+Set `BENCHMARK_CMAKE_BUILD_TYPE=Release` in `.env.local` for reproducible benchmarks.
+Debug builds are not suitable for performance comparisons.
+
+## Next Steps
+
+See [docs/usage.md](usage.md) for running baselines, experiments, and viewing results.

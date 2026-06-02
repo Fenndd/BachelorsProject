@@ -31,20 +31,7 @@ are remeasured with another 100 candidate-only executions; the final stored
 candidate artifact then has `benchmark_run_count = 200` and a merged 200-sample
 median. Mean and max are not top-level decision/report metrics.
 
-## Candidate Schema
-
-Candidates use one fixed line-range edit schema:
-
-- `summary`
-- `rationale`
-- `correctness_notes`
-- `edits` — list of objects with `start_line`, `end_line`, `original`, `replace`
-
-The target file is known from the orchestrator experiment config and is not part of
-the candidate JSON. `materialization.json` may contain `target_files` and `edit_files`
-as orchestrator-generated metadata (not LLM input).
-
-No-op candidates return `edits: []`.
+The candidate JSON schema is documented in `candidate_edit_formats.md`.
 
 ## Experiment Results
 

@@ -37,20 +37,8 @@ This is fixed infrastructure behavior, not an experiment configuration option.
 
 - If no safe optimization is available, the candidate returns `edits: []` (a no-op candidate).
 
-## Removed Fields
-
-These fields were part of an older schema and are no longer used:
-
-| Removed Field | Former Purpose | Replacement |
-|---|---|---|
-| `risk_level` | Subjective risk label | Removed |
-| `expected_effect` | Hint for classification | `edits == []` signals no-op |
-| `target_files` | LLM-chosen target file list | `--target-file` from config |
-| `requires_manual_review` | Human review flag | Removed |
-| `file` inside each edit | Per-edit target file | All edits go to `--target-file` |
-
 ## Materialization Metadata
 
-The file `materialization.json` still contains `target_files` and `edit_files` as
-**orchestrator-generated metadata** (not LLM input). These are derived from the
-`--target-file` CLI argument and the edits received.
+The file `materialization.json` contains `target_files` and `edit_files` as
+orchestrator-generated metadata (not LLM input). These are derived from the
+`--target-file` CLI argument and the edits applied.

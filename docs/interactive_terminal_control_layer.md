@@ -1,105 +1,13 @@
 # Interactive Terminal Control Layer
 
-The Interactive Terminal Control Layer provides a Typer/Rich CLI and Textual TUI for operating the bachelor thesis prototype without reimplementing the optimization pipeline. It launches existing entry points, reads existing artifacts, and reports status.
+The Interactive Terminal Control Layer provides a Typer/Rich CLI and Textual
+TUI for operating the optimization pipeline. It launches existing entry points,
+reads existing artifacts, and reports status — it does **not** reimplement
+baseline or experiment logic.
 
-## Setup
+Available screens through the TUI include Doctor, Environment, Run Baseline,
+Run Experiment, Browse Results, Workspace, Config Builder, Active Run (live
+output), and Help. Use `Esc` to go back and `Ctrl+Q` to quit.
 
-Install Python dependencies:
-
-```powershell
-python -m pip install -r requirements.txt
-```
-
-Create local environment settings from the committed template:
-
-```powershell
-copy .env.example .env.local
-```
-
-Keep local paths and API keys in `.env.local`. Secrets are masked in CLI/TUI diagnostics.
-
-## Commands
-
-Diagnostics:
-
-```powershell
-py -m orchestrator.cli.app doctor
-py -m orchestrator.cli.app tui
-```
-
-Baseline:
-
-```powershell
-py -m orchestrator.cli.app baseline run
-```
-
-Experiments:
-
-```powershell
-py -m orchestrator.cli.app experiment list
-py -m orchestrator.cli.app experiment run --config configs/experiments/<file>.json --dry-run
-py -m orchestrator.cli.app experiment run --config configs/experiments/<file>.json --yes
-```
-
-Results:
-
-```powershell
-py -m orchestrator.cli.app results list
-py -m orchestrator.cli.app results latest
-py -m orchestrator.cli.app results show latest
-py -m orchestrator.cli.app results open latest
-```
-
-Workspace:
-
-```powershell
-py -m orchestrator.cli.app workspace status
-py -m orchestrator.cli.app workspace clean-candidates --yes
-py -m orchestrator.cli.app workspace clean-experiments --yes
-py -m orchestrator.cli.app workspace clean-all --yes
-```
-
-## TUI
-
-Launch the TUI:
-
-```powershell
-py -m orchestrator.cli.app tui
-```
-
-Available screens include Doctor, Environment, Run Baseline, Run Experiment,
-Browse Results, Workspace, Config Builder, Active Run (live output), and Help.
-Use `Esc` to go back from secondary screens and `Ctrl+Q` to quit.
-
-While a baseline run is active, the TUI keeps the BaselineScreen open and
-blocks Back, `Esc`, and `Ctrl+Q` until the run finishes. `Ctrl+U` (Force
-Unlock) is available for recovery if a baseline process gets stuck.
-
-Experiment runs are **non-blocking**: the `ActiveRunsManager` runs them in
-background threads. You can leave the `ActiveRunScreen` and the experiment
-continues. The **Active Runs** panel on the MainScreen lists all active and
-recently finished runs. Click a run to reopen its live output.
-
-Quitting the TUI (`Ctrl+Q`) while experiment runs are active shows a
-confirmation dialog. Cancelling runs on quit sends cancel signals and waits
-up to 8 seconds for subprocesses to stop before exiting.
-
-## Safety Guarantees
-
-- The control layer does not reimplement baseline or experiment logic.
-- Baseline and experiment actions launch existing Python entry points.
-- The results browser is read-only and does not recalculate metrics, decisions, or reports.
-- Workspace cleanup only deletes entries inside `workspace/`; it does not delete `results/`.
-- API keys and other secrets are masked in displays.
-- The main `cpp/` source tree is not modified automatically by the control layer.
-- Active experiment runs continue in the background even when the user leaves the live output screen.
-
-## TUI debug log
-
-The TUI may write diagnostic messages to `workspace/tui_debug.log`. This file is local and debug-only. Remove it manually or via:
-
-```powershell
-py -m orchestrator.cli.app workspace clean-all --yes
-```
-
-It is not required for normal operation and is safe to delete.
+For the full command reference and safety guarantees, see
+[docs/usage.md](usage.md).
