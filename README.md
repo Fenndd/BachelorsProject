@@ -82,3 +82,8 @@ materialized only in isolated workspace copies.
 - `docs/algorithms.md` — solver registry, manifests, PoseLib-native benchmark
 - `docs/candidate_edit_formats.md` — LLM edit schema
 - `docs/result_storage_format.md` — artifact paths and storage layout
+
+## License
+
+MIT, see [LICENSE](LICENSE). `cpp/external/poselib/` is third-party code under the
+BSD-3-Clause license (Copyright (c) Viktor Larsson), stated in each of its files.
